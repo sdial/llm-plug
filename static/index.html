@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM API 转换器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="max-w-6xl mx-auto py-8 px-4">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">LLM API 转换器</h1>
+        <p class="text-gray-500 mb-8">管理大模型API渠道，实现 openai-chat-completions / openai-response / anthropic 三种格式互转</p>
+
+        <!-- 添加渠道按钮 -->
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold text-gray-700">渠道列表</h2>
+            <button onclick="openModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">+ 添加渠道</button>
+        </div>
+
+        <!-- 渠道列表 -->
+        <div id="channelList" class="space-y-3">
+            <p class="text-gray-400 text-center py-8">加载中...</p>
+        </div>
+    </div>
+
+    <!-- 添加/编辑渠道模态框 -->
+    <div id="channelModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 id="modalTitle" class="text-lg font-semibold">添加渠道</h3>
+                    <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                </div>
+                <form id="channelForm" onsubmit="saveChannel(event)" class="space-y-4">
+                    <input type="hidden" id="editId">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">名称</label>
+                        <input type="text" id="f_name" required class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">API类型</label>
+                        <select id="f_api_type" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="openai-chat-completions">OpenAI Chat Completions</option>
+                            <option value="openai-response">OpenAI Response</option>
+                            <option value="anthropic">Anthropic</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Base URL</label>
+                        <input type="text" id="f_base_url" required placeholder="https://api.openai.com" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                        <input type="password" id="f_api_key" required class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">模型列表 <span class="text-gray-400">(逗号分隔)</span></label>
+                        <input type="text" id="f_models" placeholder="gpt-4o, gpt-4o-mini" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">权重</label>
+                            <input type="number" id="f_weight" value="1" min="1" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">优先级</label>
+                            <input type="number" id="f_priority" value="1" min="1" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">SOCKS5代理 <span class="text-gray-400">(可选)</span></label>
+                        <input type="text" id="f_socks5_proxy" placeholder="socks5://user:pass@127.0.0.1:1080" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="f_enabled" checked class="rounded">
+                        <label for="f_enabled" class="text-sm text-gray-700">启用</label>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-4">
+                        <button type="button" onclick="closeModal()" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/admin/channels';
+        let channels = [];
+
+        async function loadChannels() {
+            const resp = await fetch(API);
+            channels = await resp.json();
+            renderChannels();
+        }
+
+        function renderChannels() {
+            const container = document.getElementById('channelList');
+            if (!channels.length) {
+                container.innerHTML = '<p class="text-gray-400 text-center py-8">暂无渠道，点击上方按钮添加</p>';
+                return;
+            }
+            container.innerHTML = channels.map(ch => `
+                <div class="bg-white rounded-lg shadow-sm border p-4 flex items-center justify-between gap-4">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="font-medium text-gray-800">${esc(ch.name)}</span>
+                            <span class="text-xs px-2 py-0.5 rounded-full ${ch.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">${ch.enabled ? '启用' : '禁用'}</span>
+                            <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">${ch.api_type}</span>
+                        </div>
+                        <div class="text-sm text-gray-500 truncate">${esc(ch.base_url)}</div>
+                        <div class="flex flex-wrap gap-1 mt-1">
+                            ${ch.models.map(m => `<span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${esc(m)}</span>`).join('')}
+                        </div>
+                        <div class="flex gap-3 mt-1 text-xs text-gray-400">
+                            <span>权重: ${ch.weight}</span>
+                            <span>优先级: ${ch.priority}</span>
+                            ${ch.socks5_proxy ? `<span>代理: ${esc(ch.socks5_proxy)}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button onclick="toggleChannel('${ch.id}')" class="px-3 py-1.5 text-sm rounded-lg border ${ch.enabled ? 'border-yellow-300 text-yellow-700 hover:bg-yellow-50' : 'border-green-300 text-green-700 hover:bg-green-50'}">${ch.enabled ? '禁用' : '启用'}</button>
+                        <button onclick="editChannel('${ch.id}')" class="px-3 py-1.5 text-sm rounded-lg border border-blue-300 text-blue-700 hover:bg-blue-50">编辑</button>
+                        <button onclick="deleteChannel('${ch.id}')" class="px-3 py-1.5 text-sm rounded-lg border border-red-300 text-red-700 hover:bg-red-50">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s || '';
+            return d.innerHTML;
+        }
+
+        function openModal(channel = null) {
+            document.getElementById('modalTitle').textContent = channel ? '编辑渠道' : '添加渠道';
+            document.getElementById('editId').value = channel ? channel.id : '';
+            document.getElementById('f_name').value = channel ? channel.name : '';
+            document.getElementById('f_api_type').value = channel ? channel.api_type : 'openai-chat-completions';
+            document.getElementById('f_base_url').value = channel ? channel.base_url : '';
+            document.getElementById('f_api_key').value = channel ? channel.api_key : '';
+            document.getElementById('f_models').value = channel ? channel.models.join(', ') : '';
+            document.getElementById('f_weight').value = channel ? channel.weight : 1;
+            document.getElementById('f_priority').value = channel ? channel.priority : 1;
+            document.getElementById('f_socks5_proxy').value = channel ? (channel.socks5_proxy || '') : '';
+            document.getElementById('f_enabled').checked = channel ? channel.enabled : true;
+            document.getElementById('channelModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('channelModal').classList.add('hidden');
+        }
+
+        function editChannel(id) {
+            const ch = channels.find(c => c.id === id);
+            if (ch) openModal(ch);
+        }
+
+        async function saveChannel(e) {
+            e.preventDefault();
+            const id = document.getElementById('editId').value;
+            const modelsStr = document.getElementById('f_models').value;
+            const data = {
+                name: document.getElementById('f_name').value,
+                api_type: document.getElementById('f_api_type').value,
+                base_url: document.getElementById('f_base_url').value,
+                api_key: document.getElementById('f_api_key').value,
+                models: modelsStr ? modelsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
+                weight: parseInt(document.getElementById('f_weight').value) || 1,
+                priority: parseInt(document.getElementById('f_priority').value) || 1,
+                socks5_proxy: document.getElementById('f_socks5_proxy').value || null,
+                enabled: document.getElementById('f_enabled').checked,
+            };
+
+            if (id) {
+                await fetch(`${API}/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            } else {
+                await fetch(API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            }
+            closeModal();
+            loadChannels();
+        }
+
+        async function toggleChannel(id) {
+            await fetch(`${API}/${id}/toggle`, { method: 'PATCH' });
+            loadChannels();
+        }
+
+        async function deleteChannel(id) {
+            if (!confirm('确定删除该渠道？')) return;
+            await fetch(`${API}/${id}`, { method: 'DELETE' });
+            loadChannels();
+        }
+
+        loadChannels();
+    </script>
+</body>
+</html>
