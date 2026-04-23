@@ -18,7 +18,7 @@ async def anthropic_messages(request: Request, authorization: str | None = Heade
     is_stream = body.get("stream", False)
 
     try:
-        result = await proxy_request(model, body, APIType.ANTHROPIC, is_stream)
+        result, _channel = await proxy_request(model, body, APIType.ANTHROPIC, is_stream)
     except ValueError as e:
         return {"error": {"message": str(e), "type": "invalid_request_error"}}
     except Exception as e:
