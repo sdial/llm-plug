@@ -119,6 +119,7 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
+                        <button onclick="testChannel('${ch.id}', this)" class="px-3 py-1.5 text-sm rounded-lg border border-purple-300 text-purple-700 hover:bg-purple-50">测试</button>
                         <button onclick="toggleChannel('${ch.id}')" class="px-3 py-1.5 text-sm rounded-lg border ${ch.enabled ? 'border-yellow-300 text-yellow-700 hover:bg-yellow-50' : 'border-green-300 text-green-700 hover:bg-green-50'}">${ch.enabled ? '禁用' : '启用'}</button>
                         <button onclick="editChannel('${ch.id}')" class="px-3 py-1.5 text-sm rounded-lg border border-blue-300 text-blue-700 hover:bg-blue-50">编辑</button>
                         <button onclick="deleteChannel('${ch.id}')" class="px-3 py-1.5 text-sm rounded-lg border border-red-300 text-red-700 hover:bg-red-50">删除</button>
@@ -191,6 +192,26 @@
             if (!confirm('确定删除该渠道？')) return;
             await fetch(`${API}/${id}`, { method: 'DELETE' });
             loadChannels();
+        }
+
+        async function testChannel(id, btn) {
+            const origText = btn.textContent;
+            btn.textContent = '测试中...';
+            btn.disabled = true;
+            try {
+                const resp = await fetch(`${API}/${id}/test`, { method: 'POST' });
+                const result = await resp.json();
+                if (result.success) {
+                    alert(`✅ 测试通过\n模型: ${result.model}\n延迟: ${result.latency_ms}ms\n回复: ${result.reply}`);
+                } else {
+                    alert(`❌ 测试失败\n${result.message}${result.latency_ms ? '\n延迟: ' + result.latency_ms + 'ms' : ''}`);
+                }
+            } catch (e) {
+                alert(`❌ 请求异常: ${e.message}`);
+            } finally {
+                btn.textContent = origText;
+                btn.disabled = false;
+            }
         }
 
         loadChannels();

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
+from client import create_client, get_upstream_headers
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from storage import load_data, save_data
 
@@ -67,3 +68,93 @@ def toggle_channel(channel_id: str):
             _save_channels(channels)
             return updated
     raise HTTPException(status_code=404, detail="渠道不存在")
+
+
+@router.post("/channels/{channel_id}/test")
+async def test_channel(channel_id: str):
+    """测试渠道连通性：发送最简prompt，检查返回"""
+    import time
+
+    channels = _get_channels()
+    channel = next((ch for ch in channels if ch.id == channel_id), None)
+    if not channel:
+        raise HTTPException(status_code=404, detail="渠道不存在")
+
+    if not channel.models:
+        return {"success": False, "message": "渠道无可用模型", "latency_ms": None}
+
+    model = channel.models[0]
+    api_type = channel.api_type.value
+    base = channel.base_url.rstrip("/")
+
+    # 根据api_type构建请求
+    if api_type == "openai-chat-completions":
+        url = f"{base}/v1/chat/completions"
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 5,
+        }
+    elif api_type == "openai-response":
+        url = f"{base}/v1/responses"
+        payload = {
+            "model": model,
+            "input": "Hi",
+            "max_output_tokens": 5,
+        }
+    elif api_type == "anthropic":
+        url = f"{base}/v1/messages"
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 5,
+        }
+    else:
+        return {"success": False, "message": f"不支持的API类型: {api_type}", "latency_ms": None}
+
+    headers = get_upstream_headers(channel)
+    headers["Content-Type"] = "application/json"
+
+    client = create_client(channel, timeout=30.0)
+    start = time.monotonic()
+    try:
+        resp = await client.post(url, json=payload, headers=headers)
+        latency_ms = round((time.monotonic() - start) * 1000)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # 基本返回校验
+        if api_type == "openai-chat-completions":
+            choices = data.get("choices", [])
+            ok = bool(choices) and choices[0].get("message", {}).get("content") is not None
+            reply = choices[0]["message"]["content"][:100] if ok else str(data)[:200]
+        elif api_type == "openai-response":
+            output = data.get("output", [])
+            ok = bool(output)
+            reply = str(output[0])[:100] if ok else str(data)[:200]
+        elif api_type == "anthropic":
+            content = data.get("content", [])
+            ok = bool(content)
+            reply = content[0].get("text", "")[:100] if ok else str(data)[:200]
+        else:
+            ok = True
+            reply = str(data)[:200]
+
+        return {
+            "success": ok,
+            "message": "测试通过" if ok else "返回数据格式异常",
+            "model": model,
+            "latency_ms": latency_ms,
+            "reply": reply,
+        }
+    except Exception as e:
+        latency_ms = round((time.monotonic() - start) * 1000)
+        return {
+            "success": False,
+            "message": f"请求失败: {str(e)}",
+            "model": model,
+            "latency_ms": latency_ms,
+            "reply": None,
+        }
+    finally:
+        await client.aclose()
