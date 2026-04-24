@@ -115,7 +115,8 @@ async def _do_request(
 
     try:
         if is_stream:
-            return await _do_stream_request(client, url, headers, upstream_data, converter, source_type)
+            # 返回异步生成器，不使用 await
+            return _do_stream_request(client, url, headers, upstream_data, converter, source_type)
         else:
             resp = await client.post(url, json=upstream_data, headers=headers)
             resp.raise_for_status()

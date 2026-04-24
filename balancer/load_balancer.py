@@ -92,12 +92,14 @@ class LoadBalancer:
         best_health.current_weight -= total_weight
         return best
 
-    def get_fallback_channels(self, channels: list[Channel], exclude_id: str) -> list[Channel]:
+    def get_fallback_channels(self, channels: list[Channel], exclude_ids: set[str] | None = None) -> list[Channel]:
         """获取故障转移渠道列表（排除已失败的渠道，按优先级排序）"""
+        if exclude_ids is None:
+            exclude_ids = set()
         return [
             ch for ch in sorted(channels, key=lambda c: c.priority)
             if ch.enabled
-            and ch.id != exclude_id
+            and ch.id not in exclude_ids
             and self._health[ch.id].is_healthy
         ]
 

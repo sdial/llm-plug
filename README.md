@@ -181,3 +181,28 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 | COOLDOWN_SECONDS | 60 | 渠道冷却恢复时间 |
 | ADMIN_API_KEY | (空) | 管理API密钥，空则不鉴权 |
 | PROXY_API_KEY | (空) | 代理API密钥，空则不鉴权 |
+
+## Cherry Studio 兼容性说明
+
+本代理采用**透传模式**，请求体中的参数会原样传递给上游 API。以下参数的支持情况取决于上游服务商：
+
+| 参数 | 说明 | 兼容性 |
+|------|------|--------|
+| 数组格式的 message content | 多模态消息（文本+图片等） | ✅ 透传，取决于上游 |
+| Developer Message | `role: "developer"` 消息 | ✅ 透传，取决于上游 |
+| stream_options | 流式选项（如 `include_usage`） | ✅ 透传，取决于上游 |
+| service_tier | 服务层级参数 | ✅ 透传，取决于上游 |
+| enable_thinking | 思考模式（Claude 等） | ✅ 透传，取决于上游 |
+| verbosity | 输出详细程度 | ✅ 透传，取决于上游 |
+
+**注意**：这些参数是否生效完全取决于您配置的上游渠道是否支持。例如：
+- OpenAI 渠道支持 `stream_options`、`service_tier` 等
+- Anthropic 渠道支持 `enable_thinking`（thinking 模式）
+- 其他第三方渠道请参考其官方文档
+
+### 配置建议
+
+在 Cherry Studio 中配置时：
+1. **API 地址**：`http://127.0.0.1:8000`
+2. **API Key**：任意值（默认不鉴权），或设置 `PROXY_API_KEY` 环境变量后使用对应值
+3. **模型名称**：必须与 `channels.json` 中配置的模型名称完全一致
