@@ -92,9 +92,12 @@ class ToChatCompletionsConverter(BaseConverter):
         content = data.get("content", [])
         message_content = ""
         tool_calls = []
+        reasoning_content = ""
         for part in content:
             if part.get("type") == "text":
                 message_content += part.get("text", "")
+            elif part.get("type") == "thinking":
+                reasoning_content += part.get("thinking", "")
             elif part.get("type") == "tool_use":
                 tool_calls.append({
                     "id": part.get("id", ""),
@@ -106,6 +109,8 @@ class ToChatCompletionsConverter(BaseConverter):
                 })
 
         message = {"role": "assistant", "content": message_content}
+        if reasoning_content:
+            message["reasoning_content"] = reasoning_content
         if tool_calls:
             # 确保arguments是字符串
             for tc in tool_calls:
@@ -161,6 +166,14 @@ class ToChatCompletionsConverter(BaseConverter):
                     "created": 0,
                     "model": "",
                     "choices": [{"index": 0, "delta": {"content": delta.get("text", "")}, "finish_reason": None}],
+                }
+            elif delta.get("type") == "thinking_delta":
+                return {
+                    "id": "chatcmpl",
+                    "object": "chat.completion.chunk",
+                    "created": 0,
+                    "model": "",
+                    "choices": [{"index": 0, "delta": {"reasoning_content": delta.get("thinking", "")}, "finish_reason": None}],
                 }
             elif delta.get("type") == "input_json_delta":
                 return {
