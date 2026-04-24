@@ -143,10 +143,17 @@ async def _do_stream_request(
     """流式请求，yield SSE数据行"""
     async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
         resp.raise_for_status()
+
+        # Anthropic 使用特殊的 SSE 格式，包含 event: 和 data: 行
+        is_anthropic = "anthropic" in headers.get("anthropic-version", "")
+
+        event_type = None
         async for line in resp.aiter_lines():
             if not line.strip():
                 continue
-            if line.startswith("data: "):
+            if is_anthropic and line.startswith("event: "):
+                event_type = line[7:].strip()
+            elif line.startswith("data: "):
                 data_str = line[6:]
                 if data_str.strip() == "[DONE]":
                     yield "data: [DONE]\n\n"
@@ -154,6 +161,8 @@ async def _do_stream_request(
                 try:
                     chunk = json.loads(data_str)
                     if converter:
+                        if is_anthropic and event_type is not None:
+                            chunk["_event_type"] = event_type
                         converted = converter.convert_stream_chunk(chunk, source_type)
                         if converted is not None:
                             yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
@@ -161,5 +170,8 @@ async def _do_stream_request(
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                 except json.JSONDecodeError:
                     yield line + "\n\n"
+                if is_anthropic:
+                    event_type = None
             else:
-                yield line + "\n\n"
+                suffix = "\n" if is_anthropic else "\n\n"
+                yield line + suffix

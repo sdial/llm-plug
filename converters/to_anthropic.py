@@ -39,6 +39,22 @@ class ToAnthropicConverter(BaseConverter):
             result["stop_sequences"] = data["stop"] if isinstance(data["stop"], list) else [data["stop"]]
         if data.get("tools"):
             result["tools"] = self._openai_tools_to_anthropic(data["tools"])
+
+        # 处理 thinking 参数
+        if data.get("thinking") is not None:
+            result["thinking"] = data["thinking"]
+        elif data.get("enable_thinking"):
+            result["thinking"] = {"type": "enabled", "budget_tokens": 4096}
+
+        # 处理 reasoning_effort 参数 (OpenAI low/medium/high 或数字字符串)
+        reasoning_effort = data.get("reasoning_effort")
+        if reasoning_effort is not None:
+            if isinstance(reasoning_effort, int) or (isinstance(reasoning_effort, str) and reasoning_effort.isdigit()):
+                budget = int(reasoning_effort)
+            else:
+                budget = {"low": 1024, "medium": 4096, "high": 16384}.get(reasoning_effort, 4096)
+            result["thinking"] = {"type": "enabled", "budget_tokens": budget}
+
         return result
 
     def _openai_tools_to_anthropic(self, tools: list) -> list:
