@@ -67,6 +67,11 @@ class ToChatCompletionsConverter(BaseConverter):
             result["stop"] = data["stop_sequences"]
         if data.get("tools"):
             result["tools"] = self._anthropic_tools_to_openai(data["tools"])
+
+        # 处理 thinking 参数 (enable_thinking)
+        if data.get("thinking") is not None:
+            result["thinking"] = data["thinking"]
+
         return result
 
     def _anthropic_tools_to_openai(self, tools: list) -> list:
@@ -137,7 +142,8 @@ class ToChatCompletionsConverter(BaseConverter):
         return mapping.get(reason, "stop")
 
     def _anthropic_stream_chunk_to_chat(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
-        event_type = chunk.get("type", "")
+        # 支持从 type 字段或 _event_type 字段获取事件类型
+        event_type = chunk.get("type") or chunk.get("_event_type", "")
         if event_type == "message_start":
             return {
                 "id": f"chatcmpl-{chunk.get('message', {}).get('id', '')}",

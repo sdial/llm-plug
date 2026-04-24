@@ -20,7 +20,7 @@ def create_client(channel: Channel, timeout: float = 120.0) -> httpx.AsyncClient
 def get_upstream_headers(channel: Channel, extra_headers: Optional[dict] = None) -> dict:
     """构建上游请求头"""
     headers = {}
-    if channel.api_type == "anthropic":
+    if channel.api_type.value == "anthropic":
         headers["x-api-key"] = channel.api_key
         headers["anthropic-version"] = "2023-06-01"
     else:

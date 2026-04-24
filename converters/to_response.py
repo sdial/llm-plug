@@ -37,6 +37,11 @@ class ToResponseConverter(BaseConverter):
             result["temperature"] = data["temperature"]
         if data.get("top_p") is not None:
             result["top_p"] = data["top_p"]
+
+        # 处理 reasoning_effort 参数
+        if data.get("reasoning_effort") is not None:
+            result["reasoning"] = {"effort": data["reasoning_effort"]}
+
         return result
 
     def _chat_response_to_response(self, data: dict[str, Any]) -> dict[str, Any]:
