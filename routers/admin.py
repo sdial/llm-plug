@@ -1,6 +1,6 @@
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from client import create_client, get_upstream_headers
 from models.channel import Channel, ChannelCreate, ChannelUpdate
@@ -73,7 +73,7 @@ def toggle_channel(channel_id: str):
 
 
 @router.post("/channels/{channel_id}/test")
-async def test_channel(channel_id: str):
+async def test_channel(channel_id: str, model: str | None = Query(default=None)):
     """测试渠道连通性：发送最简prompt，检查返回"""
     channels = _get_channels()
     channel = next((ch for ch in channels if ch.id == channel_id), None)
@@ -83,7 +83,13 @@ async def test_channel(channel_id: str):
     if not channel.models:
         return {"success": False, "message": "渠道无可用模型", "latency_ms": None}
 
-    model = channel.models[0]
+    # 使用指定模型，若不在列表中则返回错误
+    if model:
+        if model not in channel.models:
+            return {"success": False, "message": f"模型 '{model}' 不在此渠道的模型列表中", "latency_ms": None}
+        test_model = model
+    else:
+        test_model = channel.models[0]
     api_type = channel.api_type.value
     base = channel.base_url.rstrip("/")
 
@@ -91,21 +97,21 @@ async def test_channel(channel_id: str):
     if api_type == "openai-chat-completions":
         url = f"{base}/v1/chat/completions"
         payload = {
-            "model": model,
+            "model": test_model,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 5,
         }
     elif api_type == "openai-response":
         url = f"{base}/v1/responses"
         payload = {
-            "model": model,
+            "model": test_model,
             "input": "Hi",
             "max_output_tokens": 5,
         }
     elif api_type == "anthropic":
         url = f"{base}/v1/messages"
         payload = {
-            "model": model,
+            "model": test_model,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 5,
         }
@@ -143,7 +149,7 @@ async def test_channel(channel_id: str):
         return {
             "success": ok,
             "message": "测试通过" if ok else "返回数据格式异常",
-            "model": model,
+            "model": test_model,
             "latency_ms": latency_ms,
             "reply": reply,
         }
@@ -152,7 +158,7 @@ async def test_channel(channel_id: str):
         return {
             "success": False,
             "message": f"请求失败: {str(e)}",
-            "model": model,
+            "model": test_model,
             "latency_ms": latency_ms,
             "reply": None,
         }
