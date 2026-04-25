@@ -2,18 +2,91 @@
 通用代理逻辑，供三个代理路由共用
 """
 import json
+import os
+from datetime import datetime
 from typing import Any, Optional
 
 import httpx
 
 from balancer.load_balancer import load_balancer
 from client import create_client, get_upstream_headers
+from config import DEBUG, DEBUG_LOG_DIR
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
 from storage import load_data
+
+
+def _log_debug(
+    channel: Channel,
+    upstream_url: str,
+    upstream_data: dict,
+    upstream_headers: dict,
+    response_data: Any = None,
+    is_stream: bool = False,
+    stream_content: Any = None,
+    response_headers: dict = None,
+    status_code: int = None,
+    error: str = None,
+):
+    """记录 debug 日志（包含完整 request + response）"""
+    if not DEBUG:
+        return
+
+    try:
+        # 确保日志目录存在
+        os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
+
+        # 生成文件名（按日期）
+        today = datetime.now().strftime("%Y-%m-%d")
+        log_file = os.path.join(DEBUG_LOG_DIR, f"debug_{today}.jsonl")
+
+        # 构建日志条目 - 完整记录请求和响应
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "channel": {
+                "id": channel.id,
+                "name": channel.name,
+                "api_type": channel.api_type.value,
+                "base_url": channel.base_url,
+            },
+            "request": {
+                "url": upstream_url,
+                "headers": {k: v for k, v in upstream_headers.items() if k.lower() != "authorization"},
+                "body": upstream_data,
+            },
+            "response": {
+                "is_stream": is_stream,
+                "status_code": status_code,
+                "headers": {k: v for k, v in (response_headers or {}).items() if k.lower() not in ("authorization", "set-cookie")},
+            },
+        }
+
+        # 根据类型记录响应内容
+        if is_stream:
+            # 流式：记录所有 chunks（限制大小）
+            if stream_content:
+                # 只保留前 100 个 chunk 的摘要，避免日志过大
+                if isinstance(stream_content, list) and len(stream_content) > 100:
+                    log_entry["response"]["stream_chunks_count"] = len(stream_content)
+                    log_entry["response"]["stream_content_sample"] = stream_content[:10] + stream_content[-10:]
+                else:
+                    log_entry["response"]["stream_content"] = stream_content
+        else:
+            # 非流式：记录完整响应
+            log_entry["response"]["data"] = response_data
+
+        if error:
+            log_entry["error"] = error
+
+        # 追加写入日志文件
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+    except Exception as log_err:
+        # 日志记录失败不应影响主流程，仅打印警告
+        print(f"[WARN] Failed to write debug log: {log_err}")
 
 
 def _get_channels_for_model(model: str) -> list[Channel]:
@@ -116,11 +189,23 @@ async def _do_request(
     try:
         if is_stream:
             # 返回异步生成器，不使用 await
-            return _do_stream_request(client, url, headers, upstream_data, converter, source_type)
+            return _do_stream_request(client, url, headers, upstream_data, converter, source_type, channel)
         else:
             resp = await client.post(url, json=upstream_data, headers=headers)
             resp.raise_for_status()
             response_data = resp.json()
+
+            # 记录 debug 日志（包含完整响应和响应头）
+            _log_debug(
+                channel=channel,
+                upstream_url=url,
+                upstream_data=upstream_data,
+                upstream_headers=headers,
+                response_data=response_data,
+                is_stream=False,
+                response_headers=dict(resp.headers),
+                status_code=resp.status_code,
+            )
 
             # 转换响应
             if converter:
@@ -128,7 +213,15 @@ async def _do_request(
 
             load_balancer.record_success(channel.id)
             return response_data
-    except Exception:
+    except Exception as e:
+        # 记录错误日志
+        _log_debug(
+            channel=channel,
+            upstream_url=url,
+            upstream_data=upstream_data,
+            upstream_headers=headers,
+            error=str(e),
+        )
         raise
 
 
@@ -139,10 +232,17 @@ async def _do_stream_request(
     upstream_data: dict,
     converter,
     source_type: str,
+    channel: Channel,
 ):
     """流式请求，yield SSE数据行"""
+    stream_chunks = []  # 收集流式内容用于 debug 日志
+    resp_status_code = None
+    resp_headers = None
+
     async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
         resp.raise_for_status()
+        resp_status_code = resp.status_code
+        resp_headers = dict(resp.headers)
 
         # Anthropic 使用特殊的 SSE 格式，包含 event: 和 data: 行
         is_anthropic = "anthropic" in headers.get("anthropic-version", "")
@@ -156,10 +256,12 @@ async def _do_stream_request(
             elif line.startswith("data: "):
                 data_str = line[6:]
                 if data_str.strip() == "[DONE]":
+                    stream_chunks.append("[DONE]")
                     yield "data: [DONE]\n\n"
                     continue
                 try:
                     chunk = json.loads(data_str)
+                    stream_chunks.append(chunk)  # 记录原始 chunk
                     if converter:
                         if is_anthropic and event_type is not None:
                             chunk["_event_type"] = event_type
@@ -169,9 +271,23 @@ async def _do_stream_request(
                     else:
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                 except json.JSONDecodeError:
+                    stream_chunks.append(line)
                     yield line + "\n\n"
                 if is_anthropic:
                     event_type = None
             else:
                 suffix = "\n" if is_anthropic else "\n\n"
+                stream_chunks.append(line)
                 yield line + suffix
+
+    # 流结束后记录 debug 日志（包含响应头和状态码）
+    _log_debug(
+        channel=channel,
+        upstream_url=url,
+        upstream_data=upstream_data,
+        upstream_headers=headers,
+        is_stream=True,
+        stream_content=stream_chunks,
+        response_headers=resp_headers,
+        status_code=resp_status_code,
+    )
