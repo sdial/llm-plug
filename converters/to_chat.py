@@ -1,7 +1,6 @@
 """
 将其他格式转换为 OpenAI Chat Completions 格式
 """
-import copy
 from typing import Any
 
 from converters.base import BaseConverter

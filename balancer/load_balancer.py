@@ -23,13 +23,10 @@ class ChannelHealth:
 
     @property
     def is_healthy(self) -> bool:
+        """只读：冷却结束后仍视为可选，成功/失败由 record_* 更新计数。"""
         if self.fail_count < MAX_FAIL_COUNT:
             return True
-        # 冷却期过后恢复
-        if time.time() - self.last_fail_time > COOLDOWN_SECONDS:
-            self.fail_count = 0
-            return True
-        return False
+        return (time.time() - self.last_fail_time) > COOLDOWN_SECONDS
 
 
 class LoadBalancer:
@@ -37,7 +34,6 @@ class LoadBalancer:
 
     def __init__(self):
         self._health: dict[str, ChannelHealth] = defaultdict(ChannelHealth)
-        self._counter: int = 0
 
     def get_health(self, channel_id: str) -> ChannelHealth:
         return self._health[channel_id]
@@ -48,17 +44,25 @@ class LoadBalancer:
     def record_failure(self, channel_id: str):
         self._health[channel_id].record_failure()
 
-    def select_channel(self, channels: list[Channel]) -> Optional[Channel]:
+    def select_channel(
+        self,
+        channels: list[Channel],
+        exclude_ids: set[str] | None = None,
+    ) -> Optional[Channel]:
         """
         从候选渠道中选择一个：
-        1. 过滤掉禁用和不健康的渠道
+        1. 过滤掉禁用、不健康及 exclude_ids 中的渠道
         2. 按优先级分组
         3. 在最高优先级组内加权轮询
         """
+        exclude_ids = exclude_ids or set()
         # 过滤可用渠道
         available = [
-            ch for ch in channels
-            if ch.enabled and self._health[ch.id].is_healthy
+            ch
+            for ch in channels
+            if ch.enabled
+            and ch.id not in exclude_ids
+            and self._health[ch.id].is_healthy
         ]
         if not available:
             return None
@@ -91,17 +95,6 @@ class LoadBalancer:
         # 减去总权重
         best_health.current_weight -= total_weight
         return best
-
-    def get_fallback_channels(self, channels: list[Channel], exclude_ids: set[str] | None = None) -> list[Channel]:
-        """获取故障转移渠道列表（排除已失败的渠道，按优先级排序）"""
-        if exclude_ids is None:
-            exclude_ids = set()
-        return [
-            ch for ch in sorted(channels, key=lambda c: c.priority)
-            if ch.enabled
-            and ch.id not in exclude_ids
-            and self._health[ch.id].is_healthy
-        ]
 
 
 # 全局单例

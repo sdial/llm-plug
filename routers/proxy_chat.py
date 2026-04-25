@@ -1,26 +1,18 @@
-import json
-from typing import Any
-
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import StreamingResponse
 
 from models.api_types import APIType
 from proxy_core import proxy_request
-from config import PROXY_API_KEY
+from routers.auth import check_proxy_authorization
+from routers.proxy_errors import invalid_request, response_from_proxy_exception, unauthorized
 
 router = APIRouter(tags=["代理"])
 
 
-def _check_auth(authorization: str | None):
-    if PROXY_API_KEY and (not authorization or authorization.replace("Bearer ", "") != PROXY_API_KEY):
-        return False
-    return True
-
-
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, authorization: str | None = Header(None)):
-    if not _check_auth(authorization):
-        return {"error": {"message": "无效的API Key", "type": "auth_error"}}
+    if not check_proxy_authorization(authorization):
+        return unauthorized()
 
     body = await request.json()
     model = body.get("model", "")
@@ -29,9 +21,9 @@ async def chat_completions(request: Request, authorization: str | None = Header(
     try:
         result, _channel = await proxy_request(model, body, APIType.OPENAI_CHAT, is_stream)
     except ValueError as e:
-        return {"error": {"message": str(e), "type": "invalid_request_error"}}
+        return invalid_request(str(e))
     except Exception as e:
-        return {"error": {"message": str(e), "type": "api_error"}}
+        return response_from_proxy_exception(e)
 
     if is_stream:
         return StreamingResponse(
