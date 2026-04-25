@@ -148,14 +148,39 @@ class ToChatCompletionsConverter(BaseConverter):
     def _anthropic_stream_chunk_to_chat(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
         # 支持从 type 字段或 _event_type 字段获取事件类型
         event_type = chunk.get("type") or chunk.get("_event_type", "")
+        
+        # message_start: 流式响应开始
         if event_type == "message_start":
             return {
                 "id": f"chatcmpl-{chunk.get('message', {}).get('id', '')}",
                 "object": "chat.completion.chunk",
                 "created": 0,
                 "model": chunk.get("message", {}).get("model", ""),
-                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+                "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
             }
+        
+        # content_block_start: 内容块开始（文本或工具调用）
+        elif event_type == "content_block_start":
+            content_block = chunk.get("content_block", {})
+            if content_block.get("type") == "tool_use":
+                return {
+                    "id": "chatcmpl",
+                    "object": "chat.completion.chunk",
+                    "created": 0,
+                    "model": "",
+                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": content_block.get("id", ""), "type": "function", "function": {"name": content_block.get("name", ""), "arguments": ""}}]}, "finish_reason": None}],
+                }
+            elif content_block.get("type") == "text":
+                # 文本块开始，返回空 delta 以确保客户端知道有内容即将到来
+                return {
+                    "id": "chatcmpl",
+                    "object": "chat.completion.chunk",
+                    "created": 0,
+                    "model": "",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
+                }
+        
+        # content_block_delta: 内容增量更新
         elif event_type == "content_block_delta":
             delta = chunk.get("delta", {})
             if delta.get("type") == "text_delta":
@@ -182,6 +207,19 @@ class ToChatCompletionsConverter(BaseConverter):
                     "model": "",
                     "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": delta.get("partial_json", "")}}]}, "finish_reason": None}],
                 }
+        
+        # content_block_stop: 内容块结束
+        elif event_type == "content_block_stop":
+            # 返回空 delta 表示当前内容块结束
+            return {
+                "id": "chatcmpl",
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": "",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
+            }
+        
+        # message_delta: 消息级别的更新（通常包含 stop_reason）
         elif event_type == "message_delta":
             stop_reason = chunk.get("delta", {}).get("stop_reason")
             return {
@@ -191,16 +229,23 @@ class ToChatCompletionsConverter(BaseConverter):
                 "model": "",
                 "choices": [{"index": 0, "delta": {}, "finish_reason": self._map_stop_reason(stop_reason)}],
             }
-        elif event_type == "content_block_start":
-            content_block = chunk.get("content_block", {})
-            if content_block.get("type") == "tool_use":
-                return {
-                    "id": "chatcmpl",
-                    "object": "chat.completion.chunk",
-                    "created": 0,
-                    "model": "",
-                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": content_block.get("id", ""), "type": "function", "function": {"name": content_block.get("name", ""), "arguments": ""}}]}, "finish_reason": None}],
-                }
+        
+        # message_stop: 消息结束
+        elif event_type == "message_stop":
+            return {
+                "id": "chatcmpl",
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": "",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            }
+        
+        # ping: 保持连接活跃（可以选择传递或忽略）
+        elif event_type == "ping":
+            # 返回 None 跳过 ping 事件
+            return None
+        
+        # 未知事件类型，返回 None 跳过
         return None
 
     # --- OpenAI Response → Chat Completions ---
