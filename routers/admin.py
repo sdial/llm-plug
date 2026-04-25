@@ -1,10 +1,15 @@
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse
 
 from client import create_client, get_upstream_headers
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from storage import load_data, save_data
+
+LOGS_DIR = Path(__file__).parent.parent / "logs"
+STATIC_DIR = Path(__file__).parent.parent / "static"
 
 router = APIRouter(prefix="/admin", tags=["管理"])
 
@@ -164,3 +169,24 @@ async def test_channel(channel_id: str, model: str | None = Query(default=None))
         }
     finally:
         await client.aclose()
+
+
+# ============ Logs API ============
+
+
+@router.get("/logs")
+def list_logs():
+    """列出所有日志文件"""
+    if not LOGS_DIR.exists():
+        return []
+    files = sorted(LOGS_DIR.glob("*.jsonl"), reverse=True)
+    return [{"name": f.name, "size": f.stat().st_size} for f in files]
+
+
+@router.get("/logs/{filename}")
+def get_log(filename: str):
+    """获取日志文件内容"""
+    file_path = LOGS_DIR / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(file_path, media_type="application/jsonl")
