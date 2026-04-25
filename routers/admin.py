@@ -1,3 +1,5 @@
+import time
+
 from fastapi import APIRouter, HTTPException
 
 from client import create_client, get_upstream_headers
@@ -73,8 +75,6 @@ def toggle_channel(channel_id: str):
 @router.post("/channels/{channel_id}/test")
 async def test_channel(channel_id: str):
     """测试渠道连通性：发送最简prompt，检查返回"""
-    import time
-
     channels = _get_channels()
     channel = next((ch for ch in channels if ch.id == channel_id), None)
     if not channel:

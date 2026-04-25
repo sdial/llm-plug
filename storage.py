@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import threading
 from typing import Any
 
@@ -28,6 +29,30 @@ def load_data() -> dict[str, Any]:
 
 def save_data(data: dict[str, Any]) -> None:
     _ensure_data_dir()
+    dir_name = os.path.dirname(os.path.abspath(CHANNELS_FILE)) or "."
     with _lock:
-        with open(CHANNELS_FILE, "w", encoding="utf-8") as f:
+        f = tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=dir_name,
+            delete=False,
+            prefix=".channels_",
+            suffix=".tmp.json",
+        )
+        tmp_path = f.name
+        try:
             json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+            f.close()
+            os.replace(tmp_path, CHANNELS_FILE)
+        except Exception:
+            try:
+                f.close()
+            except Exception:
+                pass
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise

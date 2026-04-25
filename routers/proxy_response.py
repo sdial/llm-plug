@@ -3,15 +3,16 @@ from fastapi.responses import StreamingResponse
 
 from models.api_types import APIType
 from proxy_core import proxy_request
-from routers.proxy_chat import _check_auth
+from routers.auth import check_proxy_authorization
+from routers.proxy_errors import invalid_request, response_from_proxy_exception, unauthorized
 
 router = APIRouter(tags=["代理"])
 
 
 @router.post("/v1/responses")
 async def responses(request: Request, authorization: str | None = Header(None)):
-    if not _check_auth(authorization):
-        return {"error": {"message": "无效的API Key", "type": "auth_error"}}
+    if not check_proxy_authorization(authorization):
+        return unauthorized()
 
     body = await request.json()
     model = body.get("model", "")
@@ -20,9 +21,9 @@ async def responses(request: Request, authorization: str | None = Header(None)):
     try:
         result, _channel = await proxy_request(model, body, APIType.OPENAI_RESPONSE, is_stream)
     except ValueError as e:
-        return {"error": {"message": str(e), "type": "invalid_request_error"}}
+        return invalid_request(str(e))
     except Exception as e:
-        return {"error": {"message": str(e), "type": "api_error"}}
+        return response_from_proxy_exception(e)
 
     if is_stream:
         return StreamingResponse(

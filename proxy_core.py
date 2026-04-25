@@ -4,9 +4,7 @@
 import json
 import os
 from datetime import datetime
-from typing import Any, Optional
-
-import httpx
+from typing import Any
 
 from balancer.load_balancer import load_balancer
 from client import create_client, get_upstream_headers
@@ -115,9 +113,8 @@ def _get_converter_and_upstream_type(
     return None, source
 
 
-def _get_upstream_url(channel: Channel, target_api_type: APIType) -> str:
+def _get_upstream_url(channel: Channel) -> str:
     base = channel.base_url.rstrip("/")
-    # 根据渠道实际API类型决定上游URL
     actual_type = channel.api_type.value
     if actual_type == "openai-chat-completions":
         return f"{base}/v1/chat/completions"
@@ -142,28 +139,22 @@ async def proxy_request(
     if not channels:
         raise ValueError(f"没有可用渠道支持模型: {model}")
 
-    selected = load_balancer.select_channel(channels)
-    if not selected:
-        raise ValueError(f"模型 {model} 的所有渠道均不可用")
-
-    # 尝试请求，失败则故障转移
-    all_tried = {selected.id}
-    last_error = None
+    all_tried: set[str] = set()
+    last_error: Exception | None = None
 
     while True:
+        selected = load_balancer.select_channel(channels, exclude_ids=all_tried)
+        if not selected:
+            if last_error is not None:
+                raise last_error
+            raise ValueError(f"模型 {model} 的所有渠道均不可用")
+
         try:
             return await _do_request(selected, request_data, target_api_type, is_stream), selected
         except Exception as e:
             load_balancer.record_failure(selected.id)
             last_error = e
-            # 故障转移
-            fallback_channels = load_balancer.get_fallback_channels(channels, exclude_ids=all_tried)
-            if not fallback_channels:
-                break
-            selected = fallback_channels[0]
             all_tried.add(selected.id)
-
-    raise last_error or RuntimeError("所有渠道请求失败")
 
 
 async def _do_request(
@@ -180,17 +171,17 @@ async def _do_request(
     else:
         upstream_data = request_data
 
-    url = _get_upstream_url(channel, target_api_type)
+    url = _get_upstream_url(channel)
     headers = get_upstream_headers(channel)
     headers["Content-Type"] = "application/json"
 
-    client = create_client(channel)
+    if is_stream:
+        return _do_stream_request(
+            channel, url, headers, upstream_data, converter, source_type
+        )
 
     try:
-        if is_stream:
-            # 返回异步生成器，不使用 await
-            return _do_stream_request(client, url, headers, upstream_data, converter, source_type, channel)
-        else:
+        async with create_client(channel) as client:
             resp = await client.post(url, json=upstream_data, headers=headers)
             resp.raise_for_status()
             response_data = resp.json()
@@ -226,68 +217,88 @@ async def _do_request(
 
 
 async def _do_stream_request(
-    client: httpx.AsyncClient,
+    channel: Channel,
     url: str,
     headers: dict,
     upstream_data: dict,
     converter,
     source_type: str,
-    channel: Channel,
 ):
-    """流式请求，yield SSE数据行"""
-    stream_chunks = []  # 收集流式内容用于 debug 日志
+    """流式请求，yield SSE 数据行；自行管理 httpx 客户端生命周期。
+
+    客户端中途断开时，具体是否尽快取消上游读取取决于 ASGI 服务器对
+    StreamingResponse 取消行为的实现；此处不在生成器内单独探测 disconnect。
+    """
+    stream_chunks: list[Any] = []
     resp_status_code = None
     resp_headers = None
+    client = create_client(channel)
+    try:
+        async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
+            resp.raise_for_status()
+            resp_status_code = resp.status_code
+            resp_headers = dict(resp.headers)
 
-    async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
-        resp.raise_for_status()
-        resp_status_code = resp.status_code
-        resp_headers = dict(resp.headers)
+            # Anthropic 使用特殊的 SSE 格式，包含 event: 和 data: 行
+            is_anthropic = "anthropic" in headers.get("anthropic-version", "")
 
-        # Anthropic 使用特殊的 SSE 格式，包含 event: 和 data: 行
-        is_anthropic = "anthropic" in headers.get("anthropic-version", "")
-
-        event_type = None
-        async for line in resp.aiter_lines():
-            if not line.strip():
-                continue
-            if is_anthropic and line.startswith("event: "):
-                event_type = line[7:].strip()
-            elif line.startswith("data: "):
-                data_str = line[6:]
-                if data_str.strip() == "[DONE]":
-                    stream_chunks.append("[DONE]")
-                    yield "data: [DONE]\n\n"
+            event_type = None
+            async for line in resp.aiter_lines():
+                if not line.strip():
                     continue
-                try:
-                    chunk = json.loads(data_str)
-                    stream_chunks.append(chunk)  # 记录原始 chunk
-                    if converter:
-                        if is_anthropic and event_type is not None:
-                            chunk["_event_type"] = event_type
-                        converted = converter.convert_stream_chunk(chunk, source_type)
-                        if converted is not None:
-                            yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
-                    else:
-                        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-                except json.JSONDecodeError:
+                if is_anthropic and line.startswith("event: "):
+                    event_type = line[7:].strip()
+                elif line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        stream_chunks.append("[DONE]")
+                        yield "data: [DONE]\n\n"
+                        continue
+                    try:
+                        chunk = json.loads(data_str)
+                        stream_chunks.append(chunk)  # 记录原始 chunk
+                        if converter:
+                            if is_anthropic and event_type is not None:
+                                chunk["_event_type"] = event_type
+                            converted = converter.convert_stream_chunk(chunk, source_type)
+                            if converted is not None:
+                                yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                        else:
+                            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                    except json.JSONDecodeError:
+                        stream_chunks.append(line)
+                        yield line + "\n\n"
+                    if is_anthropic:
+                        event_type = None
+                else:
+                    suffix = "\n" if is_anthropic else "\n\n"
                     stream_chunks.append(line)
-                    yield line + "\n\n"
-                if is_anthropic:
-                    event_type = None
-            else:
-                suffix = "\n" if is_anthropic else "\n\n"
-                stream_chunks.append(line)
-                yield line + suffix
+                    yield line + suffix
 
-    # 流结束后记录 debug 日志（包含响应头和状态码）
-    _log_debug(
-        channel=channel,
-        upstream_url=url,
-        upstream_data=upstream_data,
-        upstream_headers=headers,
-        is_stream=True,
-        stream_content=stream_chunks,
-        response_headers=resp_headers,
-        status_code=resp_status_code,
-    )
+        # 流结束后记录 debug 日志（包含响应头和状态码）
+        _log_debug(
+            channel=channel,
+            upstream_url=url,
+            upstream_data=upstream_data,
+            upstream_headers=headers,
+            is_stream=True,
+            stream_content=stream_chunks,
+            response_headers=resp_headers,
+            status_code=resp_status_code,
+        )
+        load_balancer.record_success(channel.id)
+    except Exception as e:
+        _log_debug(
+            channel=channel,
+            upstream_url=url,
+            upstream_data=upstream_data,
+            upstream_headers=headers,
+            is_stream=True,
+            stream_content=stream_chunks,
+            response_headers=resp_headers,
+            status_code=resp_status_code,
+            error=str(e),
+        )
+        raise
+    finally:
+        await client.aclose()

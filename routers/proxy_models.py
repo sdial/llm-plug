@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Header, Query
-from routers.proxy_chat import _check_auth
-from storage import load_data
-from models.channel import Channel
+
 from models.api_types import APIType
+from models.channel import Channel
+from routers.auth import check_proxy_authorization
+from routers.proxy_errors import unauthorized
+from storage import load_data
 
 router = APIRouter(tags=["代理"])
 
@@ -27,8 +29,8 @@ def _collect_models() -> list[dict]:
 
 @router.get("/v1/models")
 async def list_models_openai(authorization: str | None = Header(None)):
-    if not _check_auth(authorization):
-        return {"error": {"message": "无效的API Key", "type": "auth_error"}}
+    if not check_proxy_authorization(authorization):
+        return unauthorized()
 
     models = _collect_models()
     data = [
@@ -52,8 +54,8 @@ async def list_models_anthropic(
     before: str | None = Query(default=None),
     after: str | None = Query(default=None),
 ):
-    if not _check_auth(authorization):
-        return {"error": {"message": "无效的API Key", "type": "auth_error"}}
+    if not check_proxy_authorization(authorization):
+        return unauthorized()
 
     models = _collect_models()
     # 只取 anthropic 类型的模型
