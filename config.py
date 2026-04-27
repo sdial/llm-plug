@@ -17,6 +17,5 @@ ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")  # 管理API密钥，为空则不
 PROXY_API_KEY = os.getenv("PROXY_API_KEY", "")  # 代理API密钥，为空则不鉴权
 
 # Debug 模式
-# DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 DEBUG_LOG_DIR = os.getenv("DEBUG_LOG_DIR", os.path.join(os.path.dirname(__file__), "logs"))

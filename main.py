@@ -1,10 +1,10 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from client import close_all_clients
-from config import HOST, PORT
+from config import DEBUG, HOST, PORT
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
 
 
@@ -15,6 +15,26 @@ async def lifespan(app):
 
 
 app = FastAPI(title="LLM API 转换器", version="0.1.0", lifespan=lifespan)
+
+if DEBUG:
+    @app.middleware("http")
+    async def debug_log_middleware(request: Request, call_next):
+        method = request.method
+        path = request.url.path
+        query = request.url.query
+        model = ""
+        stream = False
+        if method == "POST" and path in ("/v1/chat/completions", "/v1/responses", "/v1/messages"):
+            try:
+                body = await request.json()
+                model = body.get("model", "")
+                stream = body.get("stream", False)
+            except Exception:
+                pass
+        print(f"[DEBUG] {method} {path}{'?' + query if query else ''} model={model} stream={stream}")
+        response = await call_next(request)
+        print(f"[DEBUG] {method} {path} -> {response.status_code}")
+        return response
 
 # 注册路由
 app.include_router(admin.router)
