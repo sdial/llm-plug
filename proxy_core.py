@@ -180,30 +180,31 @@ async def _do_request(
             channel, url, headers, upstream_data, converter, source_type, target_api_type
         )
 
+    # 非流式：使用缓存的 httpx 客户端（不可 async with，否则会关闭共享连接）
     try:
-        async with create_client(channel) as client:
-            resp = await client.post(url, json=upstream_data, headers=headers)
-            resp.raise_for_status()
-            response_data = resp.json()
+        client = create_client(channel)
+        resp = await client.post(url, json=upstream_data, headers=headers)
+        resp.raise_for_status()
+        response_data = resp.json()
 
-            # 记录 debug 日志（包含完整响应和响应头）
-            _log_debug(
-                channel=channel,
-                upstream_url=url,
-                upstream_data=upstream_data,
-                upstream_headers=headers,
-                response_data=response_data,
-                is_stream=False,
-                response_headers=dict(resp.headers),
-                status_code=resp.status_code,
-            )
+        # 记录 debug 日志（包含完整响应和响应头）
+        _log_debug(
+            channel=channel,
+            upstream_url=url,
+            upstream_data=upstream_data,
+            upstream_headers=headers,
+            response_data=response_data,
+            is_stream=False,
+            response_headers=dict(resp.headers),
+            status_code=resp.status_code,
+        )
 
-            # 转换响应
-            if converter:
-                response_data = converter.convert_response(response_data, source_type)
+        # 转换响应
+        if converter:
+            response_data = converter.convert_response(response_data, source_type)
 
-            load_balancer.record_success(channel.id)
-            return response_data
+        load_balancer.record_success(channel.id)
+        return response_data
     except Exception as e:
         # 记录错误日志
         _log_debug(
@@ -241,14 +242,13 @@ async def _do_stream_request(
     resp_headers = None
     client = create_stream_client(channel)
     output_anthropic_sse = target_api_type == APIType.ANTHROPIC
+    is_upstream_anthropic = source_type == "anthropic"
 
     try:
         async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
             resp.raise_for_status()
             resp_status_code = resp.status_code
             resp_headers = dict(resp.headers)
-
-            is_upstream_anthropic = "anthropic-version" in headers
 
             upstream_event_type = None
             async for line in resp.aiter_lines():
@@ -257,19 +257,31 @@ async def _do_stream_request(
                 if is_upstream_anthropic and line.startswith("event: "):
                     upstream_event_type = line[7:].strip()
                     continue
-                if line.startswith("data: "):
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        stream_chunks.append("[DONE]")
-                        if not output_anthropic_sse:
-                            yield "data: [DONE]\n\n"
-                        continue
-            try:
-                chunk = json.loads(data_str)
+                if not line.startswith("data: "):
+                    # 非 data 行（如 SSE 注释），原样转发
+                    stream_chunks.append(line)
+                    continue
+
+                data_str = line[6:]
+                if data_str.strip() == "[DONE]":
+                    stream_chunks.append("[DONE]")
+                    if not output_anthropic_sse:
+                        yield "data: [DONE]\n\n"
+                    continue
+
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    stream_chunks.append(line)
+                    yield line + "\n\n"
+                    continue
+
                 stream_chunks.append(chunk)
+
+                if is_upstream_anthropic and upstream_event_type is not None:
+                    chunk["_event_type"] = upstream_event_type
+
                 if converter:
-                    if is_upstream_anthropic and upstream_event_type is not None:
-                        chunk["_event_type"] = upstream_event_type
                     converted = converter.convert_stream_chunk(chunk, source_type)
                     if converted is not None:
                         if output_anthropic_sse:
@@ -283,8 +295,8 @@ async def _do_stream_request(
                                 yield _yield_anthropic_events(extra)
                         else:
                             yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
-                            if hasattr(converter, "get_extra_events"):
-                                extra = converter.get_extra_events(converted)
+                            extra = converter.get_extra_events(converted)
+                            if extra:
                                 for extra_evt in extra:
                                     yield f"data: {json.dumps(extra_evt, ensure_ascii=False)}\n\n"
                 else:
@@ -293,15 +305,9 @@ async def _do_stream_request(
                         yield _yield_anthropic_event(evt, chunk)
                     else:
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-            except json.JSONDecodeError:
-                        stream_chunks.append(line)
-                        yield line + "\n\n"
-                    if is_upstream_anthropic:
-                        upstream_event_type = None
-                else:
-                    suffix = "\n" if is_upstream_anthropic else "\n\n"
-                    stream_chunks.append(line)
-                    yield line + suffix
+
+                if is_upstream_anthropic:
+                    upstream_event_type = None
 
         _log_debug(
             channel=channel, upstream_url=url, upstream_data=upstream_data,
@@ -310,12 +316,22 @@ async def _do_stream_request(
         )
         load_balancer.record_success(channel.id)
     except Exception as e:
+        load_balancer.record_failure(channel.id)
         _log_debug(
             channel=channel, upstream_url=url, upstream_data=upstream_data,
             upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
             response_headers=resp_headers, status_code=resp_status_code, error=str(e),
         )
-        raise
+        # 流式传输中发生错误，向客户端发送错误事件后结束流
+        if output_anthropic_sse:
+            yield _yield_anthropic_event("error", {
+                "type": "error",
+                "error": {"type": "api_error", "message": str(e)},
+            })
+        else:
+            error_data = {"error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
+            yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
     finally:
         if not client.is_closed:
             await client.aclose()

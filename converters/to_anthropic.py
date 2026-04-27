@@ -60,8 +60,6 @@ class ToAnthropicConverter(BaseConverter):
             else:
                 content = msg.get("content", "")
                 content = self._convert_content(content)
-                if isinstance(content, str):
-                    content = content
                 messages.append({"role": role, "content": content})
 
         result = {
@@ -599,23 +597,15 @@ class ToAnthropicConverter(BaseConverter):
             return chunk
         if not events:
             return None
+        # 缓存首个事件的 event type，供 get_stream_event_type 读取，避免重复转换
+        self._last_event_type = events[0][0]
         result = events[0][1]
         if len(events) > 1:
             result["_extra_events"] = events[1:]
         return result
 
     def get_stream_event_type(self, chunk: dict[str, Any], source_type: str = "") -> str | None:
-        if source_type == "openai-chat-completions":
-            events = self._chat_stream_chunk_to_anthropic(chunk)
-        elif source_type == "openai-response":
-            events = self._response_stream_chunk_to_anthropic(chunk)
-        else:
-            if isinstance(chunk, dict) and chunk.get("_event_type"):
-                return chunk["_event_type"]
-            return None
-        if not events:
-            return None
-        return events[0][0]
+        return getattr(self, "_last_event_type", None)
 
     def get_extra_events(self, chunk: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
         if isinstance(chunk, dict) and chunk.get("_extra_events"):

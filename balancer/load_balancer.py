@@ -55,26 +55,28 @@ class LoadBalancer:
         1. 过滤掉禁用、不健康及 exclude_ids 中的渠道
         2. 按优先级分组
         3. 在最高优先级组内加权轮询
+
+        整个选择过程在锁内完成，确保健康检查与轮询的原子性。
         """
         exclude_ids = exclude_ids or set()
-        available = [
-            ch
-            for ch in channels
-            if ch.enabled
-            and ch.id not in exclude_ids
-            and self._health[ch.id].is_healthy
-        ]
-        if not available:
-            return None
-
-        available.sort(key=lambda ch: ch.priority)
-        min_priority = available[0].priority
-        top_group = [ch for ch in available if ch.priority == min_priority]
-
-        if len(top_group) == 1:
-            return top_group[0]
-
         async with self._lock:
+            available = [
+                ch
+                for ch in channels
+                if ch.enabled
+                and ch.id not in exclude_ids
+                and self._health[ch.id].is_healthy
+            ]
+            if not available:
+                return None
+
+            available.sort(key=lambda ch: ch.priority)
+            min_priority = available[0].priority
+            top_group = [ch for ch in available if ch.priority == min_priority]
+
+            if len(top_group) == 1:
+                return top_group[0]
+
             return self._weighted_round_robin(top_group)
 
     def _weighted_round_robin(self, channels: list[Channel]) -> Channel:

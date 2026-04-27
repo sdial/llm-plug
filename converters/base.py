@@ -29,3 +29,19 @@ class BaseConverter(ABC):
     ) -> dict[str, Any] | None:
         """将上游 SSE 解析出的单条 JSON 转为入口格式；返回 None 表示跳过该块。"""
         pass
+
+    def get_stream_event_type(self, chunk: dict[str, Any], source_type: str = "") -> str | None:
+        """获取流式事件的 event type（仅 Anthropic 输出格式需要）。
+
+        默认实现从 chunk 的 _event_type 字段读取；
+        子类可在 convert_stream_chunk 中缓存 event type 后覆盖此方法。
+        """
+        if isinstance(chunk, dict) and chunk.get("_event_type"):
+            return chunk["_event_type"]
+        return None
+
+    def get_extra_events(self, chunk: dict[str, Any]) -> list:
+        """获取流式转换产生的额外事件。子类可覆盖。"""
+        if isinstance(chunk, dict) and chunk.get("_extra_events"):
+            return chunk["_extra_events"]
+        return []

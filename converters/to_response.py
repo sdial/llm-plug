@@ -164,13 +164,10 @@ class ToResponseConverter(BaseConverter):
                 input_items.append({"role": role, "content": content})
             elif isinstance(content, list):
                 text_parts = []
-                has_tool_use = False
-                has_tool_result = False
                 for part in content:
                     if part.get("type") == "text":
                         text_parts.append(part.get("text", ""))
                     elif part.get("type") == "tool_use":
-                        has_tool_use = True
                         input_items.append({
                             "type": "function_call",
                             "call_id": part.get("id", ""),
@@ -178,7 +175,6 @@ class ToResponseConverter(BaseConverter):
                             "arguments": json.dumps(part.get("input", {})),
                         })
                     elif part.get("type") == "tool_result":
-                        has_tool_result = True
                         tr_content = part.get("content", "")
                         if isinstance(tr_content, list):
                             result_text = "\n".join(
@@ -193,9 +189,7 @@ class ToResponseConverter(BaseConverter):
                         })
                     else:
                         text_parts.append(str(part))
-                if text_parts and not has_tool_use and not has_tool_result:
-                    input_items.append({"role": role, "content": "\n".join(text_parts)})
-                elif text_parts:
+                if text_parts:
                     input_items.append({"role": role, "content": "\n".join(text_parts)})
 
         result = {
