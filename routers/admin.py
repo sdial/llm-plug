@@ -4,7 +4,9 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from client import create_client, get_upstream_headers
+import httpx
+
+from client import get_upstream_headers
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from storage import load_data, save_data, get_lock
 
@@ -136,10 +138,19 @@ async def test_channel(channel_id: str, model: str | None = Query(default=None))
     headers = get_upstream_headers(channel)
     headers["Content-Type"] = "application/json"
 
-    client = create_client(channel, timeout=30.0)
+    # 测试使用独立客户端（非缓存），可安全关闭
+    if channel.socks5_proxy:
+        test_client = httpx.AsyncClient(
+            proxy=channel.socks5_proxy,
+            timeout=httpx.Timeout(30.0, connect=10.0),
+        )
+    else:
+        test_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+        )
     start = time.monotonic()
     try:
-        resp = await client.post(url, json=payload, headers=headers)
+        resp = await test_client.post(url, json=payload, headers=headers)
         latency_ms = round((time.monotonic() - start) * 1000)
         resp.raise_for_status()
         data = resp.json()
@@ -177,7 +188,7 @@ async def test_channel(channel_id: str, model: str | None = Query(default=None))
             "reply": None,
         }
     finally:
-        await client.aclose()
+        await test_client.aclose()
 
 
 # ============ Logs API ============

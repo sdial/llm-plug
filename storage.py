@@ -28,11 +28,12 @@ def _read_from_disk() -> dict[str, Any]:
 
 def load_data() -> dict[str, Any]:
     global _cache, _cache_ts
-    now = time.monotonic()
-    if _cache is not None and (now - _cache_ts) < _CACHE_TTL:
-        return _cache
     _ensure_data_dir()
     with _lock:
+        # 双重检查：在锁内再次检查缓存，避免多线程重复读磁盘
+        now = time.monotonic()
+        if _cache is not None and (now - _cache_ts) < _CACHE_TTL:
+            return _cache
         if not os.path.exists(CHANNELS_FILE):
             with open(CHANNELS_FILE, "w", encoding="utf-8") as f:
                 json.dump({"channels": []}, f, ensure_ascii=False, indent=2)
