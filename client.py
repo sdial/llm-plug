@@ -11,7 +11,7 @@ def _cache_key(channel: Channel) -> str:
     return f"{channel.base_url}|{channel.socks5_proxy or ''}"
 
 
-def get_or_create_client(channel: Channel, timeout: float = 120.0) -> httpx.AsyncClient:
+def get_or_create_client(channel: Channel, timeout: float = 300.0) -> httpx.AsyncClient:
     key = _cache_key(channel)
     client = _clients.get(key)
     if client is not None and not client.is_closed:
@@ -30,8 +30,20 @@ def get_or_create_client(channel: Channel, timeout: float = 120.0) -> httpx.Asyn
     return client
 
 
-def create_client(channel: Channel, timeout: float = 120.0) -> httpx.AsyncClient:
+def create_client(channel: Channel, timeout: float = 300.0) -> httpx.AsyncClient:
     return get_or_create_client(channel, timeout)
+
+
+def create_stream_client(channel: Channel) -> httpx.AsyncClient:
+    proxy = channel.socks5_proxy
+    if proxy:
+        return httpx.AsyncClient(
+            proxy=proxy,
+            timeout=httpx.Timeout(300.0, connect=10.0, read=300.0),
+        )
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(300.0, connect=10.0, read=300.0),
+    )
 
 
 async def close_all_clients():

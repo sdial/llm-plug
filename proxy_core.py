@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from balancer.load_balancer import load_balancer
-from client import create_client, get_upstream_headers
+from client import create_client, create_stream_client, get_upstream_headers
 from config import DEBUG, DEBUG_LOG_DIR
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
@@ -239,7 +239,7 @@ async def _do_stream_request(
     stream_chunks: list[Any] = []
     resp_status_code = None
     resp_headers = None
-    client = create_client(channel)
+    client = create_stream_client(channel)
     output_anthropic_sse = target_api_type == APIType.ANTHROPIC
 
     try:
@@ -278,11 +278,11 @@ async def _do_stream_request(
                                         yield _yield_anthropic_event(evt_type, converted)
                                     else:
                                         yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
-                                    extra = converter.get_extra_events(converted)
-                                    if extra:
-                                        yield _yield_anthropic_events(extra)
-                                else:
-                                    yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                                extra = converter.get_extra_events(converted)
+                                if extra:
+                                    yield _yield_anthropic_events(extra)
+                            else:
+                                yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
                         else:
                             if output_anthropic_sse and is_upstream_anthropic:
                                 evt = upstream_event_type or "ping"
@@ -312,3 +312,6 @@ async def _do_stream_request(
             response_headers=resp_headers, status_code=resp_status_code, error=str(e),
         )
         raise
+    finally:
+        if not client.is_closed:
+            await client.aclose()
