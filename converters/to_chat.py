@@ -10,6 +10,16 @@ from converters.base import BaseConverter
 class ToChatCompletionsConverter(BaseConverter):
     """任意格式 → OpenAI Chat Completions"""
 
+    def __init__(self):
+        self._stream_state: dict[str, Any] | None = None
+
+    def _reset_stream_state(self):
+        self._stream_state = {
+            "msg_id": "chatcmpl",
+            "model": "",
+            "tool_call_index": 0,
+        }
+
     # --- Anthropic → Chat Completions ---
 
     def _anthropic_request_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -34,23 +44,62 @@ class ToChatCompletionsConverter(BaseConverter):
             if isinstance(content, str):
                 messages.append({"role": role, "content": content})
             elif isinstance(content, list):
-                # 多模态内容
-                parts = []
+                text_parts = []
+                tool_calls = []
+                tool_result_parts = []
+                image_parts = []
                 for part in content:
                     if part.get("type") == "text":
-                        parts.append({"type": "text", "text": part["text"]})
+                        text_parts.append(part["text"])
                     elif part.get("type") == "image" and part.get("source", {}).get("type") == "base64":
-                        parts.append({
+                        image_parts.append({
                             "type": "image_url",
                             "image_url": {
                                 "url": f"data:{part['source'].get('media_type', 'image/png')};base64,{part['source']['data']}"
                             }
                         })
                     elif part.get("type") == "tool_use":
-                        parts.append(part)
+                        tool_calls.append({
+                            "id": part.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": part.get("name", ""),
+                                "arguments": json.dumps(part.get("input", {})) if isinstance(part.get("input"), dict) else (part.get("input", "") or ""),
+                            }
+                        })
                     elif part.get("type") == "tool_result":
-                        parts.append(part)
-                messages.append({"role": role, "content": parts})
+                        tool_result_parts.append(part)
+
+                if role == "assistant":
+                    assistant_msg = {"role": "assistant", "content": None}
+                    if text_parts:
+                        assistant_msg["content"] = "\n".join(text_parts)
+                    if tool_calls:
+                        assistant_msg["tool_calls"] = tool_calls
+                    messages.append(assistant_msg)
+                elif role == "user":
+                    for tr in tool_result_parts:
+                        tool_result_content = tr.get("content", "")
+                        if isinstance(tool_result_content, list):
+                            result_text = "\n".join(
+                                c.get("text", "") for c in tool_result_content if c.get("type") == "text"
+                            )
+                        else:
+                            result_text = str(tool_result_content) if tool_result_content else ""
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tr.get("tool_use_id", ""),
+                            "content": result_text,
+                        })
+                    user_parts = []
+                    for t in text_parts:
+                        user_parts.append({"type": "text", "text": t})
+                    user_parts.extend(image_parts)
+                    if user_parts:
+                        messages.append({"role": "user", "content": user_parts if len(user_parts) > 1 else user_parts[0]})
+                else:
+                    fallback_content = " ".join(text_parts) if text_parts else ""
+                    messages.append({"role": role, "content": fallback_content})
 
         result = {
             "model": data.get("model", ""),
@@ -67,11 +116,8 @@ class ToChatCompletionsConverter(BaseConverter):
             result["stop"] = data["stop_sequences"]
         if data.get("tools"):
             result["tools"] = self._anthropic_tools_to_openai(data["tools"])
-
-        # 处理 thinking 参数 (enable_thinking)
         if data.get("thinking") is not None:
             result["thinking"] = data["thinking"]
-
         return result
 
     def _anthropic_tools_to_openai(self, tools: list) -> list:
@@ -112,7 +158,6 @@ class ToChatCompletionsConverter(BaseConverter):
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
         if tool_calls:
-            # 确保arguments是字符串
             for tc in tool_calls:
                 if isinstance(tc["function"]["arguments"], dict):
                     tc["function"]["arguments"] = json.dumps(tc["function"]["arguments"])
@@ -146,109 +191,123 @@ class ToChatCompletionsConverter(BaseConverter):
         return mapping.get(reason, "stop")
 
     def _anthropic_stream_chunk_to_chat(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
-        # 支持从 type 字段或 _event_type 字段获取事件类型
+        if self._stream_state is None:
+            self._reset_stream_state()
+
         event_type = chunk.get("type") or chunk.get("_event_type", "")
-        
-        # message_start: 流式响应开始
+
         if event_type == "message_start":
+            msg = chunk.get("message", {})
+            self._stream_state["msg_id"] = f"chatcmpl-{msg.get('id', '')}"
+            self._stream_state["model"] = msg.get("model", "")
+            self._stream_state["tool_call_index"] = 0
             return {
-                "id": f"chatcmpl-{chunk.get('message', {}).get('id', '')}",
+                "id": self._stream_state["msg_id"],
                 "object": "chat.completion.chunk",
                 "created": 0,
-                "model": chunk.get("message", {}).get("model", ""),
+                "model": self._stream_state["model"],
                 "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
             }
-        
-        # content_block_start: 内容块开始（文本或工具调用）
+
         elif event_type == "content_block_start":
             content_block = chunk.get("content_block", {})
             if content_block.get("type") == "tool_use":
+                tc_idx = self._stream_state["tool_call_index"]
+                self._stream_state["tool_call_index"] = tc_idx + 1
                 return {
-                    "id": "chatcmpl",
+                    "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
                     "created": 0,
-                    "model": "",
-                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": content_block.get("id", ""), "type": "function", "function": {"name": content_block.get("name", ""), "arguments": ""}}]}, "finish_reason": None}],
+                    "model": self._stream_state["model"],
+                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": tc_idx, "id": content_block.get("id", ""), "type": "function", "function": {"name": content_block.get("name", ""), "arguments": ""}}]}, "finish_reason": None}],
                 }
-            elif content_block.get("type") == "text":
-                # 文本块开始，返回空 delta 以确保客户端知道有内容即将到来
+            elif content_block.get("type") == "thinking":
+                return None
+            else:
                 return {
-                    "id": "chatcmpl",
+                    "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
                     "created": 0,
-                    "model": "",
+                    "model": self._stream_state["model"],
                     "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
                 }
-        
-        # content_block_delta: 内容增量更新
+
         elif event_type == "content_block_delta":
             delta = chunk.get("delta", {})
             if delta.get("type") == "text_delta":
                 return {
-                    "id": "chatcmpl",
+                    "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
                     "created": 0,
-                    "model": "",
+                    "model": self._stream_state["model"],
                     "choices": [{"index": 0, "delta": {"content": delta.get("text", "")}, "finish_reason": None}],
                 }
             elif delta.get("type") == "thinking_delta":
                 return {
-                    "id": "chatcmpl",
+                    "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
                     "created": 0,
-                    "model": "",
+                    "model": self._stream_state["model"],
                     "choices": [{"index": 0, "delta": {"reasoning_content": delta.get("thinking", "")}, "finish_reason": None}],
                 }
             elif delta.get("type") == "input_json_delta":
+                block_index = chunk.get("index", 0)
                 return {
-                    "id": "chatcmpl",
+                    "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
                     "created": 0,
-                    "model": "",
-                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": delta.get("partial_json", "")}}]}, "finish_reason": None}],
+                    "model": self._stream_state["model"],
+                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": block_index, "function": {"arguments": delta.get("partial_json", "")}}]}, "finish_reason": None}],
                 }
-        
-        # content_block_stop: 内容块结束
+
         elif event_type == "content_block_stop":
-            # 返回空 delta 表示当前内容块结束
             return {
-                "id": "chatcmpl",
+                "id": self._stream_state["msg_id"],
                 "object": "chat.completion.chunk",
                 "created": 0,
-                "model": "",
+                "model": self._stream_state["model"],
                 "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
             }
-        
-        # message_delta: 消息级别的更新（通常包含 stop_reason）
+
         elif event_type == "message_delta":
             stop_reason = chunk.get("delta", {}).get("stop_reason")
             return {
-                "id": "chatcmpl",
+                "id": self._stream_state["msg_id"],
                 "object": "chat.completion.chunk",
                 "created": 0,
-                "model": "",
+                "model": self._stream_state["model"],
                 "choices": [{"index": 0, "delta": {}, "finish_reason": self._map_stop_reason(stop_reason)}],
             }
-        
-        # message_stop: 消息结束
+
         elif event_type == "message_stop":
             return {
-                "id": "chatcmpl",
+                "id": self._stream_state["msg_id"],
                 "object": "chat.completion.chunk",
                 "created": 0,
-                "model": "",
+                "model": self._stream_state["model"],
                 "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
             }
-        
-        # ping: 保持连接活跃（可以选择传递或忽略）
+
         elif event_type == "ping":
-            # 返回 None 跳过 ping 事件
             return None
-        
-        # 未知事件类型，返回 None 跳过
+
         return None
 
     # --- OpenAI Response → Chat Completions ---
+
+    def _response_tools_to_chat(self, tools: list) -> list:
+        chat_tools = []
+        for tool in tools:
+            if tool.get("type") == "function":
+                chat_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": tool.get("name", ""),
+                        "description": tool.get("description", ""),
+                        "parameters": tool.get("parameters", {}),
+                    }
+                })
+        return chat_tools
 
     def _response_request_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:
         messages = []
@@ -260,9 +319,36 @@ class ToChatCompletionsConverter(BaseConverter):
             if isinstance(item, str):
                 messages.append({"role": "user", "content": item})
             elif isinstance(item, dict):
+                item_type = item.get("type", "")
                 role = item.get("role", "user")
-                content = item.get("content", "")
-                messages.append({"role": role, "content": content})
+                if item_type == "function_call_output":
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": item.get("call_id", ""),
+                        "content": item.get("output", ""),
+                    })
+                elif item_type == "function_call":
+                    messages.append({
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": item.get("call_id", item.get("id", "")),
+                            "type": "function",
+                            "function": {
+                                "name": item.get("name", ""),
+                                "arguments": item.get("arguments", "{}"),
+                            }
+                        }],
+                        "content": None,
+                    })
+                else:
+                    content = item.get("content", "")
+                    if isinstance(content, list):
+                        content = "\n".join(
+                            c.get("text", "") if isinstance(c, dict) and c.get("type") == "input_text"
+                            else (str(c) if not isinstance(c, dict) else "")
+                            for c in content
+                        )
+                    messages.append({"role": role, "content": content})
 
         result = {
             "model": data.get("model", ""),
@@ -275,26 +361,57 @@ class ToChatCompletionsConverter(BaseConverter):
             result["temperature"] = data["temperature"]
         if data.get("top_p") is not None:
             result["top_p"] = data["top_p"]
+        if data.get("tools"):
+            result["tools"] = self._response_tools_to_chat(data["tools"])
+        if data.get("tool_choice"):
+            tc = data["tool_choice"]
+            if isinstance(tc, str):
+                result["tool_choice"] = tc
+            elif isinstance(tc, dict):
+                if tc.get("type") == "function":
+                    result["tool_choice"] = tc
+                elif tc.get("type") == "auto":
+                    result["tool_choice"] = "auto"
+                elif tc.get("type") == "required":
+                    result["tool_choice"] = "required"
         return result
 
     def _response_response_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:
         output_items = data.get("output", [])
         message_content = ""
+        tool_calls = []
         for item in output_items:
             if item.get("type") == "message":
                 for content in item.get("content", []):
                     if content.get("type") == "output_text":
                         message_content += content.get("text", "")
+            elif item.get("type") == "function_call":
+                tool_calls.append({
+                    "id": item.get("call_id", item.get("id", "")),
+                    "type": "function",
+                    "function": {
+                        "name": item.get("name", ""),
+                        "arguments": item.get("arguments", "{}"),
+                    }
+                })
+
+        message = {"role": "assistant", "content": message_content or None}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+
+        finish_reason = "tool_calls" if tool_calls else "stop"
+        if data.get("status") == "incomplete":
+            finish_reason = "length"
 
         result = {
             "id": data.get("id", ""),
             "object": "chat.completion",
-            "created": 0,
+            "created": data.get("created_at", 0),
             "model": data.get("model", ""),
             "choices": [{
                 "index": 0,
-                "message": {"role": "assistant", "content": message_content},
-                "finish_reason": "stop",
+                "message": message,
+                "finish_reason": finish_reason,
             }],
             "usage": {
                 "prompt_tokens": data.get("usage", {}).get("input_tokens", 0),

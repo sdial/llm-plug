@@ -264,32 +264,36 @@ async def _do_stream_request(
                         if not output_anthropic_sse:
                             yield "data: [DONE]\n\n"
                         continue
-                    try:
-                        chunk = json.loads(data_str)
-                        stream_chunks.append(chunk)
-                        if converter:
-                            if is_upstream_anthropic and upstream_event_type is not None:
-                                chunk["_event_type"] = upstream_event_type
-                            converted = converter.convert_stream_chunk(chunk, source_type)
-                            if converted is not None:
-                                if output_anthropic_sse:
-                                    evt_type = converter.get_stream_event_type(chunk, source_type)
-                                    if evt_type:
-                                        yield _yield_anthropic_event(evt_type, converted)
-                                    else:
-                                        yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
-                                extra = converter.get_extra_events(converted)
-                                if extra:
-                                    yield _yield_anthropic_events(extra)
+            try:
+                chunk = json.loads(data_str)
+                stream_chunks.append(chunk)
+                if converter:
+                    if is_upstream_anthropic and upstream_event_type is not None:
+                        chunk["_event_type"] = upstream_event_type
+                    converted = converter.convert_stream_chunk(chunk, source_type)
+                    if converted is not None:
+                        if output_anthropic_sse:
+                            evt_type = converter.get_stream_event_type(chunk, source_type)
+                            if evt_type:
+                                yield _yield_anthropic_event(evt_type, converted)
                             else:
                                 yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                            extra = converter.get_extra_events(converted)
+                            if extra:
+                                yield _yield_anthropic_events(extra)
                         else:
-                            if output_anthropic_sse and is_upstream_anthropic:
-                                evt = upstream_event_type or "ping"
-                                yield _yield_anthropic_event(evt, chunk)
-                            else:
-                                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-                    except json.JSONDecodeError:
+                            yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                            if hasattr(converter, "get_extra_events"):
+                                extra = converter.get_extra_events(converted)
+                                for extra_evt in extra:
+                                    yield f"data: {json.dumps(extra_evt, ensure_ascii=False)}\n\n"
+                else:
+                    if output_anthropic_sse and is_upstream_anthropic:
+                        evt = upstream_event_type or "ping"
+                        yield _yield_anthropic_event(evt, chunk)
+                    else:
+                        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+            except json.JSONDecodeError:
                         stream_chunks.append(line)
                         yield line + "\n\n"
                     if is_upstream_anthropic:
