@@ -1,3 +1,4 @@
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -16,7 +17,10 @@ async def lifespan(app):
 
 app = FastAPI(title="LLM API 转换器", version="0.1.0", lifespan=lifespan)
 
-if DEBUG:
+# uvicorn --debug 会设置 sys.flags.debug
+_debug_enabled = DEBUG or getattr(sys.flags, "debug", False)
+
+if _debug_enabled:
     @app.middleware("http")
     async def debug_log_middleware(request: Request, call_next):
         method = request.method
