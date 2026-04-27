@@ -130,6 +130,7 @@ async def proxy_request(
     request_data: dict[str, Any],
     target_api_type: APIType,
     is_stream: bool = False,
+    query_string: str | None = None,
 ) -> tuple[Any, Channel]:
     """
     执行代理请求，返回 (response_data_or_stream, selected_channel)
@@ -150,7 +151,7 @@ async def proxy_request(
             raise ValueError(f"模型 {model} 的所有渠道均不可用")
 
         try:
-            return await _do_request(selected, request_data, target_api_type, is_stream), selected
+            return await _do_request(selected, request_data, target_api_type, is_stream, query_string=query_string), selected
         except Exception as e:
             load_balancer.record_failure(selected.id)
             last_error = e
@@ -162,6 +163,7 @@ async def _do_request(
     request_data: dict[str, Any],
     target_api_type: APIType,
     is_stream: bool,
+    query_string: str | None = None,
 ):
     converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
 
@@ -172,6 +174,8 @@ async def _do_request(
         upstream_data = request_data
 
     url = _get_upstream_url(channel)
+    if query_string:
+        url = f"{url}?{query_string}"
     headers = get_upstream_headers(channel)
     headers["Content-Type"] = "application/json"
 
