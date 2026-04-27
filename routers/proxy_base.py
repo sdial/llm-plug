@@ -18,9 +18,10 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
         body = await request.json()
         model = body.get("model", "")
         is_stream = body.get("stream", False)
+        query_string = str(request.url.query) if request.url.query else None
 
         try:
-            result, _channel = await proxy_request(model, body, api_type, is_stream)
+            result, _channel = await proxy_request(model, body, api_type, is_stream, query_string=query_string)
         except ValueError as e:
             return invalid_request(str(e))
         except Exception as e:
