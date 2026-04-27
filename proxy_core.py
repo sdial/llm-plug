@@ -143,7 +143,7 @@ async def proxy_request(
     last_error: Exception | None = None
 
     while True:
-        selected = load_balancer.select_channel(channels, exclude_ids=all_tried)
+        selected = await load_balancer.select_channel(channels, exclude_ids=all_tried)
         if not selected:
             if last_error is not None:
                 raise last_error
@@ -224,7 +224,7 @@ async def _do_stream_request(
     converter,
     source_type: str,
 ):
-    """流式请求，yield SSE 数据行；自行管理 httpx 客户端生命周期。
+    """流式请求，yield SSE 数据行。
 
     客户端中途断开时，具体是否尽快取消上游读取取决于 ASGI 服务器对
     StreamingResponse 取消行为的实现；此处不在生成器内单独探测 disconnect。
@@ -239,8 +239,7 @@ async def _do_stream_request(
             resp_status_code = resp.status_code
             resp_headers = dict(resp.headers)
 
-            # Anthropic 使用特殊的 SSE 格式，包含 event: 和 data: 行
-            is_anthropic = "anthropic" in headers.get("anthropic-version", "")
+            is_anthropic = "anthropic-version" in headers
 
             event_type = None
             async for line in resp.aiter_lines():
@@ -256,13 +255,15 @@ async def _do_stream_request(
                         continue
                     try:
                         chunk = json.loads(data_str)
-                        stream_chunks.append(chunk)  # 记录原始 chunk
+                        stream_chunks.append(chunk)
                         if converter:
                             if is_anthropic and event_type is not None:
                                 chunk["_event_type"] = event_type
                             converted = converter.convert_stream_chunk(chunk, source_type)
                             if converted is not None:
                                 yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                            else:
+                                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                         else:
                             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     except json.JSONDecodeError:
@@ -275,7 +276,6 @@ async def _do_stream_request(
                     stream_chunks.append(line)
                     yield line + suffix
 
-        # 流结束后记录 debug 日志（包含响应头和状态码）
         _log_debug(
             channel=channel,
             upstream_url=url,
@@ -300,5 +300,3 @@ async def _do_stream_request(
             error=str(e),
         )
         raise
-    finally:
-        await client.aclose()

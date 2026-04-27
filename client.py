@@ -1,26 +1,49 @@
 import httpx
 from typing import Optional
 
+from models.api_types import APIType
 from models.channel import Channel
 
+_clients: dict[str, httpx.AsyncClient] = {}
 
-def create_client(channel: Channel, timeout: float = 120.0) -> httpx.AsyncClient:
-    """根据渠道配置创建HTTP客户端（支持SOCKS5代理）"""
+
+def _cache_key(channel: Channel) -> str:
+    return f"{channel.base_url}|{channel.socks5_proxy or ''}"
+
+
+def get_or_create_client(channel: Channel, timeout: float = 120.0) -> httpx.AsyncClient:
+    key = _cache_key(channel)
+    client = _clients.get(key)
+    if client is not None and not client.is_closed:
+        return client
     proxy = channel.socks5_proxy
     if proxy:
-        return httpx.AsyncClient(
+        client = httpx.AsyncClient(
             proxy=proxy,
             timeout=httpx.Timeout(timeout, connect=10.0),
         )
-    return httpx.AsyncClient(
-        timeout=httpx.Timeout(timeout, connect=10.0),
-    )
+    else:
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout, connect=10.0),
+        )
+    _clients[key] = client
+    return client
+
+
+def create_client(channel: Channel, timeout: float = 120.0) -> httpx.AsyncClient:
+    return get_or_create_client(channel, timeout)
+
+
+async def close_all_clients():
+    for key, client in list(_clients.items()):
+        if not client.is_closed:
+            await client.aclose()
+    _clients.clear()
 
 
 def get_upstream_headers(channel: Channel, extra_headers: Optional[dict] = None) -> dict:
-    """构建上游请求头"""
     headers = {}
-    if channel.api_type.value == "anthropic":
+    if channel.api_type == APIType.ANTHROPIC:
         headers["x-api-key"] = channel.api_key
         headers["anthropic-version"] = "2023-06-01"
     else:

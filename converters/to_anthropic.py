@@ -1,6 +1,7 @@
 """
 将其他格式转换为 Anthropic Messages 格式
 """
+import json
 from typing import Any
 
 from converters.base import BaseConverter
@@ -27,7 +28,7 @@ class ToAnthropicConverter(BaseConverter):
             "model": data.get("model", ""),
             "messages": messages,
             "stream": data.get("stream", False),
-            "max_tokens": data.get("max_tokens", 4096),
+            "max_tokens": data.get("max_tokens", 16384),
         }
         if system:
             result["system"] = system
@@ -84,7 +85,6 @@ class ToAnthropicConverter(BaseConverter):
             content.append({"type": "text", "text": text})
         if tool_calls:
             for tc in tool_calls:
-                import json
                 args = tc.get("function", {}).get("arguments", "{}")
                 if isinstance(args, str):
                     try:
@@ -192,7 +192,7 @@ class ToAnthropicConverter(BaseConverter):
             "model": data.get("model", ""),
             "messages": messages,
             "stream": data.get("stream", False),
-            "max_tokens": data.get("max_output_tokens", 4096),
+            "max_tokens": data.get("max_output_tokens", 16384),
         }
         if system:
             result["system"] = system

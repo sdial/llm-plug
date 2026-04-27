@@ -1,3 +1,4 @@
+import asyncio
 import time
 from collections import defaultdict
 from typing import Optional
@@ -12,7 +13,7 @@ class ChannelHealth:
     def __init__(self):
         self.fail_count: int = 0
         self.last_fail_time: float = 0
-        self.current_weight: int = 0  # 用于加权轮询的当前权重
+        self.current_weight: int = 0
 
     def record_success(self):
         self.fail_count = 0
@@ -23,7 +24,6 @@ class ChannelHealth:
 
     @property
     def is_healthy(self) -> bool:
-        """只读：冷却结束后仍视为可选，成功/失败由 record_* 更新计数。"""
         if self.fail_count < MAX_FAIL_COUNT:
             return True
         return (time.time() - self.last_fail_time) > COOLDOWN_SECONDS
@@ -34,6 +34,7 @@ class LoadBalancer:
 
     def __init__(self):
         self._health: dict[str, ChannelHealth] = defaultdict(ChannelHealth)
+        self._lock = asyncio.Lock()
 
     def get_health(self, channel_id: str) -> ChannelHealth:
         return self._health[channel_id]
@@ -44,7 +45,7 @@ class LoadBalancer:
     def record_failure(self, channel_id: str):
         self._health[channel_id].record_failure()
 
-    def select_channel(
+    async def select_channel(
         self,
         channels: list[Channel],
         exclude_ids: set[str] | None = None,
@@ -56,7 +57,6 @@ class LoadBalancer:
         3. 在最高优先级组内加权轮询
         """
         exclude_ids = exclude_ids or set()
-        # 过滤可用渠道
         available = [
             ch
             for ch in channels
@@ -67,7 +67,6 @@ class LoadBalancer:
         if not available:
             return None
 
-        # 按优先级分组
         available.sort(key=lambda ch: ch.priority)
         min_priority = available[0].priority
         top_group = [ch for ch in available if ch.priority == min_priority]
@@ -75,14 +74,13 @@ class LoadBalancer:
         if len(top_group) == 1:
             return top_group[0]
 
-        # 加权轮询 (Smooth Weighted Round-Robin)
-        return self._weighted_round_robin(top_group)
+        async with self._lock:
+            return self._weighted_round_robin(top_group)
 
     def _weighted_round_robin(self, channels: list[Channel]) -> Channel:
         """平滑加权轮询算法"""
         total_weight = sum(ch.weight for ch in channels)
 
-        # 增加每个渠道的当前权重
         best: Optional[Channel] = None
         best_health: Optional[ChannelHealth] = None
         for ch in channels:
@@ -92,10 +90,8 @@ class LoadBalancer:
                 best = ch
                 best_health = health
 
-        # 减去总权重
         best_health.current_weight -= total_weight
         return best
 
 
-# 全局单例
 load_balancer = LoadBalancer()

@@ -129,7 +129,45 @@ class ToResponseConverter(BaseConverter):
             }
         }
 
-    # --- 公共接口 ---
+    def _chat_stream_chunk_to_response(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
+        choices = chunk.get("choices", [])
+        if not choices:
+            return None
+        delta = choices[0].get("delta", {})
+        finish_reason = choices[0].get("finish_reason")
+
+        if delta.get("role") == "assistant":
+            return {
+                "type": "response.created",
+                "response": {
+                    "id": chunk.get("id", ""),
+                    "object": "response",
+                    "status": "in_progress",
+                    "model": chunk.get("model", ""),
+                    "output": [],
+                },
+            }
+
+        if delta.get("content") is not None:
+            return {
+                "type": "response.output_text.delta",
+                "delta": delta["content"],
+            }
+
+        if finish_reason is not None:
+            return {
+                "type": "response.completed",
+                "response": {
+                    "id": chunk.get("id", ""),
+                    "object": "response",
+                    "status": "completed",
+                    "model": chunk.get("model", ""),
+                },
+            }
+
+        return None
+
+    # --- 公接口 ---
 
     def convert_request(self, source_data: dict[str, Any], source_type: str = "") -> dict[str, Any]:
         if source_type == "openai-chat-completions":
@@ -146,5 +184,6 @@ class ToResponseConverter(BaseConverter):
         return target_response
 
     def convert_stream_chunk(self, chunk: dict[str, Any], source_type: str = "") -> dict[str, Any] | None:
-        # Response格式的流式转换较复杂，暂返回原始数据
+        if source_type == "openai-chat-completions":
+            return self._chat_stream_chunk_to_response(chunk)
         return chunk

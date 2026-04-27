@@ -1,10 +1,20 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from client import close_all_clients
 from config import HOST, PORT
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
 
-app = FastAPI(title="LLM API 转换器", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app):
+    yield
+    await close_all_clients()
+
+
+app = FastAPI(title="LLM API 转换器", version="0.1.0", lifespan=lifespan)
 
 # 注册路由
 app.include_router(admin.router)
