@@ -10,19 +10,58 @@ from converters.base import BaseConverter
 class ToAnthropicConverter(BaseConverter):
     """任意格式 → Anthropic Messages"""
 
+    def __init__(self):
+        self._stream_state: dict[str, Any] | None = None
+
+    def _reset_stream_state(self):
+        self._stream_state = {
+            "started": False,
+            "content_block_started": False,
+            "content_block_index": 0,
+            "current_content_type": None,
+            "tool_id": None,
+            "tool_name": None,
+        }
+
     # --- Chat Completions → Anthropic ---
+
+    def _convert_content(self, content: Any) -> Any:
+        if isinstance(content, list):
+            result = []
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        result.append({"type": "text", "text": item.get("text", "")})
+                    elif item.get("type") == "image_url":
+                        url = item.get("image_url", {}).get("url", "")
+                        if url.startswith("data:"):
+                            parts = url.split(",", 1)
+                            media_type = parts[0].split(";")[0].split(":")[1] if parts else "image/png"
+                            data = parts[1] if len(parts) > 1 else ""
+                            result.append({
+                                "type": "image",
+                                "source": {"type": "base64", "media_type": media_type, "data": data},
+                            })
+                    else:
+                        result.append(item)
+                elif isinstance(item, str):
+                    result.append({"type": "text", "text": item})
+            return result
+        return content
 
     def _chat_request_to_anthropic(self, data: dict[str, Any]) -> dict[str, Any]:
         system = None
         messages = []
         for msg in data.get("messages", []):
-            if msg["role"] == "system":
+            role = msg.get("role", "user")
+            if role == "system":
                 system = msg.get("content", "")
             else:
-                messages.append({
-                    "role": msg["role"],
-                    "content": msg.get("content", ""),
-                })
+                content = msg.get("content", "")
+                content = self._convert_content(content)
+                if isinstance(content, str):
+                    content = content
+                messages.append({"role": role, "content": content})
 
         result = {
             "model": data.get("model", ""),
@@ -40,14 +79,25 @@ class ToAnthropicConverter(BaseConverter):
             result["stop_sequences"] = data["stop"] if isinstance(data["stop"], list) else [data["stop"]]
         if data.get("tools"):
             result["tools"] = self._openai_tools_to_anthropic(data["tools"])
+        if data.get("tool_choice"):
+            tc = data["tool_choice"]
+            if isinstance(tc, dict):
+                if tc.get("type") == "auto":
+                    result["tool_choice"] = {"type": "auto"}
+                elif tc.get("type") == "required":
+                    result["tool_choice"] = {"type": "any"}
+                elif tc.get("type") == "function":
+                    result["tool_choice"] = {"type": "tool", "name": tc.get("function", {}).get("name", "")}
+            elif tc == "auto":
+                result["tool_choice"] = {"type": "auto"}
+            elif tc == "required":
+                result["tool_choice"] = {"type": "any"}
 
-        # 处理 thinking 参数
         if data.get("thinking") is not None:
             result["thinking"] = data["thinking"]
         elif data.get("enable_thinking"):
             result["thinking"] = {"type": "enabled", "budget_tokens": 4096}
 
-        # 处理 reasoning_effort 参数 (OpenAI low/medium/high 或数字字符串)
         reasoning_effort = data.get("reasoning_effort")
         if reasoning_effort is not None:
             if isinstance(reasoning_effort, int) or (isinstance(reasoning_effort, str) and reasoning_effort.isdigit()):
@@ -55,6 +105,9 @@ class ToAnthropicConverter(BaseConverter):
             else:
                 budget = {"low": 1024, "medium": 4096, "high": 16384}.get(reasoning_effort, 4096)
             result["thinking"] = {"type": "enabled", "budget_tokens": budget}
+
+        if data.get("metadata"):
+            result["metadata"] = data["metadata"]
 
         return result
 
@@ -97,6 +150,8 @@ class ToAnthropicConverter(BaseConverter):
                     "name": tc.get("function", {}).get("name", ""),
                     "input": args,
                 })
+        if not content:
+            content.append({"type": "text", "text": ""})
 
         stop_reason_map = {
             "stop": "end_turn",
@@ -118,64 +173,163 @@ class ToAnthropicConverter(BaseConverter):
             "usage": {
                 "input_tokens": data.get("usage", {}).get("prompt_tokens", 0),
                 "output_tokens": data.get("usage", {}).get("completion_tokens", 0),
-            }
+            },
         }
 
-    def _chat_stream_chunk_to_anthropic(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
+    def _chat_stream_chunk_to_anthropic(self, chunk: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+        """Convert a single OpenAI chat chunk to a list of (event_type, data) tuples.
+
+        Returns a list because one OpenAI chunk may need to produce
+        multiple Anthropic SSE events (e.g. content_block_stop + message_delta + message_stop).
+        """
+        if self._stream_state is None:
+            self._reset_stream_state()
+
+        events: list[tuple[str, dict[str, Any]]] = []
         choices = chunk.get("choices", [])
+
         if not choices:
-            return None
+            usage = chunk.get("usage")
+            if usage and self._stream_state["started"]:
+                if self._stream_state["content_block_started"]:
+                    events.append(
+                        ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                    )
+                    self._stream_state["content_block_started"] = False
+                events.append(
+                    ("message_delta", {
+                        "type": "message_delta",
+                        "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                        "usage": {"output_tokens": usage.get("completion_tokens", 0)},
+                    })
+                )
+                events.append(("message_stop", {"type": "message_stop"}))
+            return events
+
         delta = choices[0].get("delta", {})
         finish_reason = choices[0].get("finish_reason")
 
-        if delta.get("role") == "assistant":
-            return {
-                "type": "message_start",
-                "message": {
-                    "id": chunk.get("id", "").replace("chatcmpl-", "msg_"),
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [],
-                    "model": chunk.get("model", ""),
-                    "usage": {"input_tokens": 0, "output_tokens": 0},
-                }
-            }
+        if delta.get("role") == "assistant" and not self._stream_state["started"]:
+            self._stream_state["started"] = True
+            events.append(
+                ("message_start", {
+                    "type": "message_start",
+                    "message": {
+                        "id": chunk.get("id", "").replace("chatcmpl-", "msg_"),
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [],
+                        "model": chunk.get("model", ""),
+                        "stop_reason": None,
+                        "stop_sequence": None,
+                        "usage": {"input_tokens": 0, "output_tokens": 0},
+                    },
+                })
+            )
 
         if delta.get("content") is not None:
-            return {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "text_delta", "text": delta["content"]},
-            }
+            if not self._stream_state["content_block_started"]:
+                self._stream_state["content_block_started"] = True
+                self._stream_state["current_content_type"] = "text"
+                self._stream_state["content_block_index"] = 0
+                events.append(
+                    ("content_block_start", {
+                        "type": "content_block_start",
+                        "index": 0,
+                        "content_block": {"type": "text", "text": ""},
+                    })
+                )
+            events.append(
+                ("content_block_delta", {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": delta["content"]},
+                })
+            )
 
         if delta.get("tool_calls"):
             tc = delta["tool_calls"][0]
+            if self._stream_state["content_block_started"]:
+                events.append(
+                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                )
+                self._stream_state["content_block_started"] = False
+                self._stream_state["content_block_index"] += 1
+
             if tc.get("function", {}).get("name"):
-                return {
-                    "type": "content_block_start",
-                    "index": 1,
-                    "content_block": {
-                        "type": "tool_use",
-                        "id": tc.get("id", ""),
-                        "name": tc["function"]["name"],
-                    }
-                }
-            elif tc.get("function", {}).get("arguments"):
-                return {
+                self._stream_state["current_content_type"] = "tool_use"
+                self._stream_state["tool_id"] = tc.get("id", "")
+                self._stream_state["tool_name"] = tc["function"]["name"]
+                self._stream_state["content_block_started"] = True
+                events.append(
+                    ("content_block_start", {
+                        "type": "content_block_start",
+                        "index": self._stream_state["content_block_index"],
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": tc.get("id", ""),
+                            "name": tc["function"]["name"],
+                            "input": {},
+                        },
+                    })
+                )
+            elif tc.get("function", {}).get("arguments") is not None:
+                if not self._stream_state["content_block_started"]:
+                    self._stream_state["content_block_started"] = True
+                args = tc["function"].get("arguments", "")
+                if args:
+                    events.append(
+                        ("content_block_delta", {
+                            "type": "content_block_delta",
+                            "index": self._stream_state["content_block_index"],
+                            "delta": {"type": "input_json_delta", "partial_json": args},
+                        })
+                    )
+
+        if delta.get("reasoning_content") is not None:
+            if not self._stream_state["content_block_started"]:
+                self._stream_state["content_block_started"] = True
+                self._stream_state["current_content_type"] = "thinking"
+                events.append(
+                    ("content_block_start", {
+                        "type": "content_block_start",
+                        "index": self._stream_state["content_block_index"],
+                        "content_block": {"type": "thinking", "thinking": ""},
+                    })
+                )
+            events.append(
+                ("content_block_delta", {
                     "type": "content_block_delta",
-                    "index": 1,
-                    "delta": {"type": "input_json_delta", "partial_json": tc["function"]["arguments"]},
-                }
+                    "index": self._stream_state["content_block_index"],
+                    "delta": {"type": "thinking_delta", "thinking": delta["reasoning_content"]},
+                })
+            )
 
         if finish_reason is not None:
-            stop_map = {"stop": "end_turn", "length": "max_tokens", "tool_calls": "tool_use"}
-            return {
-                "type": "message_delta",
-                "delta": {"stop_reason": stop_map.get(finish_reason, "end_turn"), "stop_sequence": None},
-                "usage": {"output_tokens": 0},
-            }
+            if self._stream_state["content_block_started"]:
+                events.append(
+                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                )
+                self._stream_state["content_block_started"] = False
 
-        return None
+            stop_map = {"stop": "end_turn", "length": "max_tokens", "tool_calls": "tool_use"}
+            stop_reason = stop_map.get(finish_reason, "end_turn")
+
+            usage_output = 0
+            usage = chunk.get("usage")
+            if usage:
+                usage_output = usage.get("completion_tokens", 0)
+
+            events.append(
+                ("message_delta", {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+                    "usage": {"output_tokens": usage_output},
+                })
+            )
+            events.append(("message_stop", {"type": "message_stop"}))
+
+        return events
 
     # --- OpenAI Response → Anthropic ---
 
@@ -198,6 +352,8 @@ class ToAnthropicConverter(BaseConverter):
             result["system"] = system
         if data.get("temperature") is not None:
             result["temperature"] = data["temperature"]
+        if data.get("tools"):
+            result["tools"] = self._openai_tools_to_anthropic(data["tools"])
         return result
 
     def _response_response_to_anthropic(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -219,7 +375,7 @@ class ToAnthropicConverter(BaseConverter):
             "usage": {
                 "input_tokens": data.get("usage", {}).get("input_tokens", 0),
                 "output_tokens": data.get("usage", {}).get("output_tokens", 0),
-            }
+            },
         }
 
     # --- 公共接口 ---
@@ -240,5 +396,26 @@ class ToAnthropicConverter(BaseConverter):
 
     def convert_stream_chunk(self, chunk: dict[str, Any], source_type: str = "") -> dict[str, Any] | None:
         if source_type == "openai-chat-completions":
-            return self._chat_stream_chunk_to_anthropic(chunk)
+            events = self._chat_stream_chunk_to_anthropic(chunk)
+            if not events:
+                return None
+            result = events[0][1]
+            if len(events) > 1:
+                result["_extra_events"] = events[1:]
+            return result
         return chunk
+
+    def get_stream_event_type(self, chunk: dict[str, Any], source_type: str = "") -> str | None:
+        if source_type == "openai-chat-completions":
+            events = self._chat_stream_chunk_to_anthropic(chunk)
+            if not events:
+                return None
+            return events[0][0]
+        if isinstance(chunk, dict) and chunk.get("_event_type"):
+            return chunk["_event_type"]
+        return None
+
+    def get_extra_events(self, chunk: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+        if isinstance(chunk, dict) and chunk.get("_extra_events"):
+            return chunk["_extra_events"]
+        return []

@@ -177,7 +177,7 @@ async def _do_request(
 
     if is_stream:
         return _do_stream_request(
-            channel, url, headers, upstream_data, converter, source_type
+            channel, url, headers, upstream_data, converter, source_type, target_api_type
         )
 
     try:
@@ -216,87 +216,99 @@ async def _do_request(
         raise
 
 
+def _yield_anthropic_event(event_type: str, data: dict[str, Any]) -> str:
+    return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _yield_anthropic_events(events: list[tuple[str, dict[str, Any]]]) -> str:
+    parts = []
+    for et, d in events:
+        parts.append(f"event: {et}\ndata: {json.dumps(d, ensure_ascii=False)}\n\n")
+    return "".join(parts)
+
+
 async def _do_stream_request(
-    channel: Channel,
-    url: str,
-    headers: dict,
-    upstream_data: dict,
-    converter,
-    source_type: str,
+    channel: Channel, url: str, headers: dict, upstream_data: dict, converter, source_type: str,
+    target_api_type: APIType = APIType.OPENAI_CHAT,
 ):
     """流式请求，yield SSE 数据行。
 
-    客户端中途断开时，具体是否尽快取消上游读取取决于 ASGI 服务器对
-    StreamingResponse 取消行为的实现；此处不在生成器内单独探测 disconnect。
+    当 target_api_type 为 ANTHROPIC 时，输出 Anthropic SSE 格式
+    （包含 event: 行）。否则输出 OpenAI SSE 格式（仅 data: 行）。
     """
     stream_chunks: list[Any] = []
     resp_status_code = None
     resp_headers = None
     client = create_client(channel)
+    output_anthropic_sse = target_api_type == APIType.ANTHROPIC
+
     try:
         async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
             resp.raise_for_status()
             resp_status_code = resp.status_code
             resp_headers = dict(resp.headers)
 
-            is_anthropic = "anthropic-version" in headers
+            is_upstream_anthropic = "anthropic-version" in headers
 
-            event_type = None
+            upstream_event_type = None
             async for line in resp.aiter_lines():
                 if not line.strip():
                     continue
-                if is_anthropic and line.startswith("event: "):
-                    event_type = line[7:].strip()
-                elif line.startswith("data: "):
+                if is_upstream_anthropic and line.startswith("event: "):
+                    upstream_event_type = line[7:].strip()
+                    continue
+                if line.startswith("data: "):
                     data_str = line[6:]
                     if data_str.strip() == "[DONE]":
                         stream_chunks.append("[DONE]")
-                        yield "data: [DONE]\n\n"
+                        if not output_anthropic_sse:
+                            yield "data: [DONE]\n\n"
                         continue
                     try:
                         chunk = json.loads(data_str)
                         stream_chunks.append(chunk)
                         if converter:
-                            if is_anthropic and event_type is not None:
-                                chunk["_event_type"] = event_type
+                            if is_upstream_anthropic and upstream_event_type is not None:
+                                chunk["_event_type"] = upstream_event_type
                             converted = converter.convert_stream_chunk(chunk, source_type)
                             if converted is not None:
-                                yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                                if output_anthropic_sse:
+                                    evt_type = converter.get_stream_event_type(chunk, source_type)
+                                    if evt_type:
+                                        yield _yield_anthropic_event(evt_type, converted)
+                                    else:
+                                        yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                                    extra = converter.get_extra_events(converted)
+                                    if extra:
+                                        yield _yield_anthropic_events(extra)
+                                else:
+                                    yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                        else:
+                            if output_anthropic_sse and is_upstream_anthropic:
+                                evt = upstream_event_type or "ping"
+                                yield _yield_anthropic_event(evt, chunk)
                             else:
                                 yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-                        else:
-                            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     except json.JSONDecodeError:
                         stream_chunks.append(line)
                         yield line + "\n\n"
-                    if is_anthropic:
-                        event_type = None
+                    if is_upstream_anthropic:
+                        upstream_event_type = None
                 else:
-                    suffix = "\n" if is_anthropic else "\n\n"
+                    suffix = "\n" if is_upstream_anthropic else "\n\n"
                     stream_chunks.append(line)
                     yield line + suffix
 
         _log_debug(
-            channel=channel,
-            upstream_url=url,
-            upstream_data=upstream_data,
-            upstream_headers=headers,
-            is_stream=True,
-            stream_content=stream_chunks,
-            response_headers=resp_headers,
-            status_code=resp_status_code,
+            channel=channel, upstream_url=url, upstream_data=upstream_data,
+            upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
+            response_headers=resp_headers, status_code=resp_status_code,
         )
         load_balancer.record_success(channel.id)
     except Exception as e:
         _log_debug(
-            channel=channel,
-            upstream_url=url,
-            upstream_data=upstream_data,
-            upstream_headers=headers,
-            is_stream=True,
-            stream_content=stream_chunks,
-            response_headers=resp_headers,
-            status_code=resp_status_code,
-            error=str(e),
+            channel=channel, upstream_url=url, upstream_data=upstream_data,
+            upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
+            response_headers=resp_headers, status_code=resp_status_code, error=str(e),
         )
         raise
