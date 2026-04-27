@@ -1,6 +1,7 @@
 """
 将其他格式转换为 OpenAI Chat Completions 格式
 """
+import json
 from typing import Any
 
 from converters.base import BaseConverter
@@ -114,7 +115,6 @@ class ToChatCompletionsConverter(BaseConverter):
             # 确保arguments是字符串
             for tc in tool_calls:
                 if isinstance(tc["function"]["arguments"], dict):
-                    import json
                     tc["function"]["arguments"] = json.dumps(tc["function"]["arguments"])
             message["tool_calls"] = tool_calls
 

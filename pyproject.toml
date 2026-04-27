@@ -1,7 +1,7 @@
 [project]
-name = "workspace"
+name = "llm-plug"
 version = "0.1.0"
-description = "Add your description here"
+description = "LLM API 转换器 — 支持 OpenAI Chat Completions、OpenAI Response 和 Anthropic 格式互转，带负载均衡与故障转移"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

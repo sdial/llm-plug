@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 """Simple server to serve the session viewer with access to logs."""
 import json
-import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
@@ -28,9 +27,11 @@ class SessionViewerHandler(BaseHTTPRequestHandler):
 
         # Serve logs files
         if path.startswith("/logs/"):
-            filename = path[6:]  # Remove "/logs/"
-            file_path = LOGS_DIR / filename
-            print(f"Looking for log file: {file_path}")
+            filename = path[6:]
+            file_path = (LOGS_DIR / filename).resolve()
+            if not file_path.is_relative_to(LOGS_DIR.resolve()):
+                self.send_error(403, "Forbidden")
+                return
             if file_path.exists() and file_path.is_file():
                 self.send_file_response(file_path, "application/jsonl")
             else:
@@ -41,8 +42,10 @@ class SessionViewerHandler(BaseHTTPRequestHandler):
         if path == "/":
             path = "/index.html"
 
-        file_path = STATIC_DIR / path.lstrip("/")
-        print(f"Looking for static file: {file_path}")
+        file_path = (STATIC_DIR / path.lstrip("/")).resolve()
+        if not file_path.is_relative_to(STATIC_DIR.resolve()):
+            self.send_error(403, "Forbidden")
+            return
         if file_path.exists() and file_path.is_file():
             content_type = self._get_content_type(file_path)
             self.send_file_response(file_path, content_type)
