@@ -648,15 +648,19 @@ class ToAnthropicConverter(BaseConverter):
             return None
         # 缓存首个事件的 event type，供 get_stream_event_type 读取，避免重复转换
         self._last_event_type = events[0][0]
-        result = events[0][1]
+        result = dict(events[0][1])  # 复制一份，避免修改原始数据
         if len(events) > 1:
-            result["_extra_events"] = events[1:]
+            # 额外事件存储在实例变量中，而不是添加到 result 字典
+            self._pending_extra_events = events[1:]
+        else:
+            self._pending_extra_events = []
         return result
 
     def get_stream_event_type(self, chunk: dict[str, Any], source_type: str = "") -> str | None:
         return getattr(self, "_last_event_type", None)
 
     def get_extra_events(self, chunk: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-        if isinstance(chunk, dict) and chunk.get("_extra_events"):
-            return chunk["_extra_events"]
-        return []
+        # 从实例变量获取额外事件，而不是从 chunk 字典中
+        events = getattr(self, "_pending_extra_events", [])
+        self._pending_extra_events = []  # 清空，避免重复发送
+        return events

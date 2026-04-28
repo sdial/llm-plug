@@ -13,6 +13,7 @@ class ToResponseConverter(BaseConverter):
 
     def __init__(self):
         self._stream_state: dict[str, Any] | None = None
+        self._pending_extra_events: list[dict[str, Any]] = []
 
     def _reset_stream_state(self):
         self._stream_state = {
@@ -20,6 +21,7 @@ class ToResponseConverter(BaseConverter):
             "reasoning_id": "",
             "message_id": "",
         }
+        self._pending_extra_events = []
 
     # --- Chat Completions → Response ---
 
@@ -354,8 +356,8 @@ class ToResponseConverter(BaseConverter):
             if events:
                 if len(events) == 1:
                     return events[0]
-                result = events[0]
-                result["_extra_events"] = events[1:]
+                result = dict(events[0])  # 复制一份
+                self._pending_extra_events = events[1:]
                 return result
 
         if delta.get("reasoning_content") is not None:
@@ -375,7 +377,7 @@ class ToResponseConverter(BaseConverter):
                     "type": "response.reasoning_summary_text.delta",
                     "delta": delta["reasoning_content"],
                 }
-                result["_extra_events"] = [delta_event]
+                self._pending_extra_events = [delta_event]
                 return result
             return {
                 "type": "response.reasoning_summary_text.delta",
@@ -461,7 +463,7 @@ class ToResponseConverter(BaseConverter):
                         "type": "response.reasoning_summary_text.delta",
                         "delta": delta.get("thinking", ""),
                     }
-                    result["_extra_events"] = [delta_event]
+                    self._pending_extra_events = [delta_event]
                     return result
                 return {
                     "type": "response.reasoning_summary_text.delta",
@@ -516,6 +518,7 @@ class ToResponseConverter(BaseConverter):
         return chunk
 
     def get_extra_events(self, chunk: dict[str, Any]) -> list[dict[str, Any]]:
-        if isinstance(chunk, dict) and chunk.get("_extra_events"):
-            return chunk["_extra_events"]
-        return []
+        # 从实例变量获取额外事件
+        events = self._pending_extra_events
+        self._pending_extra_events = []  # 清空，避免重复发送
+        return events
