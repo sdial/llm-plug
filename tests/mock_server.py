@@ -1,8 +1,6 @@
 """Mock upstream API server for testing."""
 import asyncio
-import json
-from typing import AsyncGenerator
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 
 app = FastAPI()

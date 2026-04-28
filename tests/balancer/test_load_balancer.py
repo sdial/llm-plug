@@ -1,4 +1,3 @@
-import pytest
 from balancer.load_balancer import LoadBalancer, ChannelHealth
 from models.channel import Channel
 from models.api_types import APIType

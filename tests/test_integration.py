@@ -1,6 +1,4 @@
 """端到端集成测试 - 模拟 Claude Code / OpenCode 完整请求流程"""
-import asyncio
-import json
 import os
 import sys
 import time

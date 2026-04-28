@@ -9,15 +9,15 @@ from typing import Any
 from balancer.load_balancer import load_balancer
 from client import create_client, create_stream_client, get_upstream_headers
 from config import DEBUG, DEBUG_LOG_DIR
-
-# 流式响应最大记录chunk数量，防止内存溢出
-MAX_STREAM_CHUNKS = 10000
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
 from storage import load_data
+
+# 流式响应最大记录chunk数量，防止内存溢出
+MAX_STREAM_CHUNKS = 10000
 
 
 def _log_debug(

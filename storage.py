@@ -5,24 +5,25 @@ import threading
 import time
 from typing import Any
 
-from config import CHANNELS_FILE, DATA_DIR
+import config
 
 _lock = threading.Lock()
 
 
 def get_lock() -> threading.Lock:
     return _lock
+
 _cache: dict[str, Any] | None = None
 _cache_ts: float = 0
 _CACHE_TTL = 5.0
 
 
 def _ensure_data_dir():
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(config.DATA_DIR, exist_ok=True)
 
 
 def _read_from_disk() -> dict[str, Any]:
-    with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
+    with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -34,8 +35,8 @@ def load_data() -> dict[str, Any]:
         now = time.time()
         if _cache is not None and (now - _cache_ts) < _CACHE_TTL:
             return _cache
-        if not os.path.exists(CHANNELS_FILE):
-            with open(CHANNELS_FILE, "w", encoding="utf-8") as f:
+        if not os.path.exists(config.CHANNELS_FILE):
+            with open(config.CHANNELS_FILE, "w", encoding="utf-8") as f:
                 json.dump({"channels": []}, f, ensure_ascii=False, indent=2)
         data = _read_from_disk()
         _cache = data
@@ -53,7 +54,7 @@ def invalidate_cache() -> None:
 def save_data(data: dict[str, Any]) -> None:
     global _cache, _cache_ts
     _ensure_data_dir()
-    dir_name = os.path.dirname(os.path.abspath(CHANNELS_FILE)) or "."
+    dir_name = os.path.dirname(os.path.abspath(config.CHANNELS_FILE)) or "."
     with _lock:
         f = tempfile.NamedTemporaryFile(
             mode="w",
@@ -69,7 +70,7 @@ def save_data(data: dict[str, Any]) -> None:
             f.flush()
             os.fsync(f.fileno())
             f.close()
-            os.replace(tmp_path, CHANNELS_FILE)
+            os.replace(tmp_path, config.CHANNELS_FILE)
             _cache = data
             _cache_ts = time.time()
         except Exception:
