@@ -9,7 +9,7 @@ MODE="${1:-run}"
 
 # 环境变量（按需修改或 export 覆盖）
 export HOST="${HOST:-0.0.0.0}"
-export PORT="${PORT:-8000}"
+export PORT="${PORT:-55555}"
 
 # 安装依赖（若尚未安装）
 if [ ! -d ".venv" ]; then
