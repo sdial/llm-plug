@@ -1,3 +1,5 @@
+import json
+
 from converters.to_chat import ToChatCompletionsConverter
 from models.api_types import APIType
 
@@ -54,3 +56,41 @@ class TestAnthropicToChat:
         }
         result = self.converter.convert_request(request, APIType.ANTHROPIC)
         assert result["tool_choice"] == "none"
+
+    def test_thinking_response_to_reasoning_content(self):
+        """Anthropic thinking block -> OpenAI reasoning_content"""
+        response = {
+            "id": "msg_001",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "thinking": "Let me analyze..."},
+                {"type": "text", "text": "The answer is 42"},
+            ],
+            "model": "claude-opus-4-7",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        result = self.converter.convert_response(response, APIType.ANTHROPIC)
+        assert result["choices"][0]["message"]["reasoning_content"] == "Let me analyze..."
+        assert result["choices"][0]["message"]["content"] == "The answer is 42"
+
+    def test_tool_use_response(self):
+        """Anthropic tool_use -> OpenAI tool_calls"""
+        response = {
+            "id": "msg_001",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_001", "name": "search", "input": {"q": "test"}},
+            ],
+            "model": "claude-opus-4-7",
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        result = self.converter.convert_response(response, APIType.ANTHROPIC)
+        assert result["choices"][0]["finish_reason"] == "tool_calls"
+        tool_calls = result["choices"][0]["message"]["tool_calls"]
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["function"]["name"] == "search"
+        assert json.loads(tool_calls[0]["function"]["arguments"]) == {"q": "test"}
