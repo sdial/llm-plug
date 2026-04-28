@@ -301,13 +301,7 @@ class ToChatCompletionsConverter(BaseConverter):
             }
 
         elif event_type == "message_stop":
-            return {
-                "id": self._stream_state["msg_id"],
-                "object": "chat.completion.chunk",
-                "created": 0,
-                "model": self._stream_state["model"],
-                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-            }
+            return None
 
         elif event_type == "ping":
             return None
