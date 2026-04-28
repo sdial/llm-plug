@@ -1,0 +1,30 @@
+{
+  "channels": [
+    {
+      "id": "ch_test_anthropic",
+      "name": "Test Anthropic Channel",
+      "api_type": "anthropic",
+      "base_url": "http://localhost:9999/anthropic",
+      "api_key": "test-key",
+      "models": ["claude-sonnet-4-20250514"],
+      "enabled": true,
+      "weight": 1,
+      "priority": 1,
+      "socks5_proxy": null,
+      "created_at": "2026-04-28T00:00:00Z"
+    },
+    {
+      "id": "ch_test_openai",
+      "name": "Test OpenAI Channel",
+      "api_type": "openai-chat-completions",
+      "base_url": "http://localhost:9999/openai",
+      "api_key": "test-key",
+      "models": ["gpt-4o"],
+      "enabled": true,
+      "weight": 1,
+      "priority": 1,
+      "socks5_proxy": null,
+      "created_at": "2026-04-28T00:00:00Z"
+    }
+  ]
+}
