@@ -18,6 +18,8 @@ class ToChatCompletionsConverter(BaseConverter):
             "msg_id": "chatcmpl",
             "model": "",
             "tool_call_index": 0,
+            "content_block_to_tc_index": {},  # Anthropic content block index → OpenAI tool_call index
+            "output_index_to_tc_index": {},   # Response output_index → OpenAI tool_call index
         }
 
     # --- Anthropic → Chat Completions ---
@@ -214,6 +216,7 @@ class ToChatCompletionsConverter(BaseConverter):
             if content_block.get("type") == "tool_use":
                 tc_idx = self._stream_state["tool_call_index"]
                 self._stream_state["tool_call_index"] = tc_idx + 1
+                self._stream_state["content_block_to_tc_index"][chunk.get("index", 0)] = tc_idx
                 return {
                     "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
@@ -252,12 +255,13 @@ class ToChatCompletionsConverter(BaseConverter):
                 }
             elif delta.get("type") == "input_json_delta":
                 block_index = chunk.get("index", 0)
+                tc_idx = self._stream_state["content_block_to_tc_index"].get(block_index, block_index)
                 return {
                     "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
                     "created": 0,
                     "model": self._stream_state["model"],
-                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": block_index, "function": {"arguments": delta.get("partial_json", "")}}]}, "finish_reason": None}],
+                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": tc_idx, "function": {"arguments": delta.get("partial_json", "")}}]}, "finish_reason": None}],
                 }
 
         elif event_type == "content_block_stop":
@@ -421,6 +425,83 @@ class ToChatCompletionsConverter(BaseConverter):
         }
         return result
 
+    # --- OpenAI Response 流式 → Chat Completions 流式 ---
+
+    def _response_stream_chunk_to_chat(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
+        if self._stream_state is None:
+            self._reset_stream_state()
+
+        event_type = chunk.get("type", "")
+
+        if event_type == "response.created":
+            resp = chunk.get("response", {})
+            self._stream_state["msg_id"] = f"chatcmpl-{resp.get('id', '')}"
+            self._stream_state["model"] = resp.get("model", "")
+            self._stream_state["tool_call_index"] = 0
+            return {
+                "id": self._stream_state["msg_id"],
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": self._stream_state["model"],
+                "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
+            }
+
+        elif event_type == "response.output_item.added":
+            item = chunk.get("item", {})
+            if item.get("type") == "function_call":
+                tc_idx = self._stream_state["tool_call_index"]
+                self._stream_state["tool_call_index"] = tc_idx + 1
+                output_index = chunk.get("output_index", 0)
+                self._stream_state["output_index_to_tc_index"][output_index] = tc_idx
+                return {
+                    "id": self._stream_state["msg_id"],
+                    "object": "chat.completion.chunk",
+                    "created": 0,
+                    "model": self._stream_state["model"],
+                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": tc_idx, "id": item.get("call_id", ""), "type": "function", "function": {"name": item.get("name", ""), "arguments": ""}}]}, "finish_reason": None}],
+                }
+            return None
+
+        elif event_type == "response.output_text.delta":
+            return {
+                "id": self._stream_state["msg_id"],
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": self._stream_state["model"],
+                "choices": [{"index": 0, "delta": {"content": chunk.get("delta", "")}, "finish_reason": None}],
+            }
+
+        elif event_type == "response.function_call_arguments.delta":
+            output_index = chunk.get("output_index", 0)
+            tc_idx = self._stream_state["output_index_to_tc_index"].get(output_index, 0)
+            return {
+                "id": self._stream_state["msg_id"],
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": self._stream_state["model"],
+                "choices": [{"index": 0, "delta": {"tool_calls": [{"index": tc_idx, "function": {"arguments": chunk.get("delta", "")}}]}, "finish_reason": None}],
+            }
+
+        elif event_type == "response.completed":
+            resp = chunk.get("response", {})
+            finish_reason = "stop"
+            if resp.get("status") == "incomplete":
+                finish_reason = "length"
+            else:
+                for item in resp.get("output", []):
+                    if item.get("type") == "function_call":
+                        finish_reason = "tool_calls"
+                        break
+            return {
+                "id": self._stream_state["msg_id"],
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": self._stream_state["model"],
+                "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}],
+            }
+
+        return None
+
     # --- 公共接口 ---
 
     def convert_request(self, source_data: dict[str, Any], source_type: str = "") -> dict[str, Any]:
@@ -440,4 +521,6 @@ class ToChatCompletionsConverter(BaseConverter):
     def convert_stream_chunk(self, chunk: dict[str, Any], source_type: str = "") -> dict[str, Any] | None:
         if source_type == "anthropic":
             return self._anthropic_stream_chunk_to_chat(chunk)
+        elif source_type == "openai-response":
+            return self._response_stream_chunk_to_chat(chunk)
         return chunk

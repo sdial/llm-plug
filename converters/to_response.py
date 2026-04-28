@@ -11,6 +11,15 @@ from converters.base import BaseConverter
 class ToResponseConverter(BaseConverter):
     """任意格式 → OpenAI Response"""
 
+    def __init__(self):
+        self._stream_state: dict[str, Any] | None = None
+
+    def _reset_stream_state(self):
+        self._stream_state = {
+            "reasoning_started": False,
+            "reasoning_id": "",
+        }
+
     # --- Chat Completions → Response ---
 
     def _chat_tools_to_response(self, tools: list) -> list:
@@ -293,6 +302,9 @@ class ToResponseConverter(BaseConverter):
     # --- Chat Completions 流式 → Response 流式 ---
 
     def _chat_stream_chunk_to_response(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
+        if self._stream_state is None:
+            self._reset_stream_state()
+
         choices = chunk.get("choices", [])
         if not choices:
             return None
@@ -346,7 +358,28 @@ class ToResponseConverter(BaseConverter):
                 return result
 
         if delta.get("reasoning_content") is not None:
-            return None
+            if not self._stream_state["reasoning_started"]:
+                self._stream_state["reasoning_started"] = True
+                self._stream_state["reasoning_id"] = f"rs_{chunk.get('id', '')}"
+                result = {
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": {
+                        "type": "reasoning",
+                        "id": self._stream_state["reasoning_id"],
+                        "summary": [],
+                    },
+                }
+                delta_event = {
+                    "type": "response.reasoning_summary_text.delta",
+                    "delta": delta["reasoning_content"],
+                }
+                result["_extra_events"] = [delta_event]
+                return result
+            return {
+                "type": "response.reasoning_summary_text.delta",
+                "delta": delta["reasoning_content"],
+            }
 
         if finish_reason is not None:
             return {
@@ -364,6 +397,9 @@ class ToResponseConverter(BaseConverter):
     # --- Anthropic 流式 → Response 流式 ---
 
     def _anthropic_stream_chunk_to_response(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
+        if self._stream_state is None:
+            self._reset_stream_state()
+
         event_type = chunk.get("type") or chunk.get("_event_type", "")
 
         if event_type == "message_start":
@@ -407,7 +443,28 @@ class ToResponseConverter(BaseConverter):
                     "delta": delta.get("partial_json", ""),
                 }
             elif delta.get("type") == "thinking_delta":
-                return None
+                if not self._stream_state["reasoning_started"]:
+                    self._stream_state["reasoning_started"] = True
+                    self._stream_state["reasoning_id"] = f"rs_{chunk.get('message', {}).get('id', '')}"
+                    result = {
+                        "type": "response.output_item.added",
+                        "output_index": 0,
+                        "item": {
+                            "type": "reasoning",
+                            "id": self._stream_state["reasoning_id"],
+                            "summary": [],
+                        },
+                    }
+                    delta_event = {
+                        "type": "response.reasoning_summary_text.delta",
+                        "delta": delta.get("thinking", ""),
+                    }
+                    result["_extra_events"] = [delta_event]
+                    return result
+                return {
+                    "type": "response.reasoning_summary_text.delta",
+                    "delta": delta.get("thinking", ""),
+                }
             return None
 
         elif event_type == "content_block_stop":

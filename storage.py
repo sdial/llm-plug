@@ -7,7 +7,7 @@ from typing import Any
 
 import config
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 
 
 def get_lock() -> threading.Lock:

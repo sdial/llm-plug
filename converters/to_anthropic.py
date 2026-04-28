@@ -57,6 +57,49 @@ class ToAnthropicConverter(BaseConverter):
             role = msg.get("role", "user")
             if role == "system":
                 system = msg.get("content", "")
+            elif role == "assistant":
+                content_parts = []
+                text_content = msg.get("content")
+                if text_content:
+                    if isinstance(text_content, str):
+                        content_parts.append({"type": "text", "text": text_content})
+                    elif isinstance(text_content, list):
+                        converted = self._convert_content(text_content)
+                        if isinstance(converted, list):
+                            content_parts.extend(converted)
+                        else:
+                            content_parts.append({"type": "text", "text": str(converted)})
+                for tc in msg.get("tool_calls", []):
+                    args = tc.get("function", {}).get("arguments", "{}")
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except json.JSONDecodeError:
+                            args = {}
+                    content_parts.append({
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": tc.get("function", {}).get("name", ""),
+                        "input": args,
+                    })
+                messages.append({"role": "assistant", "content": content_parts if content_parts else ""})
+            elif role == "tool":
+                tool_result_block = {
+                    "type": "tool_result",
+                    "tool_use_id": msg.get("tool_call_id", ""),
+                    "content": msg.get("content", ""),
+                }
+                # 将连续的 tool 消息合并到同一个 user 消息中（Anthropic 格式要求）
+                if messages and messages[-1]["role"] == "user":
+                    last_content = messages[-1].get("content")
+                    if isinstance(last_content, list) and any(
+                        c.get("type") == "tool_result" for c in last_content
+                    ):
+                        messages[-1]["content"].append(tool_result_block)
+                    else:
+                        messages.append({"role": "user", "content": [tool_result_block]})
+                else:
+                    messages.append({"role": "user", "content": [tool_result_block]})
             else:
                 content = msg.get("content", "")
                 content = self._convert_content(content)
@@ -355,13 +398,19 @@ class ToAnthropicConverter(BaseConverter):
                         }],
                     })
                 elif item_type == "function_call":
+                    args = item.get("arguments", "{}")
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except json.JSONDecodeError:
+                            args = {}
                     messages.append({
                         "role": "assistant",
                         "content": [{
                             "type": "tool_use",
                             "id": item.get("call_id", item.get("id", "")),
                             "name": item.get("name", ""),
-                            "input": json.loads(item.get("arguments", "{}")) if isinstance(item.get("arguments"), str) else item.get("arguments", {}),
+                            "input": args,
                         }],
                     })
                 else:

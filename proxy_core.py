@@ -28,9 +28,9 @@ def _log_debug(
     response_data: Any = None,
     is_stream: bool = False,
     stream_content: Any = None,
-    response_headers: dict = None,
-    status_code: int = None,
-    error: str = None,
+    response_headers: dict | None = None,
+    status_code: int | None = None,
+    error: str | None = None,
 ):
     """记录 debug 日志（包含完整 request + response）"""
     if not DEBUG:
