@@ -99,21 +99,42 @@ def _get_channels_for_model(model: str) -> list[Channel]:
 def _get_converter_and_upstream_type(
     channel: Channel, target_api_type: APIType
 ) -> tuple:
-    """根据渠道类型和目标API类型，获取转换器和上游请求类型"""
+    """根据渠道类型和目标API类型，获取转换器和上游请求类型
+
+    返回 (request_converter, response_converter, source_type)
+    - request_converter: 用于把客户端格式转换为上游格式
+    - response_converter: 用于把上游格式转换为客户端格式
+    """
+    from converters.to_chat import ToChatCompletionsConverter
+    from converters.to_response import ToResponseConverter
+    from converters.to_anthropic import ToAnthropicConverter
+
     source = channel.api_type.value
     target = target_api_type.value
 
     if source == target:
-        return None, source
+        return None, None, source
 
-    if target == "openai-chat-completions":
-        return ToChatCompletionsConverter(), source
+    # 请求转换：target → source（客户端格式 → 上游格式）
+    # 响应转换：source → target（上游格式 → 客户端格式）
+
+    if target == "anthropic":
+        # 客户端发 Anthropic，上游是 OpenAI
+        # 请求：Anthropic → OpenAI (ToChatCompletionsConverter)
+        # 响应：OpenAI → Anthropic (ToAnthropicConverter)
+        return ToChatCompletionsConverter(), ToAnthropicConverter(), source
+    elif target == "openai-chat-completions":
+        # 客户端发 OpenAI Chat，上游是 Anthropic
+        # 请求：OpenAI → Anthropic (ToAnthropicConverter)
+        # 响应：Anthropic → OpenAI (ToChatCompletionsConverter)
+        return ToAnthropicConverter(), ToChatCompletionsConverter(), source
     elif target == "openai-response":
-        return ToResponseConverter(), source
-    elif target == "anthropic":
-        return ToAnthropicConverter(), source
+        # 客户端发 OpenAI Response，上游是 Anthropic
+        # 请求：OpenAI Response → Anthropic (ToAnthropicConverter)
+        # 响应：Anthropic → OpenAI Response (ToResponseConverter)
+        return ToAnthropicConverter(), ToResponseConverter(), source
 
-    return None, source
+    return None, None, source
 
 
 def _get_upstream_url(channel: Channel) -> str:
@@ -168,11 +189,11 @@ async def _do_request(
     is_stream: bool,
     query_string: str | None = None,
 ):
-    converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
+    request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
 
-    # 转换请求
-    if converter:
-        upstream_data = converter.convert_request(request_data, source_type)
+    # 转换请求：客户端格式 → 上游格式
+    if request_converter:
+        upstream_data = request_converter.convert_request(request_data, target_api_type.value)
     else:
         upstream_data = request_data
 
@@ -184,7 +205,7 @@ async def _do_request(
 
     if is_stream:
         return _do_stream_request(
-            channel, url, headers, upstream_data, converter, source_type, target_api_type
+            channel, url, headers, upstream_data, response_converter, source_type, target_api_type
         )
 
     # 非流式：使用缓存的 httpx 客户端（不可 async with，否则会关闭共享连接）
@@ -206,9 +227,9 @@ async def _do_request(
             status_code=resp.status_code,
         )
 
-        # 转换响应
-        if converter:
-            response_data = converter.convert_response(response_data, source_type)
+        # 转换响应：上游格式 → 客户端格式
+        if response_converter:
+            response_data = response_converter.convert_response(response_data, source_type)
 
         load_balancer.record_success(channel.id)
         return response_data
@@ -240,13 +261,14 @@ def _yield_anthropic_events(events: list[tuple[str, dict[str, Any]] | dict[str, 
 
 
 async def _do_stream_request(
-    channel: Channel, url: str, headers: dict, upstream_data: dict, converter, source_type: str,
+    channel: Channel, url: str, headers: dict, upstream_data: dict, response_converter, source_type: str,
     target_api_type: APIType = APIType.OPENAI_CHAT,
 ):
     """流式请求，yield SSE 数据行。
 
     当 target_api_type 为 ANTHROPIC 时，输出 Anthropic SSE 格式
     （包含 event: 行）。否则输出 OpenAI SSE 格式（仅 data: 行）。
+    response_converter: 用于把上游格式转换为客户端格式
     """
     stream_chunks: list[Any] = []
     stream_chunk_count = 0
@@ -301,21 +323,21 @@ async def _do_stream_request(
                 if is_upstream_anthropic and upstream_event_type is not None:
                     chunk["_event_type"] = upstream_event_type
 
-                if converter:
-                    converted = converter.convert_stream_chunk(chunk, source_type)
+                if response_converter:
+                    converted = response_converter.convert_stream_chunk(chunk, source_type)
                     if converted is not None:
                         if output_anthropic_sse:
-                            evt_type = converter.get_stream_event_type(chunk, source_type)
+                            evt_type = response_converter.get_stream_event_type(chunk, source_type)
                             if evt_type:
                                 yield _yield_anthropic_event(evt_type, converted)
                             else:
                                 yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
-                            extra = converter.get_extra_events(converted)
+                            extra = response_converter.get_extra_events(converted)
                             if extra:
                                 yield _yield_anthropic_events(extra)
                         else:
                             yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
-                            extra = converter.get_extra_events(converted)
+                            extra = response_converter.get_extra_events(converted)
                             if extra:
                                 for extra_evt in extra:
                                     yield f"data: {json.dumps(extra_evt, ensure_ascii=False)}\n\n"

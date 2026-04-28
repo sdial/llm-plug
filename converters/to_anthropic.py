@@ -270,21 +270,28 @@ class ToAnthropicConverter(BaseConverter):
             )
 
         if delta.get("content") is not None:
+            # 如果当前有一个不同类型的 block 在进行中，先关闭它
+            if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "text":
+                events.append(
+                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                )
+                self._stream_state["content_block_started"] = False
+                self._stream_state["content_block_index"] += 1
+
             if not self._stream_state["content_block_started"]:
                 self._stream_state["content_block_started"] = True
                 self._stream_state["current_content_type"] = "text"
-                self._stream_state["content_block_index"] = 0
                 events.append(
                     ("content_block_start", {
                         "type": "content_block_start",
-                        "index": 0,
+                        "index": self._stream_state["content_block_index"],
                         "content_block": {"type": "text", "text": ""},
                     })
                 )
             events.append(
                 ("content_block_delta", {
                     "type": "content_block_delta",
-                    "index": 0,
+                    "index": self._stream_state["content_block_index"],
                     "delta": {"type": "text_delta", "text": delta["content"]},
                 })
             )
@@ -333,6 +340,14 @@ class ToAnthropicConverter(BaseConverter):
                         )
 
         if delta.get("reasoning_content") is not None:
+            # 如果当前有一个不同类型的 block 在进行中，先关闭它
+            if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "thinking":
+                events.append(
+                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                )
+                self._stream_state["content_block_started"] = False
+                self._stream_state["content_block_index"] += 1
+
             if not self._stream_state["content_block_started"]:
                 self._stream_state["content_block_started"] = True
                 self._stream_state["current_content_type"] = "thinking"
