@@ -236,7 +236,14 @@ class ToResponseConverter(BaseConverter):
                 elif tc.get("type") == "tool":
                     result["tool_choice"] = {"type": "function", "name": tc.get("name", "")}
         if data.get("thinking") is not None:
-            result["reasoning"] = {"effort": "high"}
+            budget = data["thinking"].get("budget_tokens", 0) if isinstance(data["thinking"], dict) else 0
+            if budget >= 10000:
+                effort = "high"
+            elif budget >= 4000:
+                effort = "medium"
+            else:
+                effort = "low"
+            result["reasoning"] = {"effort": effort}
         return result
 
     def _anthropic_tools_to_response(self, tools: list) -> list:

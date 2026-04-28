@@ -92,5 +92,5 @@ async def list_models_anthropic(
         }
         for m in page
     ]
-    has_more = end < len(anthropic_models)
+    has_more = end_idx < len(anthropic_models)
     return {"data": data, "has_more": has_more, "first_id": page[0]["id"] if page else "", "last_id": page[-1]["id"] if page else ""}

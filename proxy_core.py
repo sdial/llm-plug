@@ -155,6 +155,7 @@ async def proxy_request(
     target_api_type: APIType,
     is_stream: bool = False,
     query_string: str | None = None,
+    client_headers: dict[str, str] | None = None,
 ) -> tuple[Any, Channel]:
     """
     执行代理请求，返回 (response_data_or_stream, selected_channel)
@@ -175,7 +176,7 @@ async def proxy_request(
             raise ValueError(f"模型 {model} 的所有渠道均不可用")
 
         try:
-            return await _do_request(selected, request_data, target_api_type, is_stream, query_string=query_string), selected
+            return await _do_request(selected, request_data, target_api_type, is_stream, query_string=query_string, client_headers=client_headers), selected
         except Exception as e:
             load_balancer.record_failure(selected.id)
             last_error = e
@@ -188,6 +189,7 @@ async def _do_request(
     target_api_type: APIType,
     is_stream: bool,
     query_string: str | None = None,
+    client_headers: dict[str, str] | None = None,
 ):
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
 
@@ -202,6 +204,15 @@ async def _do_request(
         url = f"{url}?{query_string}"
     headers = get_upstream_headers(channel)
     headers["Content-Type"] = "application/json"
+
+    # 合并客户端的 Anthropic 请求头（anthropic-beta, anthropic-version）
+    if client_headers and channel.api_type == APIType.ANTHROPIC:
+        for key, val in client_headers.items():
+            existing = headers.get(key, "")
+            if existing:
+                headers[key] = f"{existing},{val}"
+            else:
+                headers[key] = val
 
     if is_stream:
         return _do_stream_request(
