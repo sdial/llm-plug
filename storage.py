@@ -10,7 +10,7 @@ import config
 _lock = threading.RLock()
 
 
-def get_lock() -> threading.Lock:
+def get_lock() -> threading.RLock:
     return _lock
 
 _cache: dict[str, Any] | None = None

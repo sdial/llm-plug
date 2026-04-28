@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 
 import httpx
 
-from client import get_upstream_headers
+from client import get_upstream_headers, remove_channel_client
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from storage import load_data, save_data, get_lock
 
@@ -61,6 +61,8 @@ def update_channel(channel_id: str, body: ChannelUpdate):
                 updated = ch.model_copy(update=update_data)
                 channels[i] = updated
                 _save_channels(channels)
+                # 渠道配置变更（base_url/socks5_proxy）时刷新客户端缓存
+                remove_channel_client(ch)
                 return updated
     raise HTTPException(status_code=404, detail="渠道不存在")
 
@@ -73,6 +75,11 @@ def delete_channel(channel_id: str):
         new_channels = [ch for ch in channels if ch.id != channel_id]
         if len(new_channels) == len(channels):
             raise HTTPException(status_code=404, detail="渠道不存在")
+        # 移除被删除渠道的客户端缓存
+        for ch in channels:
+            if ch.id == channel_id:
+                remove_channel_client(ch)
+                break
         _save_channels(new_channels)
     return {"message": "删除成功"}
 
@@ -87,6 +94,8 @@ def toggle_channel(channel_id: str):
                 updated = ch.model_copy(update={"enabled": not ch.enabled})
                 channels[i] = updated
                 _save_channels(channels)
+                # 渠道配置变更时刷新客户端缓存
+                remove_channel_client(ch)
                 return updated
     raise HTTPException(status_code=404, detail="渠道不存在")
 

@@ -228,10 +228,14 @@ def _yield_anthropic_event(event_type: str, data: dict[str, Any]) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _yield_anthropic_events(events: list[tuple[str, dict[str, Any]]]) -> str:
+def _yield_anthropic_events(events: list[tuple[str, dict[str, Any]] | dict[str, Any]]) -> str:
     parts = []
-    for et, d in events:
-        parts.append(f"event: {et}\ndata: {json.dumps(d, ensure_ascii=False)}\n\n")
+    for evt in events:
+        if isinstance(evt, tuple) and len(evt) == 2:
+            et, d = evt
+            parts.append(f"event: {et}\ndata: {json.dumps(d, ensure_ascii=False)}\n\n")
+        elif isinstance(evt, dict):
+            parts.append(f"data: {json.dumps(evt, ensure_ascii=False)}\n\n")
     return "".join(parts)
 
 
@@ -259,6 +263,7 @@ async def _do_stream_request(
     output_anthropic_sse = target_api_type == APIType.ANTHROPIC
     is_upstream_anthropic = source_type == "anthropic"
 
+    stream_success = False
     try:
         async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
             resp.raise_for_status()
@@ -324,12 +329,12 @@ async def _do_stream_request(
                 if is_upstream_anthropic:
                     upstream_event_type = None
 
+        stream_success = True
         _log_debug(
             channel=channel, upstream_url=url, upstream_data=upstream_data,
             upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
             response_headers=resp_headers, status_code=resp_status_code,
         )
-        load_balancer.record_success(channel.id)
     except Exception as e:
         load_balancer.record_failure(channel.id)
         _log_debug(
@@ -348,5 +353,7 @@ async def _do_stream_request(
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
     finally:
+        if stream_success:
+            load_balancer.record_success(channel.id)
         if not client.is_closed:
             await client.aclose()

@@ -1,5 +1,6 @@
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -48,7 +49,8 @@ app.include_router(proxy_anthropic.router)
 app.include_router(proxy_models.router)
 
 # 静态文件（管理页面）
-app.mount("/static", StaticFiles(directory="static"), name="static")
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/")

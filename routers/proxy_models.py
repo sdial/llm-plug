@@ -71,8 +71,17 @@ async def list_models_anthropic(
             if m["id"] == after:
                 start = i + 1
                 break
-    end = start + limit
-    page = anthropic_models[start:end]
+    if before:
+        end_idx = len(anthropic_models)
+        for i, m in enumerate(anthropic_models):
+            if m["id"] == before:
+                end_idx = i
+                break
+    else:
+        end_idx = len(anthropic_models)
+    page = anthropic_models[start:start + limit]
+    if before:
+        page = anthropic_models[max(0, end_idx - limit):end_idx]
 
     data = [
         {

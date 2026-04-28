@@ -18,6 +18,7 @@ class ToResponseConverter(BaseConverter):
         self._stream_state = {
             "reasoning_started": False,
             "reasoning_id": "",
+            "message_id": "",
         }
 
     # --- Chat Completions → Response ---
@@ -404,6 +405,7 @@ class ToResponseConverter(BaseConverter):
 
         if event_type == "message_start":
             msg = chunk.get("message", {})
+            self._stream_state["message_id"] = msg.get("id", "")
             return {
                 "type": "response.created",
                 "response": {
@@ -445,7 +447,7 @@ class ToResponseConverter(BaseConverter):
             elif delta.get("type") == "thinking_delta":
                 if not self._stream_state["reasoning_started"]:
                     self._stream_state["reasoning_started"] = True
-                    self._stream_state["reasoning_id"] = f"rs_{chunk.get('message', {}).get('id', '')}"
+                    self._stream_state["reasoning_id"] = f"rs_{self._stream_state['message_id']}"
                     result = {
                         "type": "response.output_item.added",
                         "output_index": 0,
