@@ -98,6 +98,20 @@ def _get_channels_for_model(model: str) -> list[Channel]:
     return [ch for ch in channels if model in ch.models and ch.enabled]
 
 
+CONVERTER_MAP: dict[tuple[str, str], tuple[type, type]] = {
+    # key: (source=上游渠道格式, target=客户端入口格式)
+    # value: (RequestConverter, ResponseConverter)
+    # RequestConverter: 把客户端格式(target)转换为上游格式(source)
+    # ResponseConverter: 把上游格式(source)转换为客户端格式(target)
+    ("openai-chat-completions", "anthropic"): (ToChatCompletionsConverter, ToAnthropicConverter),
+    ("openai-response", "anthropic"): (ToResponseConverter, ToAnthropicConverter),
+    ("openai-response", "openai-chat-completions"): (ToResponseConverter, ToChatCompletionsConverter),
+    ("anthropic", "openai-chat-completions"): (ToAnthropicConverter, ToChatCompletionsConverter),
+    ("anthropic", "openai-response"): (ToAnthropicConverter, ToResponseConverter),
+    ("openai-chat-completions", "openai-response"): (ToChatCompletionsConverter, ToResponseConverter),
+}
+
+
 def _get_converter_and_upstream_type(
     channel: Channel, target_api_type: APIType
 ) -> tuple:
@@ -107,36 +121,17 @@ def _get_converter_and_upstream_type(
     - request_converter: 用于把客户端格式转换为上游格式
     - response_converter: 用于把上游格式转换为客户端格式
     """
-    from converters.to_chat import ToChatCompletionsConverter
-    from converters.to_response import ToResponseConverter
-    from converters.to_anthropic import ToAnthropicConverter
-
     source = channel.api_type.value
     target = target_api_type.value
 
     if source == target:
         return None, None, source
 
-    # 请求转换：target → source（客户端格式 → 上游格式）
-    # 响应转换：source → target（上游格式 → 客户端格式）
-
-    if target == "anthropic":
-        # 客户端发 Anthropic，上游是 OpenAI
-        # 请求：Anthropic → OpenAI (ToChatCompletionsConverter)
-        # 响应：OpenAI → Anthropic (ToAnthropicConverter)
-        return ToChatCompletionsConverter(), ToAnthropicConverter(), source
-    elif target == "openai-chat-completions":
-        # 客户端发 OpenAI Chat，上游是 Anthropic
-        # 请求：OpenAI → Anthropic (ToAnthropicConverter)
-        # 响应：Anthropic → OpenAI (ToChatCompletionsConverter)
-        return ToAnthropicConverter(), ToChatCompletionsConverter(), source
-    elif target == "openai-response":
-        # 客户端发 OpenAI Response，上游是 Anthropic
-        # 请求：OpenAI Response → Anthropic (ToAnthropicConverter)
-        # 响应：Anthropic → OpenAI Response (ToResponseConverter)
-        return ToAnthropicConverter(), ToResponseConverter(), source
-
-    return None, None, source
+    converters = CONVERTER_MAP.get((source, target))
+    if converters is None:
+        raise ValueError(f"不支持的转换方向: {source} -> {target}")
+    req_cls, resp_cls = converters
+    return req_cls(), resp_cls(), source
 
 
 def _get_upstream_url(channel: Channel) -> str:

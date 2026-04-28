@@ -254,3 +254,66 @@ class TestEdgeCases:
         result = converter.convert_response(response, APIType.ANTHROPIC)
         assert result["choices"][0]["finish_reason"] == "tool_calls"
         assert len(result["choices"][0]["message"]["tool_calls"]) == 1
+
+
+class TestConverterRouting:
+    """测试 proxy_core 路由表覆盖所有转换方向"""
+
+    def test_all_conversion_directions(self):
+        """验证 CONVERTER_MAP 包含所有 6 个非直通组合"""
+        from proxy_core import CONVERTER_MAP
+
+        expected = {
+            ("openai-chat-completions", "anthropic"),
+            ("openai-response", "anthropic"),
+            ("openai-response", "openai-chat-completions"),
+            ("anthropic", "openai-chat-completions"),
+            ("anthropic", "openai-response"),
+            ("openai-chat-completions", "openai-response"),
+        }
+        assert set(CONVERTER_MAP.keys()) == expected
+
+    def test_passthrough_same_type(self):
+        """同格式应返回 None, None"""
+        from proxy_core import _get_converter_and_upstream_type
+        from models.channel import Channel
+        from models.api_types import APIType
+
+        channel = Channel(
+            name="test",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="http://test",
+            api_key="test",
+            models=["gpt-4o"],
+        )
+        req, resp, src = _get_converter_and_upstream_type(channel, APIType.OPENAI_CHAT)
+        assert req is None
+        assert resp is None
+        assert src == "openai-chat-completions"
+
+    def test_unsupported_direction_raises(self):
+        """不支持的转换方向应抛出 ValueError"""
+        import pytest
+        from unittest.mock import patch
+
+        # 验证 CONVERTER_MAP 对不存在的键返回 None
+        from proxy_core import CONVERTER_MAP
+
+        assert CONVERTER_MAP.get(("nonexistent", "type")) is None
+
+        # 通过 mock CONVERTER_MAP.get 触发 ValueError 分支
+        from proxy_core import _get_converter_and_upstream_type
+        from models.channel import Channel
+        from models.api_types import APIType
+
+        channel = Channel(
+            name="test",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="http://test",
+            api_key="test",
+            models=["gpt-4o"],
+        )
+
+        with patch("proxy_core.CONVERTER_MAP", {}):
+            with pytest.raises(ValueError, match="不支持的转换方向"):
+                _get_converter_and_upstream_type(channel, APIType.ANTHROPIC)
