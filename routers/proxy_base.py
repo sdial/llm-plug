@@ -57,8 +57,10 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
                 query_string=query_string, client_headers=client_headers,
             )
         except ValueError as e:
+            print(f"[ERR]  {path} ValueError: {e}")
             return err_invalid(str(e))
         except Exception as e:
+            print(f"[ERR]  {path} {type(e).__name__}: {e}")
             return err_exception(e)
 
         if is_stream:

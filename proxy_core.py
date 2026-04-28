@@ -6,6 +6,8 @@ import os
 from datetime import datetime
 from typing import Any
 
+import httpx
+
 from balancer.load_balancer import load_balancer
 from client import create_client, create_stream_client, get_upstream_headers
 from config import DEBUG, DEBUG_LOG_DIR
@@ -242,10 +244,33 @@ async def _do_request(
         if response_converter:
             response_data = response_converter.convert_response(response_data, source_type)
 
+        # 非流式响应摘要日志
+        content = response_data.get("content", []) if isinstance(response_data, dict) else []
+        if content:
+            summary = []
+            for c in content:
+                if c.get("type") == "text":
+                    txt = c.get("text", "")
+                    summary.append(f'text({len(txt)}chars)')
+                elif c.get("type") == "tool_use":
+                    summary.append(f'tool_use({c.get("name", "")})')
+                else:
+                    summary.append(c.get("type", "?"))
+            print(f"[BODY] content: [{', '.join(summary)}]")
+        print(f"[BODY] stop_reason: {response_data.get('stop_reason', '?') if isinstance(response_data, dict) else '?'}")
+
         load_balancer.record_success(channel.id)
         return response_data
     except Exception as e:
-        # 记录错误日志
+        # 控制台输出详细错误
+        err_body = ""
+        if isinstance(e, httpx.HTTPStatusError):
+            err_body = e.response.text[:500]
+            print(f"[ERR]  upstream {e.response.status_code} {url}")
+            print(f"[ERR]  body: {err_body}")
+        else:
+            print(f"[ERR]  upstream {type(e).__name__}: {e}")
+
         _log_debug(
             channel=channel,
             upstream_url=url,
@@ -283,6 +308,57 @@ async def _do_stream_request(
     """
     stream_chunks: list[Any] = []
     stream_chunk_count = 0
+    _stream_log_enabled = os.getenv("LOG_LEVEL", "info").lower() == "debug"
+    _stream_log_count = 0  # 流式事件日志计数器
+    _STREAM_LOG_MAX = 20   # 最多记录前 20 个事件
+
+    def _log_stream_event(sse_data: str):
+        """记录流式 SSE 事件（仅 debug 级别，限流：最多 _STREAM_LOG_MAX 条）"""
+        if not _stream_log_enabled:
+            return
+        nonlocal _stream_log_count
+        if _stream_log_count >= _STREAM_LOG_MAX:
+            return
+        _stream_log_count += 1
+        # 提取 event type 和关键信息
+        lines = sse_data.strip().split("\n")
+        evt_type = ""
+        data_summary = ""
+        for ln in lines:
+            if ln.startswith("event: "):
+                evt_type = ln[7:]
+            elif ln.startswith("data: "):
+                try:
+                    d = json.loads(ln[6:])
+                    # 关键字段摘要
+                    if d.get("type") == "content_block_start":
+                        cb = d.get("content_block", {})
+                        data_summary = f'cb_start({cb.get("type","")}{"," + cb.get("name","") if cb.get("name") else ""})'
+                    elif d.get("type") == "content_block_delta":
+                        delta = d.get("delta", {})
+                        dtype = delta.get("type", "")
+                        if dtype == "text_delta":
+                            data_summary = f'text({len(delta.get("text",""))}chars)'
+                        elif dtype == "input_json_delta":
+                            data_summary = f'json({delta.get("partial_json","")})'
+                        elif dtype == "thinking_delta":
+                            data_summary = f'thinking({len(delta.get("thinking",""))}chars)'
+                        else:
+                            data_summary = dtype
+                    elif d.get("type") == "content_block_stop":
+                        data_summary = f'cb_stop(idx={d.get("index","")})'
+                    elif d.get("type") == "message_start":
+                        data_summary = f'id={d.get("message",{}).get("id","")}'
+                    elif d.get("type") == "message_delta":
+                        data_summary = f'stop={d.get("delta",{}).get("stop_reason","")}'
+                    else:
+                        data_summary = d.get("type", str(d)[:80])
+                except json.JSONDecodeError:
+                    data_summary = ln[6:][:80]
+        if evt_type:
+            print(f"[SSE]  {evt_type}: {data_summary}")
+        elif data_summary:
+            print(f"[SSE]  data: {data_summary}")
 
     def _record_chunk(item: Any):
         """记录stream chunk，超过限制后停止记录"""
@@ -340,24 +416,40 @@ async def _do_stream_request(
                         if output_anthropic_sse:
                             evt_type = response_converter.get_stream_event_type(chunk, source_type)
                             if evt_type:
-                                yield _yield_anthropic_event(evt_type, converted)
+                                sse = _yield_anthropic_event(evt_type, converted)
+                                _log_stream_event(sse)
+                                yield sse
                             else:
-                                yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                                sse = f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                                _log_stream_event(sse)
+                                yield sse
                             extra = response_converter.get_extra_events(converted)
                             if extra:
-                                yield _yield_anthropic_events(extra)
+                                sse = _yield_anthropic_events(extra)
+                                for part in sse.split("\n\n"):
+                                    if part.strip():
+                                        _log_stream_event(part + "\n\n")
+                                yield sse
                         else:
-                            yield f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                            sse = f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
+                            _log_stream_event(sse)
+                            yield sse
                             extra = response_converter.get_extra_events(converted)
                             if extra:
                                 for extra_evt in extra:
-                                    yield f"data: {json.dumps(extra_evt, ensure_ascii=False)}\n\n"
+                                    sse = f"data: {json.dumps(extra_evt, ensure_ascii=False)}\n\n"
+                                    _log_stream_event(sse)
+                                    yield sse
                 else:
                     if output_anthropic_sse and is_upstream_anthropic:
                         evt = upstream_event_type or "ping"
-                        yield _yield_anthropic_event(evt, chunk)
+                        sse = _yield_anthropic_event(evt, chunk)
+                        _log_stream_event(sse)
+                        yield sse
                     else:
-                        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                        sse = f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                        _log_stream_event(sse)
+                        yield sse
 
                 if is_upstream_anthropic:
                     upstream_event_type = None
@@ -370,6 +462,15 @@ async def _do_stream_request(
         )
     except Exception as e:
         load_balancer.record_failure(channel.id)
+        # 控制台输出详细错误
+        err_body = ""
+        if isinstance(e, httpx.HTTPStatusError):
+            err_body = e.response.text[:500]
+            print(f"[ERR]  upstream stream {e.response.status_code} {url}")
+            print(f"[ERR]  body: {err_body}")
+        else:
+            print(f"[ERR]  upstream stream {type(e).__name__}: {e}")
+
         _log_debug(
             channel=channel, upstream_url=url, upstream_data=upstream_data,
             upstream_headers=headers, is_stream=True, stream_content=stream_chunks,

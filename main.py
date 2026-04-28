@@ -1,4 +1,7 @@
+import json
+import os
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -21,25 +24,38 @@ app = FastAPI(title="LLM API 转换器", version="0.1.0", lifespan=lifespan)
 # uvicorn --debug 会设置 sys.flags.debug
 _debug_enabled = DEBUG or getattr(sys.flags, "debug", False)
 
-if _debug_enabled:
-    @app.middleware("http")
-    async def debug_log_middleware(request: Request, call_next):
-        method = request.method
-        path = request.url.path
-        query = request.url.query
+# 日志级别（由 --log-level 参数控制，默认 info）
+LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
+
+
+@app.middleware("http")
+async def request_log_middleware(request: Request, call_next):
+    method = request.method
+    path = request.url.path
+    query = request.url.query
+
+    # 只记录代理 API 请求
+    if method == "POST" and path in ("/v1/chat/completions", "/v1/responses", "/v1/messages"):
+        start = time.time()
         model = ""
         stream = False
-        if method == "POST" and path in ("/v1/chat/completions", "/v1/responses", "/v1/messages"):
-            try:
-                body = await request.json()
-                model = body.get("model", "")
-                stream = body.get("stream", False)
-            except Exception:
-                pass
-        print(f"[DEBUG] {method} {path}{'?' + query if query else ''} model={model} stream={stream}")
+        try:
+            body = await request.json()
+            model = body.get("model", "")
+            stream = body.get("stream", False)
+        except Exception:
+            pass
+        qs = f"?{query}" if query else ""
+        print(f"[REQ]  {method} {path}{qs} model={model} stream={stream}")
+
         response = await call_next(request)
-        print(f"[DEBUG] {method} {path} -> {response.status_code}")
+        elapsed = time.time() - start
+        status = response.status_code
+        tag = "OK" if status < 400 else "ERR"
+        print(f"[RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.1f}s)")
         return response
+
+    return await call_next(request)
 
 # 注册路由
 app.include_router(admin.router)
@@ -60,5 +76,13 @@ async def root():
 
 
 if __name__ == "__main__":
+    import argparse
     import uvicorn
-    uvicorn.run("main:app", host=HOST, port=PORT, reload=True)
+
+    parser = argparse.ArgumentParser(description="LLM API 转换器")
+    parser.add_argument("--log-level", default="info", choices=["debug", "info", "warning", "error"],
+                        help="日志级别 (默认: info)")
+    args = parser.parse_args()
+
+    os.environ["LOG_LEVEL"] = args.log_level
+    uvicorn.run("main:app", host=HOST, port=PORT, reload=True, log_level=args.log_level)
