@@ -83,7 +83,17 @@ class ToAnthropicConverter(BaseConverter):
         for msg in data.get("messages", []):
             role = msg.get("role", "user")
             if role == "system":
-                system = msg.get("content", "")
+                if system is None:
+                    system = []
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    system.append({"type": "text", "text": content})
+                elif isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            system.append(item)
+                        elif isinstance(item, str):
+                            system.append({"type": "text", "text": item})
             elif role == "assistant":
                 content_parts = []
                 text_content = msg.get("content")
@@ -161,6 +171,8 @@ class ToAnthropicConverter(BaseConverter):
                 result["tool_choice"] = {"type": "auto"}
             elif tc == "required":
                 result["tool_choice"] = {"type": "any"}
+            elif tc == "none":
+                result["tool_choice"] = {"type": "none"}
 
         if data.get("thinking") is not None:
             result["thinking"] = data["thinking"]

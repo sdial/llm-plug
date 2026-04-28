@@ -125,9 +125,18 @@ class ToChatCompletionsConverter(BaseConverter):
                     result["tool_choice"] = "auto"
                 elif tc.get("type") == "any":
                     result["tool_choice"] = "required"
+                elif tc.get("type") == "none":
+                    result["tool_choice"] = "none"
                 elif tc.get("type") == "tool":
                     result["tool_choice"] = {"type": "function", "function": {"name": tc.get("name", "")}}
-        # thinking 是 Anthropic 特有字段，不直传到 OpenAI Chat Completions
+        thinking = data.get("thinking")
+        if thinking:
+            if isinstance(thinking, dict):
+                if thinking.get("type") == "enabled":
+                    budget = thinking.get("budget_tokens", 0)
+                    result["reasoning_effort"] = budget
+                elif thinking.get("type") == "adaptive":
+                    result["reasoning_effort"] = "medium"
         return result
 
     def _anthropic_tools_to_openai(self, tools: list) -> list:

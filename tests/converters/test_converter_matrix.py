@@ -37,7 +37,7 @@ class TestChatToAnthropic:
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         assert "system" in result
-        assert result["system"] == "You are helpful"
+        assert result["system"] == [{"type": "text", "text": "You are helpful"}]
         # system 不应出现在 messages 中
         assert all(m["role"] != "system" for m in result["messages"])
 
