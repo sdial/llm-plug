@@ -1,6 +1,7 @@
 import httpx
 from typing import Optional
 
+from config import REQUEST_TIMEOUT
 from models.api_types import APIType
 from models.channel import Channel
 
@@ -11,7 +12,9 @@ def _cache_key(channel: Channel) -> str:
     return f"{channel.base_url}|{channel.socks5_proxy or ''}"
 
 
-def get_or_create_client(channel: Channel, timeout: float = 300.0) -> httpx.AsyncClient:
+def get_or_create_client(channel: Channel, timeout: float | None = None) -> httpx.AsyncClient:
+    if timeout is None:
+        timeout = float(REQUEST_TIMEOUT)
     key = _cache_key(channel)
     client = _clients.get(key)
     if client is not None and not client.is_closed:
@@ -30,19 +33,20 @@ def get_or_create_client(channel: Channel, timeout: float = 300.0) -> httpx.Asyn
     return client
 
 
-def create_client(channel: Channel, timeout: float = 300.0) -> httpx.AsyncClient:
+def create_client(channel: Channel, timeout: float | None = None) -> httpx.AsyncClient:
     return get_or_create_client(channel, timeout)
 
 
 def create_stream_client(channel: Channel) -> httpx.AsyncClient:
+    timeout = float(REQUEST_TIMEOUT)
     proxy = channel.socks5_proxy
     if proxy:
         return httpx.AsyncClient(
             proxy=proxy,
-            timeout=httpx.Timeout(300.0, connect=10.0, read=300.0),
+            timeout=httpx.Timeout(timeout, connect=10.0, read=timeout),
         )
     return httpx.AsyncClient(
-        timeout=httpx.Timeout(300.0, connect=10.0, read=300.0),
+        timeout=httpx.Timeout(timeout, connect=10.0, read=timeout),
     )
 
 

@@ -12,6 +12,9 @@ CHANNELS_FILE = os.getenv("CHANNELS_FILE", os.path.join(DATA_DIR, "channels.json
 MAX_FAIL_COUNT = int(os.getenv("MAX_FAIL_COUNT", "5"))  # 连续失败N次后剔除
 COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", "60"))  # 冷却恢复时间(秒)
 
+# 请求超时（秒）
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "300"))
+
 # 代理访问鉴权
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")  # 管理API密钥，为空则不鉴权
 PROXY_API_KEY = os.getenv("PROXY_API_KEY", "")  # 代理API密钥，为空则不鉴权
