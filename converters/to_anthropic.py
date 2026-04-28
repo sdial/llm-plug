@@ -2,9 +2,14 @@
 将其他格式转换为 Anthropic Messages 格式
 """
 import json
+import logging
 from typing import Any
 
 from converters.base import BaseConverter
+
+logger = logging.getLogger(__name__)
+
+logger = logging.getLogger(__name__)
 
 
 class ToAnthropicConverter(BaseConverter):
@@ -70,8 +75,12 @@ class ToAnthropicConverter(BaseConverter):
                                 "type": "image",
                                 "source": {"type": "base64", "media_type": media_type, "data": data},
                             })
-                    else:
-                        result.append(item)
+                        else:
+                            raise ValueError(
+                                f"Anthropic only supports base64-encoded images (data: URI). "
+                                f"Got URL: {url[:50]}..."
+                            )
+
                 elif isinstance(item, str):
                     result.append({"type": "text", "text": item})
             return result
@@ -112,6 +121,7 @@ class ToAnthropicConverter(BaseConverter):
                         try:
                             args = json.loads(args)
                         except json.JSONDecodeError:
+                            logger.debug("JSON decode error for arguments: %r", args)
                             args = {}
                     content_parts.append({
                         "type": "tool_use",
@@ -224,6 +234,7 @@ class ToAnthropicConverter(BaseConverter):
                     try:
                         args = json.loads(args)
                     except json.JSONDecodeError:
+                        logger.debug("JSON decode error for arguments: %r", args)
                         args = {}
                 content.append({
                     "type": "tool_use",
@@ -486,6 +497,7 @@ class ToAnthropicConverter(BaseConverter):
                         try:
                             args = json.loads(args)
                         except json.JSONDecodeError:
+                            logger.debug("JSON decode error for arguments: %r", args)
                             args = {}
                     messages.append({
                         "role": "assistant",
@@ -556,6 +568,7 @@ class ToAnthropicConverter(BaseConverter):
                     try:
                         args = json.loads(args)
                     except json.JSONDecodeError:
+                        logger.debug("JSON decode error for arguments: %r", args)
                         args = {}
                 content.append({
                     "type": "tool_use",

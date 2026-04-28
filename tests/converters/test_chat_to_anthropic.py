@@ -1,3 +1,5 @@
+import pytest
+
 from converters.to_anthropic import ToAnthropicConverter
 from models.api_types import APIType
 
@@ -54,3 +56,36 @@ class TestChatToAnthropic:
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         assert result["tool_choice"]["type"] == "none"
+
+    def test_invalid_json_arguments_fallback(self):
+        """无效 JSON 参数应回退为空 dict 但不崩溃"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "test", "arguments": "not valid json"},
+                }],
+            }],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
+        assert assistant_msg["content"][0]["input"] == {}
+
+    def test_non_data_image_url_raises(self):
+        """非 data: URL 的 image_url 应报 ValueError"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What is this?"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}},
+                ],
+            }],
+        }
+        with pytest.raises(ValueError, match="Anthropic only supports base64-encoded images"):
+            self.converter.convert_request(request, APIType.OPENAI_CHAT)
