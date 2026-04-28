@@ -128,10 +128,11 @@
 - [x] 实现故障转移（主渠道失败自动切换备选渠道）
 
 ### Phase 6: 完善与部署
-- [ ] 错误处理与日志
-- [ ] API Key认证（访问转换器本身的鉴权）
+- [x] 错误处理与日志
+- [x] 代理API Key认证（`PROXY_API_KEY` 已生效）
+- [ ] 管理API Key认证（`ADMIN_API_KEY` 已定义，管理路由待接入）
 - [ ] Dockerfile
-- [ ] 测试
+- [x] 基础测试（`tests/` 已覆盖转换器、路由、负载均衡等）
 
 ## API端点设计
 
@@ -181,6 +182,8 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 | COOLDOWN_SECONDS | 60 | 渠道冷却恢复时间 |
 | ADMIN_API_KEY | (空) | 管理API密钥，空则不鉴权 |
 | PROXY_API_KEY | (空) | 代理API密钥，空则不鉴权 |
+| DEBUG | false | 调试日志开关 |
+| DEBUG_LOG_DIR | ./logs | 调试日志目录，输出 JSONL 格式 |
 
 ## Cherry Studio 兼容性说明
 
