@@ -118,8 +118,7 @@ class ToChatCompletionsConverter(BaseConverter):
             result["stop"] = data["stop_sequences"]
         if data.get("tools"):
             result["tools"] = self._anthropic_tools_to_openai(data["tools"])
-        if data.get("thinking") is not None:
-            result["thinking"] = data["thinking"]
+        # thinking 是 Anthropic 特有字段，不直传到 OpenAI Chat Completions
         return result
 
     def _anthropic_tools_to_openai(self, tools: list) -> list:

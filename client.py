@@ -78,6 +78,14 @@ def remove_channel_client(channel: Channel):
     key = _cache_key(channel)
     client = _clients.pop(key, None)
     _cache_ts.pop(key, None)
+    if client and not client.is_closed:
+        # 注意：这里是同步函数，无法 await aclose()。
+        # 调用方应在异步上下文中手动处理，或依赖 cleanup_stale_clients 兜底。
+        try:
+            import asyncio
+            asyncio.get_event_loop().create_task(client.aclose())
+        except RuntimeError:
+            pass
     return client
 
 
