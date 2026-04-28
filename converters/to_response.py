@@ -20,6 +20,7 @@ class ToResponseConverter(BaseConverter):
             "reasoning_started": False,
             "reasoning_id": "",
             "message_id": "",
+            "output_index": 0,
         }
         self._pending_extra_events = []
 
@@ -343,9 +344,11 @@ class ToResponseConverter(BaseConverter):
             events = []
             for tc in delta["tool_calls"]:
                 if tc.get("function", {}).get("name"):
+                    idx = self._stream_state["output_index"]
+                    self._stream_state["output_index"] = idx + 1
                     events.append({
                         "type": "response.output_item.added",
-                        "output_index": 0,
+                        "output_index": idx,
                         "item": {
                             "type": "function_call",
                             "call_id": tc.get("id", ""),
@@ -363,7 +366,7 @@ class ToResponseConverter(BaseConverter):
             if events:
                 if len(events) == 1:
                     return events[0]
-                result = dict(events[0])  # 复制一份
+                result = dict(events[0])
                 self._pending_extra_events = events[1:]
                 return result
 
@@ -371,9 +374,11 @@ class ToResponseConverter(BaseConverter):
             if not self._stream_state["reasoning_started"]:
                 self._stream_state["reasoning_started"] = True
                 self._stream_state["reasoning_id"] = f"rs_{chunk.get('id', '')}"
+                idx = self._stream_state["output_index"]
+                self._stream_state["output_index"] = idx + 1
                 result = {
                     "type": "response.output_item.added",
-                    "output_index": 0,
+                    "output_index": idx,
                     "item": {
                         "type": "reasoning",
                         "id": self._stream_state["reasoning_id"],
@@ -457,9 +462,11 @@ class ToResponseConverter(BaseConverter):
                 if not self._stream_state["reasoning_started"]:
                     self._stream_state["reasoning_started"] = True
                     self._stream_state["reasoning_id"] = f"rs_{self._stream_state['message_id']}"
+                    idx = self._stream_state["output_index"]
+                    self._stream_state["output_index"] = idx + 1
                     result = {
                         "type": "response.output_item.added",
-                        "output_index": 0,
+                        "output_index": idx,
                         "item": {
                             "type": "reasoning",
                             "id": self._stream_state["reasoning_id"],

@@ -43,12 +43,12 @@ class ToAnthropicConverter(BaseConverter):
                         "model": chunk.get("model", ""),
                         "stop_reason": None,
                         "stop_sequence": None,
-                        "usage": {
-                            "input_tokens": 0,
-                            "output_tokens": 0,
-                            "cache_creation_input_tokens": 0,
-                            "cache_read_input_tokens": 0,
-                        },
+            "usage": {
+                "input_tokens": chunk.get("usage", {}).get("prompt_tokens", 0),
+                "output_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
                     },
                 },
             ))
@@ -275,6 +275,14 @@ class ToAnthropicConverter(BaseConverter):
             usage = chunk.get("usage")
             if usage and self._stream_state["started"]:
                 if self._stream_state["content_block_started"]:
+                    if self._stream_state["current_content_type"] == "thinking":
+                        events.append(
+                            ("content_block_delta", {
+                                "type": "content_block_delta",
+                                "index": self._stream_state["content_block_index"],
+                                "delta": {"type": "signature_delta", "signature": ""},
+                            })
+                        )
                     events.append(
                         ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                     )
@@ -296,12 +304,17 @@ class ToAnthropicConverter(BaseConverter):
         delta = choices[0].get("delta", {})
         finish_reason = choices[0].get("finish_reason")
 
-        # message_start 由 _ensure_message_started 在需要时自动发出
-
         if delta.get("content") is not None:
             self._ensure_message_started(chunk, events)
-            # 如果当前有一个不同类型的 block 在进行中，先关闭它
             if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "text":
+                if self._stream_state["current_content_type"] == "thinking":
+                    events.append(
+                        ("content_block_delta", {
+                            "type": "content_block_delta",
+                            "index": self._stream_state["content_block_index"],
+                            "delta": {"type": "signature_delta", "signature": ""},
+                        })
+                    )
                 events.append(
                     ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                 )
@@ -332,6 +345,14 @@ class ToAnthropicConverter(BaseConverter):
                 tc_index = tc.get("index", 0)
                 if tc_index not in self._stream_state["tool_call_indices"]:
                     if self._stream_state["content_block_started"]:
+                        if self._stream_state["current_content_type"] == "thinking":
+                            events.append(
+                                ("content_block_delta", {
+                                    "type": "content_block_delta",
+                                    "index": self._stream_state["content_block_index"],
+                                    "delta": {"type": "signature_delta", "signature": ""},
+                                })
+                            )
                         events.append(
                             ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                         )
@@ -357,7 +378,6 @@ class ToAnthropicConverter(BaseConverter):
                             },
                         })
                     )
-                # 使用独立 if（非 elif），处理 name+arguments 在同一 chunk 的情况
                 if tc.get("function", {}).get("arguments") is not None:
                     if not self._stream_state["content_block_started"]:
                         self._stream_state["content_block_started"] = True
@@ -373,7 +393,6 @@ class ToAnthropicConverter(BaseConverter):
 
         if delta.get("reasoning_content") is not None:
             self._ensure_message_started(chunk, events)
-            # 如果当前有一个不同类型的 block 在进行中，先关闭它
             if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "thinking":
                 events.append(
                     ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
@@ -402,6 +421,14 @@ class ToAnthropicConverter(BaseConverter):
         if finish_reason is not None:
             self._ensure_message_started(chunk, events)
             if self._stream_state["content_block_started"]:
+                if self._stream_state["current_content_type"] == "thinking":
+                    events.append(
+                        ("content_block_delta", {
+                            "type": "content_block_delta",
+                            "index": self._stream_state["content_block_index"],
+                            "delta": {"type": "signature_delta", "signature": ""},
+                        })
+                    )
                 events.append(
                     ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                 )
@@ -413,7 +440,6 @@ class ToAnthropicConverter(BaseConverter):
             usage_output = 0
             usage = chunk.get("usage")
             if usage:
-                # OpenAI 的 usage 是累计值，Anthropic 期望增量
                 cumulative = usage.get("completion_tokens", 0)
                 prev = self._stream_state.get("_prev_completion_tokens", 0)
                 usage_output = cumulative - prev
