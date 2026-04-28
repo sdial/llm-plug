@@ -22,9 +22,36 @@ class ToAnthropicConverter(BaseConverter):
             "tool_id": None,
             "tool_name": None,
             "tool_call_indices": {},
+            "_prev_completion_tokens": 0,
         }
 
     # --- Chat Completions → Anthropic ---
+
+    def _ensure_message_started(self, chunk: dict[str, Any], events: list) -> None:
+        """确保 message_start 已发出。如果尚未发出，在 events 列表头部插入。"""
+        if not self._stream_state["started"]:
+            self._stream_state["started"] = True
+            events.insert(0, (
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": chunk.get("id", "").replace("chatcmpl-", "msg_"),
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [],
+                        "model": chunk.get("model", ""),
+                        "stop_reason": None,
+                        "stop_sequence": None,
+                        "usage": {
+                            "input_tokens": 0,
+                            "output_tokens": 0,
+                            "cache_creation_input_tokens": 0,
+                            "cache_read_input_tokens": 0,
+                        },
+                    },
+                },
+            ))
 
     def _convert_content(self, content: Any) -> Any:
         if isinstance(content, list):
@@ -215,6 +242,8 @@ class ToAnthropicConverter(BaseConverter):
             "usage": {
                 "input_tokens": data.get("usage", {}).get("prompt_tokens", 0),
                 "output_tokens": data.get("usage", {}).get("completion_tokens", 0),
+                "cache_creation_input_tokens": data.get("usage", {}).get("cache_creation_input_tokens", 0),
+                "cache_read_input_tokens": data.get("usage", {}).get("cache_read_input_tokens", 0),
             },
         }
 
@@ -242,7 +271,11 @@ class ToAnthropicConverter(BaseConverter):
                     ("message_delta", {
                         "type": "message_delta",
                         "delta": {"stop_reason": "end_turn", "stop_sequence": None},
-                        "usage": {"output_tokens": usage.get("completion_tokens", 0)},
+                        "usage": {
+                            "output_tokens": usage.get("completion_tokens", 0),
+                            "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+                            "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+                        },
                     })
                 )
                 events.append(("message_stop", {"type": "message_stop"}))
@@ -251,25 +284,10 @@ class ToAnthropicConverter(BaseConverter):
         delta = choices[0].get("delta", {})
         finish_reason = choices[0].get("finish_reason")
 
-        if delta.get("role") == "assistant" and not self._stream_state["started"]:
-            self._stream_state["started"] = True
-            events.append(
-                ("message_start", {
-                    "type": "message_start",
-                    "message": {
-                        "id": chunk.get("id", "").replace("chatcmpl-", "msg_"),
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [],
-                        "model": chunk.get("model", ""),
-                        "stop_reason": None,
-                        "stop_sequence": None,
-                        "usage": {"input_tokens": 0, "output_tokens": 0},
-                    },
-                })
-            )
+        # message_start 由 _ensure_message_started 在需要时自动发出
 
         if delta.get("content") is not None:
+            self._ensure_message_started(chunk, events)
             # 如果当前有一个不同类型的 block 在进行中，先关闭它
             if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "text":
                 events.append(
@@ -297,6 +315,7 @@ class ToAnthropicConverter(BaseConverter):
             )
 
         if delta.get("tool_calls"):
+            self._ensure_message_started(chunk, events)
             for tc in delta["tool_calls"]:
                 tc_index = tc.get("index", 0)
                 if tc_index not in self._stream_state["tool_call_indices"]:
@@ -326,7 +345,8 @@ class ToAnthropicConverter(BaseConverter):
                             },
                         })
                     )
-                elif tc.get("function", {}).get("arguments") is not None:
+                # 使用独立 if（非 elif），处理 name+arguments 在同一 chunk 的情况
+                if tc.get("function", {}).get("arguments") is not None:
                     if not self._stream_state["content_block_started"]:
                         self._stream_state["content_block_started"] = True
                     args = tc["function"].get("arguments", "")
@@ -340,6 +360,7 @@ class ToAnthropicConverter(BaseConverter):
                         )
 
         if delta.get("reasoning_content") is not None:
+            self._ensure_message_started(chunk, events)
             # 如果当前有一个不同类型的 block 在进行中，先关闭它
             if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "thinking":
                 events.append(
@@ -367,6 +388,7 @@ class ToAnthropicConverter(BaseConverter):
             )
 
         if finish_reason is not None:
+            self._ensure_message_started(chunk, events)
             if self._stream_state["content_block_started"]:
                 events.append(
                     ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
@@ -379,13 +401,21 @@ class ToAnthropicConverter(BaseConverter):
             usage_output = 0
             usage = chunk.get("usage")
             if usage:
-                usage_output = usage.get("completion_tokens", 0)
+                # OpenAI 的 usage 是累计值，Anthropic 期望增量
+                cumulative = usage.get("completion_tokens", 0)
+                prev = self._stream_state.get("_prev_completion_tokens", 0)
+                usage_output = cumulative - prev
+                self._stream_state["_prev_completion_tokens"] = cumulative
 
             events.append(
                 ("message_delta", {
                     "type": "message_delta",
                     "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                    "usage": {"output_tokens": usage_output},
+                    "usage": {
+                        "output_tokens": usage_output,
+                        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0) if usage else 0,
+                        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0) if usage else 0,
+                    },
                 })
             )
             events.append(("message_stop", {"type": "message_stop"}))
@@ -514,6 +544,8 @@ class ToAnthropicConverter(BaseConverter):
             "usage": {
                 "input_tokens": data.get("usage", {}).get("input_tokens", 0),
                 "output_tokens": data.get("usage", {}).get("output_tokens", 0),
+                "cache_creation_input_tokens": data.get("usage", {}).get("cache_creation_input_tokens", 0),
+                "cache_read_input_tokens": data.get("usage", {}).get("cache_read_input_tokens", 0),
             },
         }
 
@@ -629,7 +661,11 @@ class ToAnthropicConverter(BaseConverter):
                 ("message_delta", {
                     "type": "message_delta",
                     "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                    "usage": {"output_tokens": usage_output},
+                    "usage": {
+                        "output_tokens": usage_output,
+                        "cache_creation_input_tokens": resp.get("usage", {}).get("cache_creation_input_tokens", 0),
+                        "cache_read_input_tokens": resp.get("usage", {}).get("cache_read_input_tokens", 0),
+                    },
                 })
             )
             events.append(("message_stop", {"type": "message_stop"}))
