@@ -84,7 +84,7 @@ CONVERTER_MAP: dict[tuple[str, str], tuple[type, type]] = {
 
 | 转换方向 | 缺失字段 | 映射规则 |
 |----------|----------|----------|
-| Anthropic→Chat | `thinking.type="enabled"` | 映射为 `reasoning_effort`，budget_tokens 按比例换算 |
+| Anthropic→Chat | `thinking.type="enabled"` | 映射为 `reasoning_effort`：数值型 budget_tokens 直接透传；Anthropic `thinking.type="adaptive"` 映射为 `"medium"` |
 | Anthropic→Chat | `tool_choice.type="any"` | 映射为 `"required"` |
 | Anthropic→Chat | `tool_choice.type="none"` | 映射为 `"none"` |
 | Chat→Anthropic | 多条 system 消息 | 合并为 Anthropic `system` 数组（type:text block 数组） |
@@ -92,7 +92,7 @@ CONVERTER_MAP: dict[tuple[str, str], tuple[type, type]] = {
 
 ### 阶段 3：流式修复（P2 #9-11）
 
-- **signature_delta**（#9）：thinking content_block 关闭前，生成占位 `signature_delta` 事件（上游 OpenAI 不提供此信息，使用空签名字符串）
+- **signature_delta**（#9）：thinking content_block 关闭前，生成 `signature_delta` 事件，签名字段为空字符串 `""`（上游 OpenAI 不提供此信息，空签名确保事件序列结构完整）
 - **message_start usage**（#10）：从首个包含 `usage.prompt_tokens` 的 chunk 中提取 input_tokens，填入 `message_start` 的 `message.usage`
 - **output_index 硬编码**（#11）：用 `_stream_state` 跟踪当前 tool_call 计数器，递增分配 output_index
 
