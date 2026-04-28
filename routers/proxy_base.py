@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import StreamingResponse
 
@@ -15,7 +17,11 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
         if not check_proxy_authorization(authorization):
             return unauthorized()
 
-        body = await request.json()
+        try:
+            body = await request.json()
+        except json.JSONDecodeError as e:
+            return invalid_request(f"Invalid JSON: {e}")
+
         model = body.get("model", "")
         is_stream = body.get("stream", False)
         query_string = str(request.url.query) if request.url.query else None
