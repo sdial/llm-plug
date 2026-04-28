@@ -9,6 +9,9 @@ from typing import Any
 from balancer.load_balancer import load_balancer
 from client import create_client, create_stream_client, get_upstream_headers
 from config import DEBUG, DEBUG_LOG_DIR
+
+# 流式响应最大记录chunk数量，防止内存溢出
+MAX_STREAM_CHUNKS = 10000
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
@@ -242,6 +245,14 @@ async def _do_stream_request(
     （包含 event: 行）。否则输出 OpenAI SSE 格式（仅 data: 行）。
     """
     stream_chunks: list[Any] = []
+    stream_chunk_count = 0
+
+    def _record_chunk(item: Any):
+        """记录stream chunk，超过限制后停止记录"""
+        nonlocal stream_chunk_count
+        if stream_chunk_count < MAX_STREAM_CHUNKS:
+            stream_chunks.append(item)
+            stream_chunk_count += 1
     resp_status_code = None
     resp_headers = None
     client = create_stream_client(channel)
@@ -263,12 +274,12 @@ async def _do_stream_request(
                     continue
                 if not line.startswith("data: "):
                     # 非 data 行（如 SSE 注释），原样转发
-                    stream_chunks.append(line)
+                    _record_chunk(line)
                     continue
 
                 data_str = line[6:]
                 if data_str.strip() == "[DONE]":
-                    stream_chunks.append("[DONE]")
+                    _record_chunk("[DONE]")
                     if not output_anthropic_sse:
                         yield "data: [DONE]\n\n"
                     continue
@@ -276,11 +287,11 @@ async def _do_stream_request(
                 try:
                     chunk = json.loads(data_str)
                 except json.JSONDecodeError:
-                    stream_chunks.append(line)
+                    _record_chunk(line)
                     yield line + "\n\n"
                     continue
 
-                stream_chunks.append(chunk)
+                _record_chunk(chunk)
 
                 if is_upstream_anthropic and upstream_event_type is not None:
                     chunk["_event_type"] = upstream_event_type
