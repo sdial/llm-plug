@@ -1,5 +1,4 @@
 import httpx
-from typing import Optional
 
 from config import REQUEST_TIMEOUT
 from models.api_types import APIType
@@ -57,7 +56,7 @@ async def close_all_clients():
     _clients.clear()
 
 
-def get_upstream_headers(channel: Channel, extra_headers: Optional[dict] = None) -> dict:
+def get_upstream_headers(channel: Channel, extra_headers: dict | None = None) -> dict:
     headers = {}
     if channel.api_type == APIType.ANTHROPIC:
         headers["x-api-key"] = channel.api_key

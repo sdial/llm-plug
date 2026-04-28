@@ -1,5 +1,4 @@
 """转换器矩阵测试 - 验证 Claude Code / OpenCode 兼容性"""
-import pytest
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter

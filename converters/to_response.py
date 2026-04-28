@@ -106,6 +106,13 @@ class ToResponseConverter(BaseConverter):
                 "role": "assistant",
                 "content": [{"type": "output_text", "text": text}],
             })
+        if reasoning_content:
+            output.append({
+                "type": "reasoning",
+                "id": f"rs_{data.get('id', '')}",
+                "summary": [],
+                "content": [{"type": "reasoning_text", "text": reasoning_content}],
+            })
         if tool_calls:
             for tc in tool_calls:
                 output.append({
