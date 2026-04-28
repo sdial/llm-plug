@@ -15,7 +15,7 @@ LLM API 转换器 - 一个将不同大模型API格式互转的代理服务。支
 | `./start.sh debug` | 调试模式启动（热重载 + uvicorn trace 日志） |
 | `uv run ruff check .` | 代码检查 |
 | `uv run ruff check . --fix` | 代码检查并自动修复 |
-| `uv run pytest` | 运行测试（目前项目尚无测试用例） |
+| `uv run pytest` | 运行测试（`tests/` 目录下已有单元及集成测试） |
 
 ### 环境变量
 | 变量 | 默认值 | 说明 |
@@ -28,7 +28,7 @@ LLM API 转换器 - 一个将不同大模型API格式互转的代理服务。支
 | `COOLDOWN_SECONDS` | `60` | 渠道冷却恢复时间(秒) |
 | `ADMIN_API_KEY` | (空) | 管理API密钥，空则不鉴权 |
 | `PROXY_API_KEY` | (空) | 代理API密钥，空则不鉴权 |
-| `DEBUG` | `True`（硬编码） | 调试日志开关，当前代码中硬编码为 True，未读环境变量 |
+| `DEBUG` | `false` | 调试日志开关，读取环境变量，默认关闭 |
 | `DEBUG_LOG_DIR` | 项目根目录下 `logs/` | 调试日志目录，输出 JSONL 格式 |
 
 ## Architecture
