@@ -31,7 +31,7 @@ def load_data() -> dict[str, Any]:
     _ensure_data_dir()
     with _lock:
         # 双重检查：在锁内再次检查缓存，避免多线程重复读磁盘
-        now = time.monotonic()
+        now = time.time()
         if _cache is not None and (now - _cache_ts) < _CACHE_TTL:
             return _cache
         if not os.path.exists(CHANNELS_FILE):
@@ -39,7 +39,7 @@ def load_data() -> dict[str, Any]:
                 json.dump({"channels": []}, f, ensure_ascii=False, indent=2)
         data = _read_from_disk()
         _cache = data
-        _cache_ts = time.monotonic()
+        _cache_ts = time.time()
         return data
 
 
@@ -71,7 +71,7 @@ def save_data(data: dict[str, Any]) -> None:
             f.close()
             os.replace(tmp_path, CHANNELS_FILE)
             _cache = data
-            _cache_ts = time.monotonic()
+            _cache_ts = time.time()
         except Exception:
             try:
                 f.close()
