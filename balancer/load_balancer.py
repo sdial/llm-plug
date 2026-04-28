@@ -80,7 +80,13 @@ class LoadBalancer:
             return self._weighted_round_robin(top_group)
 
     def _weighted_round_robin(self, channels: list[Channel]) -> Channel:
-        """平滑加权轮询算法"""
+        """平滑加权轮询算法
+        
+        算法：
+        1. 所有 channel 的 current_weight += weight
+        2. 选择 current_weight 最大的 channel
+        3. 被选中 channel 的 current_weight -= total_weight
+        """
         total_weight = sum(ch.weight for ch in channels)
 
         best: Optional[Channel] = None
@@ -88,11 +94,14 @@ class LoadBalancer:
         for ch in channels:
             health = self._health[ch.id]
             health.current_weight += ch.weight
+            # 选择 current_weight 最大的 channel
             if best is None or health.current_weight > best_health.current_weight:
                 best = ch
                 best_health = health
 
+        # 递减选中channel的current_weight
         best_health.current_weight -= total_weight
+
         return best
 
 
