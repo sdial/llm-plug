@@ -89,11 +89,18 @@ def _setup_e2e_channels():
     with open(_E2E_CHANNELS_FILE, "w") as f:
         json.dump(channels_data, f)
 
+    # 创建空的 api_keys.json，确保向后兼容的免认证模式
+    api_keys_file = os.path.join(_E2E_DATA_DIR, "api_keys.json")
+    with open(api_keys_file, "w") as f:
+        json.dump({"api_keys": []}, f)
+
     import config
     import storage
     config.DATA_DIR = _E2E_DATA_DIR
     config.CHANNELS_FILE = _E2E_CHANNELS_FILE
+    config.API_KEYS_FILE = api_keys_file
     storage.invalidate_cache()
+    storage.invalidate_keys_cache()
 
 
 def _run_mock_server():

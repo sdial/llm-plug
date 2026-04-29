@@ -50,9 +50,6 @@ async def request_log_middleware(request: Request, call_next):
             pass
         qs = f"?{query}" if query else ""
         ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        api_key_id = getattr(request.state, 'api_key_id', None)
-        key_tag = f" key={api_key_id}" if api_key_id else ""
-
         response = await call_next(request)
         elapsed = time.time() - start
         status = response.status_code
@@ -61,7 +58,7 @@ async def request_log_middleware(request: Request, call_next):
 
         channel = getattr(request.state, 'selected_channel_name', '')
         channel_tag = f" channel={channel}" if channel else ""
-        print(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}{key_tag}")
+        print(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}")
         print(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s)")
         return response
 
@@ -116,6 +113,11 @@ async def proxy_auth_middleware(request: Request, call_next):
                 request_model = body.get("model", "")
             except Exception:
                 request_model = ""
+                body_bytes = b""
+            # Re-inject body so downstream handlers can read it again
+            async def receive():
+                return {"type": "http.request", "body": body_bytes}
+            request._receive = receive
             if request_model and request_model not in allowed_models:
                 return JSONResponse(
                     status_code=403,
@@ -124,10 +126,6 @@ async def proxy_auth_middleware(request: Request, call_next):
                         "type": "auth_error",
                     }},
                 )
-            # Re-inject body so downstream handlers can read it again
-            async def receive():
-                return {"type": "http.request", "body": body_bytes}
-            request._receive = receive
 
     return await call_next(request)
 
