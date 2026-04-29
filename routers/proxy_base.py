@@ -58,6 +58,7 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
                 query_string=query_string, client_headers=client_headers,
                 api_key_id=api_key_id,
             )
+            request.state.selected_channel_name = _channel.name
         except ValueError as e:
             print(f"[ERR]  {path} ValueError: {e}")
             return err_invalid(str(e))

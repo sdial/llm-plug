@@ -49,17 +49,20 @@ async def request_log_middleware(request: Request, call_next):
         except Exception:
             pass
         qs = f"?{query}" if query else ""
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         api_key_id = getattr(request.state, 'api_key_id', None)
         key_tag = f" key={api_key_id}" if api_key_id else ""
-        print(f"[{ts}] [REQ]  {method} {path}{qs} model={model} stream={stream}{key_tag}")
 
         response = await call_next(request)
         elapsed = time.time() - start
         status = response.status_code
         tag = "OK" if status < 400 else "ERR"
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{ts}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s)")
+        ts_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        channel = getattr(request.state, 'selected_channel_name', '')
+        channel_tag = f" channel={channel}" if channel else ""
+        print(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}{key_tag}")
+        print(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s)")
         return response
 
     return await call_next(request)
