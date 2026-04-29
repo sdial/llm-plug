@@ -460,7 +460,11 @@ async def _do_stream_request(
         # 控制台输出详细错误
         err_body = ""
         if isinstance(e, httpx.HTTPStatusError):
-            err_body = e.response.text[:500]
+            try:
+                await e.response.aread()
+                err_body = e.response.text[:500]
+            except Exception:
+                pass
             print(f"[ERR]  upstream stream {e.response.status_code} {url}")
             print(f"[ERR]  body: {err_body}")
         else:
