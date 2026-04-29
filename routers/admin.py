@@ -170,6 +170,16 @@ def delete_api_key(key_id: str):
     return {"message": "删除成功"}
 
 
+@router.get("/api-keys/{key_id}/key")
+def get_api_key_value(key_id: str):
+    """获取 API Key 的完整值（用于复制）"""
+    keys = _get_api_keys()
+    for k in keys:
+        if k.id == key_id:
+            return {"key": k.key}
+    raise HTTPException(status_code=404, detail="API Key 不存在")
+
+
 @router.patch("/api-keys/{key_id}/regenerate", response_model=ApiKey)
 def regenerate_api_key(key_id: str):
     """重新生成 API Key"""

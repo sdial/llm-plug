@@ -535,7 +535,6 @@
                                     <td class="py-3 px-4 text-right">
                                         <div class="flex items-center justify-end gap-1.5">
                                             <button onclick="copyApiKey('${esc(k.id)}')" class="pill pill-muted hover:bg-surface-200 transition cursor-pointer">复制</button>
-                                            <button onclick="editApiKey('${esc(k.id)}')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">编辑</button>
                                             <button onclick="deleteApiKey('${esc(k.id)}')" class="pill pill-danger hover:opacity-80 transition cursor-pointer">删除</button>
                                         </div>
                                     </td>
@@ -547,25 +546,20 @@
             `;
         }
 
-        function openKeyModal(key = null) {
-            document.getElementById('keyModalTitle').textContent = key ? '编辑 API Key' : '创建 API Key';
-            document.getElementById('keyEditId').value = key ? key.id : '';
-            document.getElementById('fk_name').value = key ? key.name : '';
-            document.getElementById('fk_notes').value = key ? (key.notes || '') : '';
-            document.getElementById('fk_models').value = key && key.allowed_models ? key.allowed_models.join(', ') : '';
+        function openKeyModal() {
+            document.getElementById('keyModalTitle').textContent = '创建 API Key';
+            document.getElementById('keyEditId').value = '';
+            document.getElementById('fk_name').value = '';
+            document.getElementById('fk_notes').value = '';
+            document.getElementById('fk_models').value = '';
             document.getElementById('fk_key').value = '';
-            document.getElementById('fk_key').disabled = !!key;
-            document.getElementById('fk_key').placeholder = key ? '编辑时不可修改 Key' : '留空自动生成，或手动输入自定义 Key';
+            document.getElementById('fk_key').disabled = false;
+            document.getElementById('fk_key').placeholder = '留空自动生成，或手动输入自定义 Key';
             document.getElementById('keyModal').classList.remove('hidden');
         }
 
         function closeKeyModal() {
             document.getElementById('keyModal').classList.add('hidden');
-        }
-
-        function editApiKey(id) {
-            const k = apiKeys.find(k => k.id === id);
-            if (k) openKeyModal(k);
         }
 
         async function saveApiKey(e) {
@@ -607,13 +601,16 @@
 
         async function copyApiKey(id) {
             try {
-                const resp = await fetch(`${API_KEYS}/${id}/regenerate`, { method: 'PATCH' });
+                const resp = await fetch(`${API_KEYS}/${id}/key`);
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    alert(`获取 Key 失败 (${resp.status}): ${text}`);
+                    return;
+                }
                 const result = await resp.json();
                 if (result.key) {
-                    pendingCopyKey = result.key;
-                    document.getElementById('copyKeyText').textContent = result.key;
-                    document.getElementById('copyKeyModal').classList.remove('hidden');
-                    loadApiKeys();
+                    await navigator.clipboard.writeText(result.key);
+                    alert('Key 已复制到剪贴板');
                 }
             } catch (e) {
                 alert('复制失败: ' + e.message);
