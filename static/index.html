@@ -244,7 +244,7 @@
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-ink-900 mb-1">API Key</label>
-                        <input type="password" id="f_api_key" required class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                        <input type="password" id="f_api_key" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-ink-900 mb-1">模型列表 <span class="text-ink-400 font-normal">(逗号分隔)</span></label>
@@ -432,7 +432,8 @@
             document.getElementById('f_name').value = channel ? channel.name : '';
             document.getElementById('f_api_type').value = channel ? channel.api_type : 'openai-chat-completions';
             document.getElementById('f_base_url').value = channel ? channel.base_url : '';
-            document.getElementById('f_api_key').value = channel ? channel.api_key : '';
+            document.getElementById('f_api_key').value = '';
+            document.getElementById('f_api_key').placeholder = channel ? '已设置，留空则不修改' : '';
             document.getElementById('f_models').value = channel ? channel.models.join(', ') : '';
             document.getElementById('f_weight').value = channel ? channel.weight : 1;
             document.getElementById('f_priority').value = channel ? channel.priority : 1;
@@ -458,13 +459,21 @@
                 name: document.getElementById('f_name').value,
                 api_type: document.getElementById('f_api_type').value,
                 base_url: document.getElementById('f_base_url').value,
-                api_key: document.getElementById('f_api_key').value,
                 models: modelsStr ? modelsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
                 weight: parseInt(document.getElementById('f_weight').value) || 1,
                 priority: parseInt(document.getElementById('f_priority').value) || 1,
                 socks5_proxy: document.getElementById('f_socks5_proxy').value || null,
                 enabled: document.getElementById('f_enabled').checked,
             };
+            const apiKey = document.getElementById('f_api_key').value.trim();
+            if (apiKey) {
+                data.api_key = apiKey;
+            }
+
+            if (!id && !apiKey) {
+                alert('API Key 不能为空');
+                return;
+            }
 
             if (id) {
                 await fetch(`${API}/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
