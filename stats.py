@@ -174,10 +174,10 @@ def get_daily_stats(days: int = 7) -> list[dict[str, Any]]:
             """
             SELECT date, total_requests, success_count, fail_count, total_input_tokens, total_output_tokens
             FROM daily_stats
-            WHERE date >= date('now', ?)
+            WHERE date >= date('now', 'localtime', ?)
             ORDER BY date ASC
             """,
-            (f"-{days} days",),
+            (f"-{days - 1} days",),
         ).fetchall()
 
         return [

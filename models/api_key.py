@@ -33,5 +33,6 @@ class ApiKeyCreate(BaseModel):
 
 class ApiKeyUpdate(BaseModel):
     name: Optional[str] = None
+    key: Optional[str] = None
     allowed_models: Optional[list[str]] = None
     notes: Optional[str] = None

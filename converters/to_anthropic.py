@@ -9,8 +9,6 @@ from converters.base import BaseConverter
 
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
 
 class ToAnthropicConverter(BaseConverter):
     """任意格式 → Anthropic Messages"""
