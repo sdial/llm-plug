@@ -3,6 +3,7 @@
 """
 import json
 import os
+import time
 from datetime import datetime
 from typing import Any
 
@@ -16,6 +17,7 @@ from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
+from stats import record_request
 from storage import load_data
 
 # 流式响应最大记录chunk数量，防止内存溢出
@@ -153,6 +155,7 @@ async def proxy_request(
     is_stream: bool = False,
     query_string: str | None = None,
     client_headers: dict[str, str] | None = None,
+    api_key_id: str | None = None,
 ) -> tuple[Any, Channel]:
     """
     执行代理请求，返回 (response_data_or_stream, selected_channel)
@@ -173,7 +176,7 @@ async def proxy_request(
             raise ValueError(f"模型 {model} 的所有渠道均不可用")
 
         try:
-            return await _do_request(selected, request_data, target_api_type, is_stream, query_string=query_string, client_headers=client_headers), selected
+            return await _do_request(selected, request_data, target_api_type, is_stream, query_string=query_string, client_headers=client_headers, api_key_id=api_key_id), selected
         except Exception as e:
             load_balancer.record_failure(selected.id)
             last_error = e
@@ -187,6 +190,7 @@ async def _do_request(
     is_stream: bool,
     query_string: str | None = None,
     client_headers: dict[str, str] | None = None,
+    api_key_id: str | None = None,
 ):
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
 
@@ -213,15 +217,19 @@ async def _do_request(
 
     if is_stream:
         return _do_stream_request(
-            channel, url, headers, upstream_data, response_converter, source_type, target_api_type
+            channel, url, headers, upstream_data, response_converter, source_type, target_api_type,
+            api_key_id=api_key_id,
         )
 
     # 非流式：使用缓存的 httpx 客户端（不可 async with，否则会关闭共享连接）
+    start_time = time.time()
+    model = request_data.get("model", "")
     try:
         client = create_client(channel)
         resp = await client.post(url, json=upstream_data, headers=headers)
         resp.raise_for_status()
         response_data = resp.json()
+        latency_ms = int((time.time() - start_time) * 1000)
 
         # 记录 debug 日志（包含完整响应和响应头）
         _log_debug(
@@ -238,6 +246,24 @@ async def _do_request(
         # 转换响应：上游格式 → 客户端格式
         if response_converter:
             response_data = response_converter.convert_response(response_data, source_type)
+
+        # 提取 token 使用量
+        usage = response_data.get("usage", {}) if isinstance(response_data, dict) else {}
+        input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
+        output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
+
+        # 记录统计
+        record_request(
+            channel_id=channel.id,
+            channel_name=channel.name,
+            model=model,
+            is_stream=False,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            latency_ms=latency_ms,
+            success=True,
+            api_key_id=api_key_id,
+        )
 
         # 非流式响应摘要日志
         content = response_data.get("content", []) if isinstance(response_data, dict) else []
@@ -257,6 +283,20 @@ async def _do_request(
         load_balancer.record_success(channel.id)
         return response_data
     except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+        # 记录失败统计
+        record_request(
+            channel_id=channel.id,
+            channel_name=channel.name,
+            model=model,
+            is_stream=False,
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=latency_ms,
+            success=False,
+            error_msg=str(e),
+            api_key_id=api_key_id,
+        )
         # 控制台输出详细错误
         err_body = ""
         if isinstance(e, httpx.HTTPStatusError):
@@ -293,7 +333,7 @@ def _yield_anthropic_events(events: list[tuple[str, dict[str, Any]] | dict[str, 
 
 async def _do_stream_request(
     channel: Channel, url: str, headers: dict, upstream_data: dict, response_converter, source_type: str,
-    target_api_type: APIType = APIType.OPENAI_CHAT,
+    target_api_type: APIType = APIType.OPENAI_CHAT, api_key_id: str | None = None,
 ):
     """流式请求，yield SSE 数据行。
 
@@ -301,6 +341,10 @@ async def _do_stream_request(
     （包含 event: 行）。否则输出 OpenAI SSE 格式（仅 data: 行）。
     response_converter: 用于把上游格式转换为客户端格式
     """
+    start_time = time.time()
+    model = upstream_data.get("model", "")
+    input_tokens = 0
+    output_tokens = 0
     stream_chunks: list[Any] = []
     stream_chunk_count = 0
     _stream_log_enabled = os.getenv("LOG_LEVEL", "info").lower() == "debug"
@@ -368,6 +412,7 @@ async def _do_stream_request(
     is_upstream_anthropic = source_type == "anthropic"
 
     stream_success = False
+    stream_error = None
     try:
         async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
             resp.raise_for_status()
@@ -456,6 +501,7 @@ async def _do_stream_request(
             response_headers=resp_headers, status_code=resp_status_code,
         )
     except Exception as e:
+        stream_error = str(e)
         load_balancer.record_failure(channel.id)
         # 控制台输出详细错误
         err_body = ""
@@ -486,6 +532,35 @@ async def _do_stream_request(
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
     finally:
+        latency_ms = int((time.time() - start_time) * 1000)
+        # 从 stream_chunks 中提取 token 使用量
+        for chunk in stream_chunks:
+            if isinstance(chunk, dict):
+                # Anthropic 格式的 message_start 包含 usage
+                if chunk.get("type") == "message_start":
+                    msg = chunk.get("message", {})
+                    usage = msg.get("usage", {})
+                    input_tokens = usage.get("input_tokens", 0)
+                # OpenAI 格式的最后 chunk 可能包含 usage
+                usage = chunk.get("usage", {})
+                if usage:
+                    input_tokens = usage.get("prompt_tokens", input_tokens)
+                    output_tokens = usage.get("completion_tokens", output_tokens)
+                    input_tokens = usage.get("input_tokens", input_tokens)
+                    output_tokens = usage.get("output_tokens", output_tokens)
+        # 记录统计
+        record_request(
+            channel_id=channel.id,
+            channel_name=channel.name,
+            model=model,
+            is_stream=True,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            latency_ms=latency_ms,
+            success=stream_success,
+            error_msg=stream_error,
+            api_key_id=api_key_id,
+        )
         if stream_success:
             load_balancer.record_success(channel.id)
         if not client.is_closed:

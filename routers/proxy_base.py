@@ -32,7 +32,7 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
 
     @router.post(path)
     async def proxy_handler(request: Request, authorization: str | None = Header(None)):
-        if not check_proxy_authorization(authorization):
+        if not check_proxy_authorization(authorization, request.state):
             return err_unauth()
 
         try:
@@ -51,10 +51,12 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
             if val:
                 client_headers[h] = val
 
+        api_key_id = getattr(request.state, 'api_key_id', None)
         try:
             result, _channel = await proxy_request(
                 model, body, api_type, is_stream,
                 query_string=query_string, client_headers=client_headers,
+                api_key_id=api_key_id,
             )
         except ValueError as e:
             print(f"[ERR]  {path} ValueError: {e}")

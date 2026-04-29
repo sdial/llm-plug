@@ -7,6 +7,7 @@ PORT = int(os.getenv("PORT", "8000"))
 # 数据存储
 DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 CHANNELS_FILE = os.getenv("CHANNELS_FILE", os.path.join(DATA_DIR, "channels.json"))
+API_KEYS_FILE = os.getenv("API_KEYS_FILE", os.path.join(DATA_DIR, "api_keys.json"))
 
 # 负载均衡
 MAX_FAIL_COUNT = int(os.getenv("MAX_FAIL_COUNT", "5"))  # 连续失败N次后剔除
