@@ -1,3 +1,4 @@
+import secrets
 import time
 from pathlib import Path
 
@@ -7,8 +8,10 @@ from fastapi.responses import FileResponse
 import httpx
 
 from client import get_upstream_headers, remove_channel_client
+from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
-from storage import load_data, save_data, get_lock
+from stats import cleanup_old_data, get_daily_stats, get_overall_stats
+from storage import load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -98,6 +101,89 @@ def toggle_channel(channel_id: str):
                 remove_channel_client(ch)
                 return updated
     raise HTTPException(status_code=404, detail="渠道不存在")
+
+
+# ============ API Keys CRUD ============
+
+
+def _get_api_keys() -> list[ApiKey]:
+    data = load_api_keys()
+    return [ApiKey(**k) for k in data.get("api_keys", [])]
+
+
+def _save_api_keys(keys: list[ApiKey]):
+    save_api_keys({"api_keys": [k.model_dump() for k in keys]})
+
+
+@router.get("/api-keys")
+def list_api_keys():
+    """获取所有 API Key（Key 脱敏）"""
+    keys = _get_api_keys()
+    result = []
+    for k in keys:
+        d = k.model_dump()
+        raw = d.get("key", "")
+        d["key"] = raw[:8] + "***" if len(raw) > 8 else "***"
+        result.append(d)
+    return result
+
+
+@router.post("/api-keys", response_model=ApiKey)
+def create_api_key(body: ApiKeyCreate):
+    """添加 API Key"""
+    with get_lock():
+        keys = _get_api_keys()
+        data = body.model_dump(exclude_none=True)
+        key = ApiKey(**data)
+        keys.append(key)
+        _save_api_keys(keys)
+        invalidate_keys_cache()
+    return key
+
+
+@router.put("/api-keys/{key_id}", response_model=ApiKey)
+def update_api_key(key_id: str, body: ApiKeyUpdate):
+    """更新 API Key"""
+    with get_lock():
+        keys = _get_api_keys()
+        for i, k in enumerate(keys):
+            if k.id == key_id:
+                update_data = body.model_dump(exclude_unset=True)
+                updated = k.model_copy(update=update_data)
+                keys[i] = updated
+                _save_api_keys(keys)
+                invalidate_keys_cache()
+                return updated
+    raise HTTPException(status_code=404, detail="API Key 不存在")
+
+
+@router.delete("/api-keys/{key_id}")
+def delete_api_key(key_id: str):
+    """删除 API Key"""
+    with get_lock():
+        keys = _get_api_keys()
+        new_keys = [k for k in keys if k.id != key_id]
+        if len(new_keys) == len(keys):
+            raise HTTPException(status_code=404, detail="API Key 不存在")
+        _save_api_keys(new_keys)
+        invalidate_keys_cache()
+    return {"message": "删除成功"}
+
+
+@router.patch("/api-keys/{key_id}/regenerate", response_model=ApiKey)
+def regenerate_api_key(key_id: str):
+    """重新生成 API Key"""
+    with get_lock():
+        keys = _get_api_keys()
+        for i, k in enumerate(keys):
+            if k.id == key_id:
+                new_key_value = f"sk-{secrets.token_hex(24)}"
+                updated = k.model_copy(update={"key": new_key_value})
+                keys[i] = updated
+                _save_api_keys(keys)
+                invalidate_keys_cache()
+                return updated
+    raise HTTPException(status_code=404, detail="API Key 不存在")
 
 
 @router.post("/channels/{channel_id}/test")
@@ -221,3 +307,24 @@ def get_log(filename: str):
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="文件不存在")
     return FileResponse(file_path, media_type="application/jsonl")
+
+
+# ============ Stats API ============
+
+
+@router.get("/stats")
+def get_stats():
+    """获取统计数据"""
+    overall = get_overall_stats()
+    daily = get_daily_stats(days=7)
+    return {
+        "overall": overall,
+        "daily": daily,
+    }
+
+
+@router.post("/stats/cleanup")
+def cleanup_stats(keep_days: int = Query(default=30, ge=1, le=365)):
+    """清理 N 天前的统计数据"""
+    deleted = cleanup_old_data(keep_days)
+    return {"message": f"已清理 {deleted} 条记录", "deleted_count": deleted}

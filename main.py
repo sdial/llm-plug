@@ -3,14 +3,17 @@ import os
 import sys
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from client import close_all_clients
 from config import DEBUG, HOST, PORT
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
+from storage import load_api_keys
 
 
 @asynccontextmanager
@@ -46,14 +49,82 @@ async def request_log_middleware(request: Request, call_next):
         except Exception:
             pass
         qs = f"?{query}" if query else ""
-        print(f"[REQ]  {method} {path}{qs} model={model} stream={stream}")
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        api_key_id = getattr(request.state, 'api_key_id', None)
+        key_tag = f" key={api_key_id}" if api_key_id else ""
+        print(f"[{ts}] [REQ]  {method} {path}{qs} model={model} stream={stream}{key_tag}")
 
         response = await call_next(request)
         elapsed = time.time() - start
         status = response.status_code
         tag = "OK" if status < 400 else "ERR"
-        print(f"[RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.1f}s)")
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{ts}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s)")
         return response
+
+    return await call_next(request)
+
+
+_PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")
+
+
+@app.middleware("http")
+async def proxy_auth_middleware(request: Request, call_next):
+    """Authenticate proxy requests via Bearer token and enforce model allow-lists."""
+    if request.method == "POST" and request.url.path in _PROXY_PATHS:
+        keys_data = load_api_keys()
+        api_keys = keys_data.get("api_keys", [])
+
+        # If no API keys configured, allow all requests (backward compatible)
+        if not api_keys:
+            return await call_next(request)
+
+        # Extract Bearer token
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                status_code=401,
+                content={"error": {"message": "Missing or invalid Authorization header", "type": "auth_error"}},
+            )
+        token = auth_header[len("Bearer "):]
+
+        # Look up key
+        matched_key = None
+        for key in api_keys:
+            if key.get("key") == token:
+                matched_key = key
+                break
+
+        if matched_key is None:
+            return JSONResponse(
+                status_code=401,
+                content={"error": {"message": "Invalid API key", "type": "auth_error"}},
+            )
+
+        # Store key ID for downstream use (stats recording)
+        request.state.api_key_id = matched_key.get("id")
+
+        # Check model allow-list
+        allowed_models = matched_key.get("allowed_models", [])
+        if allowed_models:
+            try:
+                body_bytes = await request.body()
+                body = json.loads(body_bytes)
+                request_model = body.get("model", "")
+            except Exception:
+                request_model = ""
+            if request_model and request_model not in allowed_models:
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": {
+                        "message": f"Model '{request_model}' is not allowed for this API key",
+                        "type": "auth_error",
+                    }},
+                )
+            # Re-inject body so downstream handlers can read it again
+            async def receive():
+                return {"type": "http.request", "body": body_bytes}
+            request._receive = receive
 
     return await call_next(request)
 
