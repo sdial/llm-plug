@@ -10,109 +10,180 @@
             theme: {
                 extend: {
                     colors: {
-                        brand: { 50:'#eef2ff', 100:'#e0e7ff', 200:'#c7d2fe', 500:'#6366f1', 600:'#4f46e5', 700:'#4338ca', 800:'#3730a3', 900:'#312e81' },
+                        brand: {
+                            50: '#f0efff',
+                            100: '#e0dfff',
+                            500: '#635bff',
+                            600: '#554ce6',
+                            700: '#4a42cc',
+                        },
+                        surface: {
+                            50: '#faf9f7',
+                            100: '#f5f5f4',
+                            200: '#e8e6e3',
+                        },
+                        ink: {
+                            900: '#1a1a1a',
+                            600: '#6b6b6b',
+                            400: '#9ca3af',
+                        }
                     }
                 }
             }
         }
     </script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
-        .card { border-left: 3px solid #6366f1; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background-color: #faf9f7;
+            color: #1a1a1a;
+        }
+        .card {
+            background: #ffffff;
+            border: 1px solid #e8e6e3;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+            transition: box-shadow 0.2s ease-out, transform 0.2s ease-out;
+        }
+        .card:hover {
+            box-shadow: 0 4px 6px rgba(0,0,0,0.04), 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .tab-active {
+            color: #635bff;
+            border-bottom: 2px solid #635bff;
+        }
+        .tab-inactive {
+            color: #6b6b6b;
+        }
+        .tab-inactive:hover {
+            color: #1a1a1a;
+            background-color: #f5f5f4;
+        }
+        .btn-primary {
+            background-color: #635bff;
+            color: white;
+            border-radius: 10px;
+            transition: all 0.2s ease-out;
+        }
+        .btn-primary:hover {
+            background-color: #554ce6;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(99,91,255,0.25);
+        }
+        .btn-secondary {
+            background-color: #f5f5f4;
+            color: #1a1a1a;
+            border-radius: 10px;
+            transition: all 0.2s ease-out;
+        }
+        .btn-secondary:hover {
+            background-color: #e8e6e3;
+        }
+        .pill {
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            padding: 0.125rem 0.625rem;
+        }
+        .pill-brand { background-color: #f0efff; color: #635bff; }
+        .pill-success { background-color: #ecfdf5; color: #059669; }
+        .pill-warning { background-color: #fffbeb; color: #d97706; }
+        .pill-danger { background-color: #fff1f2; color: #e11d48; }
+        .pill-muted { background-color: #f5f5f4; color: #6b6b6b; }
     </style>
 </head>
-<body class="bg-slate-100 min-h-screen">
+<body class="min-h-screen">
     <!-- Header -->
-    <div class="bg-slate-900 text-white">
+    <div class="bg-white border-b border-surface-200">
         <div class="max-w-6xl mx-auto px-4 py-5 flex items-center justify-between">
             <div>
-                <h1 class="text-xl font-bold tracking-tight">LLM API 转换器</h1>
-                <p class="text-slate-400 text-xs mt-0.5">openai-chat-completions / openai-response / anthropic 三格式互转</p>
+                <h1 class="text-xl font-bold tracking-tight text-ink-900">LLM API 转换器</h1>
+                <p class="text-ink-600 text-xs mt-0.5">openai-chat-completions / openai-response / anthropic 三格式互转</p>
             </div>
-            <div class="text-xs text-slate-500">v0.1.0</div>
+            <div class="text-xs text-ink-400">v0.1.0</div>
         </div>
     </div>
 
     <!-- Tab 导航 -->
-    <div class="bg-slate-900">
+    <div class="bg-white border-b border-surface-200 sticky top-0 z-40">
         <div class="max-w-6xl mx-auto px-4 flex gap-1">
-            <button onclick="switchTab('channels')" id="tab_channels" class="px-4 py-2.5 text-sm font-medium rounded-t-lg bg-slate-100 text-brand-700">渠道管理</button>
-            <button onclick="switchTab('apikeys')" id="tab_apikeys" class="px-4 py-2.5 text-sm font-medium rounded-t-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800">API Key</button>
-            <button onclick="switchTab('stats')" id="tab_stats" class="px-4 py-2.5 text-sm font-medium rounded-t-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800">统计</button>
+            <button onclick="switchTab('channels')" id="tab_channels" class="px-4 py-2.5 text-sm font-medium tab-active">渠道管理</button>
+            <button onclick="switchTab('apikeys')" id="tab_apikeys" class="px-4 py-2.5 text-sm font-medium tab-inactive">API Key</button>
+            <button onclick="switchTab('stats')" id="tab_stats" class="px-4 py-2.5 text-sm font-medium tab-inactive">统计</button>
         </div>
     </div>
 
-    <div class="max-w-6xl mx-auto px-4 py-6">
+    <div class="max-w-6xl mx-auto px-4 py-8">
         <!-- 渠道管理 Tab -->
         <div id="channelsTab">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide">渠道列表</h2>
-                <button onclick="openModal()" class="bg-brand-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-brand-700 transition font-medium">+ 添加渠道</button>
+            <div class="flex justify-between items-center mb-5">
+                <h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider">渠道列表</h2>
+                <button onclick="openModal()" class="btn-primary text-sm px-4 py-2 font-medium">+ 添加渠道</button>
             </div>
             <div id="channelList" class="space-y-3">
-                <p class="text-slate-400 text-center py-8 text-sm">加载中...</p>
+                <p class="text-ink-400 text-center py-8 text-sm">加载中...</p>
             </div>
         </div>
 
         <!-- API Key Tab -->
         <div id="apikeysTab" class="hidden">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide">API Key 列表</h2>
-                <button onclick="openKeyModal()" class="bg-brand-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-brand-700 transition font-medium">+ 创建 Key</button>
+            <div class="flex justify-between items-center mb-5">
+                <h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider">API Key 列表</h2>
+                <button onclick="openKeyModal()" class="btn-primary text-sm px-4 py-2 font-medium">+ 创建 Key</button>
             </div>
             <div id="apiKeyList" class="space-y-3">
-                <p class="text-slate-400 text-center py-8 text-sm">加载中...</p>
+                <p class="text-ink-400 text-center py-8 text-sm">加载中...</p>
             </div>
         </div>
 
         <!-- 统计 Tab -->
         <div id="statsTab" class="hidden">
             <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-                <div class="bg-white rounded-lg border border-slate-200 p-4 border-t-[3px] border-t-brand-500">
-                    <div class="text-xs text-slate-500 uppercase tracking-wide">总请求</div>
-                    <div id="stat_total" class="text-2xl font-bold text-slate-800 mt-1">-</div>
+                <div class="card p-4 border-l-4 border-l-brand-500">
+                    <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">总请求</div>
+                    <div id="stat_total" class="text-2xl font-bold text-ink-900 mt-1">-</div>
                 </div>
-                <div class="bg-white rounded-lg border border-slate-200 p-4 border-t-[3px] border-t-emerald-500">
-                    <div class="text-xs text-slate-500 uppercase tracking-wide">成功率</div>
+                <div class="card p-4 border-l-4 border-l-emerald-500">
+                    <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">成功率</div>
                     <div id="stat_success_rate" class="text-2xl font-bold text-emerald-600 mt-1">-</div>
                 </div>
-                <div class="bg-white rounded-lg border border-slate-200 p-4 border-t-[3px] border-t-cyan-500">
-                    <div class="text-xs text-slate-500 uppercase tracking-wide">输入 Token</div>
+                <div class="card p-4 border-l-4 border-l-cyan-500">
+                    <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">输入 Token</div>
                     <div id="stat_input_tokens" class="text-2xl font-bold text-cyan-600 mt-1">-</div>
                 </div>
-                <div class="bg-white rounded-lg border border-slate-200 p-4 border-t-[3px] border-t-violet-500">
-                    <div class="text-xs text-slate-500 uppercase tracking-wide">输出 Token</div>
+                <div class="card p-4 border-l-4 border-l-violet-500">
+                    <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">输出 Token</div>
                     <div id="stat_output_tokens" class="text-2xl font-bold text-violet-600 mt-1">-</div>
                 </div>
-                <div class="bg-white rounded-lg border border-slate-200 p-4 border-t-[3px] border-t-slate-500">
-                    <div class="text-xs text-slate-500 uppercase tracking-wide">总 Token</div>
-                    <div id="stat_total_tokens" class="text-2xl font-bold text-slate-800 mt-1">-</div>
+                <div class="card p-4 border-l-4 border-l-gray-400">
+                    <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">总 Token</div>
+                    <div id="stat_total_tokens" class="text-2xl font-bold text-ink-900 mt-1">-</div>
                 </div>
             </div>
 
             <div class="grid md:grid-cols-2 gap-6 mb-6">
-                <div class="bg-white rounded-lg border border-slate-200 p-4">
-                    <h3 class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3">渠道分布</h3>
+                <div class="card p-4">
+                    <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">渠道分布</h3>
                     <div id="channel_dist" class="space-y-2">-</div>
                 </div>
-                <div class="bg-white rounded-lg border border-slate-200 p-4">
-                    <h3 class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3">模型分布</h3>
+                <div class="card p-4">
+                    <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">模型分布</h3>
                     <div id="model_dist" class="space-y-2">-</div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-lg border border-slate-200 p-4 mb-6">
-                <h3 class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3">每日趋势（最近7天）</h3>
+            <div class="card p-4 mb-6">
+                <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">每日趋势（最近7天）</h3>
                 <div id="daily_trend" class="overflow-x-auto">
                     <table class="w-full text-sm">
                         <thead>
-                            <tr class="border-b border-slate-200">
-                                <th class="text-left py-2 px-2 text-slate-500 font-medium text-xs uppercase">日期</th>
-                                <th class="text-right py-2 px-2 text-slate-500 font-medium text-xs uppercase">请求数</th>
-                                <th class="text-right py-2 px-2 text-slate-500 font-medium text-xs uppercase">成功</th>
-                                <th class="text-right py-2 px-2 text-slate-500 font-medium text-xs uppercase">失败</th>
-                                <th class="text-right py-2 px-2 text-slate-500 font-medium text-xs uppercase">输入Token</th>
-                                <th class="text-right py-2 px-2 text-slate-500 font-medium text-xs uppercase">输出Token</th>
+                            <tr class="border-b border-surface-200">
+                                <th class="text-left py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">日期</th>
+                                <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">请求数</th>
+                                <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">成功</th>
+                                <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">失败</th>
+                                <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">输入Token</th>
+                                <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">输出Token</th>
                             </tr>
                         </thead>
                         <tbody id="daily_tbody">-</tbody>
@@ -120,75 +191,75 @@
                 </div>
             </div>
 
-            <div class="bg-white rounded-lg border border-slate-200 p-4">
-                <h3 class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3">数据清理</h3>
+            <div class="card p-4">
+                <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">数据清理</h3>
                 <div class="flex items-center gap-3">
-                    <select id="cleanup_days" class="text-sm border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                    <select id="cleanup_days" class="text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
                         <option value="7">保留最近 7 天</option>
                         <option value="30" selected>保留最近 30 天</option>
                         <option value="90">保留最近 90 天</option>
                     </select>
-                    <button onclick="cleanupStats()" class="text-sm bg-rose-600 text-white px-4 py-2 rounded-lg hover:bg-rose-700 transition font-medium">清理数据</button>
+                    <button onclick="cleanupStats()" class="pill pill-danger hover:opacity-80 transition cursor-pointer">清理数据</button>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- 添加/编辑渠道模态框 -->
-    <div id="channelModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+    <div id="channelModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
             <div class="p-6">
                 <div class="flex justify-between items-center mb-6">
-                    <h3 id="modalTitle" class="text-base font-bold text-slate-900">添加渠道</h3>
-                    <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+                    <h3 id="modalTitle" class="text-base font-bold text-ink-900">添加渠道</h3>
+                    <button onclick="closeModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
                 </div>
                 <form id="channelForm" onsubmit="saveChannel(event)" class="space-y-4">
                     <input type="hidden" id="editId">
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">名称</label>
-                        <input type="text" id="f_name" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">名称</label>
+                        <input type="text" id="f_name" required class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">API类型</label>
-                        <select id="f_api_type" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">API类型</label>
+                        <select id="f_api_type" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                             <option value="openai-chat-completions">OpenAI Chat Completions</option>
                             <option value="openai-response">OpenAI Response</option>
                             <option value="anthropic">Anthropic</option>
                         </select>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">Base URL</label>
-                        <input type="text" id="f_base_url" required placeholder="https://api.openai.com" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">Base URL</label>
+                        <input type="text" id="f_base_url" required placeholder="https://api.openai.com" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">API Key</label>
-                        <input type="password" id="f_api_key" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">API Key</label>
+                        <input type="password" id="f_api_key" required class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">模型列表 <span class="text-slate-400 font-normal">(逗号分隔)</span></label>
-                        <input type="text" id="f_models" placeholder="gpt-4o, gpt-4o-mini" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">模型列表 <span class="text-ink-400 font-normal">(逗号分隔)</span></label>
+                        <input type="text" id="f_models" placeholder="gpt-4o, gpt-4o-mini" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">权重</label>
-                            <input type="number" id="f_weight" value="1" min="1" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                            <label class="block text-sm font-medium text-ink-900 mb-1">权重</label>
+                            <input type="number" id="f_weight" value="1" min="1" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">优先级</label>
-                            <input type="number" id="f_priority" value="1" min="1" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                            <label class="block text-sm font-medium text-ink-900 mb-1">优先级</label>
+                            <input type="number" id="f_priority" value="1" min="1" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                         </div>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">SOCKS5代理 <span class="text-slate-400 font-normal">(可选)</span></label>
-                        <input type="text" id="f_socks5_proxy" placeholder="socks5://user:pass@127.0.0.1:1080" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">SOCKS5代理 <span class="text-ink-400 font-normal">(可选)</span></label>
+                        <input type="text" id="f_socks5_proxy" placeholder="socks5://user:pass@127.0.0.1:1080" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
                     <div class="flex items-center gap-2">
-                        <input type="checkbox" id="f_enabled" checked class="rounded border-slate-300 text-brand-600 focus:ring-brand-500">
-                        <label for="f_enabled" class="text-sm text-slate-700">启用</label>
+                        <input type="checkbox" id="f_enabled" checked class="rounded border-surface-200 text-brand-500 focus:ring-brand-500/30">
+                        <label for="f_enabled" class="text-sm text-ink-900">启用</label>
                     </div>
-                    <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                        <button type="button" onclick="closeModal()" class="px-4 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-700">取消</button>
-                        <button type="submit" class="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">保存</button>
+                    <div class="flex justify-end gap-3 pt-4 border-t border-surface-100">
+                        <button type="button" onclick="closeModal()" class="btn-secondary px-4 py-2 text-sm font-medium">取消</button>
+                        <button type="submit" class="btn-primary px-4 py-2 text-sm font-medium">保存</button>
                     </div>
                 </form>
             </div>
@@ -196,34 +267,34 @@
     </div>
 
     <!-- 添加/编辑 API Key 模态框 -->
-    <div id="keyModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+    <div id="keyModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
             <div class="p-6">
                 <div class="flex justify-between items-center mb-6">
-                    <h3 id="keyModalTitle" class="text-base font-bold text-slate-900">创建 API Key</h3>
-                    <button onclick="closeKeyModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+                    <h3 id="keyModalTitle" class="text-base font-bold text-ink-900">创建 API Key</h3>
+                    <button onclick="closeKeyModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
                 </div>
                 <form id="keyForm" onsubmit="saveApiKey(event)" class="space-y-4">
                     <input type="hidden" id="keyEditId">
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">名称</label>
-                        <input type="text" id="fk_name" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">名称</label>
+                        <input type="text" id="fk_name" required class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">API Key <span class="text-slate-400 font-normal">(留空则自动生成)</span></label>
-                        <input type="text" id="fk_key" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 font-mono" placeholder="留空自动生成，或手动输入自定义 Key">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">API Key <span class="text-ink-400 font-normal">(留空则自动生成)</span></label>
+                        <input type="text" id="fk_key" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white font-mono" placeholder="留空自动生成，或手动输入自定义 Key">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">备注</label>
-                        <input type="text" id="fk_notes" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" placeholder="可选">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">备注</label>
+                        <input type="text" id="fk_notes" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white" placeholder="可选">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">允许模型 <span class="text-slate-400 font-normal">(逗号分隔，留空表示允许全部模型)</span></label>
-                        <input type="text" id="fk_models" placeholder="gpt-4o, gpt-4o-mini" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">允许模型 <span class="text-ink-400 font-normal">(逗号分隔，留空表示允许全部模型)</span></label>
+                        <input type="text" id="fk_models" placeholder="gpt-4o, gpt-4o-mini" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
-                    <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                        <button type="button" onclick="closeKeyModal()" class="px-4 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-700">取消</button>
-                        <button type="submit" class="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">保存</button>
+                    <div class="flex justify-end gap-3 pt-4 border-t border-surface-100">
+                        <button type="button" onclick="closeKeyModal()" class="btn-secondary px-4 py-2 text-sm font-medium">取消</button>
+                        <button type="submit" class="btn-primary px-4 py-2 text-sm font-medium">保存</button>
                     </div>
                 </form>
             </div>
@@ -231,19 +302,19 @@
     </div>
 
     <!-- 复制 Key 提示模态框 -->
-    <div id="copyKeyModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+    <div id="copyKeyModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
             <div class="p-6">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-base font-bold text-slate-900">API Key 已创建</h3>
-                    <button onclick="closeCopyKeyModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+                    <h3 class="text-base font-bold text-ink-900">API Key 已创建</h3>
+                    <button onclick="closeCopyKeyModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
                 </div>
-                <p class="text-sm text-slate-500 mb-3">请复制并妥善保存，该 Key 不会再次显示完整内容。</p>
-                <div class="bg-slate-900 rounded-lg p-3 mb-4">
+                <p class="text-sm text-ink-600 mb-3">请复制并妥善保存，该 Key 不会再次显示完整内容。</p>
+                <div class="bg-ink-900 rounded-xl p-3 mb-4">
                     <code id="copyKeyText" class="text-sm text-emerald-400 break-all font-mono"></code>
                 </div>
                 <div class="flex justify-end">
-                    <button onclick="doCopyKey()" class="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">复制到剪贴板</button>
+                    <button onclick="doCopyKey()" class="btn-primary px-4 py-2 text-sm font-medium">复制到剪贴板</button>
                 </div>
             </div>
         </div>
@@ -273,10 +344,10 @@
                 const btn = document.getElementById('tab_' + t);
                 if (t === tab) {
                     panel.classList.remove('hidden');
-                    btn.className = 'px-4 py-2.5 text-sm font-medium rounded-t-lg bg-slate-100 text-brand-700';
+                    btn.className = 'px-4 py-2.5 text-sm font-medium tab-active';
                 } else {
                     panel.classList.add('hidden');
-                    btn.className = 'px-4 py-2.5 text-sm font-medium rounded-t-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800';
+                    btn.className = 'px-4 py-2.5 text-sm font-medium tab-inactive';
                 }
             });
             if (tab === 'stats') loadStats();
@@ -293,35 +364,35 @@
         function renderChannels() {
             const container = document.getElementById('channelList');
             if (!channels.length) {
-                container.innerHTML = '<p class="text-slate-400 text-center py-8 text-sm">暂无渠道，点击上方按钮添加</p>';
+                container.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">暂无渠道，点击上方按钮添加</p>';
                 return;
             }
             container.innerHTML = channels.map(ch => `
-                <div class="bg-white rounded-lg border border-slate-200 border-l-[3px] ${ch.enabled ? 'border-l-brand-500' : 'border-l-slate-300'} p-4 flex items-center justify-between gap-4">
+                <div class="card p-4 flex items-center justify-between gap-4 border-l-[3px] ${ch.enabled ? 'border-l-brand-500' : 'border-l-surface-200'}">
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1">
-                            <span class="font-semibold text-sm text-slate-800">${esc(ch.name)}</span>
-                            <span class="text-xs px-2 py-0.5 rounded-full font-medium ${ch.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${ch.enabled ? '启用' : '禁用'}</span>
-                            <span class="text-xs px-2 py-0.5 rounded-full font-medium bg-brand-100 text-brand-700">${esc(ch.api_type)}</span>
+                            <span class="font-semibold text-sm text-ink-900">${esc(ch.name)}</span>
+                            <span class="pill ${ch.enabled ? 'pill-success' : 'pill-muted'}">${ch.enabled ? '启用' : '禁用'}</span>
+                            <span class="pill pill-brand">${esc(ch.api_type)}</span>
                         </div>
-                        <div class="text-sm text-slate-500 truncate">${esc(ch.base_url)}</div>
-                        <div class="flex flex-wrap gap-1 mt-1.5">
-                            ${ch.models.map(m => `<span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">${esc(m)}</span>`).join('')}
+                        <div class="text-sm text-ink-600 truncate">${esc(ch.base_url)}</div>
+                        <div class="flex flex-wrap gap-1.5 mt-2">
+                            ${ch.models.map(m => `<span class="pill pill-muted">${esc(m)}</span>`).join('')}
                         </div>
-                        <div class="flex gap-3 mt-1.5 text-xs text-slate-400">
+                        <div class="flex gap-3 mt-2 text-xs text-ink-400">
                             <span>权重: ${ch.weight}</span>
                             <span>优先级: ${ch.priority}</span>
                             ${ch.socks5_proxy ? `<span>代理: ${esc(ch.socks5_proxy)}</span>` : ''}
                         </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
-                        <select id="model_${ch.id}" class="text-sm border border-slate-300 rounded-lg px-2 py-1.5 text-slate-700 outline-none focus:ring-2 focus:ring-brand-500">
+                        <select id="model_${ch.id}" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 text-ink-900 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
                             ${ch.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')}
                         </select>
-                        <button onclick="testChannel('${ch.id}', this)" class="px-3 py-1.5 text-sm rounded-lg bg-violet-100 text-violet-700 hover:bg-violet-200 font-medium transition">测试</button>
-                        <button onclick="toggleChannel('${ch.id}')" class="px-3 py-1.5 text-sm rounded-lg ${ch.enabled ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'} font-medium transition">${ch.enabled ? '禁用' : '启用'}</button>
-                        <button onclick="editChannel('${ch.id}')" class="px-3 py-1.5 text-sm rounded-lg bg-brand-100 text-brand-700 hover:bg-brand-200 font-medium transition">编辑</button>
-                        <button onclick="deleteChannel('${ch.id}')" class="px-3 py-1.5 text-sm rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200 font-medium transition">删除</button>
+                        <button onclick="testChannel('${ch.id}', this)" class="pill pill-brand hover:opacity-80 transition cursor-pointer">测试</button>
+                        <button onclick="toggleChannel('${ch.id}')" class="pill ${ch.enabled ? 'pill-warning hover:opacity-80' : 'pill-success hover:opacity-80'} transition cursor-pointer">${ch.enabled ? '禁用' : '启用'}</button>
+                        <button onclick="editChannel('${ch.id}')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">编辑</button>
+                        <button onclick="deleteChannel('${ch.id}')" class="pill pill-danger hover:opacity-80 transition cursor-pointer">删除</button>
                     </div>
                 </div>
             `).join('');
@@ -424,44 +495,44 @@
         function renderApiKeys() {
             const container = document.getElementById('apiKeyList');
             if (!apiKeys.length) {
-                container.innerHTML = '<p class="text-slate-400 text-center py-8 text-sm">暂无 API Key，点击上方按钮创建</p>';
+                container.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">暂无 API Key，点击上方按钮创建</p>';
                 return;
             }
             container.innerHTML = `
-                <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <div class="card overflow-hidden">
                     <table class="w-full text-sm">
                         <thead>
-                            <tr class="border-b border-slate-200 bg-slate-50">
-                                <th class="text-left py-2.5 px-4 text-xs text-slate-500 font-semibold uppercase tracking-wide">名称</th>
-                                <th class="text-left py-2.5 px-4 text-xs text-slate-500 font-semibold uppercase tracking-wide">Key</th>
-                                <th class="text-left py-2.5 px-4 text-xs text-slate-500 font-semibold uppercase tracking-wide">允许模型</th>
-                                <th class="text-right py-2.5 px-4 text-xs text-slate-500 font-semibold uppercase tracking-wide">请求数</th>
-                                <th class="text-right py-2.5 px-4 text-xs text-slate-500 font-semibold uppercase tracking-wide">Token用量</th>
-                                <th class="text-right py-2.5 px-4 text-xs text-slate-500 font-semibold uppercase tracking-wide">操作</th>
+                            <tr class="border-b border-surface-200">
+                                <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">名称</th>
+                                <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">Key</th>
+                                <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">允许模型</th>
+                                <th class="text-right py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">请求数</th>
+                                <th class="text-right py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">Token用量</th>
+                                <th class="text-right py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">操作</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${apiKeys.map(k => `
-                                <tr class="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition">
+                                <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
                                     <td class="py-3 px-4">
-                                        <div class="font-semibold text-slate-800">${esc(k.name)}</div>
-                                        ${k.notes ? `<div class="text-xs text-slate-400 mt-0.5">${esc(k.notes)}</div>` : ''}
+                                        <div class="font-semibold text-ink-900">${esc(k.name)}</div>
+                                        ${k.notes ? `<div class="text-xs text-ink-400 mt-0.5">${esc(k.notes)}</div>` : ''}
                                     </td>
                                     <td class="py-3 px-4">
-                                        <code class="text-xs text-emerald-700 bg-emerald-50 px-2 py-1 rounded font-mono border border-emerald-200">${esc(k.key)}</code>
+                                        <code class="text-xs text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg font-mono border border-emerald-100">${esc(k.key)}</code>
                                     </td>
                                     <td class="py-3 px-4">
                                         ${k.allowed_models && k.allowed_models.length > 0
-                                            ? k.allowed_models.map(m => `<span class="text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded font-medium mr-1">${esc(m)}</span>`).join('')
-                                            : '<span class="text-xs text-slate-400">全部模型</span>'}
+                                            ? k.allowed_models.map(m => `<span class="pill pill-brand mr-1">${esc(m)}</span>`).join('')
+                                            : '<span class="text-xs text-ink-400">全部模型</span>'}
                                     </td>
-                                    <td class="py-3 px-4 text-right text-slate-700 font-medium">${(k.request_count || 0).toLocaleString()}</td>
-                                    <td class="py-3 px-4 text-right text-slate-700 font-medium">${formatTokens((k.total_input_tokens || 0) + (k.total_output_tokens || 0))}</td>
+                                    <td class="py-3 px-4 text-right text-ink-900 font-medium">${(k.request_count || 0).toLocaleString()}</td>
+                                    <td class="py-3 px-4 text-right text-ink-900 font-medium">${formatTokens((k.total_input_tokens || 0) + (k.total_output_tokens || 0))}</td>
                                     <td class="py-3 px-4 text-right">
                                         <div class="flex items-center justify-end gap-1.5">
-                                            <button onclick="copyApiKey('${esc(k.id)}')" class="px-2.5 py-1 text-xs rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 font-medium transition">复制</button>
-                                            <button onclick="editApiKey('${esc(k.id)}')" class="px-2.5 py-1 text-xs rounded-md bg-brand-100 text-brand-700 hover:bg-brand-200 font-medium transition">编辑</button>
-                                            <button onclick="deleteApiKey('${esc(k.id)}')" class="px-2.5 py-1 text-xs rounded-md bg-rose-100 text-rose-700 hover:bg-rose-200 font-medium transition">删除</button>
+                                            <button onclick="copyApiKey('${esc(k.id)}')" class="pill pill-muted hover:bg-surface-200 transition cursor-pointer">复制</button>
+                                            <button onclick="editApiKey('${esc(k.id)}')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">编辑</button>
+                                            <button onclick="deleteApiKey('${esc(k.id)}')" class="pill pill-danger hover:opacity-80 transition cursor-pointer">删除</button>
                                         </div>
                                     </td>
                                 </tr>
@@ -598,18 +669,18 @@
             const channelDist = document.getElementById('channel_dist');
             const chs = overall.channels || [];
             if (chs.length === 0) {
-                channelDist.innerHTML = '<p class="text-slate-400 text-sm">暂无数据</p>';
+                channelDist.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
             } else {
                 const maxCount = Math.max(...chs.map(c => c.count));
                 channelDist.innerHTML = chs.map(ch => {
                     const pct = maxCount > 0 ? (ch.count / maxCount * 100) : 0;
                     return `
-                        <div class="flex items-center gap-2">
-                            <div class="w-24 text-sm text-slate-600 truncate">${esc(ch.name)}</div>
-                            <div class="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
+                        <div class="flex items-center gap-3">
+                            <div class="w-24 text-sm text-ink-600 truncate">${esc(ch.name)}</div>
+                            <div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
                                 <div class="bg-brand-500 h-full rounded-full" style="width: ${pct}%"></div>
                             </div>
-                            <div class="w-16 text-right text-sm text-slate-600 font-medium">${ch.count}</div>
+                            <div class="w-16 text-right text-sm text-ink-900 font-medium">${ch.count}</div>
                         </div>
                     `;
                 }).join('');
@@ -619,18 +690,18 @@
             const modelDist = document.getElementById('model_dist');
             const models = overall.models || [];
             if (models.length === 0) {
-                modelDist.innerHTML = '<p class="text-slate-400 text-sm">暂无数据</p>';
+                modelDist.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
             } else {
                 const maxCount = Math.max(...models.map(m => m.count));
                 modelDist.innerHTML = models.slice(0, 10).map(m => {
                     const pct = maxCount > 0 ? (m.count / maxCount * 100) : 0;
                     return `
-                        <div class="flex items-center gap-2">
-                            <div class="w-24 text-sm text-slate-600 truncate">${esc(m.name)}</div>
-                            <div class="flex-1 bg-slate-100 rounded-full h-4 overflow-hidden">
-                                <div class="bg-violet-500 h-full rounded-full" style="width: ${pct}%"></div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-24 text-sm text-ink-600 truncate">${esc(m.name)}</div>
+                            <div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
+                                <div class="bg-brand-500 h-full rounded-full" style="width: ${pct}%"></div>
                             </div>
-                            <div class="w-16 text-right text-sm text-slate-600 font-medium">${m.count}</div>
+                            <div class="w-16 text-right text-sm text-ink-900 font-medium">${m.count}</div>
                         </div>
                     `;
                 }).join('');
@@ -639,16 +710,16 @@
             // 每日趋势
             const dailyTbody = document.getElementById('daily_tbody');
             if (daily.length === 0) {
-                dailyTbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-slate-400 text-sm">暂无数据</td></tr>';
+                dailyTbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
             } else {
                 dailyTbody.innerHTML = daily.map(d => `
-                    <tr class="border-b border-slate-100 hover:bg-slate-50">
-                        <td class="py-2 px-2 text-sm text-slate-700">${d.date}</td>
-                        <td class="py-2 px-2 text-right text-sm text-slate-700 font-medium">${d.total_requests}</td>
-                        <td class="py-2 px-2 text-right text-sm text-emerald-600 font-medium">${d.success_count}</td>
-                        <td class="py-2 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
-                        <td class="py-2 px-2 text-right text-sm text-slate-700">${formatTokens(d.total_input_tokens)}</td>
-                        <td class="py-2 px-2 text-right text-sm text-slate-700">${formatTokens(d.total_output_tokens)}</td>
+                    <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
+                        <td class="py-2.5 px-2 text-sm text-ink-900">${d.date}</td>
+                        <td class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${d.total_requests}</td>
+                        <td class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${d.success_count}</td>
+                        <td class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
+                        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
+                        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
                     </tr>
                 `).join('');
             }
