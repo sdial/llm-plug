@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "Cherry-llm-plug": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Cherry-llm-plug",
+      "options": {
+        "apiKey": "{env:OPENCODE_API_KEY_LLM_PLUG}",
+        "baseURL": "http://127.0.0.1:55555/v1"
+      },
+      "models": {
+        "z-ai/glm-5.1": {
+          "name": "z-ai/glm-5.1",
+          "reasoning": true
+        }
+      }
+    }
+  }
+}
