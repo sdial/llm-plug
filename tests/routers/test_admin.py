@@ -46,7 +46,7 @@ class TestListRequestsEndpoint:
         assert data["items"] == []
         assert data["total"] == 0
 
-    async def test_pagination_and_filtering(self, client):
+    async def test_pagination(self, client):
         for i in range(15):
             await stats_pg.record_request(
                 channel_id=f"ch_{i}", channel_name=f"Channel {i}", model="gpt-4",
@@ -61,3 +61,18 @@ class TestListRequestsEndpoint:
         resp = await client.get("/admin/requests?page=2&page_size=10")
         data = resp.json()
         assert len(data["items"]) == 5
+
+    async def test_filter_by_model(self, client):
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-3.5",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        resp = await client.get("/admin/requests?model=gpt-4")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["items"][0]["model"] == "gpt-4"
