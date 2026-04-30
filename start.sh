@@ -26,7 +26,6 @@ case "$MODE" in
             --host "$HOST" \
             --port "$PORT" \
             --workers "$WORKERS" \
-            --loop uvloop \
             --http httptools \
             --timeout-keep-alive 360 \
             --log-level "$LOG_LEVEL" \
@@ -41,7 +40,6 @@ case "$MODE" in
         uv run uvicorn main:app \
             --host "$HOST" \
             --port "$PORT" \
-            --loop uvloop \
             --http httptools \
             --timeout-keep-alive 360 \
             --reload \

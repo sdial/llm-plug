@@ -46,12 +46,11 @@
 
 | 变量 | 环境变量 | 默认值 | 类型 | 说明 |
 |------|----------|--------|------|------|
-| `ADMIN_API_KEY` | `ADMIN_API_KEY` | `""` (空) | str | 管理 API 密钥 |
 | `PROXY_API_KEY` | `PROXY_API_KEY` | `""` (空) | str | 代理 API 密钥 |
 
 **空值 = 不鉴权**：如果环境变量未设置或为空，则对应接口不需要鉴权。
 
-> 注意：目前 `ADMIN_API_KEY` 虽然定义了但未在 admin 路由中实现鉴权检查。`PROXY_API_KEY` 已在代理路由中实现。
+> 注意：管理接口（`/admin/*`）无需认证，直接访问。
 
 ### 调试
 
@@ -102,7 +101,6 @@ uv run python main.py
 
 ```bash
 export PROXY_API_KEY=sk-your-secret-key
-export ADMIN_API_KEY=admin-your-secret-key
 export MAX_FAIL_COUNT=3
 export COOLDOWN_SECONDS=120
 export REQUEST_TIMEOUT=600

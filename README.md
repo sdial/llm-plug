@@ -1,9 +1,9 @@
-一个LLM API转换器
+# 一个 LLM API 转换器
 
 ## 用途
-- 通过web添加大模型API渠道和模型列表 ,支持openai-chat-completions,openai-response,anthropic
-- 通过转换器转换成三种不同的API服务（openai-chat-completions,openai-response,anthropic）
-- 从而让任一格式的API都能变成三种不同的API
+- 通过 web 添加大模型 API 渠道和模型列表，支持 openai-chat-completions、openai-response、anthropic
+- 通过转换器转换成三种不同的 API 服务（openai-chat-completions、openai-response、anthropic）
+- 从而让任一格式的 API 都能变成三种不同的 API
 
 ## 技术栈
 
@@ -47,7 +47,8 @@
 ├── static/
 │   └── index.html           # 管理页面（内嵌TailwindCSS）
 ├── data/
-│   └── channels.json        # 渠道与模型存储文件
+│   ├── channels.json        # 渠道与模型存储文件
+│   └── api_keys.json        # API Keys 存储文件
 └── pyproject.toml           # uv项目配置与依赖
 ```
 
@@ -130,7 +131,7 @@
 ### Phase 6: 完善与部署
 - [x] 错误处理与日志
 - [x] 代理API Key认证（`PROXY_API_KEY` 已生效）
-- [ ] 管理API Key认证（`ADMIN_API_KEY` 已定义，管理路由待接入）
+- [x] ~~管理API Key认证~~（已移除，管理接口无需认证）
 - [ ] Dockerfile
 - [x] 基础测试（`tests/` 已覆盖转换器、路由、负载均衡等）
 
@@ -178,9 +179,11 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 | PORT | 8000 | 监听端口 |
 | DATA_DIR | ./data | 数据目录 |
 | CHANNELS_FILE | ./data/channels.json | 渠道存储文件 |
+| API_KEYS_FILE | ./data/api_keys.json | API Keys 存储文件 |
 | MAX_FAIL_COUNT | 5 | 连续失败剔除阈值 |
 | COOLDOWN_SECONDS | 60 | 渠道冷却恢复时间 |
-| ADMIN_API_KEY | (空) | 管理API密钥，空则不鉴权 |
+| REQUEST_TIMEOUT | 300 | 上游请求超时时间（秒） |
+| LOG_LEVEL | info | 日志级别 |
 | PROXY_API_KEY | (空) | 代理API密钥，空则不鉴权 |
 | DEBUG | false | 调试日志开关 |
 | DEBUG_LOG_DIR | ./logs | 调试日志目录，输出 JSONL 格式 |

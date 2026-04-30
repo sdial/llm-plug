@@ -62,7 +62,7 @@ def check_proxy_authorization(authorization: str | None) -> bool
 - `authorization` 为空 → 返回 False
 - 格式需为 `Bearer <token>`，token 需与 `PROXY_API_KEY` 完全匹配
 
-> 注意：管理接口（`/admin/*`）的鉴权由 `ADMIN_API_KEY` 控制，与代理接口的 `PROXY_API_KEY` 是**独立**的。
+> 注意：管理接口（`/admin/*`）无需认证，可直接访问。
 
 ## proxy_errors.py — 错误响应
 
@@ -192,7 +192,7 @@ async def list_models_anthropic(authorization, limit, before, after)
 
 ## 注意事项
 
-1. **管理接口无鉴权保护**：目前 `ADMIN_API_KEY` 功能未在 admin 路由中实现（仅在代理路由中实现了 `PROXY_API_KEY` 鉴权）。如果需要管理接口鉴权，需要额外添加中间件。
+1. **管理接口无鉴权保护**：管理接口（`/admin/*`）无需认证即可访问，适用于本地部署场景。
 2. **GET /admin/channels 的 API Key 脱敏**：列表接口只返回 `sk-x***`，但单个渠道的 PUT/POST 响应中包含完整 API Key。
 3. **path traversal 防护**：日志文件读取使用 `is_relative_to()` 防止路径遍历攻击。
 4. **query_string 透传**：`proxy_base.py` 会将原始请求的 query string 透传给上游，这对 Anthropic 的 beta 参数等场景很重要。

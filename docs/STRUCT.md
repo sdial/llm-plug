@@ -209,7 +209,6 @@ llm-plug/
 | `MAX_FAIL_COUNT` | `5` | 连续失败 N 次后标记渠道不健康 |
 | `COOLDOWN_SECONDS` | `60` | 不健康渠道冷却恢复时间（秒） |
 | `REQUEST_TIMEOUT` | `300` | 上游请求超时时间（秒） |
-| `ADMIN_API_KEY` | (空) | 管理 API 密钥，空则不鉴权 |
 | `PROXY_API_KEY` | (空) | 代理 API 密钥，空则不鉴权 |
 | `DEBUG` | `false` | 调试日志开关 |
 | `DEBUG_LOG_DIR` | 项目根目录下 `logs/` | 调试日志目录 |

@@ -26,7 +26,6 @@ LLM API 转换器 - 一个将不同大模型API格式互转的代理服务。支
 | `CHANNELS_FILE` | 项目根目录下 `data/channels.json` | 渠道存储文件（基于 `DATA_DIR` 解析） |
 | `MAX_FAIL_COUNT` | `5` | 连续失败剔除阈值 |
 | `COOLDOWN_SECONDS` | `60` | 渠道冷却恢复时间(秒) |
-| `ADMIN_API_KEY` | (空) | 管理API密钥，空则不鉴权 |
 | `PROXY_API_KEY` | (空) | 代理API密钥，空则不鉴权 |
 | `DEBUG` | `false` | 调试日志开关，读取环境变量，默认关闭 |
 | `DEBUG_LOG_DIR` | 项目根目录下 `logs/` | 调试日志目录，输出 JSONL 格式 |

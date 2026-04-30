@@ -286,3 +286,30 @@ class TestCleanupOldData:
         with stats._get_conn() as conn:
             count = conn.execute("SELECT COUNT(*) FROM requests").fetchone()[0]
             assert count == 1
+
+    def test_clears_all_data_with_zero_days(self):
+        """keep_days=0 应清除所有数据"""
+        # 插入一些测试数据
+        stats.record_request("ch_1", "Test", "gpt-4", False, 10, 10, 100, True)
+        old_time = (datetime.now() - timedelta(days=10)).isoformat()
+        old_date = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d")
+        with stats._get_conn() as conn:
+            conn.execute(
+                "INSERT INTO requests (timestamp, channel_id, channel_name, model, is_stream, latency_ms, success) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (old_time, "ch_2", "Old", "gpt-3", 0, 50, 1),
+            )
+            conn.execute(
+                "INSERT INTO daily_stats (date, total_requests) VALUES (?, 1)",
+                (old_date,),
+            )
+            conn.commit()
+
+        # keep_days=0 应清除所有数据
+        deleted = stats.cleanup_old_data(keep_days=0)
+        assert deleted == 2  # 两条请求记录
+
+        with stats._get_conn() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM requests").fetchone()[0]
+            assert count == 0
+            count_daily = conn.execute("SELECT COUNT(*) FROM daily_stats").fetchone()[0]
+            assert count_daily == 0
