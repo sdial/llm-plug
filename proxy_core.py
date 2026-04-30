@@ -252,6 +252,15 @@ async def _do_request(
         input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
         output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
 
+        # 提取 finish_reason
+        finish_reason = None
+        if isinstance(response_data, dict):
+            choices = response_data.get("choices", [])
+            if choices and isinstance(choices[0], dict):
+                finish_reason = choices[0].get("finish_reason")
+            if finish_reason is None:
+                finish_reason = response_data.get("stop_reason")
+
         # 记录统计
         record_request(
             channel_id=channel.id,
@@ -261,7 +270,9 @@ async def _do_request(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             latency_ms=latency_ms,
+            lag_ms=None,
             success=True,
+            finish_reason=finish_reason,
             api_key_id=api_key_id,
         )
 
@@ -293,8 +304,10 @@ async def _do_request(
             input_tokens=0,
             output_tokens=0,
             latency_ms=latency_ms,
+            lag_ms=None,
             success=False,
             error_msg=str(e),
+            finish_reason=None,
             api_key_id=api_key_id,
         )
         # 控制台输出详细错误
@@ -342,6 +355,7 @@ async def _do_stream_request(
     response_converter: 用于把上游格式转换为客户端格式
     """
     start_time = time.time()
+    first_token_time = None
     model = upstream_data.get("model", "")
     input_tokens = 0
     output_tokens = 0
@@ -459,10 +473,14 @@ async def _do_stream_request(
                                 sse = _yield_anthropic_event(evt_type, converted)
                                 _log_stream_event(sse)
                                 yield sse
+                                if first_token_time is None:
+                                    first_token_time = time.time()
                             else:
                                 sse = f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
                                 _log_stream_event(sse)
                                 yield sse
+                                if first_token_time is None:
+                                    first_token_time = time.time()
                             extra = response_converter.get_extra_events(converted)
                             if extra:
                                 sse = _yield_anthropic_events(extra)
@@ -470,26 +488,36 @@ async def _do_stream_request(
                                     if part.strip():
                                         _log_stream_event(part + "\n\n")
                                 yield sse
+                                if first_token_time is None:
+                                    first_token_time = time.time()
                         else:
                             sse = f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
                             _log_stream_event(sse)
                             yield sse
+                            if first_token_time is None:
+                                first_token_time = time.time()
                             extra = response_converter.get_extra_events(converted)
                             if extra:
                                 for extra_evt in extra:
                                     sse = f"data: {json.dumps(extra_evt, ensure_ascii=False)}\n\n"
                                     _log_stream_event(sse)
                                     yield sse
+                                    if first_token_time is None:
+                                        first_token_time = time.time()
                 else:
                     if output_anthropic_sse and is_upstream_anthropic:
                         evt = upstream_event_type or "ping"
                         sse = _yield_anthropic_event(evt, chunk)
                         _log_stream_event(sse)
                         yield sse
+                        if first_token_time is None:
+                            first_token_time = time.time()
                     else:
                         sse = f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                         _log_stream_event(sse)
                         yield sse
+                        if first_token_time is None:
+                            first_token_time = time.time()
 
                 if is_upstream_anthropic:
                     upstream_event_type = None
@@ -533,6 +561,9 @@ async def _do_stream_request(
             yield "data: [DONE]\n\n"
     finally:
         latency_ms = int((time.time() - start_time) * 1000)
+        lag_ms = None
+        if first_token_time is not None:
+            lag_ms = int((first_token_time - start_time) * 1000)
         # 从 stream_chunks 中提取 token 使用量（按上游格式分别处理）
         if is_upstream_anthropic:
             for chunk in stream_chunks:
@@ -548,6 +579,23 @@ async def _do_stream_request(
                     if usage:
                         input_tokens = usage.get("prompt_tokens", input_tokens)
                         output_tokens = usage.get("completion_tokens", output_tokens)
+        # 从 stream_chunks 中提取 finish_reason
+        finish_reason = None
+        for chunk in reversed(stream_chunks):
+            if isinstance(chunk, dict):
+                # OpenAI format
+                choices = chunk.get("choices", [])
+                if choices and isinstance(choices[0], dict):
+                    fr = choices[0].get("finish_reason")
+                    if fr:
+                        finish_reason = fr
+                        break
+                # Anthropic format in message_delta
+                if chunk.get("type") == "message_delta":
+                    fr = chunk.get("delta", {}).get("stop_reason")
+                    if fr:
+                        finish_reason = fr
+                        break
         # 记录统计
         record_request(
             channel_id=channel.id,
@@ -557,8 +605,10 @@ async def _do_stream_request(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             latency_ms=latency_ms,
+            lag_ms=lag_ms,
             success=stream_success,
             error_msg=stream_error,
+            finish_reason=finish_reason,
             api_key_id=api_key_id,
         )
         if stream_success:
