@@ -328,7 +328,42 @@ def get_log(filename: str):
 async def get_stats():
     """获取统计数据"""
     overall = await get_overall_stats()
-    daily = await get_daily_stats(days=7)
+    raw_daily = await get_daily_stats(days=7)
+    daily_by_date: dict[str, dict] = {}
+    for row in raw_daily:
+        d = str(row["date"])
+        if d not in daily_by_date:
+            daily_by_date[d] = {
+                "date": d,
+                "total_requests": 0,
+                "success_count": 0,
+                "fail_count": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_latency_ms": 0,
+                "total_lag_ms": 0,
+                "latency_count": 0,
+            }
+        rec = daily_by_date[d]
+        rec["total_requests"] += row["request_count"] or 0
+        rec["success_count"] += row["success_count"] or 0
+        rec["fail_count"] += row["fail_count"] or 0
+        rec["total_input_tokens"] += row["input_tokens"] or 0
+        rec["total_output_tokens"] += row["output_tokens"] or 0
+        if row.get("avg_latency_ms") is not None:
+            rec["total_latency_ms"] += row["avg_latency_ms"] * (row["request_count"] or 1)
+            rec["latency_count"] += row["request_count"] or 1
+        if row.get("avg_lag_ms") is not None:
+            rec["total_lag_ms"] += row["avg_lag_ms"] * (row["request_count"] or 1)
+    daily = []
+    for rec in daily_by_date.values():
+        avg_latency = round(rec.pop("total_latency_ms") / rec["latency_count"]) if rec["latency_count"] else 0
+        avg_lag = round(rec.pop("total_lag_ms") / rec["latency_count"]) if rec["latency_count"] else 0
+        rec.pop("latency_count")
+        rec["avg_latency_ms"] = avg_latency
+        rec["avg_lag_ms"] = avg_lag
+        daily.append(rec)
+    daily.sort(key=lambda r: r["date"])
     return {
         "overall": overall,
         "daily": daily,

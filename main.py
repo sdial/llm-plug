@@ -115,11 +115,14 @@ async def proxy_auth_middleware(request: Request, call_next):
         request.state.api_key_id = matched_key.get("id")
 
         # 存储需要追踪的请求头供统计使用
-        from config import STATS_TRACKED_HEADERS
-        request.state.tracked_headers = {
-            k: v for k, v in request.headers.items()
-            if k.lower() in [h.lower() for h in STATS_TRACKED_HEADERS]
-        }
+        from config import STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
+        if TRACK_ALL_HEADERS:
+            request.state.tracked_headers = dict(request.headers)
+        else:
+            request.state.tracked_headers = {
+                k: v for k, v in request.headers.items()
+                if k.lower() in [h.lower() for h in STATS_TRACKED_HEADERS]
+            }
 
         # Read and re-inject body so downstream handlers can read it again
         body_bytes = await request.body()

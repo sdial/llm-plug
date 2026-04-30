@@ -28,7 +28,9 @@ DEBUG_LOG_DIR = os.getenv("DEBUG_LOG_DIR", os.path.join(os.path.dirname(__file__
 
 # PostgreSQL 配置
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/llmplug")
-STATS_TRACKED_HEADERS = os.getenv(
-    "STATS_TRACKED_HEADERS",
-    "X-App-Name,X-Request-ID,User-Agent"
-).split(",")
+
+# 统计追踪的请求头
+# 空值或 "ALL" 表示追踪所有请求头
+_stats_tracked_headers_raw = os.getenv("STATS_TRACKED_HEADERS", "")
+TRACK_ALL_HEADERS = _stats_tracked_headers_raw.strip().upper() == "ALL" or not _stats_tracked_headers_raw.strip()
+STATS_TRACKED_HEADERS = None if TRACK_ALL_HEADERS else _stats_tracked_headers_raw.split(",")
