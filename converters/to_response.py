@@ -79,7 +79,7 @@ class ToResponseConverter(BaseConverter):
         }
         if instructions:
             result["instructions"] = instructions
-        if data.get("max_tokens"):
+        if data.get("max_tokens") is not None:
             result["max_output_tokens"] = data["max_tokens"]
         if data.get("temperature") is not None:
             result["temperature"] = data["temperature"]
@@ -219,7 +219,7 @@ class ToResponseConverter(BaseConverter):
         }
         if instructions:
             result["instructions"] = instructions
-        if data.get("max_tokens"):
+        if data.get("max_tokens") is not None:
             result["max_output_tokens"] = data["max_tokens"]
         if data.get("temperature") is not None:
             result["temperature"] = data["temperature"]

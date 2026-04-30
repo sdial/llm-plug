@@ -51,9 +51,6 @@ async def list_models_anthropic(
     models = _collect_models()
     # 只取 anthropic 类型的模型
     anthropic_models = [m for m in models if m["api_type"] == APIType.ANTHROPIC.value]
-    # 如果没有专门的 anthropic 模型，则返回全部
-    if not anthropic_models:
-        anthropic_models = models
 
     # 简单分页
     start = 0

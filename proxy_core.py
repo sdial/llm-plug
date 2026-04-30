@@ -18,7 +18,7 @@ from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
 import stats
-from storage import load_data
+from storage import load_data, register_save_callback
 
 # 流式响应最大记录chunk数量，防止内存溢出
 MAX_STREAM_CHUNKS = 10000
@@ -94,10 +94,31 @@ def _log_debug(
         print(f"[WARN] Failed to write debug log: {log_err}")
 
 
+# 按 model 索引的渠道缓存，在 save_data 时自动失效
+_model_channels_cache: dict[str, list[Channel]] | None = None
+
+
+def _invalidate_model_channels_cache() -> None:
+    global _model_channels_cache
+    _model_channels_cache = None
+
+
+register_save_callback(_invalidate_model_channels_cache)
+
+
 def _get_channels_for_model(model: str) -> list[Channel]:
+    global _model_channels_cache
+    if _model_channels_cache is not None:
+        return _model_channels_cache.get(model, [])
     data = load_data()
     channels = [Channel(**ch) for ch in data.get("channels", [])]
-    return [ch for ch in channels if model in ch.models and ch.enabled]
+    _model_channels_cache = {}
+    for ch in channels:
+        if not ch.enabled:
+            continue
+        for m in ch.models:
+            _model_channels_cache.setdefault(m, []).append(ch)
+    return _model_channels_cache.get(model, [])
 
 
 CONVERTER_MAP: dict[tuple[str, str], tuple[type, type]] = {
@@ -227,7 +248,7 @@ async def _do_request(
     start_time = time.time()
     model = request_data.get("model", "")
     try:
-        client = create_client(channel)
+        client = await create_client(channel)
         resp = await client.post(url, json=upstream_data, headers=headers)
         resp.raise_for_status()
         response_data = resp.json()
@@ -250,9 +271,10 @@ async def _do_request(
             response_data = response_converter.convert_response(response_data, source_type)
 
         # 提取 token 使用量
+        # 注意：某些 API（如 Kimi）的 input_tokens 可能为 0（表示缓存后），实际值在 prompt_tokens
         usage = response_data.get("usage", {}) if isinstance(response_data, dict) else {}
-        input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
-        output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
+        input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
+        output_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
 
         # 提取 finish_reason
         finish_reason = None
@@ -442,15 +464,20 @@ async def _do_stream_request(
             async for line in resp.aiter_lines():
                 if not line.strip():
                     continue
-                if is_upstream_anthropic and line.startswith("event: "):
-                    upstream_event_type = line[7:].strip()
+                if is_upstream_anthropic and line.startswith("event:"):
+                    # 支持 "event:" 和 "event: " 两种格式
+                    upstream_event_type = line[5:].strip() if line.startswith("event: ") else line[5:].strip()
                     continue
-                if not line.startswith("data: "):
+                # 支持 "data:" 和 "data: " 两种格式
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                elif line.startswith("data:"):
+                    data_str = line[5:]
+                else:
                     # 非 data 行（如 SSE 注释），原样转发
                     _record_chunk(line)
                     continue
 
-                data_str = line[6:]
                 if data_str.strip() == "[DONE]":
                     _record_chunk("[DONE]")
                     if not output_anthropic_sse:

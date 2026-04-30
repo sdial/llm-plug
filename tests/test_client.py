@@ -101,42 +101,48 @@ class TestCacheKey:
 
 
 class TestGetOrCreateClient:
-    def test_creates_new_client(self, sample_channel):
-        c = client.get_or_create_client(sample_channel)
+    @pytest.mark.anyio
+    async def test_creates_new_client(self, sample_channel):
+        c = await client.get_or_create_client(sample_channel)
         assert isinstance(c, httpx.AsyncClient)
         assert not c.is_closed
 
-    def test_returns_cached_client(self, sample_channel):
-        c1 = client.get_or_create_client(sample_channel)
-        c2 = client.get_or_create_client(sample_channel)
+    @pytest.mark.anyio
+    async def test_returns_cached_client(self, sample_channel):
+        c1 = await client.get_or_create_client(sample_channel)
+        c2 = await client.get_or_create_client(sample_channel)
         assert c1 is c2
 
-    def test_creates_different_client_for_different_proxy(self, sample_channel, proxy_channel):
+    @pytest.mark.anyio
+    async def test_creates_different_client_for_different_proxy(self, sample_channel, proxy_channel):
         # 相同 base_url 但不同 proxy 应创建不同客户端
-        c1 = client.get_or_create_client(sample_channel)
-        c2 = client.get_or_create_client(proxy_channel)
+        c1 = await client.get_or_create_client(sample_channel)
+        c2 = await client.get_or_create_client(proxy_channel)
         assert c1 is not c2
 
-    def test_updates_cache_timestamp_on_reuse(self, sample_channel):
-        c1 = client.get_or_create_client(sample_channel)
+    @pytest.mark.anyio
+    async def test_updates_cache_timestamp_on_reuse(self, sample_channel):
+        c1 = await client.get_or_create_client(sample_channel)
         ts_before = client._cache_ts[client._cache_key(sample_channel)]
         time.sleep(0.05)
-        c2 = client.get_or_create_client(sample_channel)
+        c2 = await client.get_or_create_client(sample_channel)
         ts_after = client._cache_ts[client._cache_key(sample_channel)]
         assert ts_after > ts_before
         assert c1 is c2
 
-    def test_uses_custom_timeout(self, sample_channel):
-        c = client.get_or_create_client(sample_channel, timeout=30.0)
+    @pytest.mark.anyio
+    async def test_uses_custom_timeout(self, sample_channel):
+        c = await client.get_or_create_client(sample_channel, timeout=30.0)
         # httpx.Timeout 对象
         assert c.timeout.connect == 10.0
         # 总超时时间应接近 30 秒
         assert c.timeout.read == 30.0
 
-    def test_creates_new_client_after_closed(self, sample_channel):
-        c1 = client.get_or_create_client(sample_channel)
-        _run_async(c1.aclose())
-        c2 = client.get_or_create_client(sample_channel)
+    @pytest.mark.anyio
+    async def test_creates_new_client_after_closed(self, sample_channel):
+        c1 = await client.get_or_create_client(sample_channel)
+        await c1.aclose()
+        c2 = await client.get_or_create_client(sample_channel)
         assert c1 is not c2
         assert not c2.is_closed
 
@@ -170,10 +176,11 @@ class TestCreateStreamClient:
 
 
 class TestCloseAllClients:
-    def test_closes_all_clients(self, sample_channel, proxy_channel):
-        c1 = client.get_or_create_client(sample_channel)
-        c2 = client.get_or_create_client(proxy_channel)
-        _run_async(client.close_all_clients())
+    @pytest.mark.anyio
+    async def test_closes_all_clients(self, sample_channel, proxy_channel):
+        c1 = await client.get_or_create_client(sample_channel)
+        c2 = await client.get_or_create_client(proxy_channel)
+        await client.close_all_clients()
         assert c1.is_closed
         assert c2.is_closed
         assert len(client._clients) == 0
@@ -181,17 +188,19 @@ class TestCloseAllClients:
 
 
 class TestCleanupStaleClients:
-    def test_removes_stale_clients(self, sample_channel):
-        c = client.get_or_create_client(sample_channel)
+    @pytest.mark.anyio
+    async def test_removes_stale_clients(self, sample_channel):
+        c = await client.get_or_create_client(sample_channel)
         # 将缓存时间设为很久以前
         client._cache_ts[client._cache_key(sample_channel)] = time.time() - 1000
-        _run_async(client.cleanup_stale_clients(max_age=300.0))
+        await client.cleanup_stale_clients(max_age=300.0)
         assert c.is_closed
         assert len(client._clients) == 0
 
-    def test_keeps_recent_clients(self, sample_channel):
-        c = client.get_or_create_client(sample_channel)
-        _run_async(client.cleanup_stale_clients(max_age=300.0))
+    @pytest.mark.anyio
+    async def test_keeps_recent_clients(self, sample_channel):
+        c = await client.get_or_create_client(sample_channel)
+        await client.cleanup_stale_clients(max_age=300.0)
         assert not c.is_closed
         assert len(client._clients) == 1
 
@@ -199,7 +208,7 @@ class TestCleanupStaleClients:
 class TestRemoveChannelClient:
     @pytest.mark.anyio
     async def test_removes_and_closes_client(self, sample_channel):
-        c = client.get_or_create_client(sample_channel)
+        c = await client.get_or_create_client(sample_channel)
         removed = await client.remove_channel_client(sample_channel)
         assert removed is c
         assert client._cache_key(sample_channel) not in client._clients

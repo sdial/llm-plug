@@ -66,10 +66,13 @@ async def update_channel(channel_id: str, body: ChannelUpdate):
                 updated = ch.model_copy(update=update_data)
                 channels[i] = updated
                 _save_channels(channels)
-                # 渠道配置变更（base_url/socks5_proxy）时刷新客户端缓存
-                await remove_channel_client(ch)
-                return updated
-    raise HTTPException(status_code=404, detail="渠道不存在")
+                old_channel = ch
+                break
+        else:
+            raise HTTPException(status_code=404, detail="渠道不存在")
+    # 渠道配置变更（base_url/socks5_proxy）时刷新客户端缓存（锁外执行）
+    await remove_channel_client(old_channel)
+    return updated
 
 
 @router.delete("/channels/{channel_id}")
@@ -80,13 +83,13 @@ async def delete_channel(channel_id: str):
         new_channels = [ch for ch in channels if ch.id != channel_id]
         if len(new_channels) == len(channels):
             raise HTTPException(status_code=404, detail="渠道不存在")
-        # 移除被删除渠道的客户端缓存
-        for ch in channels:
-            if ch.id == channel_id:
-                await remove_channel_client(ch)
-                break
+        # 记录被删除的渠道用于锁外清理
+        removed_channel = next((ch for ch in channels if ch.id == channel_id), None)
         _save_channels(new_channels)
-        return {"message": "删除成功"}
+    # 移除被删除渠道的客户端缓存（锁外执行）
+    if removed_channel:
+        await remove_channel_client(removed_channel)
+    return {"message": "删除成功"}
 
 
 @router.patch("/channels/{channel_id}/toggle", response_model=Channel)
@@ -99,10 +102,13 @@ async def toggle_channel(channel_id: str):
                 updated = ch.model_copy(update={"enabled": not ch.enabled})
                 channels[i] = updated
                 _save_channels(channels)
-                # 渠道配置变更时刷新客户端缓存
-                await remove_channel_client(ch)
-                return updated
-    raise HTTPException(status_code=404, detail="渠道不存在")
+                old_channel = ch
+                break
+        else:
+            raise HTTPException(status_code=404, detail="渠道不存在")
+    # 渠道配置变更时刷新客户端缓存（锁外执行）
+    await remove_channel_client(old_channel)
+    return updated
 
 
 # ============ API Keys CRUD ============

@@ -56,12 +56,19 @@ async def request_log_middleware(request: Request, call_next):
         start = time.time()
         model = ""
         stream = False
+        body_bytes = b""
         try:
-            body = await request.json()
+            body_bytes = await request.body()
+            body = json.loads(body_bytes)
             model = body.get("model", "")
             stream = body.get("stream", False)
         except Exception:
             pass
+        # 恢复 request._receive，确保下游中间件和路由能重新读取 body
+        if body_bytes:
+            async def receive():
+                return {"type": "http.request", "body": body_bytes}
+            request._receive = receive
         qs = f"?{query}" if query else ""
         ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         response = await call_next(request)

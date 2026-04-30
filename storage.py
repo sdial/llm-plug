@@ -3,7 +3,7 @@ import os
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 import config
 
@@ -16,6 +16,21 @@ def get_lock() -> threading.RLock:
 _cache: dict[str, Any] | None = None
 _cache_ts: float = 0
 _CACHE_TTL = 5.0
+
+# 外部模块可注册缓存失效回调（避免循环导入）
+_save_callbacks: list[Callable[[], None]] = []
+
+
+def register_save_callback(callback: Callable[[], None]) -> None:
+    _save_callbacks.append(callback)
+
+
+def _trigger_save_callbacks() -> None:
+    for cb in _save_callbacks:
+        try:
+            cb()
+        except Exception:
+            pass
 
 
 def _ensure_data_dir():
@@ -74,6 +89,7 @@ def save_data(data: dict[str, Any]) -> None:
             os.replace(tmp_path, config.CHANNELS_FILE)
             _cache = data
             _cache_ts = time.time()
+            _trigger_save_callbacks()
         except Exception:
             try:
                 f.close()
