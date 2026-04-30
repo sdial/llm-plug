@@ -194,16 +194,20 @@ def get_daily_stats(days: int = 7) -> list[dict[str, Any]]:
 
 
 def cleanup_old_data(keep_days: int) -> int:
-    """清理 N 天前的数据，返回删除的记录数"""
-    cutoff = (datetime.now() - timedelta(days=keep_days)).strftime("%Y-%m-%d")
-
+    """清理 N 天前的数据，返回删除的记录数。keep_days=0 表示清除全部数据"""
     with _get_conn() as conn:
-        # 删除请求记录
-        cursor = conn.execute("DELETE FROM requests WHERE date(timestamp) < ?", (cutoff,))
-        deleted_count = cursor.rowcount
-
-        # 删除每日汇总
-        conn.execute("DELETE FROM daily_stats WHERE date < ?", (cutoff,))
+        if keep_days == 0:
+            # 清除全部数据
+            cursor = conn.execute("DELETE FROM requests")
+            deleted_count = cursor.rowcount
+            conn.execute("DELETE FROM daily_stats")
+        else:
+            cutoff = (datetime.now() - timedelta(days=keep_days)).strftime("%Y-%m-%d")
+            # 删除请求记录
+            cursor = conn.execute("DELETE FROM requests WHERE date(timestamp) < ?", (cutoff,))
+            deleted_count = cursor.rowcount
+            # 删除每日汇总
+            conn.execute("DELETE FROM daily_stats WHERE date < ?", (cutoff,))
 
         conn.commit()
 

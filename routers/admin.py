@@ -54,7 +54,7 @@ def create_channel(body: ChannelCreate):
 
 
 @router.put("/channels/{channel_id}", response_model=Channel)
-def update_channel(channel_id: str, body: ChannelUpdate):
+async def update_channel(channel_id: str, body: ChannelUpdate):
     """更新渠道"""
     with get_lock():
         channels = _get_channels()
@@ -65,13 +65,13 @@ def update_channel(channel_id: str, body: ChannelUpdate):
                 channels[i] = updated
                 _save_channels(channels)
                 # 渠道配置变更（base_url/socks5_proxy）时刷新客户端缓存
-                remove_channel_client(ch)
+                await remove_channel_client(ch)
                 return updated
     raise HTTPException(status_code=404, detail="渠道不存在")
 
 
 @router.delete("/channels/{channel_id}")
-def delete_channel(channel_id: str):
+async def delete_channel(channel_id: str):
     """删除渠道"""
     with get_lock():
         channels = _get_channels()
@@ -81,14 +81,14 @@ def delete_channel(channel_id: str):
         # 移除被删除渠道的客户端缓存
         for ch in channels:
             if ch.id == channel_id:
-                remove_channel_client(ch)
+                await remove_channel_client(ch)
                 break
         _save_channels(new_channels)
-    return {"message": "删除成功"}
+        return {"message": "删除成功"}
 
 
 @router.patch("/channels/{channel_id}/toggle", response_model=Channel)
-def toggle_channel(channel_id: str):
+async def toggle_channel(channel_id: str):
     """启用/禁用渠道"""
     with get_lock():
         channels = _get_channels()
@@ -98,7 +98,7 @@ def toggle_channel(channel_id: str):
                 channels[i] = updated
                 _save_channels(channels)
                 # 渠道配置变更时刷新客户端缓存
-                remove_channel_client(ch)
+                await remove_channel_client(ch)
                 return updated
     raise HTTPException(status_code=404, detail="渠道不存在")
 
@@ -334,7 +334,7 @@ def get_stats():
 
 
 @router.post("/stats/cleanup")
-def cleanup_stats(keep_days: int = Query(default=30, ge=1, le=365)):
+def cleanup_stats(keep_days: int = Query(default=30, ge=0, le=365)):
     """清理 N 天前的统计数据"""
     deleted = cleanup_old_data(keep_days)
     return {"message": f"已清理 {deleted} 条记录", "deleted_count": deleted}

@@ -197,14 +197,16 @@ class TestCleanupStaleClients:
 
 
 class TestRemoveChannelClient:
-    def test_removes_and_closes_client(self, sample_channel):
+    @pytest.mark.anyio
+    async def test_removes_and_closes_client(self, sample_channel):
         c = client.get_or_create_client(sample_channel)
-        removed = client.remove_channel_client(sample_channel)
+        removed = await client.remove_channel_client(sample_channel)
         assert removed is c
         assert client._cache_key(sample_channel) not in client._clients
 
-    def test_returns_none_when_not_cached(self, sample_channel):
-        removed = client.remove_channel_client(sample_channel)
+    @pytest.mark.anyio
+    async def test_returns_none_when_not_cached(self, sample_channel):
+        removed = await client.remove_channel_client(sample_channel)
         assert removed is None
 
 
