@@ -17,7 +17,7 @@ from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
-from stats import record_request
+import stats_pg
 from storage import load_data
 
 # 流式响应最大记录chunk数量，防止内存溢出
@@ -262,7 +262,7 @@ async def _do_request(
                 finish_reason = response_data.get("stop_reason")
 
         # 记录统计
-        record_request(
+        await stats_pg.record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -296,7 +296,7 @@ async def _do_request(
     except Exception as e:
         latency_ms = int((time.time() - start_time) * 1000)
         # 记录失败统计
-        record_request(
+        await stats_pg.record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -597,7 +597,7 @@ async def _do_stream_request(
                         finish_reason = fr
                         break
         # 记录统计
-        record_request(
+        await stats_pg.record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,

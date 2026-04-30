@@ -10,7 +10,9 @@ import httpx
 from client import get_upstream_headers, remove_channel_client
 from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
-from stats import cleanup_old_data, get_daily_stats, get_overall_stats
+from datetime import date, datetime
+
+from stats_pg import cleanup_old_data, get_daily_stats, get_overall_stats, aggregate_hourly_stats, aggregate_daily_stats
 from storage import load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
@@ -323,10 +325,10 @@ def get_log(filename: str):
 
 
 @router.get("/stats")
-def get_stats():
+async def get_stats():
     """获取统计数据"""
-    overall = get_overall_stats()
-    daily = get_daily_stats(days=7)
+    overall = await get_overall_stats()
+    daily = await get_daily_stats(days=7)
     return {
         "overall": overall,
         "daily": daily,
@@ -334,7 +336,25 @@ def get_stats():
 
 
 @router.post("/stats/cleanup")
-def cleanup_stats(keep_days: int = Query(default=30, ge=0, le=365)):
+async def cleanup_stats(keep_days: int = Query(default=30, ge=0, le=365)):
     """清理 N 天前的统计数据"""
-    deleted = cleanup_old_data(keep_days)
+    deleted = await cleanup_old_data(keep_days)
     return {"message": f"已清理 {deleted} 条记录", "deleted_count": deleted}
+
+
+@router.post("/stats/aggregate/hourly")
+async def trigger_hourly_aggregation(
+    start_time: datetime,
+    end_time: datetime,
+):
+    result = await aggregate_hourly_stats(start_time, end_time)
+    return {"message": f"已更新 {result['updated_rows']} 条小时聚合记录", **result}
+
+
+@router.post("/stats/aggregate/daily")
+async def trigger_daily_aggregation(
+    start_date: date,
+    end_date: date,
+):
+    result = await aggregate_daily_stats(start_date, end_date)
+    return {"message": f"已更新 {result['updated_rows']} 条日聚合记录", **result}
