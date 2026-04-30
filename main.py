@@ -13,11 +13,18 @@ from fastapi.staticfiles import StaticFiles
 from client import close_all_clients
 from config import DEBUG, HOST, PORT
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
-from storage import load_api_keys
+from storage import load_data, load_api_keys
 
 
 @asynccontextmanager
 async def lifespan(app):
+    # 启动预热：提前加载数据到缓存，避免首次请求同步读磁盘
+    channels_data = load_data()
+    keys_data = load_api_keys()
+    channel_count = len(channels_data.get("channels", []))
+    model_count = len({m for ch in channels_data.get("channels", []) for m in ch.get("models", [])})
+    key_count = len(keys_data.get("api_keys", []))
+    print(f"[STARTUP] 就绪: {channel_count} 个渠道, {model_count} 个模型, {key_count} 个 API Key")
     yield
     await close_all_clients()
 
