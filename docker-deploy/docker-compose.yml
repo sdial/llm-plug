@@ -1,0 +1,19 @@
+services:
+  llm-plug:
+    image: docker.cnb.cool/lfo.cc/llm-plug:latest
+    container_name: llm-plug
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - PROXY_API_KEY=${PROXY_API_KEY:-}
+      - MAX_FAIL_COUNT=${MAX_FAIL_COUNT:-5}
+      - COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-60}
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-300}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - DEBUG=${DEBUG:-false}
