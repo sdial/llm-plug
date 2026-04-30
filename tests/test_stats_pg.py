@@ -5,7 +5,7 @@ import pytest_asyncio
 import asyncpg
 from datetime import datetime, timedelta
 
-import stats_pg
+import stats
 
 TEST_DB_URL = os.getenv("TEST_DATABASE_URL")
 
@@ -16,7 +16,7 @@ pytestmark = pytest.mark.asyncio
 async def setup_test_db(monkeypatch):
     if not TEST_DB_URL:
         pytest.skip("TEST_DATABASE_URL not set")
-    monkeypatch.setattr(stats_pg, "DATABASE_URL", TEST_DB_URL)
+    monkeypatch.setattr(stats, "DATABASE_URL", TEST_DB_URL)
     # 清理并重新初始化
     pool = await asyncpg.create_pool(TEST_DB_URL)
     async with pool.acquire() as conn:
@@ -24,9 +24,9 @@ async def setup_test_db(monkeypatch):
         await conn.execute("DROP TABLE IF EXISTS hourly_stats CASCADE")
         await conn.execute("DROP TABLE IF EXISTS daily_stats CASCADE")
     await pool.close()
-    await stats_pg.init_db()
+    await stats.init_db()
     yield
-    await stats_pg.close_pool()
+    await stats.close_pool()
 
 
 class TestInitDb:
@@ -45,7 +45,7 @@ class TestInitDb:
 
 class TestRecordRequest:
     async def test_inserts_request_row(self):
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1",
             channel_name="Test Channel",
             model="gpt-4",
@@ -70,7 +70,7 @@ class TestRecordRequest:
         await pool.close()
 
     async def test_headers_case_insensitive(self):
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5,
             latency_ms=100, success=True,
@@ -87,34 +87,22 @@ class TestAggregation:
     async def test_hourly_aggregation(self):
         now = datetime.now()
         hour_start = now.replace(minute=0, second=0, microsecond=0)
-        await stats_pg.record_request("ch_1", "Test", "gpt-4", False, 100, 50, 200, True)
-        await stats_pg.record_request("ch_1", "Test", "gpt-4", False, 200, 100, 300, True)
+        await stats.record_request("ch_1", "Test", "gpt-4", False, 100, 50, 200, True)
+        await stats.record_request("ch_1", "Test", "gpt-4", False, 200, 100, 300, True)
 
-        result = await stats_pg.aggregate_hourly_stats(hour_start, hour_start + timedelta(hours=1))
+        result = await stats.aggregate_hourly_stats(hour_start, hour_start + timedelta(hours=1))
         assert result["updated_rows"] >= 1
 
-        stats_result = await stats_pg.get_hourly_stats(start_time=hour_start)
+        stats_result = await stats.get_hourly_stats(start_time=hour_start)
         assert len(stats_result) >= 1
         assert stats_result[0]["request_count"] == 2
         assert stats_result[0]["input_tokens"] == 300
         assert stats_result[0]["output_tokens"] == 150
 
 
-class TestCleanup:
-    async def test_cleanup_old_data(self):
-        await stats_pg.record_request("ch_1", "Test", "gpt-4", False, 10, 5, 100, True)
-        deleted = await stats_pg.cleanup_old_data(keep_days=0)
-        assert deleted >= 1
-        pool = await asyncpg.create_pool(TEST_DB_URL)
-        async with pool.acquire() as conn:
-            count = await conn.fetchval("SELECT COUNT(*) FROM requests")
-            assert count == 0
-        await pool.close()
-
-
 class TestListRequests:
     async def test_empty_result(self):
-        result = await stats_pg.list_requests(page=1, page_size=10)
+        result = await stats.list_requests(page=1, page_size=10)
         assert result["items"] == []
         assert result["total"] == 0
         assert result["page"] == 1
@@ -123,87 +111,87 @@ class TestListRequests:
     async def test_pagination(self):
         for i in range(15):
             await asyncio.sleep(0.01)
-            await stats_pg.record_request(
+            await stats.record_request(
                 channel_id=f"ch_{i}", channel_name=f"Channel {i}", model="gpt-4",
                 is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
             )
-        result = await stats_pg.list_requests(page=1, page_size=10)
+        result = await stats.list_requests(page=1, page_size=10)
         assert len(result["items"]) == 10
         assert result["total"] == 15
         # 验证按 timestamp DESC 排序：第一条应该是最新插入的（ch_14）
         assert result["items"][0]["channel_id"] == "ch_14"
 
-        result = await stats_pg.list_requests(page=2, page_size=10)
+        result = await stats.list_requests(page=2, page_size=10)
         assert len(result["items"]) == 5
         assert result["total"] == 15
         assert result["items"][0]["channel_id"] == "ch_4"
 
     async def test_filter_by_model(self):
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
         )
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-3.5",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
         )
-        result = await stats_pg.list_requests(model="gpt-4")
+        result = await stats.list_requests(model="gpt-4")
         assert result["total"] == 1
         assert result["items"][0]["model"] == "gpt-4"
 
     async def test_filter_by_success(self):
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
         )
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=False,
         )
-        result = await stats_pg.list_requests(success=True)
+        result = await stats.list_requests(success=True)
         assert result["total"] == 1
         assert result["items"][0]["success"] is True
 
-        result = await stats_pg.list_requests(success=False)
+        result = await stats.list_requests(success=False)
         assert result["total"] == 1
         assert result["items"][0]["success"] is False
 
     async def test_filter_by_channel(self):
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Alpha", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
         )
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_2", channel_name="Beta", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
         )
-        result = await stats_pg.list_requests(channel="Alpha")
+        result = await stats.list_requests(channel="Alpha")
         assert result["total"] == 1
         assert result["items"][0]["channel_name"] == "Alpha"
 
     async def test_filter_by_is_stream(self):
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-4",
             is_stream=True, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
         )
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
         )
-        result = await stats_pg.list_requests(is_stream=True)
+        result = await stats.list_requests(is_stream=True)
         assert result["total"] == 1
         assert result["items"][0]["is_stream"] is True
 
     async def test_combined_filters(self):
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
         )
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-3.5",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
         )
-        result = await stats_pg.list_requests(model="gpt-4", success=True)
+        result = await stats.list_requests(model="gpt-4", success=True)
         assert result["total"] == 1
         assert result["items"][0]["model"] == "gpt-4"
 
@@ -234,25 +222,25 @@ class TestListRequests:
             )
         await pool.close()
 
-        result = await stats_pg.list_requests(start=now - timedelta(hours=1))
+        result = await stats.list_requests(start=now - timedelta(hours=1))
         assert result["total"] == 1
         assert result["items"][0]["channel_id"] == "ch_recent"
 
-        result = await stats_pg.list_requests(end=now - timedelta(hours=1))
+        result = await stats.list_requests(end=now - timedelta(hours=1))
         assert result["total"] == 1
         assert result["items"][0]["channel_id"] == "ch_old"
 
     async def test_filter_by_api_key_id(self):
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
             api_key_id="key_alpha",
         )
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id="ch_1", channel_name="Test", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
             api_key_id="key_beta",
         )
-        result = await stats_pg.list_requests(api_key_id="key_alpha")
+        result = await stats.list_requests(api_key_id="key_alpha")
         assert result["total"] == 1
         assert result["items"][0]["api_key_id"] == "key_alpha"

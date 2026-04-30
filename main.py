@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import sys
@@ -13,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from client import close_all_clients
 from config import DEBUG, HOST, PORT
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
-from stats_pg import init_db as init_stats_db, close_pool as close_stats_pool
+from stats import init_db as init_stats_db, close_pool as close_stats_pool
 from storage import load_data, load_api_keys
 
 
@@ -27,7 +28,10 @@ async def lifespan(app):
     key_count = len(keys_data.get("api_keys", []))
     print(f"[STARTUP] 就绪: {channel_count} 个渠道, {model_count} 个模型, {key_count} 个 API Key")
     await init_stats_db()
-    yield
+    try:
+        yield
+    except asyncio.CancelledError:
+        pass  # suppress CancelledError from signal handling on Windows/Python 3.14
     await close_stats_pool()
     await close_all_clients()
 
@@ -82,6 +86,16 @@ _PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")
 async def proxy_auth_middleware(request: Request, call_next):
     """Authenticate proxy requests via Bearer token and enforce model allow-lists."""
     if request.method == "POST" and request.url.path in _PROXY_PATHS:
+        # 存储需要追踪的请求头供统计使用（无论是否配置 API Key 都执行）
+        from config import STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
+        if TRACK_ALL_HEADERS:
+            request.state.tracked_headers = dict(request.headers)
+        else:
+            request.state.tracked_headers = {
+                k: v for k, v in request.headers.items()
+                if k.lower() in [h.lower() for h in STATS_TRACKED_HEADERS]
+            }
+
         keys_data = load_api_keys()
         api_keys = keys_data.get("api_keys", [])
 
@@ -113,16 +127,6 @@ async def proxy_auth_middleware(request: Request, call_next):
 
         # Store key ID for downstream use (stats recording)
         request.state.api_key_id = matched_key.get("id")
-
-        # 存储需要追踪的请求头供统计使用
-        from config import STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
-        if TRACK_ALL_HEADERS:
-            request.state.tracked_headers = dict(request.headers)
-        else:
-            request.state.tracked_headers = {
-                k: v for k, v in request.headers.items()
-                if k.lower() in [h.lower() for h in STATS_TRACKED_HEADERS]
-            }
 
         # Read and re-inject body so downstream handlers can read it again
         body_bytes = await request.body()

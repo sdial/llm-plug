@@ -17,7 +17,7 @@ from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
-import stats_pg
+import stats
 from storage import load_data
 
 # 流式响应最大记录chunk数量，防止内存溢出
@@ -156,6 +156,7 @@ async def proxy_request(
     query_string: str | None = None,
     client_headers: dict[str, str] | None = None,
     api_key_id: str | None = None,
+    tracked_headers: dict[str, str] | None = None,
 ) -> tuple[Any, Channel]:
     """
     执行代理请求，返回 (response_data_or_stream, selected_channel)
@@ -176,7 +177,7 @@ async def proxy_request(
             raise ValueError(f"模型 {model} 的所有渠道均不可用")
 
         try:
-            return await _do_request(selected, request_data, target_api_type, is_stream, query_string=query_string, client_headers=client_headers, api_key_id=api_key_id), selected
+            return await _do_request(selected, request_data, target_api_type, is_stream, query_string=query_string, client_headers=client_headers, api_key_id=api_key_id, tracked_headers=tracked_headers), selected
         except Exception as e:
             load_balancer.record_failure(selected.id)
             last_error = e
@@ -191,6 +192,7 @@ async def _do_request(
     query_string: str | None = None,
     client_headers: dict[str, str] | None = None,
     api_key_id: str | None = None,
+    tracked_headers: dict[str, str] | None = None,
 ):
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
 
@@ -218,7 +220,7 @@ async def _do_request(
     if is_stream:
         return _do_stream_request(
             channel, url, headers, upstream_data, response_converter, source_type, target_api_type,
-            api_key_id=api_key_id,
+            api_key_id=api_key_id, tracked_headers=tracked_headers,
         )
 
     # 非流式：使用缓存的 httpx 客户端（不可 async with，否则会关闭共享连接）
@@ -262,7 +264,7 @@ async def _do_request(
                 finish_reason = response_data.get("stop_reason")
 
         # 记录统计
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -274,6 +276,7 @@ async def _do_request(
             success=True,
             finish_reason=finish_reason,
             api_key_id=api_key_id,
+            headers=tracked_headers,
         )
 
         # 非流式响应摘要日志
@@ -296,7 +299,7 @@ async def _do_request(
     except Exception as e:
         latency_ms = int((time.time() - start_time) * 1000)
         # 记录失败统计
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -309,6 +312,7 @@ async def _do_request(
             error_msg=str(e),
             finish_reason=None,
             api_key_id=api_key_id,
+            headers=tracked_headers,
         )
         # 控制台输出详细错误
         err_body = ""
@@ -347,6 +351,7 @@ def _yield_anthropic_events(events: list[tuple[str, dict[str, Any]] | dict[str, 
 async def _do_stream_request(
     channel: Channel, url: str, headers: dict, upstream_data: dict, response_converter, source_type: str,
     target_api_type: APIType = APIType.OPENAI_CHAT, api_key_id: str | None = None,
+    tracked_headers: dict[str, str] | None = None,
 ):
     """流式请求，yield SSE 数据行。
 
@@ -597,7 +602,7 @@ async def _do_stream_request(
                         finish_reason = fr
                         break
         # 记录统计
-        await stats_pg.record_request(
+        await stats.record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -610,6 +615,7 @@ async def _do_stream_request(
             error_msg=stream_error,
             finish_reason=finish_reason,
             api_key_id=api_key_id,
+            headers=tracked_headers,
         )
         if stream_success:
             load_balancer.record_success(channel.id)
