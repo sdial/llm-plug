@@ -111,7 +111,7 @@ class ToChatCompletionsConverter(BaseConverter):
             "messages": messages,
             "stream": data.get("stream", False),
         }
-        if data.get("max_tokens"):
+        if data.get("max_tokens") is not None:
             result["max_tokens"] = data["max_tokens"]
         if data.get("temperature") is not None:
             result["temperature"] = data["temperature"]

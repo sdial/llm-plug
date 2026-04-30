@@ -271,19 +271,31 @@
 
             <!-- 表格 -->
             <div class="card overflow-hidden mb-4">
-                <table class="w-full text-sm">
+                <table class="w-full text-sm" style="table-layout:fixed">
+                    <colgroup>
+                        <col style="width:110px">
+                        <col style="width:90px">
+                        <col style="width:130px">
+                        <col style="width:70px">
+                        <col style="width:70px">
+                        <col style="width:90px">
+                        <col style="width:90px">
+                        <col style="width:70px">
+                        <col style="width:80px">
+                        <col style="width:60px">
+                    </colgroup>
                     <thead>
                         <tr class="border-b border-surface-200">
-                            <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">时间</th>
-                            <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">模型</th>
-                            <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">渠道</th>
-                            <th class="text-right py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">输入Token</th>
-                            <th class="text-right py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">输出Token</th>
-                            <th class="text-right py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">整体延迟(ms)</th>
-                            <th class="text-right py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">首字延迟(ms)</th>
-                            <th class="text-right py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">速率</th>
-                            <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">结束原因</th>
-                            <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">状态</th>
+                            <th class="text-left py-3 px-3 text-xs text-ink-600 font-semibold uppercase tracking-wider">时间</th>
+                            <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">渠道</th>
+                            <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">模型</th>
+                            <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">输入Tkn</th>
+                            <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">输出Tkn</th>
+                            <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">延迟(ms)</th>
+                            <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">首字(ms)</th>
+                            <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">速率</th>
+                            <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">结束原因</th>
+                            <th class="text-center py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">状态</th>
                         </tr>
                     </thead>
                     <tbody id="requestsTbody">
@@ -1080,16 +1092,16 @@ function renderStats(data) {
                 }
                 return `
                 <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150 cursor-pointer" onclick="openRequestDetail(${req.id})">
-                    <td class="py-3 px-4 text-sm text-ink-900">${formatTimestamp(req.timestamp)}</td>
-                    <td class="py-3 px-4 text-sm text-ink-900">${esc(req.model)}</td>
-                    <td class="py-3 px-4 text-sm text-ink-900">${esc(req.channel_name)}</td>
-                    <td class="py-3 px-4 text-right text-sm text-ink-900 font-medium">${req.input_tokens || 0}</td>
-                    <td class="py-3 px-4 text-right text-sm text-ink-900 font-medium">${outTokens}</td>
-                    <td class="py-3 px-4 text-right text-sm text-ink-900 font-medium">${latency != null ? latency + 'ms' : '-'}</td>
-                    <td class="py-3 px-4 text-right text-sm text-ink-900 font-medium">${lag != null ? lag + 'ms' : '-'}</td>
-                    <td class="py-3 px-4 text-right text-sm text-ink-900 font-medium">${speed}</td>
-                    <td class="py-3 px-4 text-sm text-ink-900">${esc(req.finish_reason || '-')}</td>
-                    <td class="py-3 px-4">
+                    <td class="py-3 px-3 text-sm text-ink-900 whitespace-nowrap">${formatTimestamp(req.timestamp)}</td>
+                    <td class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.channel_name)}">${esc(req.channel_name)}</td>
+                    <td class="py-3 px-2 text-sm text-ink-900 truncate" title="${esc(req.model)}">${esc(req.model)}</td>
+                    <td class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${req.input_tokens || 0}</td>
+                    <td class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${outTokens}</td>
+                    <td class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${latency != null ? latency + 'ms' : '-'}</td>
+                    <td class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${lag != null ? lag + 'ms' : '-'}</td>
+                    <td class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${speed}</td>
+                    <td class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.finish_reason || '-')}">${esc(req.finish_reason || '-')}</td>
+                    <td class="py-3 px-2 text-center">
                         <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? '成功' : '失败'}</span>
                     </td>
                 </tr>

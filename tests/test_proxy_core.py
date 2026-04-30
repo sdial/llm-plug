@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -12,10 +12,18 @@ from proxy_core import (
     _get_channels_for_model,
     _get_converter_and_upstream_type,
     _get_upstream_url,
+    _invalidate_model_channels_cache,
     _yield_anthropic_event,
     _yield_anthropic_events,
     CONVERTER_MAP,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_model_cache():
+    """每个测试前清理模型渠道缓存。"""
+    _invalidate_model_channels_cache()
+    yield
 
 
 class TestGetChannelsForModel:
