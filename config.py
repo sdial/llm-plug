@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 服务器配置
 HOST = os.getenv("HOST", "0.0.0.0")
