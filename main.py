@@ -174,4 +174,35 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     os.environ["LOG_LEVEL"] = args.log_level
-    uvicorn.run("main:app", host=HOST, port=PORT, reload=True, log_level=args.log_level)
+    log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "[%(asctime)s] %(levelprefix)s %(message)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+            "access": {
+                "format": "[%(asctime)s] %(levelprefix)s %(client_addr)s - \"%(request_line)s\" %(status_code)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+        },
+        "handlers": {
+            "default": {
+                "formatter": "default",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stderr",
+            },
+            "access": {
+                "formatter": "access",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": args.log_level.upper()},
+            "uvicorn.error": {"handlers": ["default"], "level": args.log_level.upper(), "propagate": False},
+            "uvicorn.access": {"handlers": ["access"], "level": args.log_level.upper(), "propagate": False},
+        },
+    }
+    uvicorn.run("main:app", host=HOST, port=PORT, reload=True, log_level=args.log_level, log_config=log_config)
