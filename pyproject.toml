@@ -5,9 +5,11 @@ description = "LLM API 转换器 — 支持 OpenAI Chat Completions、OpenAI Res
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "asyncpg>=0.29.0",
     "fastapi>=0.136.0",
     "httptools>=0.7.1",
     "httpx[socks]>=0.28.1",
+    "psycopg2-binary>=2.9.0",
     "pydantic>=2.13.3",
     "python-socks[asyncio]>=2.8.1",
     "uvicorn>=0.46.0",

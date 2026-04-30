@@ -22,3 +22,10 @@ PROXY_API_KEY = os.getenv("PROXY_API_KEY", "")  # 代理API密钥，为空则不
 # Debug 模式
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 DEBUG_LOG_DIR = os.getenv("DEBUG_LOG_DIR", os.path.join(os.path.dirname(__file__), "logs"))
+
+# PostgreSQL 配置
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/llmplug")
+STATS_TRACKED_HEADERS = os.getenv(
+    "STATS_TRACKED_HEADERS",
+    "X-App-Name,X-Request-ID,User-Agent"
+).split(",")
