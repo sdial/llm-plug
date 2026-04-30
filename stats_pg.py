@@ -456,6 +456,9 @@ async def list_requests(
     page_size: int = 10,
 ) -> dict[str, Any]:
     """查询请求记录（支持分页和过滤）"""
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
+
     if not _db_available:
         return {"items": [], "total": 0, "page": page, "page_size": page_size}
 

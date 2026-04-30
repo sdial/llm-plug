@@ -1,3 +1,4 @@
+import asyncio
 import os
 import pytest
 import pytest_asyncio
@@ -121,6 +122,7 @@ class TestListRequests:
 
     async def test_pagination(self):
         for i in range(15):
+            await asyncio.sleep(0.01)
             await stats_pg.record_request(
                 channel_id=f"ch_{i}", channel_name=f"Channel {i}", model="gpt-4",
                 is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
@@ -128,10 +130,13 @@ class TestListRequests:
         result = await stats_pg.list_requests(page=1, page_size=10)
         assert len(result["items"]) == 10
         assert result["total"] == 15
+        # 验证按 timestamp DESC 排序：第一条应该是最新插入的（ch_14）
+        assert result["items"][0]["channel_id"] == "ch_14"
 
         result = await stats_pg.list_requests(page=2, page_size=10)
         assert len(result["items"]) == 5
         assert result["total"] == 15
+        assert result["items"][0]["channel_id"] == "ch_4"
 
     async def test_filter_by_model(self):
         await stats_pg.record_request(
@@ -201,3 +206,53 @@ class TestListRequests:
         result = await stats_pg.list_requests(model="gpt-4", success=True)
         assert result["total"] == 1
         assert result["items"][0]["model"] == "gpt-4"
+
+    async def test_filter_by_time_range(self):
+        now = datetime.now()
+        old_time = now - timedelta(hours=2)
+        recent_time = now - timedelta(minutes=5)
+
+        pool = await asyncpg.create_pool(TEST_DB_URL)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO requests
+                (timestamp, model, channel_id, channel_name, api_key_id, headers, is_stream,
+                 input_tokens, output_tokens, latency_ms, lag_ms, finish_reason, success, error_msg)
+                VALUES ($1, 'gpt-4', 'ch_old', 'Old', NULL, '{}', false, 10, 5, 100, NULL, 'stop', true, NULL)
+                """,
+                old_time,
+            )
+            await conn.execute(
+                """
+                INSERT INTO requests
+                (timestamp, model, channel_id, channel_name, api_key_id, headers, is_stream,
+                 input_tokens, output_tokens, latency_ms, lag_ms, finish_reason, success, error_msg)
+                VALUES ($1, 'gpt-4', 'ch_recent', 'Recent', NULL, '{}', false, 10, 5, 100, NULL, 'stop', true, NULL)
+                """,
+                recent_time,
+            )
+        await pool.close()
+
+        result = await stats_pg.list_requests(start=now - timedelta(hours=1))
+        assert result["total"] == 1
+        assert result["items"][0]["channel_id"] == "ch_recent"
+
+        result = await stats_pg.list_requests(end=now - timedelta(hours=1))
+        assert result["total"] == 1
+        assert result["items"][0]["channel_id"] == "ch_old"
+
+    async def test_filter_by_api_key_id(self):
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            api_key_id="key_alpha",
+        )
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            api_key_id="key_beta",
+        )
+        result = await stats_pg.list_requests(api_key_id="key_alpha")
+        assert result["total"] == 1
+        assert result["items"][0]["api_key_id"] == "key_alpha"
