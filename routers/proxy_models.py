@@ -1,9 +1,7 @@
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Query
 
 from models.api_types import APIType
 from models.channel import Channel
-from routers.auth import check_proxy_authorization
-from routers.proxy_errors import unauthorized
 from storage import load_data
 
 router = APIRouter(tags=["代理"])
@@ -28,10 +26,7 @@ def _collect_models() -> list[dict]:
 # ── OpenAI Chat Completions / Response 共用 ──
 
 @router.get("/v1/models")
-async def list_models_openai(authorization: str | None = Header(None)):
-    if not check_proxy_authorization(authorization):
-        return unauthorized()
-
+async def list_models_openai():
     models = _collect_models()
     data = [
         {
@@ -49,14 +44,10 @@ async def list_models_openai(authorization: str | None = Header(None)):
 
 @router.get("/v1/anthropic/models")
 async def list_models_anthropic(
-    authorization: str | None = Header(None),
     limit: int = Query(default=20, ge=1, le=100),
     before: str | None = Query(default=None),
     after: str | None = Query(default=None),
 ):
-    if not check_proxy_authorization(authorization):
-        return unauthorized()
-
     models = _collect_models()
     # 只取 anthropic 类型的模型
     anthropic_models = [m for m in models if m["api_type"] == APIType.ANTHROPIC.value]
