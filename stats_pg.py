@@ -442,3 +442,76 @@ async def cleanup_old_data(keep_days: int) -> int:
             cutoff_date = (datetime.now() - timedelta(days=keep_days)).date()
             await conn.execute("DELETE FROM daily_stats WHERE date < $1", cutoff_date)
         return deleted or 0
+
+
+async def list_requests(
+    model: str | None = None,
+    channel: str | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    success: bool | None = None,
+    api_key_id: str | None = None,
+    is_stream: bool | None = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> dict[str, Any]:
+    """查询请求记录（支持分页和过滤）"""
+    if not _db_available:
+        return {"items": [], "total": 0, "page": page, "page_size": page_size}
+
+    conditions = ["1=1"]
+    args: list[Any] = []
+
+    if model:
+        args.append(f"%{model}%")
+        conditions.append(f"model ILIKE ${len(args)}")
+    if channel:
+        args.append(f"%{channel}%")
+        conditions.append(f"channel_name ILIKE ${len(args)}")
+    if start:
+        args.append(start)
+        conditions.append(f"timestamp >= ${len(args)}")
+    if end:
+        args.append(end)
+        conditions.append(f"timestamp < ${len(args)}")
+    if success is not None:
+        args.append(success)
+        conditions.append(f"success = ${len(args)}")
+    if api_key_id:
+        args.append(api_key_id)
+        conditions.append(f"api_key_id = ${len(args)}")
+    if is_stream is not None:
+        args.append(is_stream)
+        conditions.append(f"is_stream = ${len(args)}")
+
+    where_clause = " AND ".join(conditions)
+
+    async with _get_conn() as conn:
+        if conn is None:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM requests WHERE {where_clause}",
+            *args
+        )
+
+        offset = (page - 1) * page_size
+        data_args = args + [page_size, offset]
+        rows = await conn.fetch(
+            f"""
+            SELECT id, timestamp, model, channel_id, channel_name, api_key_id, headers, is_stream,
+                   input_tokens, output_tokens, cost, latency_ms, lag_ms, finish_reason, success, error_msg
+            FROM requests
+            WHERE {where_clause}
+            ORDER BY timestamp DESC
+            LIMIT ${len(args) + 1} OFFSET ${len(args) + 2}
+            """,
+            *data_args
+        )
+
+        return {
+            "items": [dict(r) for r in rows],
+            "total": total or 0,
+            "page": page,
+            "page_size": page_size,
+        }
