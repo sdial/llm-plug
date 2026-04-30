@@ -132,9 +132,11 @@ def e2e_mock_server():
 
 @pytest.fixture
 def e2e_client(e2e_mock_server):
-    """创建 E2E 测试客户端（每次清除 storage 缓存）"""
+    """创建 E2E 测试客户端（每次清除 storage 缓存和 proxy_core 渠道缓存）"""
     import storage
+    import proxy_core
     storage.invalidate_cache()
+    proxy_core._invalidate_model_channels_cache()
     from main import app
     from fastapi.testclient import TestClient
     with TestClient(app) as c:
