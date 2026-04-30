@@ -7,8 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from client import close_all_clients
@@ -36,6 +35,151 @@ async def lifespan(app):
     await close_all_clients()
 
 
+from starlette.types import ASGIApp, Receive, Scope, Send, Message
+
+_PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")
+
+
+class CombinedMiddleware:
+    """Pure ASGI middleware combining auth and logging - avoids BaseHTTPMiddleware streaming bug."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope["method"]
+        path = scope["path"]
+
+        # Only process proxy API requests
+        if method != "POST" or path not in _PROXY_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        start = time.time()
+        ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        query = scope.get("query_string", b"").decode()
+
+        # Buffer the request body once
+        body_parts = []
+        more_body = True
+        while more_body:
+            message = await receive()
+            body_parts.append(message.get("body", b""))
+            more_body = message.get("more_body", False)
+        body_bytes = b"".join(body_parts)
+
+        # Parse body for logging and validation
+        model = ""
+        stream = False
+        try:
+            body = json.loads(body_bytes)
+            model = body.get("model", "")
+            stream = body.get("stream", False)
+        except Exception:
+            pass
+
+        # Initialize state
+        scope.setdefault("state", {})
+
+        # Store tracked headers
+        from config import STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
+        headers_dict = {k.decode(): v.decode() for k, v in scope.get("headers", [])}
+        if TRACK_ALL_HEADERS:
+            scope["state"]["tracked_headers"] = headers_dict
+        else:
+            scope["state"]["tracked_headers"] = {
+                k: v for k, v in headers_dict.items()
+                if k.lower() in [h.lower() for h in STATS_TRACKED_HEADERS]
+            }
+
+        # Store body for downstream handlers
+        scope["state"]["body_bytes"] = body_bytes
+
+        # Auth check
+        keys_data = load_api_keys()
+        api_keys = keys_data.get("api_keys", [])
+
+        if api_keys:
+            auth_header = headers_dict.get("authorization", "")
+            if not auth_header.startswith("Bearer "):
+                await self._send_error(send, 401, "Missing or invalid Authorization header")
+                self._log_request(ts_start, method, path, query, model, stream, "", 401, start)
+                return
+            token = auth_header[len("Bearer "):]
+
+            matched_key = None
+            for key in api_keys:
+                if key.get("key") == token:
+                    matched_key = key
+                    break
+
+            if matched_key is None:
+                await self._send_error(send, 401, "Invalid API key")
+                self._log_request(ts_start, method, path, query, model, stream, "", 401, start)
+                return
+
+            scope["state"]["api_key_id"] = matched_key.get("id")
+
+            allowed_models = matched_key.get("allowed_models", [])
+            if allowed_models and model and model not in allowed_models:
+                await self._send_error(send, 403, f"Model '{model}' is not allowed for this API key")
+                self._log_request(ts_start, method, path, query, model, stream, "", 403, start)
+                return
+
+        # Create a new receive that returns the buffered body
+        body_received = False
+
+        async def buffered_receive() -> Message:
+            nonlocal body_received
+            if not body_received:
+                body_received = True
+                return {"type": "http.request", "body": body_bytes, "more_body": False}
+            return await receive()
+
+        # Track response status
+        response_status = 200
+        original_send = send
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_status
+            if message["type"] == "http.response.start":
+                response_status = message.get("status", 200)
+            await original_send(message)
+
+        try:
+            await self.app(scope, buffered_receive, tracking_send)
+        finally:
+            state = scope.get("state", {})
+            channel = state.get("selected_channel_name", "")
+            self._log_request(ts_start, method, path, query, model, stream, channel, response_status, start)
+
+    def _log_request(self, ts_start: str, method: str, path: str, query: str,
+                     model: str, stream: bool, channel: str, status: int, start: float) -> None:
+        qs = f"?{query}" if query else ""
+        channel_tag = f" channel={channel}" if channel else ""
+        ts_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tag = "OK" if status < 400 else "ERR"
+        elapsed = time.time() - start
+        print(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}")
+        print(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s)")
+
+    async def _send_error(self, send: Send, status: int, message: str) -> None:
+        error_body = json.dumps({"error": {"message": message, "type": "auth_error"}}).encode()
+        await send({
+            "type": "http.response.start",
+            "status": status,
+            "headers": [[b"content-type", b"application/json"]],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": error_body,
+        })
+
+
 app = FastAPI(title="LLM API 转换器", version="0.1.0", lifespan=lifespan)
 
 # uvicorn --debug 会设置 sys.flags.debug
@@ -44,121 +188,8 @@ _debug_enabled = DEBUG or getattr(sys.flags, "debug", False)
 # 日志级别（由 --log-level 参数控制，默认 info）
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
 
-
-@app.middleware("http")
-async def request_log_middleware(request: Request, call_next):
-    method = request.method
-    path = request.url.path
-    query = request.url.query
-
-    # 只记录代理 API 请求
-    if method == "POST" and path in ("/v1/chat/completions", "/v1/responses", "/v1/messages"):
-        start = time.time()
-        model = ""
-        stream = False
-        body_bytes = b""
-        try:
-            body_bytes = await request.body()
-            body = json.loads(body_bytes)
-            model = body.get("model", "")
-            stream = body.get("stream", False)
-        except Exception:
-            pass
-        # 恢复 request._receive，确保下游中间件和路由能重新读取 body
-        if body_bytes:
-            async def receive():
-                return {"type": "http.request", "body": body_bytes}
-            request._receive = receive
-        qs = f"?{query}" if query else ""
-        ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        response = await call_next(request)
-        elapsed = time.time() - start
-        status = response.status_code
-        tag = "OK" if status < 400 else "ERR"
-        ts_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        channel = getattr(request.state, 'selected_channel_name', '')
-        channel_tag = f" channel={channel}" if channel else ""
-        print(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}")
-        print(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s)")
-        return response
-
-    return await call_next(request)
-
-
-_PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")
-
-
-@app.middleware("http")
-async def proxy_auth_middleware(request: Request, call_next):
-    """Authenticate proxy requests via Bearer token and enforce model allow-lists."""
-    if request.method == "POST" and request.url.path in _PROXY_PATHS:
-        # 存储需要追踪的请求头供统计使用（无论是否配置 API Key 都执行）
-        from config import STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
-        if TRACK_ALL_HEADERS:
-            request.state.tracked_headers = dict(request.headers)
-        else:
-            request.state.tracked_headers = {
-                k: v for k, v in request.headers.items()
-                if k.lower() in [h.lower() for h in STATS_TRACKED_HEADERS]
-            }
-
-        keys_data = load_api_keys()
-        api_keys = keys_data.get("api_keys", [])
-
-        # If no API keys configured, allow all requests (backward compatible)
-        if not api_keys:
-            return await call_next(request)
-
-        # Extract Bearer token
-        auth_header = request.headers.get("authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return JSONResponse(
-                status_code=401,
-                content={"error": {"message": "Missing or invalid Authorization header", "type": "auth_error"}},
-            )
-        token = auth_header[len("Bearer "):]
-
-        # Look up key
-        matched_key = None
-        for key in api_keys:
-            if key.get("key") == token:
-                matched_key = key
-                break
-
-        if matched_key is None:
-            return JSONResponse(
-                status_code=401,
-                content={"error": {"message": "Invalid API key", "type": "auth_error"}},
-            )
-
-        # Store key ID for downstream use (stats recording)
-        request.state.api_key_id = matched_key.get("id")
-
-        # Read and re-inject body so downstream handlers can read it again
-        body_bytes = await request.body()
-        async def receive():
-            return {"type": "http.request", "body": body_bytes}
-        request._receive = receive
-
-        # Check model allow-list
-        allowed_models = matched_key.get("allowed_models", [])
-        if allowed_models:
-            try:
-                body = json.loads(body_bytes)
-                request_model = body.get("model", "")
-            except Exception:
-                request_model = ""
-            if request_model and request_model not in allowed_models:
-                return JSONResponse(
-                    status_code=403,
-                    content={"error": {
-                        "message": f"Model '{request_model}' is not allowed for this API key",
-                        "type": "auth_error",
-                    }},
-                )
-
-    return await call_next(request)
+# Add pure ASGI middleware
+app.add_middleware(CombinedMiddleware)
 
 # 注册路由
 app.include_router(admin.router)

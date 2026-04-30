@@ -23,6 +23,13 @@ async def init_pool() -> asyncpg.Pool | None:
             return None
         try:
             _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+            async with _pool.acquire() as conn:
+                await conn.set_type_codec(
+                    'jsonb',
+                    encoder=json.dumps,
+                    decoder=json.loads,
+                    schema='pg_catalog'
+                )
             _db_available = True
         except Exception as exc:
             logger.warning("PostgreSQL 连接失败，统计功能已禁用: %s", exc)
@@ -137,17 +144,16 @@ async def record_request(
     if not _db_available:
         return
 
-    # 过滤并序列化请求头（大小写不敏感匹配）
+    # 过滤请求头（大小写不敏感匹配，保存原始格式）
     tracked = {}
     if headers:
         if TRACK_ALL_HEADERS:
             tracked = dict(headers)
         else:
-            header_lower = {k.lower(): v for k, v in headers.items()}
-            for key in STATS_TRACKED_HEADERS:
-                val = header_lower.get(key.lower())
-                if val:
-                    tracked[key] = val
+            target_keys = {k.lower() for k in STATS_TRACKED_HEADERS}
+            for k, v in headers.items():
+                if k.lower() in target_keys:
+                    tracked[k] = v
 
     async with _get_conn() as conn:
         if conn is None:
@@ -157,7 +163,7 @@ async def record_request(
             INSERT INTO requests
             (timestamp, model, channel_id, channel_name, api_key_id, headers, is_stream,
              input_tokens, output_tokens, latency_ms, lag_ms, finish_reason, success, error_msg)
-            VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES (now(), $1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)
             """,
             model, channel_id, channel_name, api_key_id,
             tracked, is_stream, input_tokens, output_tokens,

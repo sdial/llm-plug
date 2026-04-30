@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import pytest
 import pytest_asyncio
@@ -12,13 +13,26 @@ TEST_DB_URL = os.getenv("TEST_DATABASE_URL")
 pytestmark = pytest.mark.asyncio
 
 
+async def _create_pool():
+    """创建带 JSONB 编解码器的连接池"""
+    pool = await asyncpg.create_pool(TEST_DB_URL)
+    async with pool.acquire() as conn:
+        await conn.set_type_codec(
+            'jsonb',
+            encoder=json.dumps,
+            decoder=json.loads,
+            schema='pg_catalog'
+        )
+    return pool
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def setup_test_db(monkeypatch):
     if not TEST_DB_URL:
         pytest.skip("TEST_DATABASE_URL not set")
     monkeypatch.setattr(stats, "DATABASE_URL", TEST_DB_URL)
     # 清理并重新初始化
-    pool = await asyncpg.create_pool(TEST_DB_URL)
+    pool = await _create_pool()
     async with pool.acquire() as conn:
         await conn.execute("DROP TABLE IF EXISTS requests CASCADE")
         await conn.execute("DROP TABLE IF EXISTS hourly_stats CASCADE")
@@ -31,7 +45,7 @@ async def setup_test_db(monkeypatch):
 
 class TestInitDb:
     async def test_creates_tables(self):
-        pool = await asyncpg.create_pool(TEST_DB_URL)
+        pool = await _create_pool()
         async with pool.acquire() as conn:
             tables = await conn.fetch(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
@@ -59,7 +73,7 @@ class TestRecordRequest:
             lag_ms=50,
             finish_reason="stop",
         )
-        pool = await asyncpg.create_pool(TEST_DB_URL)
+        pool = await _create_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM requests")
             assert row["channel_id"] == "ch_1"
@@ -76,10 +90,10 @@ class TestRecordRequest:
             latency_ms=100, success=True,
             headers={"x-app-name": "LowerCaseApp"},
         )
-        pool = await asyncpg.create_pool(TEST_DB_URL)
+        pool = await _create_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT headers FROM requests")
-            assert row["headers"]["X-App-Name"] == "LowerCaseApp"
+            assert row["headers"]["x-app-name"] == "LowerCaseApp"
         await pool.close()
 
 
@@ -200,7 +214,7 @@ class TestListRequests:
         old_time = now - timedelta(hours=2)
         recent_time = now - timedelta(minutes=5)
 
-        pool = await asyncpg.create_pool(TEST_DB_URL)
+        pool = await _create_pool()
         async with pool.acquire() as conn:
             await conn.execute(
                 """
