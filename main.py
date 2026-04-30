@@ -111,20 +111,20 @@ async def proxy_auth_middleware(request: Request, call_next):
         # Store key ID for downstream use (stats recording)
         request.state.api_key_id = matched_key.get("id")
 
+        # Read and re-inject body so downstream handlers can read it again
+        body_bytes = await request.body()
+        async def receive():
+            return {"type": "http.request", "body": body_bytes}
+        request._receive = receive
+
         # Check model allow-list
         allowed_models = matched_key.get("allowed_models", [])
         if allowed_models:
             try:
-                body_bytes = await request.body()
                 body = json.loads(body_bytes)
                 request_model = body.get("model", "")
             except Exception:
                 request_model = ""
-                body_bytes = b""
-            # Re-inject body so downstream handlers can read it again
-            async def receive():
-                return {"type": "http.request", "body": body_bytes}
-            request._receive = receive
             if request_model and request_model not in allowed_models:
                 return JSONResponse(
                     status_code=403,

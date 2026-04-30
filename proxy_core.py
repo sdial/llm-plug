@@ -533,21 +533,21 @@ async def _do_stream_request(
             yield "data: [DONE]\n\n"
     finally:
         latency_ms = int((time.time() - start_time) * 1000)
-        # 从 stream_chunks 中提取 token 使用量
-        for chunk in stream_chunks:
-            if isinstance(chunk, dict):
-                # Anthropic 格式的 message_start 包含 usage
-                if chunk.get("type") == "message_start":
-                    msg = chunk.get("message", {})
-                    usage = msg.get("usage", {})
-                    input_tokens = usage.get("input_tokens", 0)
-                # OpenAI 格式的最后 chunk 可能包含 usage
-                usage = chunk.get("usage", {})
-                if usage:
-                    input_tokens = usage.get("prompt_tokens", input_tokens)
-                    output_tokens = usage.get("completion_tokens", output_tokens)
-                    input_tokens = usage.get("input_tokens", input_tokens)
-                    output_tokens = usage.get("output_tokens", output_tokens)
+        # 从 stream_chunks 中提取 token 使用量（按上游格式分别处理）
+        if is_upstream_anthropic:
+            for chunk in stream_chunks:
+                if isinstance(chunk, dict):
+                    if chunk.get("type") == "message_start":
+                        input_tokens = chunk.get("message", {}).get("usage", {}).get("input_tokens", 0)
+                    elif chunk.get("type") == "message_delta":
+                        output_tokens = chunk.get("usage", {}).get("output_tokens", output_tokens)
+        else:
+            for chunk in stream_chunks:
+                if isinstance(chunk, dict):
+                    usage = chunk.get("usage")
+                    if usage:
+                        input_tokens = usage.get("prompt_tokens", input_tokens)
+                        output_tokens = usage.get("completion_tokens", output_tokens)
         # 记录统计
         record_request(
             channel_id=channel.id,
