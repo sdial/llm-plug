@@ -109,3 +109,95 @@ class TestCleanup:
             count = await conn.fetchval("SELECT COUNT(*) FROM requests")
             assert count == 0
         await pool.close()
+
+
+class TestListRequests:
+    async def test_empty_result(self):
+        result = await stats_pg.list_requests(page=1, page_size=10)
+        assert result["items"] == []
+        assert result["total"] == 0
+        assert result["page"] == 1
+        assert result["page_size"] == 10
+
+    async def test_pagination(self):
+        for i in range(15):
+            await stats_pg.record_request(
+                channel_id=f"ch_{i}", channel_name=f"Channel {i}", model="gpt-4",
+                is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            )
+        result = await stats_pg.list_requests(page=1, page_size=10)
+        assert len(result["items"]) == 10
+        assert result["total"] == 15
+
+        result = await stats_pg.list_requests(page=2, page_size=10)
+        assert len(result["items"]) == 5
+        assert result["total"] == 15
+
+    async def test_filter_by_model(self):
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-3.5",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        result = await stats_pg.list_requests(model="gpt-4")
+        assert result["total"] == 1
+        assert result["items"][0]["model"] == "gpt-4"
+
+    async def test_filter_by_success(self):
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=False,
+        )
+        result = await stats_pg.list_requests(success=True)
+        assert result["total"] == 1
+        assert result["items"][0]["success"] is True
+
+        result = await stats_pg.list_requests(success=False)
+        assert result["total"] == 1
+        assert result["items"][0]["success"] is False
+
+    async def test_filter_by_channel(self):
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Alpha", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        await stats_pg.record_request(
+            channel_id="ch_2", channel_name="Beta", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        result = await stats_pg.list_requests(channel="Alpha")
+        assert result["total"] == 1
+        assert result["items"][0]["channel_name"] == "Alpha"
+
+    async def test_filter_by_is_stream(self):
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=True, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        result = await stats_pg.list_requests(is_stream=True)
+        assert result["total"] == 1
+        assert result["items"][0]["is_stream"] is True
+
+    async def test_combined_filters(self):
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        await stats_pg.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-3.5",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        result = await stats_pg.list_requests(model="gpt-4", success=True)
+        assert result["total"] == 1
+        assert result["items"][0]["model"] == "gpt-4"
