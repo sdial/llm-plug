@@ -1,10 +1,10 @@
 # spec-storage — 存储层
 
-> 对应文件：`storage.py`（约 86 行）
+> 对应文件：`storage.py`（约 167 行）
 
 ## 模块定位
 
-`storage.py` 负责渠道数据的持久化存储，使用 JSON 文件作为存储介质。它提供了线程安全的读写接口，并内置内存缓存以减少磁盘 IO。
+`storage.py` 负责渠道数据和 API Key 数据的持久化存储，使用 JSON 文件作为存储介质。它提供了线程安全的读写接口，并内置内存缓存以减少磁盘 IO。
 
 ## 存储格式
 
@@ -97,6 +97,16 @@ def invalidate_cache() -> None:
 def get_lock() -> threading.RLock:
 ```
 
+### `register_save_callback(callback) -> None`
+
+**注册保存回调函数**，在 `save_data()` 成功后自动调用。
+
+```python
+def register_save_callback(callback: Callable[[], None]) -> None:
+```
+
+**用途**：外部模块可注册回调以响应数据变更。例如 `proxy_core.py` 注册了 `_invalidate_model_channels_cache()` 回调，在渠道数据变更时自动失效模型缓存。
+
 ## 为什么用 RLock？
 
 使用 `threading.RLock`（可重入锁）而非普通 `Lock`，因为同一线程可能嵌套获取锁：
@@ -132,12 +142,59 @@ with get_lock():           # 第一次获取锁
 
 项目面向小规模部署（几十个渠道），JSON 文件足够。优点是零依赖、易备份、易调试（直接打开文件查看）。
 
+## API Keys 存储
+
+### `load_api_keys() -> dict`
+
+**读取 API Keys 数据**，与 `load_data()` 使用相同的缓存机制。
+
+```python
+def load_api_keys() -> dict[str, Any]
+```
+
+**存储格式**：
+
+```json
+{
+  "api_keys": [
+    {
+      "id": "key_a1b2c3d4",
+      "name": "生产环境",
+      "key": "llmplug-api-xxx",
+      "allowed_models": [],
+      "notes": "",
+      "request_count": 0,
+      "total_input_tokens": 0,
+      "total_output_tokens": 0,
+      "created_at": "2024-01-01T00:00:00+00:00"
+    }
+  ]
+}
+```
+
+### `save_api_keys(data) -> None`
+
+**写入 API Keys 数据**，使用原子写入确保数据安全。
+
+```python
+def save_api_keys(data: dict[str, Any]) -> None
+```
+
+### `invalidate_keys_cache() -> None`
+
+**强制失效 API Keys 缓存**，下次 `load_api_keys()` 将从磁盘重新读取。
+
+```python
+def invalidate_keys_cache() -> None
+```
+
 ## 配置项
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
 | `DATA_DIR` | 项目根目录下 `data/` | 数据目录 |
 | `CHANNELS_FILE` | `DATA_DIR/channels.json` | 渠道配置文件路径 |
+| `API_KEYS_FILE` | `DATA_DIR/api_keys.json` | API Key 配置文件路径 |
 
 ## 文件操作安全
 

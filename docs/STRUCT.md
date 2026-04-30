@@ -18,18 +18,20 @@ LLM-Plug 是一个 **LLM API 格式转换代理服务**：客户端用一种 API
 
 ```
 llm-plug/
-├── main.py                 # FastAPI 应用入口，注册路由、挂载静态文件
+├── main.py                 # FastAPI 应用入口，注册路由、挂载静态文件、API Key 鉴权中间件
 ├── config.py               # 配置管理（全部通过环境变量读取）
-├── storage.py              # JSON 文件存储封装（线程安全 + 内存缓存 + 原子写入）
+├── storage.py              # JSON 文件存储封装（渠道 + API Keys，线程安全 + 内存缓存 + 原子写入）
 ├── client.py               # HTTP 客户端管理（httpx AsyncClient 缓存池 + SOCKS5）
-├── proxy_core.py           # 代理核心逻辑（负载均衡调度、格式转换、流式处理、故障转移）
+├── proxy_core.py           # 代理核心逻辑（负载均衡调度、格式转换、流式处理、故障转移、统计记录）
+├── stats.py                # PostgreSQL 统计模块（请求记录、聚合统计、查询）
 ├── serve_viewer.py         # 独立日志查看服务（端口 8080，与主服务分离）
 ├── pyproject.toml          # 项目依赖配置（uv 管理）
 ├── start.sh                # 启动脚本（自动 sync + run/debug 模式）
 │
 ├── models/                 # 数据模型层
 │   ├── api_types.py        # APIType 枚举定义（三种 API 格式）
-│   └── channel.py          # Channel / ChannelCreate / ChannelUpdate Pydantic 模型
+│   ├── channel.py          # Channel / ChannelCreate / ChannelUpdate Pydantic 模型
+│   └── api_key.py          # ApiKey / ApiKeyCreate / ApiKeyUpdate Pydantic 模型
 │
 ├── routers/                # FastAPI 路由层
 │   ├── proxy_base.py       # 代理路由工厂函数 make_proxy_router()——核心！
@@ -37,7 +39,7 @@ llm-plug/
 │   ├── proxy_response.py   # /v1/responses 代理（调用工厂生成）
 │   ├── proxy_anthropic.py  # /v1/messages 代理（调用工厂生成）
 │   ├── proxy_models.py     # /v1/models、/v1/anthropic/models 模型列表
-│   ├── admin.py            # /admin 渠道 CRUD、连通性测试、日志查看
+│   ├── admin.py            # /admin 渠道/API Key CRUD、连通性测试、统计查询
 │   ├── auth.py             # 代理 API 鉴权（Bearer Token 校验）
 │   └── proxy_errors.py     # OpenAI 风格错误响应构建
 │
@@ -56,7 +58,8 @@ llm-plug/
 │   └── stream-test.html    # 流式请求测试页面
 │
 ├── data/                   # 数据存储目录（gitignored）
-│   └── channels.json       # 渠道配置持久化存储
+│   ├── channels.json       # 渠道配置持久化存储
+│   └── api_keys.json       # API Key 配置持久化存储
 │
 ├── logs/                   # 调试日志目录（gitignored，JSONL 格式）
 │
@@ -143,20 +146,27 @@ llm-plug/
 |------|------|----------|
 | `models/api_types.py` | `APIType` 枚举：定义三种 API 格式 | [spec-models.md](spec-models.md) |
 | `models/channel.py` | `Channel` / `ChannelCreate` / `ChannelUpdate` Pydantic 模型 | [spec-models.md](spec-models.md) |
+| `models/api_key.py` | `ApiKey` / `ApiKeyCreate` / `ApiKeyUpdate` Pydantic 模型 | [spec-models.md](spec-models.md) |
 
 ### 3. 存储层
 
 | 文件 | 职责 | 详细文档 |
 |------|------|----------|
-| `storage.py` | JSON 文件读写封装，线程安全（RLock），内存缓存（5s TTL），原子写入 | [spec-storage.md](spec-storage.md) |
+| `storage.py` | JSON 文件读写封装（渠道 + API Keys），线程安全（RLock），内存缓存（5s TTL），原子写入 | [spec-storage.md](spec-storage.md) |
 
-### 4. HTTP 客户端
+### 4. 统计模块
+
+| 文件 | 职责 | 详细文档 |
+|------|------|----------|
+| `stats.py` | PostgreSQL 统计模块，请求记录、小时/日聚合统计、查询接口 | - |
+
+### 5. HTTP 客户端
 
 | 文件 | 职责 | 详细文档 |
 |------|------|----------|
 | `client.py` | httpx.AsyncClient 缓存池、流式客户端创建、上游认证头构建 | [spec-client.md](spec-client.md) |
 
-### 5. 路由层
+### 6. 路由层
 
 | 文件 | 端点 | 详细文档 |
 |------|------|----------|
@@ -165,17 +175,17 @@ llm-plug/
 | `routers/proxy_response.py` | `/v1/responses` | [spec-routers.md](spec-routers.md) |
 | `routers/proxy_anthropic.py` | `/v1/messages` | [spec-routers.md](spec-routers.md) |
 | `routers/proxy_models.py` | `/v1/models`、`/v1/anthropic/models` | [spec-routers.md](spec-routers.md) |
-| `routers/admin.py` | `/admin/channels` CRUD + 测试 + 日志 | [spec-routers.md](spec-routers.md) |
+| `routers/admin.py` | `/admin/channels`、`/admin/api-keys`、`/admin/stats`、`/admin/requests` 等 | [spec-routers.md](spec-routers.md) |
 | `routers/auth.py` | 代理 API Bearer Token 鉴权 | [spec-routers.md](spec-routers.md) |
 | `routers/proxy_errors.py` | OpenAI 风格错误响应 | [spec-routers.md](spec-routers.md) |
 
-### 6. 代理核心
+### 7. 代理核心
 
 | 文件 | 职责 | 详细文档 |
 |------|------|----------|
-| `proxy_core.py` | 协调所有模块：渠道筛选、负载均衡、格式转换、流式处理、故障转移、调试日志 | [spec-proxy-core.md](spec-proxy-core.md) |
+| `proxy_core.py` | 协调所有模块：渠道筛选、负载均衡、格式转换、流式处理、故障转移、统计记录 | [spec-proxy-core.md](spec-proxy-core.md) |
 
-### 7. 转换器
+### 8. 转换器
 
 | 文件 | 目标格式 | 详细文档 |
 |------|----------|----------|
@@ -192,7 +202,7 @@ llm-plug/
 | **openai-response** | `ToChatCompletionsConverter` | 直通 | `ToAnthropicConverter` |
 | **anthropic** | `ToChatCompletionsConverter` | `ToResponseConverter` | 直通 |
 
-### 8. 负载均衡器
+### 9. 负载均衡器
 
 | 文件 | 职责 | 详细文档 |
 |------|------|----------|
@@ -206,12 +216,15 @@ llm-plug/
 | `PORT` | `8000` | 监听端口 |
 | `DATA_DIR` | 项目根目录下 `data/` | 数据存储目录 |
 | `CHANNELS_FILE` | `DATA_DIR/channels.json` | 渠道配置文件路径 |
+| `API_KEYS_FILE` | `DATA_DIR/api_keys.json` | API Key 配置文件路径 |
 | `MAX_FAIL_COUNT` | `5` | 连续失败 N 次后标记渠道不健康 |
 | `COOLDOWN_SECONDS` | `60` | 不健康渠道冷却恢复时间（秒） |
 | `REQUEST_TIMEOUT` | `300` | 上游请求超时时间（秒） |
-| `PROXY_API_KEY` | (空) | 代理 API 密钥，空则不鉴权 |
+| `PROXY_API_KEY` | (空) | 代理 API 密钥，空则不鉴权（已弃用，建议使用 API Keys 管理） |
 | `DEBUG` | `false` | 调试日志开关 |
 | `DEBUG_LOG_DIR` | 项目根目录下 `logs/` | 调试日志目录 |
+| `DATABASE_URL` | `postgresql://localhost:5432/llmplug` | PostgreSQL 连接 URL（统计功能） |
+| `STATS_TRACKED_HEADERS` | (空) | 统计追踪的请求头，空或 `ALL` 追踪全部 |
 
 ## API 端点汇总
 
@@ -235,6 +248,16 @@ llm-plug/
 | DELETE | `/admin/channels/{id}` | 删除渠道 |
 | PATCH | `/admin/channels/{id}/toggle` | 启用/禁用渠道 |
 | POST | `/admin/channels/{id}/test` | 测试渠道连通性 |
+| GET | `/admin/api-keys` | 获取所有 API Key（Key 脱敏） |
+| POST | `/admin/api-keys` | 添加 API Key |
+| PUT | `/admin/api-keys/{id}` | 更新 API Key |
+| DELETE | `/admin/api-keys/{id}` | 删除 API Key |
+| GET | `/admin/api-keys/{id}/key` | 获取 API Key 完整值 |
+| PATCH | `/admin/api-keys/{id}/regenerate` | 重新生成 API Key |
+| GET | `/admin/stats` | 获取统计数据（总体/日/小时） |
+| POST | `/admin/stats/aggregate/hourly` | 触发小时聚合 |
+| POST | `/admin/stats/aggregate/daily` | 触发日聚合 |
+| GET | `/admin/requests` | 查询请求记录（分页、过滤） |
 | GET | `/admin/logs` | 列出日志文件 |
 | GET | `/admin/logs/{filename}` | 获取日志文件内容 |
 
@@ -255,6 +278,7 @@ llm-plug/
 | `httpx[socks]` | 异步 HTTP 客户端（支持 SOCKS5 代理） |
 | `pydantic` | 数据验证与序列化 |
 | `python-socks[asyncio]` | SOCKS5 代理底层支持 |
+| `asyncpg` | PostgreSQL 异步客户端（统计功能） |
 | `ruff` | (开发) 代码检查 |
 | `pytest` + `pytest-asyncio` | (测试) 测试框架 |
 

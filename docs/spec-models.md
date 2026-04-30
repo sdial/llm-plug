@@ -1,10 +1,10 @@
 # spec-models — 数据模型
 
-> 对应目录：`models/`（2 个文件）
+> 对应目录：`models/`（3 个文件）
 
 ## 模块定位
 
-`models/` 定义了项目中的核心数据结构：API 格式枚举和渠道数据模型。这些模型贯穿整个项目，是所有模块之间传递数据的基础。
+`models/` 定义了项目中的核心数据结构：API 格式枚举、渠道数据模型和 API Key 数据模型。这些模型贯穿整个项目，是所有模块之间传递数据的基础。
 
 ## api_types.py — API 格式枚举
 
@@ -107,6 +107,63 @@ class ChannelUpdate(BaseModel):
 ```
 
 所有字段都是 `Optional`，仅更新传入的字段（`exclude_unset=True`）。
+
+## api_key.py — API Key 数据模型
+
+### `ApiKey` — API Key 完整模型
+
+```python
+class ApiKey(BaseModel):
+    id: str = Field(default_factory=lambda: f"key_{uuid.uuid4().hex[:8]}")
+    name: str
+    key: str = Field(default_factory=_generate_key)  # 格式: llmplug-api-{random_hex}
+    allowed_models: list[str] = Field(default_factory=list)
+    notes: str = ""
+    request_count: int = 0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+```
+
+**字段说明**：
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `id` | str | `key_{uuid4_hex[:8]}` | API Key 唯一标识，自动生成 |
+| `name` | str | 必填 | API Key 名称（如"生产环境"） |
+| `key` | str | `llmplug-api-{random}` | API Key 值，自动生成 32 位随机 hex |
+| `allowed_models` | list[str] | `[]` | 允许访问的模型列表（空 = 不限制） |
+| `notes` | str | `""` | 备注信息 |
+| `request_count` | int | `0` | 累计请求次数 |
+| `total_input_tokens` | int | `0` | 累计输入 token 数 |
+| `total_output_tokens` | int | `0` | 累计输出 token 数 |
+| `created_at` | str | 当前 UTC 时间 | 创建时间 |
+
+### `ApiKeyCreate` — 创建 API Key 模型
+
+```python
+class ApiKeyCreate(BaseModel):
+    name: str
+    key: Optional[str] = None  # 可自定义，不填则自动生成
+    allowed_models: list[str] = Field(default_factory=list)
+    notes: str = ""
+```
+
+### `ApiKeyUpdate` — 更新 API Key 模型
+
+```python
+class ApiKeyUpdate(BaseModel):
+    name: Optional[str] = None
+    key: Optional[str] = None
+    allowed_models: Optional[list[str]] = None
+    notes: Optional[str] = None
+```
+
+**使用场景**：
+
+- API Key 用于客户端请求鉴权（替代单一的 `PROXY_API_KEY`）
+- 支持多 API Key 管理，每个 Key 可配置不同的模型访问权限
+- 自动统计每个 Key 的使用量和 token 消耗
 
 ## 数据流转
 
