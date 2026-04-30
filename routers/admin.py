@@ -12,7 +12,7 @@ from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from datetime import date, datetime
 
-from stats_pg import cleanup_old_data, get_daily_stats, get_overall_stats, aggregate_hourly_stats, aggregate_daily_stats
+from stats_pg import cleanup_old_data, get_daily_stats, get_overall_stats, aggregate_hourly_stats, aggregate_daily_stats, list_requests
 from storage import load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
@@ -393,3 +393,30 @@ async def trigger_daily_aggregation(
 ):
     result = await aggregate_daily_stats(start_date, end_date)
     return {"message": f"已更新 {result['updated_rows']} 条日聚合记录", **result}
+
+
+@router.get("/requests")
+async def list_requests_endpoint(
+    model: str | None = Query(default=None),
+    channel: str | None = Query(default=None),
+    start: datetime | None = Query(default=None),
+    end: datetime | None = Query(default=None),
+    success: bool | None = Query(default=None),
+    api_key_id: str | None = Query(default=None),
+    is_stream: bool | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+):
+    """查询请求记录（支持分页和过滤）"""
+    result = await list_requests(
+        model=model,
+        channel=channel,
+        start=start,
+        end=end,
+        success=success,
+        api_key_id=api_key_id,
+        is_stream=is_stream,
+        page=page,
+        page_size=page_size,
+    )
+    return result
