@@ -441,6 +441,7 @@
         let requestPage = 1;
         let requestPageSize = 10;
         let requestTotal = 0;
+        let pendingChannelRestore = '';
 
         function esc(s) {
             const d = document.createElement('div');
@@ -485,7 +486,7 @@
                 if (tab === 'requests' && queryString) {
                     const params = new URLSearchParams(queryString);
                     document.getElementById('reqFilterModel').value = params.get('model') || '';
-                    document.getElementById('reqFilterChannel').value = params.get('channel') || '';
+                    pendingChannelRestore = params.get('channel') || '';
                     document.getElementById('reqFilterStart').value = params.get('start') || '';
                     document.getElementById('reqFilterEnd').value = params.get('end') || '';
                     document.getElementById('reqFilterSuccess').value = params.get('success') || '';
@@ -953,6 +954,10 @@ function renderStats(data) {
                     await loadChannels();
                 }
                 populateRequestChannelFilter();
+                if (pendingChannelRestore) {
+                    document.getElementById('reqFilterChannel').value = pendingChannelRestore;
+                    pendingChannelRestore = '';
+                }
 
                 const params = buildRequestQuery();
                 const resp = await fetch(`${API_REQUESTS}?${params.toString()}`);
@@ -1012,7 +1017,7 @@ function renderStats(data) {
                     <td class="py-3 px-4 text-sm text-ink-900">${esc(req.channel_name)}</td>
                     <td class="py-3 px-4 text-right text-sm text-ink-900 font-medium">${req.input_tokens || 0}</td>
                     <td class="py-3 px-4 text-right text-sm text-ink-900 font-medium">${req.output_tokens || 0}</td>
-                    <td class="py-3 px-4 text-right text-sm text-ink-900 font-medium">${req.latency_ms}</td>
+                    <td class="py-3 px-4 text-right text-sm text-ink-900 font-medium">${req.latency_ms ?? '-'}</td>
                     <td class="py-3 px-4">
                         <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? '成功' : '失败'}</span>
                     </td>
@@ -1113,7 +1118,7 @@ function renderStats(data) {
                     <div><span class="text-ink-400">状态:</span> <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? '成功' : '失败'}</span></div>
                     <div><span class="text-ink-400">输入Token:</span> <span class="text-ink-900">${req.input_tokens || 0}</span></div>
                     <div><span class="text-ink-400">输出Token:</span> <span class="text-ink-900">${req.output_tokens || 0}</span></div>
-                    <div><span class="text-ink-400">延迟:</span> <span class="text-ink-900">${req.latency_ms}ms</span></div>
+                    <div><span class="text-ink-400">延迟:</span> <span class="text-ink-900">${req.latency_ms != null ? req.latency_ms + 'ms' : '-'}</span></div>
                     <div><span class="text-ink-400">Lag:</span> <span class="text-ink-900">${req.lag_ms != null ? req.lag_ms + 'ms' : '-'}</span></div>
                     <div><span class="text-ink-400">Cost:</span> <span class="text-ink-900">${req.cost != null ? req.cost : '-'}</span></div>
                     <div><span class="text-ink-400">Finish Reason:</span> <span class="text-ink-900">${esc(req.finish_reason || '-')}</span></div>
