@@ -457,7 +457,6 @@
         let requestPageSize = 10;
         let requestTotal = 0;
         let pendingChannelRestore = '';
-        let statsGranularity = 'day';
         let lastStatsData = null;
 
         function esc(s) {
@@ -849,6 +848,9 @@ async function loadStats() {
     if (daysVal === '0') {
       params.set('days', '99999');
       document.getElementById('statsDaysLabel').textContent = '全部';
+    } else if (daysVal === '24h') {
+      params.set('days', '1');
+      document.getElementById('statsDaysLabel').textContent = '24小时';
     } else {
       params.set('days', daysVal);
       document.getElementById('statsDaysLabel').textContent = daysVal;
@@ -862,16 +864,12 @@ async function loadStats() {
   }
 }
 
-function switchStatsGranularity() {
-  statsGranularity = document.getElementById('statsGranularity').value;
-  if (lastStatsData) {
-    renderStats(lastStatsData);
-  }
-}
-
 function renderStats(data) {
   const overall = data.overall || {};
   const daily = data.daily || [];
+  const hourly = data.hourly || [];
+  const daysVal = document.getElementById('statsDays').value;
+  const isHourly = daysVal === '1' || daysVal === '24h';
 
   const total = overall.total_requests || 0;
   const successCount = overall.success_count || 0;
@@ -879,8 +877,9 @@ function renderStats(data) {
   const outputTokens = overall.total_output_tokens || 0;
   const successRate = total > 0 ? ((successCount / total) * 100).toFixed(1) : 0;
 
-  const avgLatency = daily.length > 0
-    ? Math.round(daily.reduce((s, d) => s + (d.avg_latency_ms || 0), 0) / daily.length)
+  const trendData = isHourly ? hourly : daily;
+  const avgLatency = trendData.length > 0
+    ? Math.round(trendData.reduce((s, d) => s + (d.avg_latency_ms || 0), 0) / trendData.length)
     : 0;
 
   document.getElementById('stat_total').textContent = total.toLocaleString();
@@ -954,22 +953,48 @@ function renderStats(data) {
     }).join('');
   }
 
-  // 每日趋势
+  // 趋势表格（天/小时自动切换）
+  const trendTitle = document.getElementById('trendTitle');
+  const trendTimeHeader = document.getElementById('trendTimeHeader');
   const dailyTbody = document.getElementById('daily_tbody');
-  if (daily.length === 0) {
-    dailyTbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
+
+  if (isHourly) {
+    trendTitle.textContent = '小时趋势（最近24小时）';
+    trendTimeHeader.textContent = '时间';
+    if (hourly.length === 0) {
+      dailyTbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
+    } else {
+      dailyTbody.innerHTML = hourly.map(h => `
+      <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
+        <td class="py-2.5 px-2 text-sm text-ink-900">${h.hour}</td>
+        <td class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${h.total_requests}</td>
+        <td class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${h.success_count}</td>
+        <td class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${h.fail_count}</td>
+        <td class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${h.avg_latency_ms || 0}ms</td>
+        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(h.total_input_tokens)}</td>
+        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(h.total_output_tokens)}</td>
+      </tr>
+      `).join('');
+    }
   } else {
-    dailyTbody.innerHTML = daily.map(d => `
-    <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
-      <td class="py-2.5 px-2 text-sm text-ink-900">${d.date}</td>
-      <td class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${d.total_requests}</td>
-      <td class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${d.success_count}</td>
-      <td class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
-      <td class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${d.avg_latency_ms || 0}ms</td>
-      <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
-      <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
-    </tr>
-    `).join('');
+    const daysLabel = document.getElementById('statsDaysLabel').textContent;
+    trendTitle.textContent = '每日趋势（最近' + daysLabel + '天）';
+    trendTimeHeader.textContent = '日期';
+    if (daily.length === 0) {
+      dailyTbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
+    } else {
+      dailyTbody.innerHTML = daily.map(d => `
+      <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
+        <td class="py-2.5 px-2 text-sm text-ink-900">${d.date}</td>
+        <td class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${d.total_requests}</td>
+        <td class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${d.success_count}</td>
+        <td class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
+        <td class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${d.avg_latency_ms || 0}ms</td>
+        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
+        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
+      </tr>
+      `).join('');
+    }
   }
 }
 

@@ -160,7 +160,7 @@ async def record_request(
             VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             """,
             model, channel_id, channel_name, api_key_id,
-            json.dumps(tracked), is_stream, input_tokens, output_tokens,
+            tracked, is_stream, input_tokens, output_tokens,
             latency_ms, lag_ms, finish_reason, success, error_msg
         )
 
