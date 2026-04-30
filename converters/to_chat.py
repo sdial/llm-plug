@@ -98,7 +98,10 @@ class ToChatCompletionsConverter(BaseConverter):
                         user_parts.append({"type": "text", "text": t})
                     user_parts.extend(image_parts)
                     if user_parts:
-                        messages.append({"role": "user", "content": user_parts if len(user_parts) > 1 else user_parts[0]})
+                        if len(user_parts) == 1 and user_parts[0].get("type") == "text":
+                            messages.append({"role": "user", "content": user_parts[0]["text"]})
+                        else:
+                            messages.append({"role": "user", "content": user_parts})
                 else:
                     fallback_content = " ".join(text_parts) if text_parts else ""
                     messages.append({"role": role, "content": fallback_content})

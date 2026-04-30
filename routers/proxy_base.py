@@ -52,11 +52,12 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
                 client_headers[h] = val
 
         api_key_id = getattr(request.state, 'api_key_id', None)
+        tracked_headers = getattr(request.state, 'tracked_headers', None)
         try:
             result, _channel = await proxy_request(
                 model, body, api_type, is_stream,
                 query_string=query_string, client_headers=client_headers,
-                api_key_id=api_key_id,
+                api_key_id=api_key_id, tracked_headers=tracked_headers,
             )
             request.state.selected_channel_name = _channel.name
         except ValueError as e:
