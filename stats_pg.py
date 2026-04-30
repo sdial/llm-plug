@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 import asyncpg
-from config import DATABASE_URL, STATS_TRACKED_HEADERS
+from config import DATABASE_URL, STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
 
 logger = logging.getLogger(__name__)
 
@@ -140,11 +140,14 @@ async def record_request(
     # 过滤并序列化请求头（大小写不敏感匹配）
     tracked = {}
     if headers:
-        header_lower = {k.lower(): v for k, v in headers.items()}
-        for key in STATS_TRACKED_HEADERS:
-            val = header_lower.get(key.lower())
-            if val:
-                tracked[key] = val
+        if TRACK_ALL_HEADERS:
+            tracked = dict(headers)
+        else:
+            header_lower = {k.lower(): v for k, v in headers.items()}
+            for key in STATS_TRACKED_HEADERS:
+                val = header_lower.get(key.lower())
+                if val:
+                    tracked[key] = val
 
     async with _get_conn() as conn:
         if conn is None:

@@ -146,59 +146,68 @@
         </div>
 
         <!-- 统计 Tab -->
-        <div id="statsTab" class="hidden">
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-                <div class="card p-4">
-                    <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">总请求</div>
-                    <div id="stat_total" class="text-2xl font-bold text-ink-900 mt-1">-</div>
-                </div>
-                <div class="card p-4">
-                    <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">成功率</div>
-                    <div id="stat_success_rate" class="text-2xl font-bold text-emerald-600 mt-1">-</div>
-                </div>
-                <div class="card p-4">
-                    <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">输入 Token</div>
-                    <div id="stat_input_tokens" class="text-2xl font-bold text-cyan-600 mt-1">-</div>
-                </div>
-                <div class="card p-4">
-                    <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">输出 Token</div>
-                    <div id="stat_output_tokens" class="text-2xl font-bold text-violet-600 mt-1">-</div>
-                </div>
-                <div class="card p-4">
-                    <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">总 Token</div>
-                    <div id="stat_total_tokens" class="text-2xl font-bold text-ink-900 mt-1">-</div>
-                </div>
-            </div>
+  <div id="statsTab" class="hidden">
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+      <div class="card p-4">
+        <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">总请求</div>
+        <div id="stat_total" class="text-2xl font-bold text-ink-900 mt-1">-</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">成功率</div>
+        <div id="stat_success_rate" class="text-2xl font-bold text-emerald-600 mt-1">-</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">平均延迟</div>
+        <div id="stat_avg_latency" class="text-2xl font-bold text-amber-600 mt-1">-</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">输入 Token</div>
+        <div id="stat_input_tokens" class="text-2xl font-bold text-cyan-600 mt-1">-</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">输出 Token</div>
+        <div id="stat_output_tokens" class="text-2xl font-bold text-violet-600 mt-1">-</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-ink-600 uppercase tracking-wider font-medium">总 Token</div>
+        <div id="stat_total_tokens" class="text-2xl font-bold text-ink-900 mt-1">-</div>
+      </div>
+    </div>
 
-            <div class="grid md:grid-cols-2 gap-6 mb-6">
-                <div class="card p-4">
-                    <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">渠道分布</h3>
-                    <div id="channel_dist" class="space-y-2">-</div>
-                </div>
-                <div class="card p-4">
-                    <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">模型分布</h3>
-                    <div id="model_dist" class="space-y-2">-</div>
-                </div>
-            </div>
+    <div class="grid md:grid-cols-3 gap-6 mb-6">
+      <div class="card p-4">
+        <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">渠道分布</h3>
+        <div id="channel_dist" class="space-y-2">-</div>
+      </div>
+      <div class="card p-4">
+        <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">模型分布</h3>
+        <div id="model_dist" class="space-y-2">-</div>
+      </div>
+      <div class="card p-4">
+        <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">API Key 分布</h3>
+        <div id="apikey_dist" class="space-y-2">-</div>
+      </div>
+    </div>
 
-            <div class="card p-4 mb-6">
-                <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">每日趋势（最近7天）</h3>
-                <div id="daily_trend" class="overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead>
-                            <tr class="border-b border-surface-200">
-                                <th class="text-left py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">日期</th>
-                                <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">请求数</th>
-                                <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">成功</th>
-                                <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">失败</th>
-                                <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">输入Token</th>
-                                <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">输出Token</th>
-                            </tr>
-                        </thead>
-                        <tbody id="daily_tbody">-</tbody>
-                    </table>
-                </div>
-            </div>
+    <div class="card p-4 mb-6">
+      <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">每日趋势（最近7天）</h3>
+      <div id="daily_trend" class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-surface-200">
+              <th class="text-left py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">日期</th>
+              <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">请求数</th>
+              <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">成功</th>
+              <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">失败</th>
+              <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">平均延迟</th>
+              <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">输入Token</th>
+              <th class="text-right py-2 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">输出Token</th>
+            </tr>
+          </thead>
+          <tbody id="daily_tbody">-</tbody>
+        </table>
+      </div>
+    </div>
 
             <div class="card p-4">
                 <h3 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-3">数据清理</h3>
@@ -715,82 +724,109 @@
             }
         }
 
-        function renderStats(data) {
-            const overall = data.overall || {};
-            const daily = data.daily || [];
+function renderStats(data) {
+  const overall = data.overall || {};
+  const daily = data.daily || [];
 
-            const total = overall.total_requests || 0;
-            const successCount = overall.success_count || 0;
-            const failCount = overall.fail_count || 0;
-            const successRate = total > 0 ? ((successCount / total) * 100).toFixed(1) : 0;
-            const inputTokens = overall.total_input_tokens || 0;
-            const outputTokens = overall.total_output_tokens || 0;
+  const total = overall.total_requests || 0;
+  const successCount = overall.success_count || 0;
+  const inputTokens = overall.total_input_tokens || 0;
+  const outputTokens = overall.total_output_tokens || 0;
+  const successRate = total > 0 ? ((successCount / total) * 100).toFixed(1) : 0;
 
-            document.getElementById('stat_total').textContent = total.toLocaleString();
-            document.getElementById('stat_success_rate').textContent = successRate + '%';
-            document.getElementById('stat_input_tokens').textContent = formatTokens(inputTokens);
-            document.getElementById('stat_output_tokens').textContent = formatTokens(outputTokens);
-            document.getElementById('stat_total_tokens').textContent = formatTokens(inputTokens + outputTokens);
+  const avgLatency = daily.length > 0
+    ? Math.round(daily.reduce((s, d) => s + (d.avg_latency_ms || 0), 0) / daily.length)
+    : 0;
 
-            // 渠道分布
-            const channelDist = document.getElementById('channel_dist');
-            const chs = overall.channels || [];
-            if (chs.length === 0) {
-                channelDist.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
-            } else {
-                const maxCount = Math.max(...chs.map(c => c.count));
-                channelDist.innerHTML = chs.map(ch => {
-                    const pct = maxCount > 0 ? (ch.count / maxCount * 100) : 0;
-                    return `
-                        <div class="flex items-center gap-3">
-                            <div class="w-24 text-sm text-ink-600 truncate">${esc(ch.name)}</div>
-                            <div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
-                                <div class="bg-brand-500 h-full rounded-full" style="width: ${pct}%"></div>
-                            </div>
-                            <div class="w-16 text-right text-sm text-ink-900 font-medium">${ch.count}</div>
-                        </div>
-                    `;
-                }).join('');
-            }
+  document.getElementById('stat_total').textContent = total.toLocaleString();
+  document.getElementById('stat_success_rate').textContent = successRate + '%';
+  document.getElementById('stat_avg_latency').textContent = avgLatency + 'ms';
+  document.getElementById('stat_input_tokens').textContent = formatTokens(inputTokens);
+  document.getElementById('stat_output_tokens').textContent = formatTokens(outputTokens);
+  document.getElementById('stat_total_tokens').textContent = formatTokens(inputTokens + outputTokens);
 
-            // 模型分布
-            const modelDist = document.getElementById('model_dist');
-            const models = overall.models || [];
-            if (models.length === 0) {
-                modelDist.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
-            } else {
-                const maxCount = Math.max(...models.map(m => m.count));
-                modelDist.innerHTML = models.slice(0, 10).map(m => {
-                    const pct = maxCount > 0 ? (m.count / maxCount * 100) : 0;
-                    return `
-                        <div class="flex items-center gap-3">
-                            <div class="w-24 text-sm text-ink-600 truncate">${esc(m.name)}</div>
-                            <div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
-                                <div class="bg-brand-500 h-full rounded-full" style="width: ${pct}%"></div>
-                            </div>
-                            <div class="w-16 text-right text-sm text-ink-900 font-medium">${m.count}</div>
-                        </div>
-                    `;
-                }).join('');
-            }
+  // 渠道分布
+  const channelDist = document.getElementById('channel_dist');
+  const chs = overall.channels || [];
+  if (chs.length === 0) {
+    channelDist.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
+  } else {
+    const maxCount = Math.max(...chs.map(c => c.count));
+    channelDist.innerHTML = chs.map(ch => {
+      const pct = maxCount > 0 ? (ch.count / maxCount * 100) : 0;
+      return `
+      <div class="flex items-center gap-3">
+        <div class="w-24 text-sm text-ink-600 truncate">${esc(ch.name)}</div>
+        <div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
+          <div class="bg-brand-500 h-full rounded-full" style="width: ${pct}%"></div>
+        </div>
+        <div class="w-16 text-right text-sm text-ink-900 font-medium">${ch.count}</div>
+      </div>
+      `;
+    }).join('');
+  }
 
-            // 每日趋势
-            const dailyTbody = document.getElementById('daily_tbody');
-            if (daily.length === 0) {
-                dailyTbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
-            } else {
-                dailyTbody.innerHTML = daily.map(d => `
-                    <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
-                        <td class="py-2.5 px-2 text-sm text-ink-900">${d.date}</td>
-                        <td class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${d.total_requests}</td>
-                        <td class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${d.success_count}</td>
-                        <td class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
-                        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
-                        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
-                    </tr>
-                `).join('');
-            }
-        }
+  // 模型分布
+  const modelDist = document.getElementById('model_dist');
+  const models = overall.models || [];
+  if (models.length === 0) {
+    modelDist.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
+  } else {
+    const maxCount = Math.max(...models.map(m => m.count));
+    modelDist.innerHTML = models.slice(0, 10).map(m => {
+      const pct = maxCount > 0 ? (m.count / maxCount * 100) : 0;
+      return `
+      <div class="flex items-center gap-3">
+        <div class="w-24 text-sm text-ink-600 truncate">${esc(m.name)}</div>
+        <div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
+          <div class="bg-brand-500 h-full rounded-full" style="width: ${pct}%"></div>
+        </div>
+        <div class="w-16 text-right text-sm text-ink-900 font-medium">${m.count}</div>
+      </div>
+      `;
+    }).join('');
+  }
+
+  // API Key 分布
+  const apikeyDist = document.getElementById('apikey_dist');
+  const keys = overall.api_keys || [];
+  if (keys.length === 0) {
+    apikeyDist.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
+  } else {
+    const maxCount = Math.max(...keys.map(k => k.count));
+    apikeyDist.innerHTML = keys.slice(0, 10).map(k => {
+      const pct = maxCount > 0 ? (k.count / maxCount * 100) : 0;
+      const tokens = (k.input_tokens || 0) + (k.output_tokens || 0);
+      return `
+      <div class="flex items-center gap-3">
+        <div class="w-24 text-sm text-ink-600 truncate font-mono">${esc(k.key_id)}</div>
+        <div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
+          <div class="bg-brand-500 h-full rounded-full" style="width: ${pct}%"></div>
+        </div>
+        <div class="w-16 text-right text-sm text-ink-900 font-medium">${k.count}</div>
+      </div>
+      `;
+    }).join('');
+  }
+
+  // 每日趋势
+  const dailyTbody = document.getElementById('daily_tbody');
+  if (daily.length === 0) {
+    dailyTbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
+  } else {
+    dailyTbody.innerHTML = daily.map(d => `
+    <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
+      <td class="py-2.5 px-2 text-sm text-ink-900">${d.date}</td>
+      <td class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${d.total_requests}</td>
+      <td class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${d.success_count}</td>
+      <td class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
+      <td class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${d.avg_latency_ms || 0}ms</td>
+      <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
+      <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
+    </tr>
+    `).join('');
+  }
+}
 
         function formatTokens(n) {
             if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
