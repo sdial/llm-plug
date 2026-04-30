@@ -1,5 +1,6 @@
 """PostgreSQL 统计模块 - 使用 asyncpg 存储请求统计"""
 import json
+import logging
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -7,29 +8,44 @@ from typing import Any
 import asyncpg
 from config import DATABASE_URL, STATS_TRACKED_HEADERS
 
+logger = logging.getLogger(__name__)
+
 _pool: asyncpg.Pool | None = None
+_db_available: bool = False
 
 
-async def init_pool() -> asyncpg.Pool:
+async def init_pool() -> asyncpg.Pool | None:
     """初始化数据库连接池"""
-    global _pool
-    if _pool is None:
-        _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+    global _pool, _db_available
+    if _pool is None and not _db_available:
+        if not DATABASE_URL:
+            logger.warning("DATABASE_URL 未配置，PostgreSQL 统计功能已禁用")
+            return None
+        try:
+            _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+            _db_available = True
+        except Exception as exc:
+            logger.warning("PostgreSQL 连接失败，统计功能已禁用: %s", exc)
+            _db_available = False
     return _pool
 
 
 async def close_pool():
     """关闭连接池"""
-    global _pool
+    global _pool, _db_available
     if _pool:
         await _pool.close()
         _pool = None
+    _db_available = False
 
 
 @asynccontextmanager
 async def _get_conn():
     """获取数据库连接"""
     pool = await init_pool()
+    if pool is None:
+        yield None
+        return
     async with pool.acquire() as conn:
         yield conn
 
@@ -37,6 +53,8 @@ async def _get_conn():
 async def init_db():
     """初始化数据库表结构"""
     async with _get_conn() as conn:
+        if conn is None:
+            return
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS requests (
                 id SERIAL PRIMARY KEY,
@@ -116,6 +134,9 @@ async def record_request(
     finish_reason: str | None = None,
 ) -> None:
     """记录一次请求到明细表"""
+    if not _db_available:
+        return
+
     # 过滤并序列化请求头（大小写不敏感匹配）
     tracked = {}
     if headers:
@@ -126,6 +147,8 @@ async def record_request(
                 tracked[key] = val
 
     async with _get_conn() as conn:
+        if conn is None:
+            return
         await conn.execute(
             """
             INSERT INTO requests
@@ -144,6 +167,8 @@ async def aggregate_hourly_stats(
     end_time: datetime,
 ) -> dict[str, Any]:
     """手动触发指定时间范围的小时聚合"""
+    if not _db_available:
+        return {"updated_rows": 0}
     async with _get_conn() as conn:
         await conn.execute(
             """
@@ -190,6 +215,8 @@ async def aggregate_daily_stats(
     end_date: date,
 ) -> dict[str, Any]:
     """手动触发指定日期范围的日聚合"""
+    if not _db_available:
+        return {"updated_rows": 0}
     async with _get_conn() as conn:
         await conn.execute(
             """
@@ -240,6 +267,8 @@ async def get_hourly_stats(
     api_key_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """查询小时聚合统计"""
+    if not _db_available:
+        return []
     conditions = ["1=1"]
     args: list[Any] = []
     if start_time:
@@ -281,6 +310,8 @@ async def get_daily_stats(
     api_key_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """查询日聚合统计"""
+    if not _db_available:
+        return []
     start_date = date.today() - timedelta(days=days - 1)
     conditions = ["date >= $1"]
     args: list[Any] = [start_date]
@@ -311,6 +342,17 @@ async def get_daily_stats(
 
 async def get_overall_stats(days: int = 7) -> dict[str, Any]:
     """总体统计数据"""
+    if not _db_available:
+        return {
+            "total_requests": 0,
+            "success_count": 0,
+            "fail_count": 0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "channels": [],
+            "models": [],
+            "api_keys": [],
+        }
     async with _get_conn() as conn:
         row = await conn.fetchrow(
             """
@@ -378,7 +420,11 @@ async def get_overall_stats(days: int = 7) -> dict[str, Any]:
 
 async def cleanup_old_data(keep_days: int) -> int:
     """清理 N 天前的数据"""
+    if not _db_available:
+        return 0
     async with _get_conn() as conn:
+        if conn is None:
+            return 0
         if keep_days == 0:
             deleted = await conn.fetchval("DELETE FROM requests RETURNING COUNT(*)")
             await conn.execute("DELETE FROM hourly_stats")

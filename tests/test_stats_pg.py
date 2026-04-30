@@ -1,5 +1,6 @@
 import os
 import pytest
+import pytest_asyncio
 import asyncpg
 from datetime import datetime, timedelta
 
@@ -10,7 +11,7 @@ TEST_DB_URL = os.getenv("TEST_DATABASE_URL")
 pytestmark = pytest.mark.asyncio
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def setup_test_db(monkeypatch):
     if not TEST_DB_URL:
         pytest.skip("TEST_DATABASE_URL not set")
