@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from client import close_all_clients
 from config import DEBUG, HOST, PORT
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
+from stats_pg import init_db as init_stats_db, close_pool as close_stats_pool
 from storage import load_data, load_api_keys
 
 
@@ -25,7 +26,9 @@ async def lifespan(app):
     model_count = len({m for ch in channels_data.get("channels", []) for m in ch.get("models", [])})
     key_count = len(keys_data.get("api_keys", []))
     print(f"[STARTUP] 就绪: {channel_count} 个渠道, {model_count} 个模型, {key_count} 个 API Key")
+    await init_stats_db()
     yield
+    await close_stats_pool()
     await close_all_clients()
 
 
