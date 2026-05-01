@@ -294,11 +294,11 @@
 
         // ===== Tree Rendering =====
 
-        function setDefaultExpansion(node, totalCount) {
+        function setDefaultExpansion(node, depth) {
             if (!node.children) return;
-            node.expanded = totalCount <= 50;
+            node.expanded = depth < 2;
             for (var i = 0; i < node.children.length; i++) {
-                setDefaultExpansion(node.children[i], totalCount);
+                setDefaultExpansion(node.children[i], depth + 1);
             }
         }
 
@@ -393,14 +393,15 @@
             var node = findNodeByPath(fieldTree, path);
             if (!node) return;
 
-            node.checked = !node.checked;
-            node.indeterminate = false;
-
-            if (node.children) {
-                setCheckedRecursive(node, node.checked);
+            if (node.checked && !node.indeterminate) {
+                setCheckedRecursive(node, false);
+                updateParentState(node);
+            } else {
+                setCheckedRecursive(fieldTree, false);
+                setCheckedRecursive(node, true);
+                updateParentState(node);
             }
 
-            updateParentState(node);
             renderTree();
             renderFilteredJson();
         }
@@ -667,8 +668,7 @@
                 originalData = result.data;
 
                 fieldTree = buildFieldTree(originalData);
-                var totalCount = countLeafNodes(fieldTree);
-                setDefaultExpansion(fieldTree, totalCount);
+                setDefaultExpansion(fieldTree, 0);
 
                 if (fieldsParam) {
                     var fieldsPaths = fieldsParam.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
