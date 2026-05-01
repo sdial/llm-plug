@@ -13,6 +13,21 @@ _pool: asyncpg.Pool | None = None
 _db_available: bool = False
 
 
+def safe_parse_json(body: str | bytes | dict | None) -> dict | None:
+    """安全解析 JSON，失败时返回 {"parse_error": true}"""
+    if body is None:
+        return None
+    # 如果已经是 dict，直接返回
+    if isinstance(body, dict):
+        return body
+    try:
+        if isinstance(body, bytes):
+            return json.loads(body.decode('utf-8'))
+        return json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return {"parse_error": True, "raw_type": type(body).__name__}
+
+
 async def init_pool() -> asyncpg.Pool | None:
     """初始化数据库连接池"""
     global _pool, _db_available
@@ -69,7 +84,10 @@ async def init_db():
                 channel_id TEXT NOT NULL,
                 channel_name TEXT NOT NULL,
                 api_key_id TEXT,
-                headers JSONB DEFAULT '{}',
+                request_headers JSONB,
+                response_headers JSONB,
+                request_body JSONB,
+                response_body JSONB,
                 is_stream BOOLEAN NOT NULL,
                 input_tokens INT DEFAULT 0,
                 output_tokens INT DEFAULT 0,
@@ -123,6 +141,25 @@ async def init_db():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_hourly_stats_time ON hourly_stats(hour)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_stats_time ON daily_stats(date)")
 
+        # 表结构迁移：处理旧字段
+        # 1. 检查是否存在旧的 headers 列，若存在则重命名为 request_headers
+        old_cols = await conn.fetch("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'requests' AND column_name = 'headers'
+        """)
+        if old_cols:
+            await conn.execute("ALTER TABLE requests RENAME COLUMN headers TO request_headers")
+
+        # 2. 确保新列存在（若表已存在但缺少这些列）
+        await conn.execute("ALTER TABLE requests ADD COLUMN IF NOT EXISTS request_headers JSONB")
+        await conn.execute("ALTER TABLE requests ADD COLUMN IF NOT EXISTS response_headers JSONB")
+        await conn.execute("ALTER TABLE requests ADD COLUMN IF NOT EXISTS request_body JSONB")
+        await conn.execute("ALTER TABLE requests ADD COLUMN IF NOT EXISTS response_body JSONB")
+
+        # 3. 创建 GIN 索引（用于 JSONB 查询）
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_request_body ON requests USING GIN (request_body)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_response_body ON requests USING GIN (response_body)")
+
 
 async def record_request(
     channel_id: str,
@@ -135,7 +172,10 @@ async def record_request(
     success: bool,
     error_msg: str | None = None,
     api_key_id: str | None = None,
-    headers: dict[str, str] | None = None,
+    request_headers: dict[str, str] | None = None,
+    response_headers: dict[str, str] | None = None,
+    request_body: dict | None = None,
+    response_body: dict | None = None,
     lag_ms: int | None = None,
     finish_reason: str | None = None,
 ) -> None:
@@ -143,28 +183,38 @@ async def record_request(
     if not _db_available:
         return
 
-    # 过滤请求头（大小写不敏感匹配，保存原始格式）
-    # 确保所有值都是字符串类型
-    tracked = {}
-    if headers:
+    # 处理 request_headers：确保所有值都是字符串
+    req_headers = {}
+    if request_headers:
         if TRACK_ALL_HEADERS:
-            for k, v in headers.items():
+            for k, v in request_headers.items():
                 if isinstance(v, str):
-                    tracked[k] = v
+                    req_headers[k] = v
                 elif v is None:
-                    tracked[k] = ""
+                    req_headers[k] = ""
                 else:
-                    tracked[k] = str(v)
+                    req_headers[k] = str(v)
         else:
             target_keys = {k.lower() for k in STATS_TRACKED_HEADERS}
-            for k, v in headers.items():
+            for k, v in request_headers.items():
                 if k.lower() in target_keys:
                     if isinstance(v, str):
-                        tracked[k] = v
+                        req_headers[k] = v
                     elif v is None:
-                        tracked[k] = ""
+                        req_headers[k] = ""
                     else:
-                        tracked[k] = str(v)
+                        req_headers[k] = str(v)
+
+    # 处理 response_headers：确保所有值都是字符串
+    resp_headers = {}
+    if response_headers:
+        for k, v in response_headers.items():
+            if isinstance(v, str):
+                resp_headers[k] = v
+            elif v is None:
+                resp_headers[k] = ""
+            else:
+                resp_headers[k] = str(v)
 
     async with _get_conn() as conn:
         if conn is None:
@@ -172,12 +222,14 @@ async def record_request(
         await conn.execute(
             """
             INSERT INTO requests
-            (timestamp, model, channel_id, channel_name, api_key_id, headers, is_stream,
-             input_tokens, output_tokens, latency_ms, lag_ms, finish_reason, success, error_msg)
-            VALUES (now(), $1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)
+            (timestamp, model, channel_id, channel_name, api_key_id, request_headers, response_headers,
+             request_body, response_body, is_stream, input_tokens, output_tokens,
+             latency_ms, lag_ms, finish_reason, success, error_msg)
+            VALUES (now(), $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16)
             """,
             model, channel_id, channel_name, api_key_id,
-            tracked, is_stream, input_tokens, output_tokens,
+            req_headers, resp_headers, request_body, response_body,
+            is_stream, input_tokens, output_tokens,
             latency_ms, lag_ms, finish_reason, success, error_msg
         )
 
@@ -360,6 +412,205 @@ async def get_daily_stats(
         return [dict(r) for r in rows]
 
 
+async def get_daily_stats_from_requests(
+    days: int = 7,
+    channel_id: str | None = None,
+    model: str | None = None,
+    api_key_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """从 requests 明细表实时聚合日统计（daily_stats 无数据时的兜底）"""
+    if not _db_available:
+        return []
+    start_date = date.today() - timedelta(days=days - 1)
+    conditions = ["timestamp >= $1"]
+    args: list[Any] = [datetime.combine(start_date, datetime.min.time())]
+    if channel_id:
+        args.append(channel_id)
+        conditions.append(f"channel_id = ${len(args)}")
+    if model:
+        args.append(model)
+        conditions.append(f"model = ${len(args)}")
+    if api_key_id:
+        args.append(api_key_id)
+        conditions.append(f"api_key_id = ${len(args)}")
+
+    where_clause = " AND ".join(conditions)
+    async with _get_conn() as conn:
+        if conn is None:
+            return []
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                date_trunc('day', timestamp)::date as date,
+                COUNT(*) as request_count,
+                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
+                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
+                SUM(input_tokens) as input_tokens,
+                SUM(output_tokens) as output_tokens,
+                AVG(latency_ms)::int as avg_latency_ms,
+                AVG(lag_ms)::int as avg_lag_ms
+            FROM requests
+            WHERE {where_clause}
+            GROUP BY date_trunc('day', timestamp)::date
+            ORDER BY date ASC
+            """,
+            *args
+        )
+        return [dict(r) for r in rows]
+
+
+async def get_hourly_stats_from_requests(
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    channel_id: str | None = None,
+    model: str | None = None,
+    api_key_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """从 requests 明细表实时聚合小时统计（hourly_stats 无数据时的兜底）"""
+    if not _db_available:
+        return []
+    conditions = ["1=1"]
+    args: list[Any] = []
+    if start_time:
+        args.append(start_time)
+        conditions.append(f"timestamp >= ${len(args)}")
+    if end_time:
+        args.append(end_time)
+        conditions.append(f"timestamp < ${len(args)}")
+    if channel_id:
+        args.append(channel_id)
+        conditions.append(f"channel_id = ${len(args)}")
+    if model:
+        args.append(model)
+        conditions.append(f"model = ${len(args)}")
+    if api_key_id:
+        args.append(api_key_id)
+        conditions.append(f"api_key_id = ${len(args)}")
+
+    where_clause = " AND ".join(conditions)
+    async with _get_conn() as conn:
+        if conn is None:
+            return []
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                date_trunc('hour', timestamp) as hour,
+                COUNT(*) as request_count,
+                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
+                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
+                SUM(input_tokens) as input_tokens,
+                SUM(output_tokens) as output_tokens,
+                AVG(latency_ms)::int as avg_latency_ms,
+                AVG(lag_ms)::int as avg_lag_ms
+            FROM requests
+            WHERE {where_clause}
+            GROUP BY date_trunc('hour', timestamp)
+            ORDER BY hour ASC
+            """,
+            *args
+        )
+        return [dict(r) for r in rows]
+
+
+async def refresh_missing_daily_stats() -> dict[str, Any]:
+    """自动补全 daily_stats 中缺失的历史日期（不含当天）"""
+    if not _db_available:
+        return {
+            "refreshed_dates": [], "count": 0,
+            "debug": {"db_available": False, "reason": "_db_available is False"}
+        }
+
+    async with _get_conn() as conn:
+        if conn is None:
+            return {
+                "refreshed_dates": [], "count": 0,
+                "debug": {"db_available": True, "conn": None}
+            }
+
+        today = date.today()
+        now_dt = datetime.now()
+
+        # 获取 requests 表中存在的日期（排除当天）
+        request_dates = await conn.fetch(
+            """
+            SELECT DISTINCT date_trunc('day', timestamp)::date as d
+            FROM requests
+            WHERE date_trunc('day', timestamp)::date < $1
+            ORDER BY d
+            """,
+            today,
+        )
+        all_request_dates = {r["d"] for r in request_dates}
+
+        # 获取 requests 表中的总记录数和时间范围
+        req_range = await conn.fetchrow(
+            "SELECT MIN(timestamp) as min_ts, MAX(timestamp) as max_ts, COUNT(*) as cnt FROM requests"
+        )
+
+        if not all_request_dates:
+            return {
+                "refreshed_dates": [], "count": 0,
+                "debug": {
+                    "today": str(today),
+                    "now": now_dt.isoformat(),
+                    "request_dates": [],
+                    "request_range": dict(req_range) if req_range else None,
+                }
+            }
+
+        min_date = min(all_request_dates)
+        max_date = max(all_request_dates)
+
+        # 获取 daily_stats 中已存在的日期
+        existing_rows = await conn.fetch(
+            "SELECT DISTINCT date FROM daily_stats WHERE date >= $1 AND date <= $2",
+            min_date,
+            max_date,
+        )
+        existing_dates = {r["date"] for r in existing_rows}
+
+        missing_dates = sorted(all_request_dates - existing_dates)
+
+        debug_info = {
+            "today": str(today),
+            "now": now_dt.isoformat(),
+            "request_dates": [str(d) for d in sorted(all_request_dates)],
+            "existing_dates": [str(d) for d in sorted(existing_dates)],
+            "missing_dates": [str(d) for d in missing_dates],
+            "request_range": dict(req_range) if req_range else None,
+        }
+
+        if not missing_dates:
+            return {
+                "refreshed_dates": [], "count": 0,
+                "debug": debug_info,
+            }
+
+        # 按连续区间分组聚合
+        refreshed = []
+        start = missing_dates[0]
+        prev = missing_dates[0]
+
+        for d in missing_dates[1:]:
+            if d == prev + timedelta(days=1):
+                prev = d
+            else:
+                await aggregate_daily_stats(start, prev)
+                refreshed.append(f"{start}~{prev}" if start != prev else str(start))
+                start = d
+                prev = d
+
+        # 处理最后一个区间
+        await aggregate_daily_stats(start, prev)
+        refreshed.append(f"{start}~{prev}" if start != prev else str(start))
+
+        return {
+            "refreshed_dates": refreshed,
+            "count": len(missing_dates),
+            "debug": debug_info,
+        }
+
+
 async def get_overall_stats(days: int = 7) -> dict[str, Any]:
     """总体统计数据"""
     if not _db_available:
@@ -438,6 +689,34 @@ async def get_overall_stats(days: int = 7) -> dict[str, Any]:
         }
 
 
+# 允许的字段映射：URL 路径名 → SQL 列名
+_REQUEST_FIELD_MAP = {
+    "request_headers": "request_headers",
+    "request_body": "request_body",
+    "response_headers": "response_headers",
+    "response_body": "response_body",
+}
+
+
+async def get_request_field(request_id: int, field: str) -> dict | None:
+    """查询单个请求的单个 JSONB 字段。field 必须在 _REQUEST_FIELD_MAP 中。"""
+    if not _db_available:
+        return None
+    column = _REQUEST_FIELD_MAP.get(field)
+    if column is None:
+        return None
+    async with _get_conn() as conn:
+        if conn is None:
+            return None
+        row = await conn.fetchrow(
+            f"SELECT {column} FROM requests WHERE id = $1",
+            request_id,
+        )
+        if row is None:
+            return None
+        return {"data": row[column]}
+
+
 async def list_requests(
     model: str | None = None,
     channel: str | None = None,
@@ -496,8 +775,10 @@ async def list_requests(
         data_args = args + [page_size, offset]
         rows = await conn.fetch(
             f"""
-            SELECT id, timestamp, model, channel_id, channel_name, api_key_id, headers, is_stream,
-                   input_tokens, output_tokens, cost, latency_ms, lag_ms, finish_reason, success, error_msg
+            SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
+                   request_headers, response_headers, request_body, response_body,
+                   is_stream, input_tokens, output_tokens, cost, latency_ms, lag_ms,
+                   finish_reason, success, error_msg
             FROM requests
             WHERE {where_clause}
             ORDER BY timestamp DESC

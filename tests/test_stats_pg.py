@@ -69,7 +69,7 @@ class TestRecordRequest:
             latency_ms=200,
             success=True,
             api_key_id="key_1",
-            headers={"X-App-Name": "TestApp", "User-Agent": "test-agent"},
+            request_headers={"X-App-Name": "TestApp", "User-Agent": "test-agent"},
             lag_ms=50,
             finish_reason="stop",
         )
@@ -78,7 +78,7 @@ class TestRecordRequest:
             row = await conn.fetchrow("SELECT * FROM requests")
             assert row["channel_id"] == "ch_1"
             assert row["model"] == "gpt-4"
-            assert row["headers"]["X-App-Name"] == "TestApp"
+            assert row["request_headers"]["X-App-Name"] == "TestApp"
             assert row["lag_ms"] == 50
             assert row["finish_reason"] == "stop"
         await pool.close()
@@ -88,12 +88,12 @@ class TestRecordRequest:
             channel_id="ch_1", channel_name="Test", model="gpt-4",
             is_stream=False, input_tokens=10, output_tokens=5,
             latency_ms=100, success=True,
-            headers={"x-app-name": "LowerCaseApp"},
+            request_headers={"x-app-name": "LowerCaseApp"},
         )
         pool = await _create_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT headers FROM requests")
-            assert row["headers"]["x-app-name"] == "LowerCaseApp"
+            row = await conn.fetchrow("SELECT request_headers FROM requests")
+            assert row["request_headers"]["x-app-name"] == "LowerCaseApp"
         await pool.close()
 
 
@@ -219,7 +219,7 @@ class TestListRequests:
             await conn.execute(
                 """
                 INSERT INTO requests
-                (timestamp, model, channel_id, channel_name, api_key_id, headers, is_stream,
+                (timestamp, model, channel_id, channel_name, api_key_id, request_headers, is_stream,
                  input_tokens, output_tokens, latency_ms, lag_ms, finish_reason, success, error_msg)
                 VALUES ($1, 'gpt-4', 'ch_old', 'Old', NULL, '{}', false, 10, 5, 100, NULL, 'stop', true, NULL)
                 """,
@@ -228,7 +228,7 @@ class TestListRequests:
             await conn.execute(
                 """
                 INSERT INTO requests
-                (timestamp, model, channel_id, channel_name, api_key_id, headers, is_stream,
+                (timestamp, model, channel_id, channel_name, api_key_id, request_headers, is_stream,
                  input_tokens, output_tokens, latency_ms, lag_ms, finish_reason, success, error_msg)
                 VALUES ($1, 'gpt-4', 'ch_recent', 'Recent', NULL, '{}', false, 10, 5, 100, NULL, 'stop', true, NULL)
                 """,
@@ -258,3 +258,45 @@ class TestListRequests:
         result = await stats.list_requests(api_key_id="key_alpha")
         assert result["total"] == 1
         assert result["items"][0]["api_key_id"] == "key_alpha"
+
+
+class TestGetRequestField:
+    async def test_get_request_headers(self):
+        await stats.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            request_headers={"X-App-Name": "TestApp"},
+        )
+        all_reqs = await stats.list_requests(page=1, page_size=1)
+        req_id = all_reqs["items"][0]["id"]
+        result = await stats.get_request_field(req_id, "request_headers")
+        assert result["data"]["X-App-Name"] == "TestApp"
+
+    async def test_get_request_body(self):
+        await stats.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            request_body={"messages": [{"role": "user", "content": "hi"}]},
+        )
+        all_reqs = await stats.list_requests(page=1, page_size=1)
+        req_id = all_reqs["items"][0]["id"]
+        result = await stats.get_request_field(req_id, "request_body")
+        assert result["data"]["messages"][0]["content"] == "hi"
+
+    async def test_get_null_field(self):
+        await stats.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+        )
+        all_reqs = await stats.list_requests(page=1, page_size=1)
+        req_id = all_reqs["items"][0]["id"]
+        result = await stats.get_request_field(req_id, "response_body")
+        assert result["data"] is None
+
+    async def test_nonexistent_id(self):
+        result = await stats.get_request_field(999999, "request_headers")
+        assert result is None
+
+    async def test_invalid_field(self):
+        result = await stats.get_request_field(1, "invalid_field")
+        assert result is None
