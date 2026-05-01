@@ -31,3 +31,7 @@ Thumbs.db
 
 # UV
 uv.lock
+
+
+# .omc
+.omc/state/

@@ -212,11 +212,15 @@ async def root():
 
 if __name__ == "__main__":
     import argparse
+    import signal
+    import socket
     import uvicorn
 
     parser = argparse.ArgumentParser(description="LLM API 转换器")
     parser.add_argument("--log-level", default="info", choices=["debug", "info", "warning", "error"],
                         help="日志级别 (默认: info)")
+    parser.add_argument("--no-reload", action="store_true",
+                        help="禁用热重载（避免 Windows 下进程退出后端口未释放的问题）")
     args = parser.parse_args()
 
     os.environ["LOG_LEVEL"] = args.log_level
@@ -225,12 +229,16 @@ if __name__ == "__main__":
         "disable_existing_loggers": False,
         "formatters": {
             "default": {
-                "format": "[%(asctime)s] %(levelprefix)s %(message)s",
+                "()": "uvicorn.logging.DefaultFormatter",
+                "fmt": "[%(asctime)s] %(levelprefix)s %(message)s",
                 "datefmt": "%Y-%m-%d %H:%M:%S",
+                "use_colors": True,
             },
             "access": {
-                "format": "[%(asctime)s] %(levelprefix)s %(client_addr)s - \"%(request_line)s\" %(status_code)s",
+                "()": "uvicorn.logging.AccessFormatter",
+                "fmt": "[%(asctime)s] %(levelprefix)s %(client_addr)s - \"%(request_line)s\" %(status_code)s",
                 "datefmt": "%Y-%m-%d %H:%M:%S",
+                "use_colors": True,
             },
         },
         "handlers": {
@@ -251,4 +259,25 @@ if __name__ == "__main__":
             "uvicorn.access": {"handlers": ["access"], "level": args.log_level.upper(), "propagate": False},
         },
     }
-    uvicorn.run("main:app", host=HOST, port=PORT, reload=True, log_level=args.log_level, log_config=log_config)
+
+    if args.no_reload:
+        # 无热重载模式：手动创建 socket 设置 SO_REUSEADDR，确保 Windows 下端口可立即复用
+        _sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        _sock.bind((HOST, PORT))
+        _sock.listen(1024)
+
+        config = uvicorn.Config("main:app", log_level=args.log_level, log_config=log_config)
+        server = uvicorn.Server(config)
+
+        def _shutdown_handler(sig, frame):
+            server.should_exit = True
+
+        signal.signal(signal.SIGINT, _shutdown_handler)
+        signal.signal(signal.SIGTERM, _shutdown_handler)
+
+        server.run(sockets=[_sock])
+    else:
+        # 热重载模式：注意 Windows 下 Ctrl+C 后端口可能短暂占用
+        uvicorn.run("main:app", host=HOST, port=PORT, reload=True,
+                    log_level=args.log_level, log_config=log_config)

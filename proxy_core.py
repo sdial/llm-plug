@@ -300,7 +300,10 @@ async def _do_request(
             success=True,
             finish_reason=finish_reason,
             api_key_id=api_key_id,
-            headers=tracked_headers,
+            request_headers=tracked_headers,
+            response_headers=dict(response.headers),
+            request_body=upstream_data,
+            response_body=response_data,
         )
 
         # 非流式响应摘要日志
@@ -336,7 +339,8 @@ async def _do_request(
             error_msg=str(e),
             finish_reason=None,
             api_key_id=api_key_id,
-            headers=tracked_headers,
+            request_headers=tracked_headers,
+            request_body=upstream_data,
         )
         # 控制台输出详细错误
         err_body = ""
@@ -599,59 +603,70 @@ async def _do_stream_request(
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
     finally:
-        latency_ms = int((time.time() - start_time) * 1000)
-        lag_ms = None
-        if first_token_time is not None:
-            lag_ms = int((first_token_time - start_time) * 1000)
-        # 从 stream_chunks 中提取 token 使用量（按上游格式分别处理）
-        if is_upstream_anthropic:
-            for chunk in stream_chunks:
+        try:
+            latency_ms = int((time.time() - start_time) * 1000)
+            lag_ms = None
+            if first_token_time is not None:
+                lag_ms = int((first_token_time - start_time) * 1000)
+            # 从 stream_chunks 中提取 token 使用量（按上游格式分别处理）
+            if is_upstream_anthropic:
+                for chunk in stream_chunks:
+                    if isinstance(chunk, dict):
+                        if chunk.get("type") == "message_start":
+                            input_tokens = chunk.get("message", {}).get("usage", {}).get("input_tokens", 0)
+                        elif chunk.get("type") == "message_delta":
+                            output_tokens = chunk.get("usage", {}).get("output_tokens", output_tokens)
+            else:
+                for chunk in stream_chunks:
+                    if isinstance(chunk, dict):
+                        usage = chunk.get("usage")
+                        if usage:
+                            input_tokens = usage.get("prompt_tokens", input_tokens)
+                            output_tokens = usage.get("completion_tokens", output_tokens)
+            # 从 stream_chunks 中提取 finish_reason
+            finish_reason = None
+            for chunk in reversed(stream_chunks):
                 if isinstance(chunk, dict):
-                    if chunk.get("type") == "message_start":
-                        input_tokens = chunk.get("message", {}).get("usage", {}).get("input_tokens", 0)
-                    elif chunk.get("type") == "message_delta":
-                        output_tokens = chunk.get("usage", {}).get("output_tokens", output_tokens)
-        else:
-            for chunk in stream_chunks:
-                if isinstance(chunk, dict):
-                    usage = chunk.get("usage")
-                    if usage:
-                        input_tokens = usage.get("prompt_tokens", input_tokens)
-                        output_tokens = usage.get("completion_tokens", output_tokens)
-        # 从 stream_chunks 中提取 finish_reason
-        finish_reason = None
-        for chunk in reversed(stream_chunks):
-            if isinstance(chunk, dict):
-                # OpenAI format
-                choices = chunk.get("choices", [])
-                if choices and isinstance(choices[0], dict):
-                    fr = choices[0].get("finish_reason")
-                    if fr:
-                        finish_reason = fr
-                        break
-                # Anthropic format in message_delta
-                if chunk.get("type") == "message_delta":
-                    fr = chunk.get("delta", {}).get("stop_reason")
-                    if fr:
-                        finish_reason = fr
-                        break
-        # 记录统计
-        await stats.record_request(
-            channel_id=channel.id,
-            channel_name=channel.name,
-            model=model,
-            is_stream=True,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            latency_ms=latency_ms,
-            lag_ms=lag_ms,
-            success=stream_success,
-            error_msg=stream_error,
-            finish_reason=finish_reason,
-            api_key_id=api_key_id,
-            headers=tracked_headers,
-        )
-        if stream_success:
-            load_balancer.record_success(channel.id)
-        if not client.is_closed:
-            await client.aclose()
+                    # OpenAI format
+                    choices = chunk.get("choices", [])
+                    if choices and isinstance(choices[0], dict):
+                        fr = choices[0].get("finish_reason")
+                        if fr:
+                            finish_reason = fr
+                            break
+                    # Anthropic format in message_delta
+                    if chunk.get("type") == "message_delta":
+                        fr = chunk.get("delta", {}).get("stop_reason")
+                        if fr:
+                            finish_reason = fr
+                            break
+            # 记录统计
+            await stats.record_request(
+                channel_id=channel.id,
+                channel_name=channel.name,
+                model=model,
+                is_stream=True,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                latency_ms=latency_ms,
+                lag_ms=lag_ms,
+                success=stream_success,
+                error_msg=stream_error,
+                finish_reason=finish_reason,
+                api_key_id=api_key_id,
+                request_headers=tracked_headers,
+                response_headers=resp_headers,
+                request_body=upstream_data,
+            )
+            if stream_success:
+                load_balancer.record_success(channel.id)
+        except Exception as finally_err:
+            # finally 块中的异常不能让它传播出去，否则会覆盖流式错误事件
+            # 导致客户端收到原始网络错误而非 SSE 错误消息
+            logger.warning(f"stream finally error: {finally_err}")
+        finally:
+            try:
+                if not client.is_closed:
+                    await client.aclose()
+            except Exception as close_err:
+                logger.debug(f"stream client close error: {close_err}")
