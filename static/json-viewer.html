@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON 查看器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+            background: #1a1a1a;
+            color: #a9b7c6;
+            padding: 20px;
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .loading {
+            color: #6b6b6b;
+            font-style: italic;
+        }
+        .error {
+            color: #e11d48;
+            background: #fff1f2;
+            padding: 16px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .key { color: #9876aa; }
+        .string { color: #6a8759; }
+        .number { color: #6897bb; }
+        .boolean { color: #cc7832; }
+        .null { color: #808080; }
+    </style>
+</head>
+<body>
+    <div class="loading">加载中...</div>
+    <script>
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function syntaxHighlight(json) {
+            if (json === null || json === undefined) return '<span class="null">null</span>';
+            const str = JSON.stringify(json, null, 2);
+            return str.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
+                let cls = 'number';
+                if (/^"/.test(match)) {
+                    if (/:$/.test(match)) {
+                        cls = 'key';
+                    } else {
+                        cls = 'string';
+                    }
+                } else if (/true|false/.test(match)) {
+                    cls = 'boolean';
+                } else if (/null/.test(match)) {
+                    cls = 'null';
+                }
+                return '<span class="' + cls + '">' + escapeHtml(match) + '</span>';
+            });
+        }
+
+        (async function() {
+            const params = new URLSearchParams(window.location.search);
+            const url = params.get('url');
+            const title = params.get('title') || 'JSON 查看器';
+            document.title = title;
+
+            if (!url) {
+                document.body.innerHTML = '<div class="error">缺少 url 参数</div>';
+                return;
+            }
+
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) {
+                    document.body.innerHTML = '<div class="error">请求失败: ' + resp.status + ' ' + escapeHtml(await resp.text()) + '</div>';
+                    return;
+                }
+                const result = await resp.json();
+                document.body.innerHTML = syntaxHighlight(result.data);
+            } catch (e) {
+                document.body.innerHTML = '<div class="error">加载失败: ' + escapeHtml(e.message) + '</div>';
+            }
+        })();
+    </script>
+</body>
+</html>
