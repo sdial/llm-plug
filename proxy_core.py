@@ -483,6 +483,35 @@ async def _do_stream_request(
             resp_headers = dict(resp.headers)
 
             upstream_event_type = None
+
+            def _mark_first_token():
+                nonlocal first_token_time
+                if first_token_time is None:
+                    first_token_time = time.time()
+
+            def _format_sse(data: dict, event_type: str | None = None) -> str:
+                if event_type:
+                    return _yield_anthropic_event(event_type, data)
+                return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+            def _yield_extra_events(converted: dict):
+                extra = response_converter.get_extra_events(converted)
+                if not extra:
+                    return []
+                results = []
+                if output_anthropic_sse:
+                    sse = _yield_anthropic_events(extra)
+                    for part in sse.split("\n\n"):
+                        if part.strip():
+                            _log_stream_event(part + "\n\n")
+                    results.append(sse)
+                else:
+                    for extra_evt in extra:
+                        sse = _format_sse(extra_evt)
+                        _log_stream_event(sse)
+                        results.append(sse)
+                return results
+
             async for line in resp.aiter_lines():
                 if not line.strip():
                     continue
@@ -523,54 +552,34 @@ async def _do_stream_request(
                 if is_upstream_anthropic and upstream_event_type is not None:
                     chunk["_event_type"] = upstream_event_type
 
-        def _mark_first_token():
-            nonlocal first_token_time
-            if first_token_time is None:
-                first_token_time = time.time()
-
-        def _format_sse(data: dict, event_type: str | None = None) -> str:
-            if event_type:
-                return _yield_anthropic_event(event_type, data)
-            return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-        def _yield_extra_events(converted: dict):
-            extra = response_converter.get_extra_events(converted)
-            if not extra:
-                return []
-            results = []
-            if output_anthropic_sse:
-                sse = _yield_anthropic_events(extra)
-                for part in sse.split("\n\n"):
-                    if part.strip():
-                        _log_stream_event(part + "\n\n")
-                results.append(sse)
-            else:
-                for extra_evt in extra:
-                    sse = _format_sse(extra_evt)
-                    _log_stream_event(sse)
-                    results.append(sse)
-            return results
-
-        if response_converter:
-            converted = response_converter.convert_stream_chunk(chunk, source_type)
-            if converted is not None:
-                evt_type = response_converter.get_stream_event_type(chunk, source_type) if output_anthropic_sse else None
-                sse = _format_sse(converted, evt_type)
-                _log_stream_event(sse)
-                yield sse
-                _mark_first_token()
-                for extra_sse in _yield_extra_events(converted):
-                    yield extra_sse
-            else:
-                if output_anthropic_sse and is_upstream_anthropic:
-                    sse = _format_sse(chunk, upstream_event_type or "ping")
+                if response_converter:
+                    converted = response_converter.convert_stream_chunk(chunk, source_type)
+                    if converted is not None:
+                        evt_type = response_converter.get_stream_event_type(chunk, source_type) if output_anthropic_sse else None
+                        sse = _format_sse(converted, evt_type)
+                        _log_stream_event(sse)
+                        yield sse
+                        _mark_first_token()
+                        for extra_sse in _yield_extra_events(converted):
+                            yield extra_sse
+                    else:
+                        if output_anthropic_sse and is_upstream_anthropic:
+                            sse = _format_sse(chunk, upstream_event_type or "ping")
+                        else:
+                            sse = _format_sse(chunk)
+                        _log_stream_event(sse)
+                        yield sse
+                        _mark_first_token()
                 else:
-                    sse = _format_sse(chunk)
-                _log_stream_event(sse)
-                yield sse
-                _mark_first_token()
+                    if output_anthropic_sse and is_upstream_anthropic:
+                        sse = _format_sse(chunk, upstream_event_type or "ping")
+                    else:
+                        sse = _format_sse(chunk)
+                    _log_stream_event(sse)
+                    yield sse
+                    _mark_first_token()
 
-        if is_upstream_anthropic:
+                if is_upstream_anthropic:
                     upstream_event_type = None
 
         stream_success = True
