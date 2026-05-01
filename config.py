@@ -20,7 +20,7 @@ def _int_env(key: str, default: int) -> int:
 
 # 服务器配置
 HOST = os.getenv("HOST", "0.0.0.0")
-PORT = _int_env("PORT", 8000)
+PORT = _int_env("PORT", 55555)
 
 # 数据存储
 DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
@@ -41,8 +41,11 @@ PROXY_API_KEY = os.getenv("PROXY_API_KEY", "")  # 代理API密钥，为空则不
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 DEBUG_LOG_DIR = os.getenv("DEBUG_LOG_DIR", os.path.join(os.path.dirname(__file__), "logs"))
 
+# 日志级别
+LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
+
 # PostgreSQL 配置
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/llmplug")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 # 统计追踪的请求头
 # 空值或 "ALL" 表示追踪所有请求头
