@@ -259,6 +259,26 @@ class TestListRequests:
         assert result["total"] == 1
         assert result["items"][0]["api_key_id"] == "key_alpha"
 
+    async def test_list_requests_no_jsonb_fields(self):
+        """list_requests 不应返回 request_headers, response_headers, request_body, response_body"""
+        await stats.record_request(
+            channel_id="ch_1", channel_name="Test", model="gpt-4",
+            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            request_headers={"X-App": "Test"},
+            request_body={"messages": []},
+            response_headers={"X-Resp": "Test"},
+            response_body={"choices": []},
+        )
+        result = await stats.list_requests(page=1, page_size=10)
+        assert result["total"] == 1
+        item = result["items"][0]
+        assert "request_headers" not in item
+        assert "response_headers" not in item
+        assert "request_body" not in item
+        assert "response_body" not in item
+        assert "model" in item
+        assert "channel_id" in item
+
 
 class TestGetRequestField:
     async def test_get_request_headers(self):

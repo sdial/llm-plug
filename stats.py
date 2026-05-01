@@ -776,7 +776,6 @@ async def list_requests(
         rows = await conn.fetch(
             f"""
             SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                   request_headers, response_headers, request_body, response_body,
                    is_stream, input_tokens, output_tokens, cost, latency_ms, lag_ms,
                    finish_reason, success, error_msg
             FROM requests
