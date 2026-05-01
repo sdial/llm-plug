@@ -14,7 +14,7 @@ import httpx
 
 from balancer.load_balancer import load_balancer
 from client import create_client, create_stream_client, get_upstream_headers
-from config import DEBUG, DEBUG_LOG_DIR
+from config import DEBUG, DEBUG_LOG_DIR, LOG_LEVEL
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
@@ -25,6 +25,188 @@ from storage import load_data, register_save_callback
 
 # 流式响应最大记录chunk数量，防止内存溢出
 MAX_STREAM_CHUNKS = 10000
+
+
+def _build_stream_response_body(
+    chunks: list[Any],
+    is_upstream_anthropic: bool,
+    model: str,
+) -> dict | None:
+    """从流式 chunks 构建完整的响应体用于存储。
+
+    Args:
+        chunks: 流式响应的 chunk 列表
+        is_upstream_anthropic: 上游是否为 Anthropic API
+        model: 模型名称
+
+    Returns:
+        拼装后的响应体字典，如果无法构建则返回 None
+    """
+    if not chunks:
+        return None
+
+    if is_upstream_anthropic:
+        return _build_anthropic_stream_response(chunks, model)
+    else:
+        return _build_openai_stream_response(chunks, model)
+
+
+def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | None:
+    """构建 Anthropic 格式的流式响应体。"""
+    message_id = None
+    role = "assistant"
+    content_text = ""
+    stop_reason = None
+    input_tokens = 0
+    output_tokens = 0
+
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+
+        chunk_type = chunk.get("type")
+
+        if chunk_type == "message_start":
+            msg = chunk.get("message", {})
+            message_id = msg.get("id")
+            role = msg.get("role", "assistant")
+            usage = msg.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+
+        elif chunk_type == "content_block_delta":
+            delta = chunk.get("delta", {})
+            if delta.get("type") == "text_delta":
+                content_text += delta.get("text", "")
+
+        elif chunk_type == "message_delta":
+            delta = chunk.get("delta", {})
+            stop_reason = delta.get("stop_reason")
+            usage = chunk.get("usage", {})
+            output_tokens = usage.get("output_tokens", output_tokens)
+
+    if not message_id:
+        # 尝试从其他 chunk 中获取 id
+        for chunk in chunks:
+            if isinstance(chunk, dict) and chunk.get("id"):
+                message_id = chunk["id"]
+                break
+
+    if not message_id:
+        return None
+
+    return {
+        "id": message_id,
+        "type": "message",
+        "role": role,
+        "content": [{"type": "text", "text": content_text}],
+        "model": model,
+        "stop_reason": stop_reason,
+        "usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+        },
+    }
+
+
+def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
+    """构建 OpenAI 格式的流式响应体。"""
+    response_id = None
+    content_text = ""
+    finish_reason = None
+    input_tokens = 0
+    output_tokens = 0
+    role = "assistant"
+    # tool_calls 拼接：按 index 分组
+    # 每个 tool call 结构: {id, type: "function", function: {name, arguments}}
+    tool_calls_map: dict[int, dict] = {}
+
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+
+        # 获取 id（通常在第一个 chunk）
+        if not response_id and chunk.get("id"):
+            response_id = chunk["id"]
+
+        # 获取 role（某些实现可能在第一个 chunk 包含）
+        if chunk.get("choices"):
+            choice = chunk["choices"][0]
+            if isinstance(choice, dict):
+                delta = choice.get("delta", {})
+                if delta.get("role"):
+                    role = delta["role"]
+
+        # 拼接内容
+        choices = chunk.get("choices", [])
+        if choices and isinstance(choices[0], dict):
+            delta = choices[0].get("delta", {})
+            if delta and "content" in delta and delta["content"]:
+                content_text += delta["content"]
+
+            # 拼接 tool_calls
+            if delta and "tool_calls" in delta:
+                for tc in delta["tool_calls"]:
+                    idx = tc.get("index", 0)
+                    if idx not in tool_calls_map:
+                        tool_calls_map[idx] = {
+                            "id": tc.get("id", ""),
+                            "type": tc.get("type", "function"),
+                            "function": {"name": "", "arguments": ""},
+                        }
+                    tool_call = tool_calls_map[idx]
+                    # 更新 id（第一个 chunk 可能有）
+                    if tc.get("id"):
+                        tool_call["id"] = tc["id"]
+                    # 更新 type
+                    if tc.get("type"):
+                        tool_call["type"] = tc["type"]
+                    # 拼接 function 字段
+                    func = tc.get("function", {})
+                    if func.get("name"):
+                        tool_call["function"]["name"] = func["name"]
+                    if func.get("arguments"):
+                        tool_call["function"]["arguments"] += func["arguments"]
+
+            # 获取 finish_reason
+            fr = choices[0].get("finish_reason")
+            if fr:
+                finish_reason = fr
+
+        # 获取 usage（可能在最后一个 chunk）
+        usage = chunk.get("usage")
+        if usage:
+            input_tokens = usage.get("prompt_tokens", input_tokens)
+            output_tokens = usage.get("completion_tokens", output_tokens)
+
+    if not response_id:
+        response_id = f"chatcmpl-{model[:8]}"
+
+    message: dict = {
+        "role": role,
+        "content": content_text if content_text else None,
+    }
+
+    # 如果有 tool_calls，按 index 顺序添加到 message
+    if tool_calls_map:
+        tool_calls_list = [tool_calls_map[i] for i in sorted(tool_calls_map.keys())]
+        message["tool_calls"] = tool_calls_list
+
+    return {
+        "id": response_id,
+        "object": "chat.completion",
+        "created": int(datetime.now().timestamp()),
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": message,
+            "finish_reason": finish_reason,
+        }],
+        "usage": {
+            "prompt_tokens": input_tokens,
+            "completion_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+        },
+    }
 
 
 def _log_debug(
@@ -410,7 +592,7 @@ async def _do_stream_request(
     output_tokens = 0
     stream_chunks: list[Any] = []
     stream_chunk_count = 0
-    _stream_log_enabled = os.getenv("LOG_LEVEL", "info").lower() == "debug"
+    _stream_log_enabled = LOG_LEVEL == "debug"
     _stream_log_count = 0  # 流式事件日志计数器
     _STREAM_LOG_MAX = 20   # 最多记录前 20 个事件
 
@@ -657,6 +839,12 @@ async def _do_stream_request(
                         if fr:
                             finish_reason = fr
                             break
+            # 构建流式响应体（拼装后的最终结果）
+            response_body = _build_stream_response_body(
+                chunks=stream_chunks,
+                is_upstream_anthropic=is_upstream_anthropic,
+                model=model,
+            )
             # 记录统计
             await stats.record_request(
                 channel_id=channel.id,
@@ -674,6 +862,7 @@ async def _do_stream_request(
                 request_headers=tracked_headers,
                 response_headers=resp_headers,
                 request_body=upstream_data,
+                response_body=response_body,
             )
             if stream_success:
                 load_balancer.record_success(channel.id)
