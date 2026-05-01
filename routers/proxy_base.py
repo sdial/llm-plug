@@ -2,6 +2,7 @@ import json
 
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import StreamingResponse
+from loguru import logger
 
 from models.api_types import APIType
 from proxy_core import proxy_request
@@ -66,10 +67,10 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
             )
             request.state.selected_channel_name = _channel.name
         except ValueError as e:
-            print(f"[ERR]  {path} ValueError: {e}")
+            logger.error(f"{path} ValueError: {e}")
             return err_invalid(str(e))
         except Exception as e:
-            print(f"[ERR]  {path} {type(e).__name__}: {e}")
+            logger.error(f"{path} {type(e).__name__}: {e}")
             return err_exception(e)
 
         if is_stream:

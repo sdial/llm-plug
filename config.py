@@ -1,5 +1,7 @@
 import os
+
 from dotenv import load_dotenv
+from loguru import logger
 
 load_dotenv()
 
@@ -12,7 +14,7 @@ def _int_env(key: str, default: int) -> int:
     try:
         return int(raw)
     except ValueError:
-        print(f"[WARN] Invalid integer for {key}={raw!r}, using default {default}")
+        logger.warning(f"Invalid integer for {key}={raw!r}, using default {default}")
         return default
 
 

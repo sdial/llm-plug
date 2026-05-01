@@ -1,14 +1,13 @@
 """PostgreSQL 统计模块 - 使用 asyncpg 存储请求统计"""
 import json
-import logging
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from typing import Any
 
 import asyncpg
-from config import DATABASE_URL, STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from config import DATABASE_URL, STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
 
 _pool: asyncpg.Pool | None = None
 _db_available: bool = False

@@ -2,12 +2,11 @@
 将其他格式转换为 Anthropic Messages 格式
 """
 import json
-import logging
 from typing import Any
 
-from converters.base import BaseConverter
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from converters.base import BaseConverter
 
 
 class ToAnthropicConverter(BaseConverter):

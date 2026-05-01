@@ -5,6 +5,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
+from loguru import logger
+
 BASE_DIR = Path(__file__).parent.resolve()
 STATIC_DIR = BASE_DIR / "static"
 LOGS_DIR = BASE_DIR / "logs"
@@ -12,13 +14,13 @@ LOGS_DIR = BASE_DIR / "logs"
 
 class SessionViewerHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        print(f"[{self.address_string()}] {format % args}")
+        logger.info(f"[{self.address_string()}] {format % args}")
 
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
 
-        print(f"GET {path}")
+        logger.info(f"GET {path}")
 
         # API endpoint to list log files
         if path == "/api/logs":
@@ -86,17 +88,17 @@ class SessionViewerHandler(BaseHTTPRequestHandler):
 
 
 def main(port=8080):
-    print(f"BASE_DIR: {BASE_DIR}")
-    print(f"STATIC_DIR: {STATIC_DIR}")
-    print(f"LOGS_DIR: {LOGS_DIR}")
-    print(f"Session Viewer running at http://localhost:{port}/session-viewer.html")
-    print("Press Ctrl+C to stop")
+    logger.info(f"BASE_DIR: {BASE_DIR}")
+    logger.info(f"STATIC_DIR: {STATIC_DIR}")
+    logger.info(f"LOGS_DIR: {LOGS_DIR}")
+    logger.info(f"Session Viewer running at http://localhost:{port}/session-viewer.html")
+    logger.info("Press Ctrl+C to stop")
 
     server = HTTPServer(("", port), SessionViewerHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nServer stopped.")
+        logger.info("Server stopped.")
         server.shutdown()
 
 

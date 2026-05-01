@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from loguru import logger
 
 from client import close_all_clients
 from config import DEBUG, HOST, PORT
@@ -25,7 +26,7 @@ async def lifespan(app):
     channel_count = len(channels_data.get("channels", []))
     model_count = len({m for ch in channels_data.get("channels", []) for m in ch.get("models", [])})
     key_count = len(keys_data.get("api_keys", []))
-    print(f"[STARTUP] 就绪: {channel_count} 个渠道, {model_count} 个模型, {key_count} 个 API Key")
+    logger.info(f"就绪: {channel_count} 个渠道, {model_count} 个模型, {key_count} 个 API Key")
     await init_stats_db()
     try:
         yield
@@ -164,8 +165,8 @@ class CombinedMiddleware:
         ts_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         tag = "OK" if status < 400 else "ERR"
         elapsed = time.time() - start
-        print(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}")
-        print(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s)")
+        logger.info(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}")
+        logger.info(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s)")
 
     async def _send_error(self, send: Send, status: int, message: str) -> None:
         error_body = json.dumps({"error": {"message": message, "type": "auth_error"}}).encode()
