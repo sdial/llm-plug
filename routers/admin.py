@@ -12,7 +12,12 @@ from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from datetime import date, datetime, timedelta
 
-from stats import get_daily_stats, get_overall_stats, get_hourly_stats, aggregate_hourly_stats, aggregate_daily_stats, list_requests
+from stats import (
+    get_daily_stats, get_daily_stats_from_requests,
+    get_overall_stats, get_hourly_stats, get_hourly_stats_from_requests,
+    aggregate_hourly_stats, aggregate_daily_stats, list_requests,
+    refresh_missing_daily_stats, get_request_field,
+)
 from storage import load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
@@ -335,6 +340,9 @@ async def get_stats(days: int = Query(default=7, ge=1)):
     """获取统计数据"""
     overall = await get_overall_stats(days=days)
     raw_daily = await get_daily_stats(days=days)
+    fallback_used = not bool(raw_daily)
+    if fallback_used:
+        raw_daily = await get_daily_stats_from_requests(days=days)
     daily_by_date: dict[str, dict] = {}
     for row in raw_daily:
         d = str(row["date"])
@@ -375,6 +383,8 @@ async def get_stats(days: int = Query(default=7, ge=1)):
     now = datetime.now()
     start_hour = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=23)
     raw_hourly = await get_hourly_stats(start_time=start_hour)
+    if not raw_hourly:
+        raw_hourly = await get_hourly_stats_from_requests(start_time=start_hour)
     hourly_by_time: dict[str, dict] = {}
     for row in raw_hourly:
         h = row["hour"]
@@ -419,7 +429,25 @@ async def get_stats(days: int = Query(default=7, ge=1)):
         "overall": overall,
         "daily": daily,
         "hourly": hourly,
+        "_debug": {
+            "server_now": datetime.now().isoformat(),
+            "query_days": days,
+            "raw_daily_count": len(raw_daily),
+            "fallback_used": fallback_used,
+        },
     }
+
+
+@router.post("/stats/refresh/daily")
+async def refresh_daily_stats_endpoint():
+    """补全缺失的日聚合统计（不含当天）"""
+    result = await refresh_missing_daily_stats()
+    msg = f"已刷新 {result['count']} 天的日聚合统计"
+    if result.get("debug"):
+        msg += f" | 服务器日期: {result['debug'].get('today', 'N/A')}"
+        msg += f" | requests日期: {', '.join(result['debug'].get('request_dates', []))}"
+        msg += f" | 缺失日期: {', '.join(result['debug'].get('missing_dates', []))}"
+    return {"message": msg, **result}
 
 
 @router.post("/stats/aggregate/hourly")
@@ -464,4 +492,25 @@ async def list_requests_endpoint(
         page=page,
         page_size=page_size,
     )
+    return result
+
+
+# URL 路径字段名 → stats.get_request_field 的 field 参数名
+_FIELD_PATH_MAP = {
+    "request-headers": "request_headers",
+    "request-body": "request_body",
+    "response-headers": "response_headers",
+    "response-body": "response_body",
+}
+
+
+@router.get("/requests/{request_id}/{field_name}")
+async def get_request_field_endpoint(request_id: int, field_name: str):
+    """获取单个请求的单个 JSONB 字段（请求/返回的 Header 或 Body）"""
+    field = _FIELD_PATH_MAP.get(field_name)
+    if field is None:
+        raise HTTPException(status_code=400, detail=f"不支持的字段: {field_name}")
+    result = await get_request_field(request_id, field)
+    if result is None:
+        raise HTTPException(status_code=404, detail="请求记录不存在")
     return result
