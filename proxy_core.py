@@ -7,6 +7,8 @@ import time
 from datetime import datetime
 from typing import Any
 
+from loguru import logger
+
 import httpx
 
 from balancer.load_balancer import load_balancer
@@ -91,7 +93,7 @@ def _log_debug(
             f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
     except Exception as log_err:
         # 日志记录失败不应影响主流程，仅打印警告
-        print(f"[WARN] Failed to write debug log: {log_err}")
+        logger.warning(f"Failed to write debug log: {log_err}")
 
 
 # 按 model 索引的渠道缓存，在 save_data 时自动失效
@@ -313,8 +315,8 @@ async def _do_request(
                     summary.append(f'tool_use({c.get("name", "")})')
                 else:
                     summary.append(c.get("type", "?"))
-            print(f"[BODY] content: [{', '.join(summary)}]")
-        print(f"[BODY] stop_reason: {response_data.get('stop_reason', '?') if isinstance(response_data, dict) else '?'}")
+            logger.debug(f"content: [{', '.join(summary)}]")
+        logger.debug(f"stop_reason: {response_data.get('stop_reason', '?') if isinstance(response_data, dict) else '?'}")
 
         load_balancer.record_success(channel.id)
         return response_data
@@ -340,10 +342,10 @@ async def _do_request(
         err_body = ""
         if isinstance(e, httpx.HTTPStatusError):
             err_body = e.response.text[:500]
-            print(f"[ERR]  upstream {e.response.status_code} {url}")
-            print(f"[ERR]  body: {err_body}")
+            logger.error(f"upstream {e.response.status_code} {url}")
+            logger.error(f"body: {err_body}")
         else:
-            print(f"[ERR]  upstream {type(e).__name__}: {e}")
+            logger.error(f"upstream {type(e).__name__}: {e}")
 
         _log_debug(
             channel=channel,
@@ -436,9 +438,9 @@ async def _do_stream_request(
                 except json.JSONDecodeError:
                     data_summary = ln[6:][:80]
         if evt_type:
-            print(f"[SSE]  {evt_type}: {data_summary}")
+            logger.debug(f"{evt_type}: {data_summary}")
         elif data_summary:
-            print(f"[SSE]  data: {data_summary}")
+            logger.debug(f"data: {data_summary}")
 
     def _record_chunk(item: Any):
         """记录stream chunk，超过限制后停止记录"""
@@ -576,10 +578,10 @@ async def _do_stream_request(
                 err_body = e.response.text[:500]
             except Exception:
                 pass
-            print(f"[ERR]  upstream stream {e.response.status_code} {url}")
-            print(f"[ERR]  body: {err_body}")
+            logger.error(f"upstream stream {e.response.status_code} {url}")
+            logger.error(f"body: {err_body}")
         else:
-            print(f"[ERR]  upstream stream {type(e).__name__}: {e}")
+            logger.error(f"upstream stream {type(e).__name__}: {e}")
 
         _log_debug(
             channel=channel, upstream_url=url, upstream_data=upstream_data,
