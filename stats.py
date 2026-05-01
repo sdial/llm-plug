@@ -23,13 +23,6 @@ async def init_pool() -> asyncpg.Pool | None:
             return None
         try:
             _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
-            async with _pool.acquire() as conn:
-                await conn.set_type_codec(
-                    'jsonb',
-                    encoder=json.dumps,
-                    decoder=json.loads,
-                    schema='pg_catalog'
-                )
             _db_available = True
         except Exception as exc:
             logger.warning("PostgreSQL 连接失败，统计功能已禁用: %s", exc)
@@ -54,6 +47,13 @@ async def _get_conn():
         yield None
         return
     async with pool.acquire() as conn:
+        # 为每个连接设置 jsonb codec
+        await conn.set_type_codec(
+            'jsonb',
+            encoder=json.dumps,
+            decoder=json.loads,
+            schema='pg_catalog'
+        )
         yield conn
 
 
@@ -145,15 +145,27 @@ async def record_request(
         return
 
     # 过滤请求头（大小写不敏感匹配，保存原始格式）
+    # 确保所有值都是字符串类型
     tracked = {}
     if headers:
         if TRACK_ALL_HEADERS:
-            tracked = dict(headers)
+            for k, v in headers.items():
+                if isinstance(v, str):
+                    tracked[k] = v
+                elif v is None:
+                    tracked[k] = ""
+                else:
+                    tracked[k] = str(v)
         else:
             target_keys = {k.lower() for k in STATS_TRACKED_HEADERS}
             for k, v in headers.items():
                 if k.lower() in target_keys:
-                    tracked[k] = v
+                    if isinstance(v, str):
+                        tracked[k] = v
+                    elif v is None:
+                        tracked[k] = ""
+                    else:
+                        tracked[k] = str(v)
 
     async with _get_conn() as conn:
         if conn is None:

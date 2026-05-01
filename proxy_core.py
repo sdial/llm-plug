@@ -466,7 +466,12 @@ async def _do_stream_request(
                     continue
                 if is_upstream_anthropic and line.startswith("event:"):
                     # 支持 "event:" 和 "event: " 两种格式
-                    upstream_event_type = line[5:].strip() if line.startswith("event: ") else line[5:].strip()
+                    # 注意：某些上游可能返回 "event::type" 格式（双冒号），需要处理
+                    raw_type = line[5:].strip()
+                    # 移除前导冒号（如果有）
+                    if raw_type.startswith(":"):
+                        raw_type = raw_type[1:].strip()
+                    upstream_event_type = raw_type
                     continue
                 # 支持 "data:" 和 "data: " 两种格式
                 if line.startswith("data: "):

@@ -41,7 +41,12 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
             return err_invalid(f"Invalid JSON: {e}")
 
         model = body.get("model", "")
-        is_stream = body.get("stream", False)
+        # 对于 Anthropic API，默认使用流式响应（客户端通常期望流式）
+        # 如果客户端明确设置 stream: false，则使用非流式
+        if api_type == APIType.ANTHROPIC and "stream" not in body:
+            is_stream = True  # Anthropic API 默认流式
+        else:
+            is_stream = body.get("stream", False)
         query_string = str(request.url.query) if request.url.query else None
 
         # 收集需要转发的客户端 Anthropic 请求头
