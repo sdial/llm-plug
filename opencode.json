@@ -3,9 +3,9 @@
   "provider": {
     "Cherry-llm-plug-openai": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Cherry-llm-plug-openai",
+      "name": "llm-plug-openai",
       "options": {
-        "apiKey": "{env:OPENCODE_API_KEY_LLM_PLUG_OPENAI}",
+        "apiKey": "opencode",
         "baseURL": "http://127.0.0.1:55555/v1"
       },
       "models": {
