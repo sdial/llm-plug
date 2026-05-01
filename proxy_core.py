@@ -3,6 +3,7 @@
 """
 import json
 import os
+import threading
 import time
 from datetime import datetime
 from typing import Any
@@ -96,13 +97,14 @@ def _log_debug(
         logger.warning(f"Failed to write debug log: {log_err}")
 
 
-# 按 model 索引的渠道缓存，在 save_data 时自动失效
 _model_channels_cache: dict[str, list[Channel]] | None = None
+_model_channels_lock = threading.Lock()
 
 
 def _invalidate_model_channels_cache() -> None:
     global _model_channels_cache
-    _model_channels_cache = None
+    with _model_channels_lock:
+        _model_channels_cache = None
 
 
 register_save_callback(_invalidate_model_channels_cache)
@@ -110,17 +112,18 @@ register_save_callback(_invalidate_model_channels_cache)
 
 def _get_channels_for_model(model: str) -> list[Channel]:
     global _model_channels_cache
-    if _model_channels_cache is not None:
+    with _model_channels_lock:
+        if _model_channels_cache is not None:
+            return _model_channels_cache.get(model, [])
+        data = load_data()
+        channels = [Channel(**ch) for ch in data.get("channels", [])]
+        _model_channels_cache = {}
+        for ch in channels:
+            if not ch.enabled:
+                continue
+            for m in ch.models:
+                _model_channels_cache.setdefault(m, []).append(ch)
         return _model_channels_cache.get(model, [])
-    data = load_data()
-    channels = [Channel(**ch) for ch in data.get("channels", [])]
-    _model_channels_cache = {}
-    for ch in channels:
-        if not ch.enabled:
-            continue
-        for m in ch.models:
-            _model_channels_cache.setdefault(m, []).append(ch)
-    return _model_channels_cache.get(model, [])
 
 
 CONVERTER_MAP: dict[tuple[str, str], tuple[type, type]] = {
@@ -171,6 +174,19 @@ def _get_upstream_url(channel: Channel) -> str:
     return base
 
 
+_RETRYABLE_EXCEPTIONS = (
+    httpx.HTTPStatusError,
+    httpx.TimeoutException,
+    httpx.ConnectError,
+    httpx.ReadError,
+    httpx.WriteError,
+    httpx.PoolTimeout,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+)
+
+
 async def proxy_request(
     model: str,
     request_data: dict[str, Any],
@@ -201,7 +217,7 @@ async def proxy_request(
 
         try:
             return await _do_request(selected, request_data, target_api_type, is_stream, query_string=query_string, client_headers=client_headers, api_key_id=api_key_id, tracked_headers=tracked_headers), selected
-        except Exception as e:
+        except _RETRYABLE_EXCEPTIONS as e:
             load_balancer.record_failure(selected.id)
             last_error = e
             all_tried.add(selected.id)
@@ -301,10 +317,10 @@ async def _do_request(
             finish_reason=finish_reason,
             api_key_id=api_key_id,
             request_headers=tracked_headers,
-            response_headers=dict(response.headers),
-            request_body=upstream_data,
-            response_body=response_data,
-        )
+                    response_headers=dict(resp.headers),
+                    request_body=upstream_data,
+                    response_body=response_data,
+                )
 
         # 非流式响应摘要日志
         content = response_data.get("content", []) if isinstance(response_data, dict) else []
@@ -507,62 +523,54 @@ async def _do_stream_request(
                 if is_upstream_anthropic and upstream_event_type is not None:
                     chunk["_event_type"] = upstream_event_type
 
-                if response_converter:
-                    converted = response_converter.convert_stream_chunk(chunk, source_type)
-                    if converted is not None:
-                        if output_anthropic_sse:
-                            evt_type = response_converter.get_stream_event_type(chunk, source_type)
-                            if evt_type:
-                                sse = _yield_anthropic_event(evt_type, converted)
-                                _log_stream_event(sse)
-                                yield sse
-                                if first_token_time is None:
-                                    first_token_time = time.time()
-                            else:
-                                sse = f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
-                                _log_stream_event(sse)
-                                yield sse
-                                if first_token_time is None:
-                                    first_token_time = time.time()
-                            extra = response_converter.get_extra_events(converted)
-                            if extra:
-                                sse = _yield_anthropic_events(extra)
-                                for part in sse.split("\n\n"):
-                                    if part.strip():
-                                        _log_stream_event(part + "\n\n")
-                                yield sse
-                                if first_token_time is None:
-                                    first_token_time = time.time()
-                        else:
-                            sse = f"data: {json.dumps(converted, ensure_ascii=False)}\n\n"
-                            _log_stream_event(sse)
-                            yield sse
-                            if first_token_time is None:
-                                first_token_time = time.time()
-                            extra = response_converter.get_extra_events(converted)
-                            if extra:
-                                for extra_evt in extra:
-                                    sse = f"data: {json.dumps(extra_evt, ensure_ascii=False)}\n\n"
-                                    _log_stream_event(sse)
-                                    yield sse
-                                    if first_token_time is None:
-                                        first_token_time = time.time()
-                else:
-                    if output_anthropic_sse and is_upstream_anthropic:
-                        evt = upstream_event_type or "ping"
-                        sse = _yield_anthropic_event(evt, chunk)
-                        _log_stream_event(sse)
-                        yield sse
-                        if first_token_time is None:
-                            first_token_time = time.time()
-                    else:
-                        sse = f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-                        _log_stream_event(sse)
-                        yield sse
-                        if first_token_time is None:
-                            first_token_time = time.time()
+        def _mark_first_token():
+            nonlocal first_token_time
+            if first_token_time is None:
+                first_token_time = time.time()
 
-                if is_upstream_anthropic:
+        def _format_sse(data: dict, event_type: str | None = None) -> str:
+            if event_type:
+                return _yield_anthropic_event(event_type, data)
+            return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        def _yield_extra_events(converted: dict):
+            extra = response_converter.get_extra_events(converted)
+            if not extra:
+                return []
+            results = []
+            if output_anthropic_sse:
+                sse = _yield_anthropic_events(extra)
+                for part in sse.split("\n\n"):
+                    if part.strip():
+                        _log_stream_event(part + "\n\n")
+                results.append(sse)
+            else:
+                for extra_evt in extra:
+                    sse = _format_sse(extra_evt)
+                    _log_stream_event(sse)
+                    results.append(sse)
+            return results
+
+        if response_converter:
+            converted = response_converter.convert_stream_chunk(chunk, source_type)
+            if converted is not None:
+                evt_type = response_converter.get_stream_event_type(chunk, source_type) if output_anthropic_sse else None
+                sse = _format_sse(converted, evt_type)
+                _log_stream_event(sse)
+                yield sse
+                _mark_first_token()
+                for extra_sse in _yield_extra_events(converted):
+                    yield extra_sse
+            else:
+                if output_anthropic_sse and is_upstream_anthropic:
+                    sse = _format_sse(chunk, upstream_event_type or "ping")
+                else:
+                    sse = _format_sse(chunk)
+                _log_stream_event(sse)
+                yield sse
+                _mark_first_token()
+
+        if is_upstream_anthropic:
                     upstream_event_type = None
 
         stream_success = True
