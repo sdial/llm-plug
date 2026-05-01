@@ -4,13 +4,13 @@ services:
     container_name: llm-plug
     restart: unless-stopped
     ports:
-      - "${PORT:-8000}:8000"
+      - "55555:55555"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
     environment:
       - HOST=0.0.0.0
-      - PORT=8000
+      - PORT=55555
       - PROXY_API_KEY=${PROXY_API_KEY:-}
       - MAX_FAIL_COUNT=${MAX_FAIL_COUNT:-5}
       - COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-60}
