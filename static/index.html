@@ -152,7 +152,6 @@
   <div class="flex items-center gap-3 mb-5">
     <h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider">统计范围</h2>
     <select id="statsDays" onchange="loadStats()" class="text-xs border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-      <option value="24h">最近24小时</option>
       <option value="1">今天</option>
       <option value="7" selected>最近7天</option>
       <option value="30">最近30天</option>
@@ -967,9 +966,6 @@ async function loadStats() {
     if (daysVal === '0') {
       params.set('days', '99999');
       document.getElementById('statsDaysLabel').textContent = '全部';
-    } else if (daysVal === '24h') {
-      params.set('days', '1');
-      document.getElementById('statsDaysLabel').textContent = '24小时';
     } else {
       params.set('days', daysVal);
       document.getElementById('statsDaysLabel').textContent = daysVal;
@@ -989,9 +985,7 @@ async function loadStats() {
 function renderStats(data) {
   const overall = data.overall || {};
   const daily = data.daily || [];
-  const hourly = data.hourly || [];
   const daysVal = document.getElementById('statsDays').value;
-  const isHourly = daysVal === '1' || daysVal === '24h';
 
   const total = overall.total_requests || 0;
   const successCount = overall.success_count || 0;
@@ -999,9 +993,8 @@ function renderStats(data) {
   const outputTokens = overall.total_output_tokens || 0;
   const successRate = total > 0 ? ((successCount / total) * 100).toFixed(1) : 0;
 
-  const trendData = isHourly ? hourly : daily;
-  const avgLatency = trendData.length > 0
-    ? Math.round(trendData.reduce((s, d) => s + (d.avg_latency_ms || 0), 0) / trendData.length)
+  const avgLatency = daily.length > 0
+    ? Math.round(daily.reduce((s, d) => s + (d.avg_latency_ms || 0), 0) / daily.length)
     : 0;
 
   document.getElementById('stat_total').textContent = total.toLocaleString();
@@ -1080,43 +1073,24 @@ function renderStats(data) {
   const trendTimeHeader = document.getElementById('trendTimeHeader');
   const dailyTbody = document.getElementById('daily_tbody');
 
-  if (isHourly) {
-    trendTitle.innerHTML = '小时趋势（最近24小时）';
-    trendTimeHeader.textContent = '时间';
-    if (hourly.length === 0) {
-      dailyTbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
-    } else {
-      dailyTbody.innerHTML = hourly.map(h => `
-      <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
-        <td class="py-2.5 px-2 text-sm text-ink-900">${h.hour}</td>
-        <td class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${h.total_requests}</td>
-        <td class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${h.success_count}</td>
-        <td class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${h.fail_count}</td>
-        <td class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${h.avg_latency_ms || 0}ms</td>
-        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(h.total_input_tokens)}</td>
-        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(h.total_output_tokens)}</td>
-      </tr>
-      `).join('');
-    }
+  const daysLabel = document.getElementById('statsDaysLabel').textContent;
+  trendTitle.innerHTML = '每日趋势（最近<span id="statsDaysLabel">' + daysLabel + '</span>天）';
+  trendTimeHeader.textContent = '日期';
+  if (daily.length === 0) {
+    dailyTbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
   } else {
-    const daysLabel = document.getElementById('statsDaysLabel').textContent;
-    trendTitle.innerHTML = '每日趋势（最近<span id="statsDaysLabel">' + daysLabel + '</span>天）';
-    trendTimeHeader.textContent = '日期';
-    if (daily.length === 0) {
-      dailyTbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
-    } else {
-      dailyTbody.innerHTML = daily.map(d => `
-      <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
-        <td class="py-2.5 px-2 text-sm text-ink-900">${d.date}</td>
-        <td class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${d.total_requests}</td>
-        <td class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${d.success_count}</td>
-        <td class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
-        <td class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${d.avg_latency_ms || 0}ms</td>
-        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
-        <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
-      </tr>
-      `).join('');
-    }
+    dailyTbody.innerHTML = daily.map(d => `
+    <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
+      <td class="py-2.5 px-2 text-sm text-ink-900">${d.date}</td>
+      <td class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${d.total_requests}</td>
+      <td class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${d.success_count}</td>
+      <td class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
+      <td class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${d.avg_latency_ms || 0}ms</td>
+      <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
+      <td class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
+    </tr>
+    `).join('');
+  }
   }
 }
 

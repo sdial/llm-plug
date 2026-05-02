@@ -11,13 +11,13 @@ from client import get_upstream_headers, remove_channel_client
 from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from models.model_group import LBConfig, ModelGroup, ModelGroupCreate, ModelGroupUpdate
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from stats import (
     get_daily_stats, get_daily_stats_from_requests,
-    get_overall_stats, get_hourly_stats, get_hourly_stats_from_requests,
-    aggregate_hourly_stats, aggregate_daily_stats, list_requests,
-    refresh_missing_daily_stats, get_request_field, utc8_now, refresh_stats,
+    get_overall_stats, list_requests,
+    aggregate_daily_stats,
+    refresh_missing_daily_stats, get_request_field, refresh_stats,
 )
 from storage import (
     load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache,
@@ -384,56 +384,9 @@ async def get_stats(days: int = Query(default=7, ge=1)):
         daily.append(rec)
     daily.sort(key=lambda r: r["date"])
 
-    # 小时级统计（最近24小时）
-    now = utc8_now()
-    start_hour = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=23)
-    raw_hourly = await get_hourly_stats(start_time=start_hour)
-    if not raw_hourly:
-        raw_hourly = await get_hourly_stats_from_requests(start_time=start_hour)
-    hourly_by_time: dict[str, dict] = {}
-    for row in raw_hourly:
-        h = row["hour"]
-        if isinstance(h, datetime):
-            h_str = h.strftime("%Y-%m-%d %H:00")
-        else:
-            h_str = str(h)[:13] + ":00" if len(str(h)) >= 13 else str(h)
-        if h_str not in hourly_by_time:
-            hourly_by_time[h_str] = {
-                "hour": h_str,
-                "total_requests": 0,
-                "success_count": 0,
-                "fail_count": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_latency_ms": 0,
-                "total_lag_ms": 0,
-                "latency_count": 0,
-            }
-        rec = hourly_by_time[h_str]
-        rec["total_requests"] += row["request_count"] or 0
-        rec["success_count"] += row["success_count"] or 0
-        rec["fail_count"] += row["fail_count"] or 0
-        rec["total_input_tokens"] += row["input_tokens"] or 0
-        rec["total_output_tokens"] += row["output_tokens"] or 0
-        if row.get("avg_latency_ms") is not None:
-            rec["total_latency_ms"] += row["avg_latency_ms"] * (row["request_count"] or 1)
-            rec["latency_count"] += row["request_count"] or 1
-        if row.get("avg_lag_ms") is not None:
-            rec["total_lag_ms"] += row["avg_lag_ms"] * (row["request_count"] or 1)
-    hourly = []
-    for rec in hourly_by_time.values():
-        avg_latency = round(rec.pop("total_latency_ms") / rec["latency_count"]) if rec["latency_count"] else 0
-        avg_lag = round(rec.pop("total_lag_ms") / rec["latency_count"]) if rec["latency_count"] else 0
-        rec.pop("latency_count")
-        rec["avg_latency_ms"] = avg_latency
-        rec["avg_lag_ms"] = avg_lag
-        hourly.append(rec)
-    hourly.sort(key=lambda r: r["hour"])
-
     return {
         "overall": overall,
         "daily": daily,
-        "hourly": hourly,
         "_debug": {
             "server_now": datetime.now().isoformat(),
             "query_days": days,
@@ -457,18 +410,9 @@ async def refresh_daily_stats_endpoint():
 
 @router.post("/stats/refresh")
 async def refresh_stats_endpoint():
-    """补全缺失历史聚合 + 强制刷新近3天日聚合 + 刷新近24小时时聚合"""
+    """补全缺失历史聚合 + 强制刷新近3天日聚合"""
     result = await refresh_stats()
     return result
-
-
-@router.post("/stats/aggregate/hourly")
-async def trigger_hourly_aggregation(
-    start_time: datetime,
-    end_time: datetime,
-):
-    result = await aggregate_hourly_stats(start_time, end_time)
-    return {"message": f"已更新 {result['updated_rows']} 条小时聚合记录", **result}
 
 
 @router.post("/stats/aggregate/daily")

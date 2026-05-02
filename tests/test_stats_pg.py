@@ -35,7 +35,6 @@ async def setup_test_db(monkeypatch):
     pool = await _create_pool()
     async with pool.acquire() as conn:
         await conn.execute("DROP TABLE IF EXISTS requests CASCADE")
-        await conn.execute("DROP TABLE IF EXISTS hourly_stats CASCADE")
         await conn.execute("DROP TABLE IF EXISTS daily_stats CASCADE")
     await pool.close()
     await stats.init_db()
@@ -52,7 +51,6 @@ class TestInitDb:
             )
             names = {r["table_name"] for r in tables}
             assert "requests" in names
-            assert "hourly_stats" in names
             assert "daily_stats" in names
         await pool.close()
 
@@ -96,23 +94,6 @@ class TestRecordRequest:
             assert row["request_headers"]["x-app-name"] == "LowerCaseApp"
         await pool.close()
 
-
-class TestAggregation:
-    async def test_hourly_aggregation(self):
-        now_utc8 = stats.utc8_now()
-        hour_start_utc8 = now_utc8.replace(minute=0, second=0, microsecond=0)
-        hour_start_utc = hour_start_utc8 - timedelta(hours=8)
-        await stats.record_request("ch_1", "Test", "gpt-4", False, 100, 50, 200, True)
-        await stats.record_request("ch_1", "Test", "gpt-4", False, 200, 100, 300, True)
-
-        result = await stats.aggregate_hourly_stats(hour_start_utc, hour_start_utc + timedelta(hours=1))
-        assert result["updated_rows"] >= 1
-
-        stats_result = await stats.get_hourly_stats(start_time=hour_start_utc)
-        assert len(stats_result) >= 1
-        assert stats_result[0]["request_count"] == 2
-        assert stats_result[0]["input_tokens"] == 300
-        assert stats_result[0]["output_tokens"] == 150
 
 
 class TestListRequests:
@@ -399,12 +380,6 @@ class TestRefreshStats:
 
         result = await stats.refresh_stats()
         assert result["recent_refreshed_days"] == 3
-        assert result["hourly_refreshed"] is True
 
         raw_daily = await stats.get_daily_stats(days=7)
         assert len(raw_daily) >= 1
-
-        raw_hourly = await stats.get_hourly_stats(
-            start_time=datetime.utcnow() - timedelta(hours=24)
-        )
-        assert len(raw_hourly) >= 1

@@ -21,7 +21,6 @@ async def setup_test_db(monkeypatch):
     pool = await asyncpg.create_pool(TEST_DB_URL)
     async with pool.acquire() as conn:
         await conn.execute("DROP TABLE IF EXISTS requests CASCADE")
-        await conn.execute("DROP TABLE IF EXISTS hourly_stats CASCADE")
         await conn.execute("DROP TABLE IF EXISTS daily_stats CASCADE")
     await pool.close()
     # Reset stats global state so init_db() runs fresh inside the test loop
