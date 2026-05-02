@@ -38,6 +38,8 @@ def utc8_now() -> datetime:
 | `get_daily_stats_from_requests()` | 同上 | 同上 |
 | `get_hourly_stats_from_requests()` | start_time 由调用方传入 | 调用方（admin.py）改用 utc8_now() 计算 start_hour |
 | `refresh_missing_daily_stats()` | `date.today()` 用 UTC/系统时区 | 改用 `utc8_now().date()` |
+| `aggregate_daily_stats()` | SQL 中 `date_trunc('day', timestamp)` 用 UTC 划日 | 改为 `date_trunc('day', timestamp + interval '8 hours')` |
+| `aggregate_hourly_stats()` | SQL 中 `date_trunc('hour', timestamp)` 用 UTC 划时 | 改为 `date_trunc('hour', timestamp + interval '8 hours')`，保证小时边界对齐东 8 区 |
 | admin.py `get_stats()` | `datetime.now()` 计算 start_hour | 改用 `utc8_now()` |
 
 **SQL 时区偏移模式：**
