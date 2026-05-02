@@ -21,7 +21,7 @@ from stats import (
 )
 from storage import (
     load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache,
-    load_model_groups, add_model_group, update_model_group, delete_model_group,
+    load_model_groups,
     get_lb_config, save_lb_config,
 )
 
@@ -134,14 +134,22 @@ def _save_api_keys(keys: list[ApiKey]):
 
 
 @router.get("/api-keys")
-def list_api_keys():
-    """获取所有 API Key（Key 脱敏）"""
+async def list_api_keys():
+    """获取所有 API Key（Key 脱敏），统计数据从 PG 聚合"""
+    import stats as _stats
+
     keys = _get_api_keys()
+    key_stats = await _stats.get_api_key_stats()
     result = []
     for k in keys:
         d = k.model_dump()
         raw = d.get("key", "")
         d["key"] = raw[:8] + "***" if len(raw) > 8 else "***"
+        lookup = k.name or k.id
+        s = key_stats.get(lookup, {})
+        d["request_count"] = s.get("request_count", 0)
+        d["total_input_tokens"] = s.get("total_input_tokens", 0)
+        d["total_output_tokens"] = s.get("total_output_tokens", 0)
         result.append(d)
     return result
 

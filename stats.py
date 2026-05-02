@@ -592,6 +592,34 @@ async def get_overall_stats(days: int = 7) -> dict[str, Any]:
         }
 
 
+async def get_api_key_stats() -> dict[str, dict[str, int]]:
+    """按 api_key_id 聚合全量统计数据，返回 {api_key_id: {request_count, input_tokens, output_tokens}}"""
+    if not _db_available:
+        return {}
+    async with _get_conn() as conn:
+        if conn is None:
+            return {}
+        rows = await conn.fetch(
+            """
+            SELECT api_key_id,
+                   COUNT(*) as request_count,
+                   COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+                   COALESCE(SUM(output_tokens), 0) as total_output_tokens
+            FROM requests
+            WHERE api_key_id IS NOT NULL AND api_key_id != ''
+            GROUP BY api_key_id
+            """
+        )
+        return {
+            r["api_key_id"]: {
+                "request_count": r["request_count"],
+                "total_input_tokens": r["total_input_tokens"],
+                "total_output_tokens": r["total_output_tokens"],
+            }
+            for r in rows
+        }
+
+
 # 允许的字段映射：URL 路径名 → SQL 列名
 _REQUEST_FIELD_MAP = {
     "request_headers": "request_headers",
