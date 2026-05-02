@@ -105,23 +105,6 @@ async def init_db():
             )
         """)
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS hourly_stats (
-                hour TIMESTAMPTZ NOT NULL,
-                channel_id TEXT NOT NULL,
-                model TEXT NOT NULL,
-                api_key_id TEXT NOT NULL,
-                request_count INT DEFAULT 0,
-                success_count INT DEFAULT 0,
-                fail_count INT DEFAULT 0,
-                input_tokens BIGINT DEFAULT 0,
-                output_tokens BIGINT DEFAULT 0,
-                avg_latency_ms INT,
-                avg_lag_ms INT,
-                updated_at TIMESTAMPTZ DEFAULT now(),
-                PRIMARY KEY (hour, channel_id, model, api_key_id)
-            )
-        """)
-        await conn.execute("""
             CREATE TABLE IF NOT EXISTS daily_stats (
                 date DATE NOT NULL,
                 channel_id TEXT NOT NULL,
@@ -143,7 +126,6 @@ async def init_db():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_channel ON requests(channel_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_model ON requests(model)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_api_key ON requests(api_key_id)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_hourly_stats_time ON hourly_stats(hour)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_stats_time ON daily_stats(date)")
 
         # 表结构迁移：处理旧字段
@@ -239,53 +221,6 @@ async def record_request(
         )
 
 
-async def aggregate_hourly_stats(
-    start_time: datetime,
-    end_time: datetime,
-) -> dict[str, Any]:
-    """手动触发指定时间范围的小时聚合"""
-    if not _db_available:
-        return {"updated_rows": 0}
-    async with _get_conn() as conn:
-        await conn.execute(
-            """
-            INSERT INTO hourly_stats
-            (hour, channel_id, model, api_key_id, request_count, success_count, fail_count,
-             input_tokens, output_tokens, avg_latency_ms, avg_lag_ms, updated_at)
-            SELECT
-date_trunc('hour', timestamp + interval '8 hours') as hour,
-        channel_id,
-                model,
-                COALESCE(api_key_id, '') as api_key_id,
-                COUNT(*) as request_count,
-                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
-                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
-                SUM(input_tokens) as input_tokens,
-                SUM(output_tokens) as output_tokens,
-                AVG(latency_ms)::int as avg_latency_ms,
-                AVG(lag_ms)::int as avg_lag_ms,
-                now()
-            FROM requests
-            WHERE timestamp >= $1 AND timestamp < $2
-            GROUP BY hour, channel_id, model, api_key_id
-            ON CONFLICT (hour, channel_id, model, api_key_id) DO UPDATE SET
-                request_count = EXCLUDED.request_count,
-                success_count = EXCLUDED.success_count,
-                fail_count = EXCLUDED.fail_count,
-                input_tokens = EXCLUDED.input_tokens,
-                output_tokens = EXCLUDED.output_tokens,
-                avg_latency_ms = EXCLUDED.avg_latency_ms,
-                avg_lag_ms = EXCLUDED.avg_lag_ms,
-                updated_at = now()
-            """,
-            start_time, end_time
-        )
-        count = await conn.fetchval(
-            "SELECT COUNT(*) FROM hourly_stats WHERE hour >= $1 AND hour < $2",
-            start_time, end_time
-        )
-        return {"updated_rows": count or 0}
-
 
 async def aggregate_daily_stats(
     start_date: date,
@@ -336,48 +271,6 @@ INSERT INTO daily_stats
         return {"updated_rows": count or 0}
 
 
-async def get_hourly_stats(
-    start_time: datetime | None = None,
-    end_time: datetime | None = None,
-    channel_id: str | None = None,
-    model: str | None = None,
-    api_key_id: str | None = None,
-) -> list[dict[str, Any]]:
-    """查询小时聚合统计"""
-    if not _db_available:
-        return []
-    conditions = ["1=1"]
-    args: list[Any] = []
-    if start_time:
-        args.append(start_time)
-        conditions.append(f"hour >= ${len(args)}")
-    if end_time:
-        args.append(end_time)
-        conditions.append(f"hour < ${len(args)}")
-    if channel_id:
-        args.append(channel_id)
-        conditions.append(f"channel_id = ${len(args)}")
-    if model:
-        args.append(model)
-        conditions.append(f"model = ${len(args)}")
-    if api_key_id:
-        args.append(api_key_id)
-        conditions.append(f"api_key_id = ${len(args)}")
-
-    where_clause = " AND ".join(conditions)
-    async with _get_conn() as conn:
-        rows = await conn.fetch(
-            f"""
-            SELECT hour, channel_id, model, api_key_id, request_count, success_count, fail_count,
-                   input_tokens, output_tokens, avg_latency_ms, avg_lag_ms
-            FROM hourly_stats
-            WHERE {where_clause}
-            ORDER BY hour DESC
-            LIMIT 10000
-            """,
-            *args
-        )
-        return [dict(r) for r in rows]
 
 
 async def get_daily_stats(
@@ -463,58 +356,6 @@ async def get_daily_stats_from_requests(
         )
         return [dict(r) for r in rows]
 
-
-async def get_hourly_stats_from_requests(
-    start_time: datetime | None = None,
-    end_time: datetime | None = None,
-    channel_id: str | None = None,
-    model: str | None = None,
-    api_key_id: str | None = None,
-) -> list[dict[str, Any]]:
-    """从 requests 明细表实时聚合小时统计（hourly_stats 无数据时的兜底）"""
-    if not _db_available:
-        return []
-    conditions = ["1=1"]
-    args: list[Any] = []
-    if start_time:
-        args.append(start_time)
-        conditions.append(f"timestamp >= ${len(args)}")
-    if end_time:
-        args.append(end_time)
-        conditions.append(f"timestamp < ${len(args)}")
-    if channel_id:
-        args.append(channel_id)
-        conditions.append(f"channel_id = ${len(args)}")
-    if model:
-        args.append(model)
-        conditions.append(f"model = ${len(args)}")
-    if api_key_id:
-        args.append(api_key_id)
-        conditions.append(f"api_key_id = ${len(args)}")
-
-    where_clause = " AND ".join(conditions)
-    async with _get_conn() as conn:
-        if conn is None:
-            return []
-        rows = await conn.fetch(
-            f"""
-        SELECT
-        date_trunc('hour', timestamp + interval '8 hours') as hour,
-        COUNT(*) as request_count,
-        SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
-        SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
-        SUM(input_tokens) as input_tokens,
-        SUM(output_tokens) as output_tokens,
-        AVG(latency_ms)::int as avg_latency_ms,
-        AVG(lag_ms)::int as avg_lag_ms
-        FROM requests
-        WHERE {where_clause}
-        GROUP BY date_trunc('hour', timestamp + interval '8 hours')
-            ORDER BY hour ASC
-            """,
-            *args
-        )
-        return [dict(r) for r in rows]
 
 
 async def refresh_missing_daily_stats() -> dict[str, Any]:
@@ -617,9 +458,9 @@ async def refresh_missing_daily_stats() -> dict[str, Any]:
 
 
 async def refresh_stats() -> dict[str, Any]:
-    """统一刷新统计：补全缺失历史日聚合 + 强制刷新近3天日聚合 + 刷新近24小时时聚合"""
+    """统一刷新统计：补全缺失历史日聚合 + 强制刷新近3天日聚合"""
     if not _db_available:
-        return {"backfilled_count": 0, "recent_refreshed_days": 0, "hourly_refreshed": False}
+        return {"backfilled_count": 0, "recent_refreshed_days": 0}
 
     today = utc8_now().date()
     three_days_ago = today - timedelta(days=2)
@@ -628,7 +469,7 @@ async def refresh_stats() -> dict[str, Any]:
     backfilled_count = 0
     async with _get_conn() as conn:
         if conn is None:
-            return {"backfilled_count": 0, "recent_refreshed_days": 0, "hourly_refreshed": False}
+            return {"backfilled_count": 0, "recent_refreshed_days": 0}
 
         request_dates = await conn.fetch(
             """
@@ -667,16 +508,9 @@ async def refresh_stats() -> dict[str, Any]:
     # 步骤2：强制刷新近3天日聚合（含当天）
     await aggregate_daily_stats(three_days_ago, today)
 
-    # 步骤3：强制刷新近24小时时聚合
-    now = utc8_now()
-    hour_end = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-    hour_start = hour_end - timedelta(hours=24)
-    await aggregate_hourly_stats(hour_start, hour_end)
-
     return {
         "backfilled_count": backfilled_count,
         "recent_refreshed_days": 3,
-        "hourly_refreshed": True,
     }
 
 
