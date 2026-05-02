@@ -17,7 +17,7 @@ from stats import (
     get_daily_stats, get_daily_stats_from_requests,
     get_overall_stats, get_hourly_stats, get_hourly_stats_from_requests,
     aggregate_hourly_stats, aggregate_daily_stats, list_requests,
-    refresh_missing_daily_stats, get_request_field,
+    refresh_missing_daily_stats, get_request_field, utc8_now,
 )
 from storage import (
     load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache,
@@ -385,7 +385,7 @@ async def get_stats(days: int = Query(default=7, ge=1)):
     daily.sort(key=lambda r: r["date"])
 
     # 小时级统计（最近24小时）
-    now = datetime.now()
+    now = utc8_now()
     start_hour = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=23)
     raw_hourly = await get_hourly_stats(start_time=start_hour)
     if not raw_hourly:
