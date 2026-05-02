@@ -290,7 +290,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "python-socks", extra = ["asyncio"] },
     { name = "uvicorn" },
-    { name = "uvloop" },
+    { name = "uvloop", marker = "sys_platform != 'win32'" },
 ]
 
 [package.dev-dependencies]
@@ -315,7 +315,6 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-socks", extras = ["asyncio"], specifier = ">=2.8.1" },
     { name = "uvicorn", specifier = ">=0.46.0" },
-    { name = "uvloop", specifier = ">=0.22.1" },
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.21.0" },
 ]
 
