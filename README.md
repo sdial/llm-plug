@@ -162,13 +162,13 @@
 uv sync
 
 # 启动服务
-uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn main:app --host 0.0.0.0 --port 55555 --reload
 
 # 访问管理页面
-# http://localhost:8000/
+# http://localhost:55555/
 
 # API文档（自动生成）
-# http://localhost:8000/docs
+# http://localhost:55555/docs
 ```
 
 ### 环境变量
