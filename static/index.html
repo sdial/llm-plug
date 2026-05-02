@@ -238,36 +238,30 @@
                         <label class="block text-xs text-ink-600 mb-1">模型</label>
                         <input type="text" id="reqFilterModel" placeholder="模型名称" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-32">
                     </div>
-                    <div>
-                        <label class="block text-xs text-ink-600 mb-1">渠道</label>
-                        <select id="reqFilterChannel" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-40">
-                            <option value="">全部渠道</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs text-ink-600 mb-1">开始时间</label>
-                        <input type="datetime-local" id="reqFilterStart" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-ink-600 mb-1">结束时间</label>
-                        <input type="datetime-local" id="reqFilterEnd" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-ink-600 mb-1">状态</label>
-                        <select id="reqFilterSuccess" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-28">
-                            <option value="">全部</option>
-                            <option value="true">成功</option>
-                            <option value="false">失败</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs text-ink-600 mb-1">API Key ID</label>
-                        <input type="text" id="reqFilterApiKeyId" placeholder="API Key ID" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-32">
-                    </div>
-                    <div class="flex items-center gap-2 pb-0.5">
-                        <input type="checkbox" id="reqFilterStream" class="rounded border-surface-200 text-brand-500 focus:ring-brand-500/30">
-                        <label for="reqFilterStream" class="text-sm text-ink-900">仅流式</label>
-                    </div>
+ <div>
+ <label class="block text-xs text-ink-600 mb-1">渠道</label>
+ <select id="reqFilterChannel" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-40">
+ <option value="">全部渠道</option>
+ </select>
+ </div>
+ <div>
+ <label class="block text-xs text-ink-600 mb-1">状态</label>
+ <select id="reqFilterSuccess" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-28">
+ <option value="">全部</option>
+ <option value="true">成功</option>
+ <option value="false">失败</option>
+ </select>
+ </div>
+ <div>
+ <label class="block text-xs text-ink-600 mb-1">开始时间</label>
+ <input type="datetime-local" id="reqFilterStart" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+ </div>
+ <div>
+ <label class="block text-xs text-ink-600 mb-1">结束时间</label>
+ <input type="datetime-local" id="reqFilterEnd" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+ </div>
+ <input type="hidden" id="reqFilterApiKeyId" value="">
+
                     <button onclick="searchRequests()" class="btn-primary text-sm px-3 py-1.5 font-medium">搜索</button>
                     <button onclick="resetRequestFilters()" class="btn-secondary text-sm px-3 py-1.5 font-medium">重置</button>
                 </div>
@@ -572,7 +566,7 @@
             });
             if (tab === 'stats') loadStats();
             if (tab === 'apikeys') loadApiKeys();
-            if (tab === 'requests') loadRequests();
+            if (tab === 'requests') { setDefaultRequestTimeRange(); loadRequests(); }
             if (tab === 'lb') { loadLbConfig(); loadModelGroups(); }
         }
 
@@ -586,12 +580,12 @@
                     const params = new URLSearchParams(queryString);
                     document.getElementById('reqFilterModel').value = params.get('model') || '';
                     pendingChannelRestore = params.get('channel') || '';
-                    document.getElementById('reqFilterStart').value = params.get('start') || '';
-                    document.getElementById('reqFilterEnd').value = params.get('end') || '';
-                    document.getElementById('reqFilterSuccess').value = params.get('success') || '';
-                    document.getElementById('reqFilterApiKeyId').value = params.get('api_key_id') || '';
-                    document.getElementById('reqFilterStream').checked = params.get('is_stream') === 'true';
-                    requestPage = parseInt(params.get('page')) || 1;
+ document.getElementById('reqFilterStart').value = params.get('start') || '';
+ document.getElementById('reqFilterEnd').value = params.get('end') || '';
+ document.getElementById('reqFilterSuccess').value = params.get('success') || '';
+ document.getElementById('reqFilterApiKeyId').value = params.get('api_key_id') || '';
+ if (!params.get('start') && !params.get('end')) setDefaultRequestTimeRange();
+ requestPage = parseInt(params.get('page')) || 1;
                     requestPageSize = parseInt(params.get('page_size')) || 10;
                     document.getElementById('reqPageSize').value = requestPageSize;
                 }
@@ -1152,8 +1146,7 @@ function renderStats(data) {
             if (success) params.set('success', success);
             const apiKeyId = document.getElementById('reqFilterApiKeyId').value.trim();
             if (apiKeyId) params.set('api_key_id', apiKeyId);
-            if (document.getElementById('reqFilterStream').checked) params.set('is_stream', 'true');
-            params.set('page', requestPage);
+  params.set('page', requestPage);
             params.set('page_size', requestPageSize);
             return params;
         }
@@ -1226,24 +1219,33 @@ function renderStats(data) {
             syncRequestHash();
         }
 
-        function searchRequests() {
+        function setDefaultRequestTimeRange() {
+ const fmt = d => {
+ const pad = n => String(n).padStart(2, '0');
+ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+ };
+ const now = new Date();
+ const ago = new Date(now.getTime() - 12 * 3600 * 1000);
+ document.getElementById('reqFilterStart').value = fmt(ago);
+ document.getElementById('reqFilterEnd').value = fmt(now);
+}
+
+function searchRequests() {
             requestPage = 1;
             loadRequests();
             syncRequestHash();
         }
 
-        function resetRequestFilters() {
-            document.getElementById('reqFilterModel').value = '';
-            document.getElementById('reqFilterChannel').value = '';
-            document.getElementById('reqFilterStart').value = '';
-            document.getElementById('reqFilterEnd').value = '';
-            document.getElementById('reqFilterSuccess').value = '';
-            document.getElementById('reqFilterApiKeyId').value = '';
-            document.getElementById('reqFilterStream').checked = false;
-            requestPage = 1;
-            loadRequests();
-            syncRequestHash();
-        }
+function resetRequestFilters() {
+ document.getElementById('reqFilterModel').value = '';
+ document.getElementById('reqFilterChannel').value = '';
+ setDefaultRequestTimeRange();
+ document.getElementById('reqFilterSuccess').value = '';
+ document.getElementById('reqFilterApiKeyId').value = '';
+ requestPage = 1;
+ loadRequests();
+ syncRequestHash();
+}
 
         function syncRequestHash() {
             const params = new URLSearchParams();
@@ -1257,9 +1259,8 @@ function renderStats(data) {
             if (end) params.set('end', end);
             const success = document.getElementById('reqFilterSuccess').value;
             if (success) params.set('success', success);
-            const apiKeyId = document.getElementById('reqFilterApiKeyId').value.trim();
-            if (apiKeyId) params.set('api_key_id', apiKeyId);
-            if (document.getElementById('reqFilterStream').checked) params.set('is_stream', 'true');
+  const apiKeyId = document.getElementById('reqFilterApiKeyId').value.trim();
+  if (apiKeyId) params.set('api_key_id', apiKeyId);
             if (requestPage !== 1) params.set('page', requestPage);
             if (requestPageSize !== 10) params.set('page_size', requestPageSize);
 

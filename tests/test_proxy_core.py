@@ -198,6 +198,54 @@ class TestGetUpstreamUrl:
         )
         assert _get_upstream_url(ch) == "https://api.openai.com/v1/chat/completions"
 
+    def test_full_path_chat_completions(self):
+        """base_url 已包含完整路径时不再拼接"""
+        ch = Channel(
+            id="ch_1",
+            name="Baidu Qianfan",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://qianfan.baidubce.com/v2/coding/chat/completions",
+            api_key="sk-test",
+            models=["ernie-4.0"],
+        )
+        assert _get_upstream_url(ch) == "https://qianfan.baidubce.com/v2/coding/chat/completions"
+
+    def test_full_path_chat_completion_singular(self):
+        """支持 /chat/completion (无 s) 结尾的路径"""
+        ch = Channel(
+            id="ch_1",
+            name="Baidu Qianfan",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://qianfan.baidubce.com/v2/coding/chat/completion",
+            api_key="sk-test",
+            models=["ernie-4.0"],
+        )
+        assert _get_upstream_url(ch) == "https://qianfan.baidubce.com/v2/coding/chat/completion"
+
+    def test_full_path_responses(self):
+        """base_url 已包含 /responses 时不再拼接"""
+        ch = Channel(
+            id="ch_1",
+            name="Custom API",
+            api_type=APIType.OPENAI_RESPONSE,
+            base_url="https://api.example.com/custom/responses",
+            api_key="sk-test",
+            models=["model-1"],
+        )
+        assert _get_upstream_url(ch) == "https://api.example.com/custom/responses"
+
+    def test_full_path_messages(self):
+        """base_url 已包含 /messages 时不再拼接"""
+        ch = Channel(
+            id="ch_1",
+            name="Custom API",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.example.com/custom/messages",
+            api_key="sk-test",
+            models=["claude-3"],
+        )
+        assert _get_upstream_url(ch) == "https://api.example.com/custom/messages"
+
 
 class TestYieldAnthropicEvent:
     def test_single_event(self):

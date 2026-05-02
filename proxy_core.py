@@ -348,11 +348,21 @@ def _get_converter_and_upstream_type(
 def _get_upstream_url(channel: Channel) -> str:
     base = channel.base_url.rstrip("/")
     actual_type = channel.api_type.value
+
+    # 检查 base_url 是否已经包含完整的 API 路径
+    # 如果已包含，则不再拼接
     if actual_type == "openai-chat-completions":
+        # 检查是否已包含 chat/completions 或类似路径
+        if base.endswith("/chat/completions") or base.endswith("/chat/completion"):
+            return base
         return f"{base}/v1/chat/completions"
     elif actual_type == "openai-response":
+        if base.endswith("/responses"):
+            return base
         return f"{base}/v1/responses"
     elif actual_type == "anthropic":
+        if base.endswith("/messages"):
+            return base
         return f"{base}/v1/messages"
     return base
 
@@ -824,15 +834,10 @@ async def _do_stream_request(
                         _mark_first_token()
                         for extra_sse in _yield_extra_events(converted):
                             yield extra_sse
-                    else:
-                        if output_anthropic_sse and is_upstream_anthropic:
-                            sse = _format_sse(chunk, upstream_event_type or "ping")
-                        else:
-                            sse = _format_sse(chunk)
-                        _log_stream_event(sse)
-                        yield sse
-                        _mark_first_token()
+                    # 如果 converted is None，表示该事件应被跳过（如 message_stop）
+                    # 不再转发原始 chunk
                 else:
+                    # 无转换器时才转发原始 chunk
                     if output_anthropic_sse and is_upstream_anthropic:
                         sse = _format_sse(chunk, upstream_event_type or "ping")
                     else:
