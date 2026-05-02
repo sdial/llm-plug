@@ -99,15 +99,16 @@ class TestRecordRequest:
 
 class TestAggregation:
     async def test_hourly_aggregation(self):
-        now = datetime.now()
-        hour_start = now.replace(minute=0, second=0, microsecond=0)
+        now_utc8 = stats.utc8_now()
+        hour_start_utc8 = now_utc8.replace(minute=0, second=0, microsecond=0)
+        hour_start_utc = hour_start_utc8 - timedelta(hours=8)
         await stats.record_request("ch_1", "Test", "gpt-4", False, 100, 50, 200, True)
         await stats.record_request("ch_1", "Test", "gpt-4", False, 200, 100, 300, True)
 
-        result = await stats.aggregate_hourly_stats(hour_start, hour_start + timedelta(hours=1))
+        result = await stats.aggregate_hourly_stats(hour_start_utc, hour_start_utc + timedelta(hours=1))
         assert result["updated_rows"] >= 1
 
-        stats_result = await stats.get_hourly_stats(start_time=hour_start)
+        stats_result = await stats.get_hourly_stats(start_time=hour_start_utc)
         assert len(stats_result) >= 1
         assert stats_result[0]["request_count"] == 2
         assert stats_result[0]["input_tokens"] == 300
