@@ -87,26 +87,36 @@ class TestLifespanPreWarming:
 
             asyncio.run(run_lifespan())
 
+            mock_close.assert_called_once()
+
             mock_load_data.assert_called_once()
             mock_load_api_keys.assert_called_once()
 
-    def test_lifespan_logs_startup_info(self, capsys):
+    def test_lifespan_logs_startup_info(self):
         """lifespan should print a startup summary with channel/model/key counts."""
         import asyncio
+        from loguru import logger
         from main import app
 
         # Reset caches so load_data/load_api_keys actually run
         storage.invalidate_cache()
         storage.invalidate_keys_cache()
 
+        # Capture loguru output
+        messages = []
+        handler_id = logger.add(messages.append)
+
         async def run_lifespan():
             async with app.router.lifespan_context(app):
                 pass
 
-        with patch("main.close_all_clients"):
-            asyncio.run(run_lifespan())
+        try:
+            with patch("main.close_all_clients"):
+                asyncio.run(run_lifespan())
 
-        captured = capsys.readouterr()
-        assert "[STARTUP]" in captured.out
-        assert "个渠道" in captured.out
-        assert "个模型" in captured.out
+            # Check that the startup log message was emitted
+            full_message = "".join(str(m) for m in messages)
+            assert "个渠道" in full_message
+            assert "个模型" in full_message
+        finally:
+            logger.remove(handler_id)

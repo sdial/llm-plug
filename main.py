@@ -10,9 +10,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from starlette.types import ASGIApp, Receive, Scope, Send, Message
 
 from client import close_all_clients
-from config import DEBUG, HOST, PORT, LOG_LEVEL
+from config import DEBUG, HOST, PORT
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
 from stats import init_db as init_stats_db, close_pool as close_stats_pool
 from storage import load_data, load_api_keys
@@ -34,9 +35,6 @@ async def lifespan(app):
         pass  # suppress CancelledError from signal handling on Windows/Python 3.14
     await close_stats_pool()
     await close_all_clients()
-
-
-from starlette.types import ASGIApp, Receive, Scope, Send, Message
 
 _PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")
 
@@ -123,7 +121,7 @@ class CombinedMiddleware:
                 self._log_request(ts_start, method, path, query, model, stream, "", 401, start)
                 return
 
-            scope["state"]["api_key_id"] = matched_key.get("id")
+            scope["state"]["api_key_id"] = matched_key.get("name") or matched_key.get("id")
 
             allowed_models = matched_key.get("allowed_models", [])
             if allowed_models and model and model not in allowed_models:
