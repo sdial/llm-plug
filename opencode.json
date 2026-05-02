@@ -9,8 +9,8 @@
         "baseURL": "http://127.0.0.1:55555/v1"
       },
       "models": {
-        "z-ai/glm-5.1": {
-          "name": "z-ai/glm-5.1",
+        "code-group": {
+          "name": "code-group",
           "reasoning": true
         }
       }
