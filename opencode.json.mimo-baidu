@@ -1,20 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "Cherry-llm-plug-openai": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "llm-plug-openai",
-      "options": {
-        "apiKey": "opencode",
-        "baseURL": "http://127.0.0.1:55555/v1"
-      },
-      "models": {
-        "z-ai/glm-5.1": {
-          "name": "z-ai/glm-5.1",
-          "reasoning": true
-        }
-      }
-    },
     "baiduqianfancodingplan": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "baiduqianfancodingplan",
