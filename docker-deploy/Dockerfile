@@ -18,19 +18,20 @@ COPY --from=builder /app/.venv /app/.venv
 
 ENV PATH="/app/.venv/bin:$PATH" \
     HOST=0.0.0.0 \
-    PORT=8000
+    PORT=55555
 
 COPY . .
 
 RUN mkdir -p data logs
 
-EXPOSE 8000
+EXPOSE 55555
 
 CMD ["uvicorn", "main:app", \
      "--host", "0.0.0.0", \
-     "--port", "8000", \
+     "--port", "55555", \
      "--http", "httptools", \
+     "--workers", "2", \
      "--timeout-keep-alive", "360", \
-     "--log-level", "info", \
+     "--log-level", "debug", \
      "--no-use-colors", \
      "--no-server-header"]
