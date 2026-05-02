@@ -46,6 +46,11 @@ class LoadBalancer:
     def record_failure(self, channel_id: str):
         self._health[channel_id].record_failure()
 
+    def cleanup_removed_channels(self, active_channel_ids: set[str]):
+        for ch_id in list(self._health.keys()):
+            if ch_id not in active_channel_ids:
+                del self._health[ch_id]
+
     async def select_channel(
         self,
         channels: list[Channel],

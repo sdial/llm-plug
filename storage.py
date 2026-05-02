@@ -61,10 +61,16 @@ def load_data() -> dict[str, Any]:
 
 
 def invalidate_cache() -> None:
-    global _cache, _cache_ts
+    global _cache, _cache_ts, _keys_cache, _keys_cache_ts, _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS, _LB_CONFIG_CACHE, _LB_CONFIG_CACHE_TS
     with _lock:
         _cache = None
         _cache_ts = 0
+        _keys_cache = None
+        _keys_cache_ts = 0
+        _MODEL_GROUPS_CACHE = None
+        _MODEL_GROUPS_CACHE_TS = 0
+        _LB_CONFIG_CACHE = None
+        _LB_CONFIG_CACHE_TS = 0
 
 
 def save_data(data: dict[str, Any]) -> None:

@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send, Message
 
-from client import close_all_clients
+from client import close_all_clients, cleanup_stale_clients
 from config import DEBUG, HOST, PORT
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
 from stats import init_db as init_stats_db, close_pool as close_stats_pool
@@ -21,7 +21,6 @@ from storage import load_data, load_api_keys
 
 @asynccontextmanager
 async def lifespan(app):
-    # 启动预热：提前加载数据到缓存，避免首次请求同步读磁盘
     channels_data = load_data()
     keys_data = load_api_keys()
     channel_count = len(channels_data.get("channels", []))
@@ -29,12 +28,28 @@ async def lifespan(app):
     key_count = len(keys_data.get("api_keys", []))
     logger.info(f"就绪: {channel_count} 个渠道, {model_count} 个模型, {key_count} 个 API Key")
     await init_stats_db()
+
+    async def _client_cleanup_loop():
+        while True:
+            await asyncio.sleep(300)
+            try:
+                await cleanup_stale_clients(max_age=600)
+            except Exception as e:
+                logger.warning(f"client cleanup error: {e}")
+
+    cleanup_task = asyncio.create_task(_client_cleanup_loop())
     try:
         yield
     except asyncio.CancelledError:
-        pass  # suppress CancelledError from signal handling on Windows/Python 3.14
-    await close_stats_pool()
-    await close_all_clients()
+        pass
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+        await close_stats_pool()
+        await close_all_clients()
 
 _PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")
 
