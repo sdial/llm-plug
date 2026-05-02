@@ -206,7 +206,8 @@
     <div class="card p-4 mb-6">
       <div class="flex items-center justify-between mb-3">
         <h3 id="trendTitle" class="text-xs font-semibold text-ink-600 uppercase tracking-wider">每日趋势（最近<span id="statsDaysLabel">7</span>天）</h3>
-        <button id="refreshDailyBtn" onclick="refreshDailyStats()" class="pill pill-brand hover:opacity-80 transition cursor-pointer text-xs">刷新统计</button>
+        <button id="refreshDailyBtn" onclick="refreshStats()" class="pill pill-brand hover:opacity-80 transition cursor-pointer text-xs">刷新统计</button>
+        <span id="refreshHint" class="text-xs text-emerald-600 opacity-0 transition-opacity duration-300"></span>
       </div>
       <div id="daily_trend" class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -924,31 +925,35 @@
         }
 
         // ========== 统计功能 ==========
-async function refreshDailyStats() {
+async function refreshStats() {
   const btn = document.getElementById('refreshDailyBtn');
+  const hint = document.getElementById('refreshHint');
   const origText = btn.textContent;
   btn.textContent = '刷新中...';
   btn.disabled = true;
+  hint.textContent = '';
+  hint.classList.add('opacity-0');
+  hint.classList.remove('opacity-100');
   try {
-    const resp = await fetch('/admin/stats/refresh/daily', { method: 'POST' });
-    const result = await resp.json();
-    console.log('[refreshDailyStats] result:', result);
-    let msg = result.message || '刷新完成';
-    if (result.debug) {
-      msg += '\n\n调试信息:';
-      msg += '\n服务器日期: ' + (result.debug.today || 'N/A');
-      msg += '\nrequests表日期: ' + (result.debug.request_dates || []).join(', ');
-      msg += '\n已有聚合日期: ' + (result.debug.existing_dates || []).join(', ');
-      msg += '\n缺失日期: ' + (result.debug.missing_dates || []).join(', ');
-      if (result.debug.request_range) {
-        msg += '\nrequests表范围: ' + result.debug.request_range.min_ts + ' ~ ' + result.debug.request_range.max_ts;
-        msg += '\nrequests表总数: ' + result.debug.request_range.cnt;
-      }
-    }
-    alert(msg);
+    const resp = await fetch('/admin/stats/refresh', { method: 'POST' });
+    if (!resp.ok) throw new Error('请求失败');
+    await resp.json();
+    hint.textContent = '已刷新';
+    hint.classList.remove('opacity-0');
+    hint.classList.add('opacity-100');
+    setTimeout(() => {
+      hint.classList.remove('opacity-100');
+      hint.classList.add('opacity-0');
+    }, 1500);
     loadStats();
   } catch (e) {
-    alert('刷新失败: ' + e.message);
+    hint.textContent = '刷新失败';
+    hint.classList.remove('opacity-0', 'text-emerald-600');
+    hint.classList.add('opacity-100', 'text-rose-600');
+    setTimeout(() => {
+      hint.classList.remove('opacity-100', 'text-rose-600');
+      hint.classList.add('opacity-0', 'text-emerald-600');
+    }, 2000);
   } finally {
     btn.textContent = origText;
     btn.disabled = false;
@@ -1440,23 +1445,45 @@ function renderStats(data) {
 
         function addModelInput(value = '') {
             const container = document.getElementById('modelGroupModelsContainer');
-            const index = container.children.length;
             const div = document.createElement('div');
             div.className = 'flex items-center gap-2';
             div.innerHTML = `
-                <span class="text-ink-400 text-sm w-6">${index + 1}.</span>
+                <span class="model-idx text-ink-400 text-sm w-6"></span>
                 <input type="text" value="${esc(value)}" placeholder="模型名称" class="model-input flex-1 text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-                <button type="button" onclick="removeModelInput(this)" class="text-ink-400 hover:text-rose-600 text-sm ${index === 0 ? 'invisible' : ''}">×</button>
+                <button type="button" onclick="moveModelInput(this, -1)" title="上移" class="model-up text-ink-400 hover:text-brand-600 text-sm w-5">↑</button>
+                <button type="button" onclick="moveModelInput(this, 1)" title="下移" class="model-down text-ink-400 hover:text-brand-600 text-sm w-5">↓</button>
+                <button type="button" onclick="removeModelInput(this)" class="model-del text-ink-400 hover:text-rose-600 text-sm w-5">×</button>
             `;
             container.appendChild(div);
+            refreshModelInputs();
         }
 
         function removeModelInput(btn) {
             const container = document.getElementById('modelGroupModelsContainer');
             if (container.children.length > 1) {
                 btn.parentElement.remove();
-                // 重新编号
-                container.querySelectorAll('span').forEach((s, i) => s.textContent = (i + 1) + '.');
+                refreshModelInputs();
+            }
+        }
+
+        function moveModelInput(btn, dir) {
+            const row = btn.parentElement;
+            const sibling = dir < 0 ? row.previousElementSibling : row.nextElementSibling;
+            if (!sibling) return;
+            if (dir < 0) row.parentElement.insertBefore(row, sibling);
+            else row.parentElement.insertBefore(sibling, row);
+            refreshModelInputs();
+        }
+
+        function refreshModelInputs() {
+            const rows = document.getElementById('modelGroupModelsContainer').children;
+            const total = rows.length;
+            for (let i = 0; i < total; i++) {
+                const row = rows[i];
+                row.querySelector('.model-idx').textContent = (i + 1) + '.';
+                row.querySelector('.model-up').classList.toggle('invisible', i === 0);
+                row.querySelector('.model-down').classList.toggle('invisible', i === total - 1);
+                row.querySelector('.model-del').classList.toggle('invisible', total === 1);
             }
         }
 
