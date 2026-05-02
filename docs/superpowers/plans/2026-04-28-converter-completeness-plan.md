@@ -1,6 +1,6 @@
 # Converter 完整性审计与修复实现计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
+> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [x]`）语法来跟踪进度。
 
 **目标：** 补全 proxy_core 路由、修复字段映射和流式转换缺陷、建立字段级对照表驱动的测试套件。
 
@@ -33,7 +33,7 @@
 - 修改：`proxy_core.py:101-139`
 - 测试：`tests/converters/test_converter_matrix.py`（新增路由测试）
 
-- [ ] **步骤 1：编写路由测试**
+- [x] **步骤 1：编写路由测试**
 
 在 `tests/converters/test_converter_matrix.py` 末尾添加：
 
@@ -70,12 +70,12 @@ class TestConverterRouting:
         assert src == "openai-chat-completions"
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`uv run pytest tests/converters/test_converter_matrix.py::TestConverterRouting -v`
 预期：FAIL，`CONVERTER_MAP` 未定义
 
-- [ ] **步骤 3：实现查表逻辑**
+- [x] **步骤 3：实现查表逻辑**
 
 修改 `proxy_core.py:101-139`，替换为：
 
@@ -115,12 +115,12 @@ def _get_converter_and_upstream_type(
     return req_cls(), resp_cls(), source
 ```
 
-- [ ] **步骤 4：运行测试确认通过**
+- [x] **步骤 4：运行测试确认通过**
 
 运行：`uv run pytest tests/converters/test_converter_matrix.py::TestConverterRouting -v`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add proxy_core.py tests/converters/test_converter_matrix.py
@@ -137,7 +137,7 @@ git commit -m "feat: replace hardcoded converter routing with lookup table"
 - 修改：`converters/to_anthropic.py:80-86, 141-142`
 - 测试：`tests/converters/test_chat_to_anthropic.py`
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 创建 `tests/converters/test_chat_to_anthropic.py`：
 
@@ -169,12 +169,12 @@ class TestChatToAnthropic:
         assert result["system"][1]["text"] == "Always be concise"
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`uv run pytest tests/converters/test_chat_to_anthropic.py::TestChatToAnthropic::test_multiple_system_messages -v`
 预期：FAIL，`system` 是字符串而非数组
 
-- [ ] **步骤 3：修复 system 消息处理**
+- [x] **步骤 3：修复 system 消息处理**
 
 修改 `converters/to_anthropic.py:80-86`：
 
@@ -197,12 +197,12 @@ class TestChatToAnthropic:
                             system.append({"type": "text", "text": item})
 ```
 
-- [ ] **步骤 4：运行测试确认通过**
+- [x] **步骤 4：运行测试确认通过**
 
 运行：`uv run pytest tests/converters/test_chat_to_anthropic.py::TestChatToAnthropic::test_multiple_system_messages -v`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add converters/to_anthropic.py tests/converters/test_chat_to_anthropic.py
@@ -215,7 +215,7 @@ git commit -m "fix: merge multiple system messages into Anthropic system array"
 - 修改：`converters/to_chat.py:130-131`
 - 测试：`tests/converters/test_anthropic_to_chat.py`
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 创建 `tests/converters/test_anthropic_to_chat.py`：
 
@@ -253,12 +253,12 @@ class TestAnthropicToChat:
         assert result["reasoning_effort"] == "medium"
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`uv run pytest tests/converters/test_anthropic_to_chat.py -v`
 预期：FAIL，`reasoning_effort` 不存在
 
-- [ ] **步骤 3：修复 thinking 映射**
+- [x] **步骤 3：修复 thinking 映射**
 
 修改 `converters/to_chat.py:130-131`，将注释掉的代码替换为：
 
@@ -274,12 +274,12 @@ class TestAnthropicToChat:
                     result["reasoning_effort"] = "medium"
 ```
 
-- [ ] **步骤 4：运行测试确认通过**
+- [x] **步骤 4：运行测试确认通过**
 
 运行：`uv run pytest tests/converters/test_anthropic_to_chat.py -v`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add converters/to_chat.py tests/converters/test_anthropic_to_chat.py
@@ -292,7 +292,7 @@ git commit -m "fix: map Anthropic thinking to OpenAI reasoning_effort"
 - 修改：`converters/to_chat.py:121-127`、`converters/to_anthropic.py:151-163`
 - 测试：`tests/converters/test_anthropic_to_chat.py`、`tests/converters/test_chat_to_anthropic.py`
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在 `tests/converters/test_anthropic_to_chat.py` 添加：
 
@@ -332,12 +332,12 @@ git commit -m "fix: map Anthropic thinking to OpenAI reasoning_effort"
         assert result["tool_choice"]["type"] == "any"
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`uv run pytest tests/converters/test_anthropic_to_chat.py tests/converters/test_chat_to_anthropic.py -v`
 预期：FAIL，`none` 未处理，`required` 未处理
 
-- [ ] **步骤 3：修复 tool_choice 映射**
+- [x] **步骤 3：修复 tool_choice 映射**
 
 修改 `converters/to_chat.py:121-127`：
 
@@ -375,12 +375,12 @@ git commit -m "fix: map Anthropic thinking to OpenAI reasoning_effort"
                 result["tool_choice"] = {"type": "none"}
 ```
 
-- [ ] **步骤 4：运行测试确认通过**
+- [x] **步骤 4：运行测试确认通过**
 
 运行：`uv run pytest tests/converters/test_anthropic_to_chat.py tests/converters/test_chat_to_anthropic.py -v`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add converters/to_chat.py converters/to_anthropic.py tests/converters/
@@ -397,7 +397,7 @@ git commit -m "fix: complete tool_choice mapping for all directions"
 - 修改：`converters/to_anthropic.py:390-421`
 - 测试：`tests/converters/test_stream_sequences.py`
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 创建 `tests/converters/test_stream_sequences.py`：
 
@@ -437,12 +437,12 @@ class TestChatToAnthropicStream:
         assert "signature_delta" in [d.get("delta", {}).get("type") for _, d in outputs]
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`uv run pytest tests/converters/test_stream_sequences.py::TestChatToAnthropicStream::test_thinking_stream_with_signature_delta -v`
 预期：FAIL，无 `signature_delta`
 
-- [ ] **步骤 3：修复 signature_delta**
+- [x] **步骤 3：修复 signature_delta**
 
 修改 `converters/to_anthropic.py:390-421`，在 `finish_reason is not None` 分支中，关闭 thinking content_block 前插入 signature_delta：
 
@@ -465,12 +465,12 @@ class TestChatToAnthropicStream:
                 self._stream_state["content_block_started"] = False
 ```
 
-- [ ] **步骤 4：运行测试确认通过**
+- [x] **步骤 4：运行测试确认通过**
 
 运行：`uv run pytest tests/converters/test_stream_sequences.py::TestChatToAnthropicStream::test_thinking_stream_with_signature_delta -v`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add converters/to_anthropic.py tests/converters/test_stream_sequences.py
@@ -483,7 +483,7 @@ git commit -m "fix: add signature_delta before closing thinking content block"
 - 修改：`converters/to_anthropic.py:30-54`
 - 测试：`tests/converters/test_stream_sequences.py`
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在 `tests/converters/test_stream_sequences.py` 添加：
 
@@ -501,12 +501,12 @@ git commit -m "fix: add signature_delta before closing thinking content block"
         assert msg_start["message"]["usage"]["input_tokens"] == 42
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`uv run pytest tests/converters/test_stream_sequences.py::TestChatToAnthropicStream::test_message_start_with_usage -v`
 预期：FAIL，`input_tokens` 为 0
 
-- [ ] **步骤 3：修复 message_start usage**
+- [x] **步骤 3：修复 message_start usage**
 
 修改 `converters/to_anthropic.py:30-54` 的 `_ensure_message_started`：
 
@@ -541,12 +541,12 @@ git commit -m "fix: add signature_delta before closing thinking content block"
             ))
 ```
 
-- [ ] **步骤 4：运行测试确认通过**
+- [x] **步骤 4：运行测试确认通过**
 
 运行：`uv run pytest tests/converters/test_stream_sequences.py::TestChatToAnthropicStream::test_message_start_with_usage -v`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add converters/to_anthropic.py tests/converters/test_stream_sequences.py
@@ -559,7 +559,7 @@ git commit -m "fix: populate input_tokens in message_start from chunk usage"
 - 修改：`converters/to_response.py:314-404`
 - 测试：`tests/converters/test_stream_sequences.py`
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在 `tests/converters/test_stream_sequences.py` 添加：
 
@@ -588,12 +588,12 @@ class TestChatToResponseStream:
         assert added_events[1]["output_index"] == 1
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`uv run pytest tests/converters/test_stream_sequences.py::TestChatToResponseStream::test_multiple_tool_calls_output_index -v`
 预期：FAIL，两个 `output_index` 都是 0
 
-- [ ] **步骤 3：修复 output_index**
+- [x] **步骤 3：修复 output_index**
 
 修改 `converters/to_response.py:18-24` 的 `_reset_stream_state`：
 
@@ -649,12 +649,12 @@ class TestChatToResponseStream:
                 }
 ```
 
-- [ ] **步骤 4：运行测试确认通过**
+- [x] **步骤 4：运行测试确认通过**
 
 运行：`uv run pytest tests/converters/test_stream_sequences.py::TestChatToResponseStream::test_multiple_tool_calls_output_index -v`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add converters/to_response.py tests/converters/test_stream_sequences.py
@@ -671,7 +671,7 @@ git commit -m "fix: use incremental output_index for multiple tool_calls in stre
 - 修改：`converters/to_anthropic.py:100-105, 210-215, 446-451, 516-521`
 - 测试：`tests/converters/test_chat_to_anthropic.py`
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在 `tests/converters/test_chat_to_anthropic.py` 添加：
 
@@ -695,12 +695,12 @@ git commit -m "fix: use incremental output_index for multiple tool_calls in stre
         assert assistant_msg["content"][0]["input"] == {}
 ```
 
-- [ ] **步骤 2：运行测试确认通过**
+- [x] **步骤 2：运行测试确认通过**
 
 运行：`uv run pytest tests/converters/test_chat_to_anthropic.py::TestChatToAnthropic::test_invalid_json_arguments_fallback -v`
 预期：PASS（当前行为已经是回退为 {}，只是静默）
 
-- [ ] **步骤 3：添加 debug 日志**
+- [x] **步骤 3：添加 debug 日志**
 
 修改 `converters/to_anthropic.py` 中 4 处 JSON 解析：
 
@@ -717,12 +717,12 @@ logger = logging.getLogger(__name__)
                         args = {}
 ```
 
-- [ ] **步骤 4：运行测试确认通过**
+- [x] **步骤 4：运行测试确认通过**
 
 运行：`uv run pytest tests/converters/test_chat_to_anthropic.py::TestChatToAnthropic::test_invalid_json_arguments_fallback -v`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add converters/to_anthropic.py tests/converters/test_chat_to_anthropic.py
@@ -735,7 +735,7 @@ git commit -m "fix: add debug logging for JSON decode errors instead of silent f
 - 修改：`converters/to_anthropic.py:63-74`
 - 测试：`tests/converters/test_chat_to_anthropic.py`
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在 `tests/converters/test_chat_to_anthropic.py` 添加：
 
@@ -756,12 +756,12 @@ git commit -m "fix: add debug logging for JSON decode errors instead of silent f
             self.converter.convert_request(request, APIType.OPENAI_CHAT)
 ```
 
-- [ ] **步骤 2：运行测试确认失败**
+- [x] **步骤 2：运行测试确认失败**
 
 运行：`uv run pytest tests/converters/test_chat_to_anthropic.py::TestChatToAnthropic::test_non_data_image_url_raises -v`
 预期：FAIL，未报错
 
-- [ ] **步骤 3：修复 image_url 校验**
+- [x] **步骤 3：修复 image_url 校验**
 
 修改 `converters/to_anthropic.py:63-74`：
 
@@ -783,12 +783,12 @@ git commit -m "fix: add debug logging for JSON decode errors instead of silent f
                             )
 ```
 
-- [ ] **步骤 4：运行测试确认通过**
+- [x] **步骤 4：运行测试确认通过**
 
 运行：`uv run pytest tests/converters/test_chat_to_anthropic.py::TestChatToAnthropic::test_non_data_image_url_raises -v`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add converters/to_anthropic.py tests/converters/test_chat_to_anthropic.py
@@ -804,7 +804,7 @@ git commit -m "fix: reject non-data URI image URLs for Anthropic with clear erro
 **文件：**
 - 测试：`tests/converters/test_anthropic_to_chat.py`
 
-- [ ] **步骤 1：编写响应转换测试**
+- [x] **步骤 1：编写响应转换测试**
 
 在 `tests/converters/test_anthropic_to_chat.py` 添加：
 
@@ -848,12 +848,12 @@ git commit -m "fix: reject non-data URI image URLs for Anthropic with clear erro
         assert json.loads(tool_calls[0]["function"]["arguments"]) == {"q": "test"}
 ```
 
-- [ ] **步骤 2：运行测试**
+- [x] **步骤 2：运行测试**
 
 运行：`uv run pytest tests/converters/test_anthropic_to_chat.py -v`
 预期：PASS
 
-- [ ] **步骤 3：Commit**
+- [x] **步骤 3：Commit**
 
 ```bash
 git add tests/converters/test_anthropic_to_chat.py
@@ -865,7 +865,7 @@ git commit -m "test: add Anthropic->Chat response conversion tests for thinking 
 **文件：**
 - 测试：`tests/converters/test_stream_sequences.py`
 
-- [ ] **步骤 1：编写完整流式测试**
+- [x] **步骤 1：编写完整流式测试**
 
 在 `tests/converters/test_stream_sequences.py` 添加：
 
@@ -918,12 +918,12 @@ class TestAnthropicToChatStream:
         assert outputs[-1]["choices"][0]["finish_reason"] == "tool_calls"
 ```
 
-- [ ] **步骤 2：运行测试**
+- [x] **步骤 2：运行测试**
 
 运行：`uv run pytest tests/converters/test_stream_sequences.py -v`
 预期：PASS
 
-- [ ] **步骤 3：Commit**
+- [x] **步骤 3：Commit**
 
 ```bash
 git add tests/converters/test_stream_sequences.py
@@ -934,21 +934,21 @@ git commit -m "test: add Anthropic->Chat stream sequence tests"
 
 ## 最终验证
 
-- [ ] **步骤 1：运行全部测试**
+- [x] **步骤 1：运行全部测试**
 
 ```bash
 uv run pytest tests/converters/ -v
 ```
 预期：所有测试通过
 
-- [ ] **步骤 2：运行 lint**
+- [x] **步骤 2：运行 lint**
 
 ```bash
 uv run ruff check .
 ```
 预期：无错误
 
-- [ ] **步骤 3：Commit**
+- [x] **步骤 3：Commit**
 
 ```bash
 git add .

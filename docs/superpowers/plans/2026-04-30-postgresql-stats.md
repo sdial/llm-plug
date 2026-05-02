@@ -1,6 +1,6 @@
 # PostgreSQL 统计模块重构实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 将现有 SQLite 统计模块迁移到 PostgreSQL，支持更细粒度的请求追踪和物化聚合表。
 
@@ -29,7 +29,7 @@
 - Modify: `config.py`
 - Modify: `pyproject.toml`
 
-- [ ] **Step 1: 在 config.py 中添加 PostgreSQL 配置**
+- [x] **Step 1: 在 config.py 中添加 PostgreSQL 配置**
 
 ```python
 import os
@@ -44,7 +44,7 @@ STATS_TRACKED_HEADERS = os.getenv(
 ).split(",")
 ```
 
-- [ ] **Step 2: 在 pyproject.toml 中添加依赖**
+- [x] **Step 2: 在 pyproject.toml 中添加依赖**
 
 ```toml
 [project.dependencies]
@@ -53,12 +53,12 @@ asyncpg = "^0.29"
 psycopg2-binary = "^2.9"
 ```
 
-- [ ] **Step 3: 安装依赖**
+- [x] **Step 3: 安装依赖**
 
 Run: `uv pip install asyncpg psycopg2-binary`
 Expected: 成功安装
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add config.py pyproject.toml
@@ -72,7 +72,7 @@ git commit -m "config: add PostgreSQL and stats tracking configuration"
 **Files:**
 - Create: `stats_pg.py`
 
-- [ ] **Step 1: 编写数据库连接池和初始化**
+- [x] **Step 1: 编写数据库连接池和初始化**
 
 ```python
 """PostgreSQL 统计模块 - 使用 asyncpg 存储请求统计"""
@@ -178,7 +178,7 @@ async def init_db():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_stats_time ON daily_stats(date)")
 ```
 
-- [ ] **Step 2: 编写 record_request 函数**
+- [x] **Step 2: 编写 record_request 函数**
 
 ```python
 async def record_request(
@@ -219,7 +219,7 @@ async def record_request(
         )
 ```
 
-- [ ] **Step 3: 编写聚合触发函数**
+- [x] **Step 3: 编写聚合触发函数**
 
 ```python
 async def aggregate_hourly_stats(
@@ -316,7 +316,7 @@ async def aggregate_daily_stats(
         return {"updated_rows": count or 0}
 ```
 
-- [ ] **Step 4: 编写查询接口**
+- [x] **Step 4: 编写查询接口**
 
 ```python
 async def get_hourly_stats(
@@ -486,7 +486,7 @@ async def cleanup_old_data(keep_days: int) -> int:
         return deleted or 0
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add stats_pg.py
@@ -500,7 +500,7 @@ git commit -m "feat: create PostgreSQL stats module with requests, aggregation, 
 **Files:**
 - Modify: `proxy_core.py`
 
-- [ ] **Step 1: 修改非流式请求处理，提取 finish_reason**
+- [x] **Step 1: 修改非流式请求处理，提取 finish_reason**
 
 在 `proxy_core.py` 的非流式请求成功处理部分（约第 260 行附近），找到 `record_request` 调用处：
 
@@ -532,7 +532,7 @@ stats.record_request(
 
 注意：由于 stats 现在改为异步，调用方式需要改为 `await stats_pg.record_request(...)`。这一步在 Task 5 中统一处理。
 
-- [ ] **Step 2: 修改流式请求处理，提取 finish_reason 和 lag_ms**
+- [x] **Step 2: 修改流式请求处理，提取 finish_reason 和 lag_ms**
 
 在 `_do_stream_request` 函数中：
 
@@ -552,7 +552,7 @@ finish_reason = None
 # Anthropic: message_stop event has stop_reason
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add proxy_core.py
@@ -566,7 +566,7 @@ git commit -m "feat: extract finish_reason and lag_ms in proxy_core"
 **Files:**
 - Modify: `main.py`
 
-- [ ] **Step 1: 在 middleware 中提取请求头并传递**
+- [x] **Step 1: 在 middleware 中提取请求头并传递**
 
 在 `main.py` 的 middleware 中（约第 112 行附近 `request.state.api_key_id = matched_key.get("id")` 之后）：
 
@@ -578,7 +578,7 @@ request.state.tracked_headers = {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add main.py
@@ -594,7 +594,7 @@ git commit -m "feat: extract tracked headers in middleware"
 - Modify: `routers/admin.py`
 - Modify: `main.py` ( Lifespan 中初始化 )
 
-- [ ] **Step 1: 在 main.py lifespan 中初始化 PostgreSQL 连接池**
+- [x] **Step 1: 在 main.py lifespan 中初始化 PostgreSQL 连接池**
 
 ```python
 from contextlib import asynccontextmanager
@@ -609,7 +609,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 ```
 
-- [ ] **Step 2: 修改 proxy_core.py 中的导入和调用**
+- [x] **Step 2: 修改 proxy_core.py 中的导入和调用**
 
 ```python
 # 替换:
@@ -643,7 +643,7 @@ await stats_pg.record_request(
 )
 ```
 
-- [ ] **Step 3: 修改 routers/admin.py**
+- [x] **Step 3: 修改 routers/admin.py**
 
 ```python
 # 替换导入:
@@ -682,7 +682,7 @@ async def trigger_daily_aggregation(
     return {"message": f"已更新 {result['updated_rows']} 条日聚合记录", **result}
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add proxy_core.py routers/admin.py main.py
@@ -696,7 +696,7 @@ git commit -m "feat: integrate stats_pg module and add aggregation endpoints"
 **Files:**
 - Create: `tests/test_stats_pg.py`
 
-- [ ] **Step 1: 编写测试基类和 fixtures**
+- [x] **Step 1: 编写测试基类和 fixtures**
 
 ```python
 import os
@@ -779,12 +779,12 @@ class TestAggregation:
         assert stats_result[0]["request_count"] == 1
 ```
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 Run: `pytest tests/test_stats_pg.py -v`
 Expected: 所有测试通过
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/test_stats_pg.py

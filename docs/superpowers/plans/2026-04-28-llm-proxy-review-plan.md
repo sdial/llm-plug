@@ -1,6 +1,6 @@
 # LLM-API 转换器 Code Review 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 验证 Claude Code 和 OpenCode 在现有架构下的兼容性，修复代码问题，提升代码质量
 
@@ -27,14 +27,14 @@
 - Create: `tests/fixtures/openai_response_request.json`
 - Create: `tests/fixtures/mock_channels.json`
 
-- [ ] **Step 1: 创建测试目录**
+- [x] **Step 1: 创建测试目录**
 
 ```bash
 mkdir -p tests/fixtures tests/converters tests/balancer tests/streaming
 touch tests/__init__.py tests/fixtures/__init__.py
 ```
 
-- [ ] **Step 2: 创建 conftest.py**
+- [x] **Step 2: 创建 conftest.py**
 
 ```python
 # tests/conftest.py
@@ -72,7 +72,7 @@ def event_loop():
     loop.close()
 ```
 
-- [ ] **Step 3: 创建 anthropic_request.json**
+- [x] **Step 3: 创建 anthropic_request.json**
 
 ```json
 {
@@ -88,7 +88,7 @@ def event_loop():
 }
 ```
 
-- [ ] **Step 4: 创建 openai_chat_request.json**
+- [x] **Step 4: 创建 openai_chat_request.json**
 
 ```json
 {
@@ -100,7 +100,7 @@ def event_loop():
 }
 ```
 
-- [ ] **Step 5: 创建 openai_response_request.json**
+- [x] **Step 5: 创建 openai_response_request.json**
 
 ```json
 {
@@ -110,7 +110,7 @@ def event_loop():
 }
 ```
 
-- [ ] **Step 6: 创建 mock_channels.json**
+- [x] **Step 6: 创建 mock_channels.json**
 
 ```json
 {
@@ -145,20 +145,20 @@ def event_loop():
 }
 ```
 
-- [ ] **Step 7: 更新 pyproject.toml 添加测试依赖**
+- [x] **Step 7: 更新 pyproject.toml 添加测试依赖**
 
 在 `[project.optional-dependencies]` 下添加:
 ```toml
 test = ["pytest>=7.0", "pytest-asyncio>=0.21", "httpx>=0.24"]
 ```
 
-- [ ] **Step 8: 安装测试依赖**
+- [x] **Step 8: 安装测试依赖**
 
 ```bash
 uv sync --group test
 ```
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add tests/ pyproject.toml
@@ -172,7 +172,7 @@ git commit -m "feat: add test infrastructure and fixtures"
 **Files:**
 - Create: `tests/mock_server.py`
 
-- [ ] **Step 1: 创建 mock_server.py**
+- [x] **Step 1: 创建 mock_server.py**
 
 ```python
 # tests/mock_server.py
@@ -270,7 +270,7 @@ if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=9999)
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add tests/mock_server.py
@@ -286,13 +286,13 @@ git commit -m "feat: add mock upstream API server for testing"
 **Files:**
 - Modify: `balancer/load_balancer.py:82-96`
 
-- [ ] **Step 1: 读取当前代码**
+- [x] **Step 1: 读取当前代码**
 
 ```bash
 cat -n balancer/load_balancer.py | head -100
 ```
 
-- [ ] **Step 2: 修复 _weighted_round_robin 方法**
+- [x] **Step 2: 修复 _weighted_round_robin 方法**
 
 找到当前的 `_weighted_round_robin` 方法（约82-96行），将：
 
@@ -340,7 +340,7 @@ def _weighted_round_robin(self, channels: list[Channel]) -> Channel:
     return best
 ```
 
-- [ ] **Step 3: 编写测试验证修复**
+- [x] **Step 3: 编写测试验证修复**
 
 Create: `tests/balancer/test_load_balancer.py`
 
@@ -407,13 +407,13 @@ def test_weighted_round_robin_balanced():
         f"Expected balanced, got ch1={selections['ch1']}, ch2={selections['ch2']}"
 ```
 
-- [ ] **Step 4: 运行测试验证**
+- [x] **Step 4: 运行测试验证**
 
 ```bash
 uv run pytest tests/balancer/test_load_balancer.py -v
 ```
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add balancer/load_balancer.py tests/balancer/test_load_balancer.py
@@ -427,13 +427,13 @@ git commit -m "fix: correct weighted round robin algorithm - decrement all chann
 **Files:**
 - Modify: `proxy_core.py` (约244行 stream_chunks)
 
-- [ ] **Step 1: 读取当前代码**
+- [x] **Step 1: 读取当前代码**
 
 ```bash
 cat -n proxy_core.py | sed -n '230,260p'
 ```
 
-- [ ] **Step 2: 添加最大chunk限制**
+- [x] **Step 2: 添加最大chunk限制**
 
 找到 `stream_chunks: list[Any] = []` 定义，将其改为带限制的列表：
 
@@ -455,7 +455,7 @@ if stream_chunk_count >= MAX_STREAM_CHUNKS:
     break
 ```
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add proxy_core.py
@@ -469,13 +469,13 @@ git commit -m "fix: add stream chunk limit to prevent memory exhaustion"
 **Files:**
 - Modify: `routers/proxy_base.py`
 
-- [ ] **Step 1: 读取当前代码**
+- [x] **Step 1: 读取当前代码**
 
 ```bash
 cat -n routers/proxy_base.py
 ```
 
-- [ ] **Step 2: 修改 proxy_handler 函数**
+- [x] **Step 2: 修改 proxy_handler 函数**
 
 找到当前的 `request.json()` 调用，添加错误处理：
 
@@ -499,7 +499,7 @@ except json.JSONDecodeError as e:
 import json
 ```
 
-- [ ] **Step 3: 编写测试**
+- [x] **Step 3: 编写测试**
 
 Create: `tests/routers/test_proxy_base.py`
 
@@ -522,13 +522,13 @@ def test_invalid_json_request():
     assert "invalid_request_error" in response.text
 ```
 
-- [ ] **Step 4: 运行测试验证**
+- [x] **Step 4: 运行测试验证**
 
 ```bash
 uv run pytest tests/routers/test_proxy_base.py -v
 ```
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add routers/proxy_base.py tests/routers/test_proxy_base.py
@@ -544,7 +544,7 @@ git commit -m "fix: add JSON parse error handling in proxy endpoints"
 **Files:**
 - Create: `tests/converters/test_converter_matrix.py`
 
-- [ ] **Step 1: 创建转换矩阵测试**
+- [x] **Step 1: 创建转换矩阵测试**
 
 ```python
 # tests/converters/test_converter_matrix.py
@@ -624,13 +624,13 @@ class TestConverterMatrix:
         assert "tools" in result or "tool_choice" in result
 ```
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 ```bash
 uv run pytest tests/converters/test_converter_matrix.py -v
 ```
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add tests/converters/test_converter_matrix.py
@@ -644,7 +644,7 @@ git commit -m "test: add converter matrix tests"
 **Files:**
 - Create: `tests/test_integration.py`
 
-- [ ] **Step 1: 创建集成测试**
+- [x] **Step 1: 创建集成测试**
 
 ```python
 # tests/test_integration.py
@@ -693,7 +693,7 @@ async def test_opencode_to_openai_channel(mock_server, proxy_client, openai_chat
     pass
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add tests/test_integration.py
@@ -710,20 +710,20 @@ git commit -m "test: add integration test structure"
 - Modify: `config.py`
 - Modify: `client.py`
 
-- [ ] **Step 1: 修改 config.py 添加超时配置**
+- [x] **Step 1: 修改 config.py 添加超时配置**
 
 ```python
 # 在 config.py 中添加
 REQUEST_TIMEOUT: int = 300  # 改为可配置
 ```
 
-- [ ] **Step 2: 修改 client.py 使用配置**
+- [x] **Step 2: 修改 client.py 使用配置**
 
 ```python
 # 在 create_client 或相关函数中使用 config.REQUEST_TIMEOUT
 ```
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add config.py client.py
@@ -737,14 +737,14 @@ git commit -m "config: add REQUEST_TIMEOUT environment variable"
 **Files:**
 - Modify: `storage.py`
 
-- [ ] **Step 1: 将 time.monotonic() 替换为 time.time()**
+- [x] **Step 1: 将 time.monotonic() 替换为 time.time()**
 
 ```python
 # 找到 storage.py 中使用 time.monotonic() 的地方
 # 替换为 time.time()
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add storage.py
@@ -760,13 +760,13 @@ git commit -m "fix: use time.time() consistently instead of time.monotonic()"
 - Review: `proxy_core.py`
 - Review: `client.py`
 
-- [ ] **Step 1: 补充缺失的类型注解**
+- [x] **Step 1: 补充缺失的类型注解**
 
 ```python
 # 在各文件中补充 TypeVar, Generic 等类型
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add balancer/load_balancer.py proxy_core.py client.py
@@ -777,10 +777,10 @@ git commit -m "refactor: add missing type hints"
 
 ## 验收检查
 
-- [ ] 加权轮询算法测试通过
-- [ ] 流式响应限制生效
-- [ ] 无效JSON返回400错误
-- [ ] 转换器测试全部通过
-- [ ] 超时时间可配置
-- [ ] 时间源一致
-- [ ] 代码可通过 `uv run ruff check .`
+- [x] 加权轮询算法测试通过
+- [x] 流式响应限制生效
+- [x] 无效JSON返回400错误
+- [x] 转换器测试全部通过
+- [x] 超时时间可配置
+- [x] 时间源一致
+- [x] 代码可通过 `uv run ruff check .`

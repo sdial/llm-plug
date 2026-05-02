@@ -1,6 +1,6 @@
 # JSON 查看器字段过滤 - 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 为 `static/json-viewer.html` 增加侧边栏树形字段面板，支持按字段过滤 JSON 显示。
 
@@ -26,7 +26,7 @@
 **Files:**
 - Modify: `static/json-viewer.html` — `<style>` 部分
 
-- [ ] **Step 1: 替换全部 CSS**
+- [x] **Step 1: 替换全部 CSS**
 
 将现有 `<style>` 块替换为以下内容：
 
@@ -241,11 +241,11 @@ body {
 }
 ```
 
-- [ ] **Step 2: 浏览器验证 CSS 无语法错误**
+- [x] **Step 2: 浏览器验证 CSS 无语法错误**
 
 打开 `json-viewer.html`，页面应无明显渲染错误（虽然还没有 HTML 结构，但 CSS 不应报错）。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add static/json-viewer.html
@@ -259,7 +259,7 @@ git commit -m "feat(json-viewer): add CSS layout for sidebar and main area"
 **Files:**
 - Modify: `static/json-viewer.html` — `<body>` 部分
 
-- [ ] **Step 1: 替换 body 内容**
+- [x] **Step 1: 替换 body 内容**
 
 将 `<body>` 内容替换为：
 
@@ -286,11 +286,11 @@ git commit -m "feat(json-viewer): add CSS layout for sidebar and main area"
 </script>
 ```
 
-- [ ] **Step 2: 浏览器验证布局**
+- [x] **Step 2: 浏览器验证布局**
 
 打开页面，应看到左侧空侧边栏 + 右侧"加载中..."区域，header 显示标题和按钮。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add static/json-viewer.html
@@ -304,7 +304,7 @@ git commit -m "feat(json-viewer): add HTML structure with sidebar and main layou
 **Files:**
 - Modify: `static/json-viewer.html` — `<script>` 部分
 
-- [ ] **Step 1: 在 `<script>` 中写入基础函数和数据模型**
+- [x] **Step 1: 在 `<script>` 中写入基础函数和数据模型**
 
 替换 `<script>` 内容为：
 
@@ -377,7 +377,7 @@ function countCheckedLeaves(node) {
 }
 ```
 
-- [ ] **Step 2: 浏览器控制台验证**
+- [x] **Step 2: 浏览器控制台验证**
 
 打开页面，在控制台执行：
 ```javascript
@@ -387,7 +387,7 @@ console.log(tree);
 ```
 应输出树形结构对象，叶子节点 `checked` 为 `true`，`children` 为 `null`。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add static/json-viewer.html
@@ -401,7 +401,7 @@ git commit -m "feat(json-viewer): add field tree data model"
 **Files:**
 - Modify: `static/json-viewer.html` — `<script>` 部分
 
-- [ ] **Step 1: 在 script 中追加渲染函数**
+- [x] **Step 1: 在 script 中追加渲染函数**
 
 在 `countCheckedLeaves` 函数之后追加：
 
@@ -488,7 +488,7 @@ function updateStatusBar() {
 }
 ```
 
-- [ ] **Step 2: 浏览器验证**
+- [x] **Step 2: 浏览器验证**
 
 在控制台执行：
 ```javascript
@@ -500,7 +500,7 @@ renderTree();
 ```
 应看到侧边栏出现树形结构，字段名显示为紫色。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add static/json-viewer.html
@@ -514,7 +514,7 @@ git commit -m "feat(json-viewer): add tree panel rendering"
 **Files:**
 - Modify: `static/json-viewer.html` — `<script>` 部分
 
-- [ ] **Step 1: 追加级联勾选和事件处理函数**
+- [x] **Step 1: 追加级联勾选和事件处理函数**
 
 在 `updateStatusBar` 函数之后追加：
 
@@ -663,7 +663,7 @@ function bindEvents() {
 }
 ```
 
-- [ ] **Step 2: 浏览器验证级联勾选**
+- [x] **Step 2: 浏览器验证级联勾选**
 
 在控制台执行：
 ```javascript
@@ -676,7 +676,7 @@ bindEvents();
 ```
 点击某个父节点的勾选框 → 子节点应全部跟随。取消部分子节点 → 父节点应显示半选。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add static/json-viewer.html
@@ -690,7 +690,7 @@ git commit -m "feat(json-viewer): add cascade checkbox logic and event binding"
 **Files:**
 - Modify: `static/json-viewer.html` — `<script>` 部分
 
-- [ ] **Step 1: 追加 JSON 过滤和渲染函数**
+- [x] **Step 1: 追加 JSON 过滤和渲染函数**
 
 在 `bindEvents` 函数之后追加：
 
@@ -835,7 +835,7 @@ function bindJsonToggleEvents() {
 }
 ```
 
-- [ ] **Step 2: 浏览器验证过滤**
+- [x] **Step 2: 浏览器验证过滤**
 
 在控制台执行：
 ```javascript
@@ -849,7 +849,7 @@ renderFilteredJson();
 ```
 应看到完整的 JSON 显示。取消勾选某个字段后，该字段应从 JSON 中消失。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add static/json-viewer.html
@@ -863,7 +863,7 @@ git commit -m "feat(json-viewer): add JSON filtering and rendering"
 **Files:**
 - Modify: `static/json-viewer.html` — `<script>` 部分
 
-- [ ] **Step 1: 追加初始化逻辑**
+- [x] **Step 1: 追加初始化逻辑**
 
 在 `bindJsonToggleEvents` 函数之后追加：
 
@@ -945,7 +945,7 @@ async function init() {
 init();
 ```
 
-- [ ] **Step 2: 浏览器验证完整流程**
+- [x] **Step 2: 浏览器验证完整流程**
 
 用实际 API URL 测试：
 ```
@@ -959,7 +959,7 @@ json-viewer.html?url=<your-api-url>&fields=data.model,data.choices
 ```
 应只看到指定字段被勾选。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add static/json-viewer.html
@@ -973,7 +973,7 @@ git commit -m "feat(json-viewer): add initialization with fields parameter suppo
 **Files:**
 - Modify: `static/json-viewer.html` — `<script>` 部分
 
-- [ ] **Step 1: 追加拖拽调整逻辑**
+- [x] **Step 1: 追加拖拽调整逻辑**
 
 在 `init()` 函数之前追加：
 
@@ -1010,7 +1010,7 @@ function initResize() {
 }
 ```
 
-- [ ] **Step 2: 在 init() 中调用 initResize()**
+- [x] **Step 2: 在 init() 中调用 initResize()**
 
 在 `init()` 函数的 `bindEvents();` 之后追加：
 
@@ -1018,11 +1018,11 @@ function initResize() {
         initResize();
 ```
 
-- [ ] **Step 3: 浏览器验证**
+- [x] **Step 3: 浏览器验证**
 
 打开页面，鼠标悬停在侧边栏右边缘应出现蓝色高亮，拖拽可调整宽度（200px-500px 范围）。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add static/json-viewer.html
@@ -1036,11 +1036,11 @@ git commit -m "feat(json-viewer): add sidebar drag resize"
 **Files:**
 - Modify: `static/json-viewer.html`
 
-- [ ] **Step 1: 清理 HTML**
+- [x] **Step 1: 清理 HTML**
 
 确认 body 中不再有残留的旧代码。移除 `<div class="loading">` 标签（已被 `jsonMain` 中的加载状态替代）。
 
-- [ ] **Step 2: 完整功能测试**
+- [x] **Step 2: 完整功能测试**
 
 用浏览器打开 `json-viewer.html?url=<api-url>`，验证以下场景：
 
@@ -1055,7 +1055,7 @@ git commit -m "feat(json-viewer): add sidebar drag resize"
 9. **JSON 折叠**：点击 `{}` / `[]` 可折叠/展开
 10. **空对象处理**：所有子字段取消后，父对象不显示空 `{}`
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add static/json-viewer.html

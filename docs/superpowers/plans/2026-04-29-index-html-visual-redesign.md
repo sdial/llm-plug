@@ -1,6 +1,6 @@
 # Index.html Visual Redesign Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Reshape `static/index.html` from indigo/corporate dark-header style to Claude light-mode warm minimal style.
 
@@ -20,7 +20,7 @@
 
 ## Prerequisites
 
-- [ ] **Start the dev server** so you can visually verify each step in browser.
+- [x] **Start the dev server** so you can visually verify each step in browser.
 
 Run:
 ```bash
@@ -36,7 +36,7 @@ Open `http://localhost:8000/` in a browser and keep it open. Refresh after each 
 **Files:**
 - Modify: `static/index.html:8-22` (the `<script>tailwind.config</script>` and `<style>` block)
 
-- [ ] **Step 1: Update Tailwind custom colors and add custom styles**
+- [x] **Step 1: Update Tailwind custom colors and add custom styles**
 
 Replace the existing `tailwind.config` and `<style>` block with:
 
@@ -130,7 +130,7 @@ Replace the existing `tailwind.config` and `<style>` block with:
 </style>
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Refresh browser. Page background should now be warm off-white `#faf9f7`. No other visible changes yet.
 
@@ -141,7 +141,7 @@ Refresh browser. Page background should now be warm off-white `#faf9f7`. No othe
 **Files:**
 - Modify: `static/index.html:24-43`
 
-- [ ] **Step 1: Replace Header + Tab section**
+- [x] **Step 1: Replace Header + Tab section**
 
 Replace the entire block from `<div class="bg-slate-900 text-white">` through the closing `</div>` of the tab nav (lines ~24-43) with:
 
@@ -167,7 +167,7 @@ Replace the entire block from `<div class="bg-slate-900 text-white">` through th
     </div>
 ```
 
-- [ ] **Step 2: Update switchTab logic**
+- [x] **Step 2: Update switchTab logic**
 
 In the `<script>` section, find `switchTab` function and update the className assignments:
 
@@ -189,7 +189,7 @@ New inactive class:
 btn.className = 'px-4 py-2.5 text-sm font-medium tab-inactive';
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Refresh browser. Header should be white with subtle bottom border. Tabs should have purple underline on active, gray text on inactive with hover background.
 
@@ -201,7 +201,7 @@ Refresh browser. Header should be white with subtle bottom border. Tabs should h
 - Modify: `static/index.html:45-55` (content wrapper and channels tab header)
 - Modify: `static/index.html:293-327` (renderChannels function)
 
-- [ ] **Step 1: Update content wrapper padding**
+- [x] **Step 1: Update content wrapper padding**
 
 Change:
 ```html
@@ -212,7 +212,7 @@ To:
 <div class="max-w-6xl mx-auto px-4 py-8">
 ```
 
-- [ ] **Step 2: Update channels tab header**
+- [x] **Step 2: Update channels tab header**
 
 Change the channels tab header section:
 ```html
@@ -228,7 +228,7 @@ Change the channels tab header section:
         </div>
 ```
 
-- [ ] **Step 3: Update renderChannels card template**
+- [x] **Step 3: Update renderChannels card template**
 
 In `renderChannels()`, replace the card template string. Find this block:
 ```javascript
@@ -296,7 +296,7 @@ container.innerHTML = channels.map(ch => `
 `).join('');
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Refresh browser. Channel cards should now have white background, subtle border, rounded corners, and pill-shaped badges/action buttons.
 
@@ -308,7 +308,7 @@ Refresh browser. Channel cards should now have white background, subtle border, 
 - Modify: `static/index.html:57-65` (API Key tab header)
 - Modify: `static/index.html:424-472` (renderApiKeys function)
 
-- [ ] **Step 1: Update API Key tab header**
+- [x] **Step 1: Update API Key tab header**
 
 ```html
         <!-- API Key Tab -->
@@ -319,7 +319,7 @@ Refresh browser. Channel cards should now have white background, subtle border, 
             </div>
 ```
 
-- [ ] **Step 2: Update renderApiKeys table template**
+- [x] **Step 2: Update renderApiKeys table template**
 
 Replace the table template in `renderApiKeys()`. The outer wrapper:
 
@@ -432,7 +432,7 @@ New:
 <button onclick="deleteApiKey('${esc(k.id)}')" class="pill pill-danger hover:opacity-80 transition cursor-pointer">删除</button>
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Refresh browser, switch to API Key tab. Table should have clean white card wrapper, no gray header background, pill badges, and subtle row hover.
 
@@ -444,7 +444,7 @@ Refresh browser, switch to API Key tab. Table should have clean white card wrapp
 - Modify: `static/index.html:68-134` (stats tab markup)
 - Modify: `static/index.html:580-655` (renderStats function)
 
-- [ ] **Step 1: Update stats tab markup structure**
+- [x] **Step 1: Update stats tab markup structure**
 
 Replace the entire stats tab section:
 
@@ -518,7 +518,7 @@ Replace the entire stats tab section:
         </div>
 ```
 
-- [ ] **Step 2: Update renderStats distribution bars**
+- [x] **Step 2: Update renderStats distribution bars**
 
 In `renderStats()`, update the channel distribution and model distribution bar templates.
 
@@ -562,7 +562,7 @@ New:
 <div class="w-16 text-right text-sm text-ink-900 font-medium">${m.count}</div>
 ```
 
-- [ ] **Step 3: Update daily trend table rows in renderStats**
+- [x] **Step 3: Update daily trend table rows in renderStats**
 
 Old row:
 ```javascript
@@ -587,7 +587,7 @@ New:
 </tr>`
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Refresh browser, switch to Stats tab. All cards should have white background + left accent bar. Distribution bars should be thinner and use brand purple. Daily trend table should match new style.
 
@@ -598,7 +598,7 @@ Refresh browser, switch to Stats tab. All cards should have white background + l
 **Files:**
 - Modify: `static/index.html:137-250` (all three modal markup blocks)
 
-- [ ] **Step 1: Update Channel Modal**
+- [x] **Step 1: Update Channel Modal**
 
 Old wrapper:
 ```html
@@ -641,7 +641,7 @@ New:
 <button type="submit" class="btn-primary px-4 py-2 text-sm font-medium">保存</button>
 ```
 
-- [ ] **Step 2: Update API Key Modal**
+- [x] **Step 2: Update API Key Modal**
 
 Old wrapper:
 ```html
@@ -667,7 +667,7 @@ New:
 <button type="submit" class="btn-primary px-4 py-2 text-sm font-medium">保存</button>
 ```
 
-- [ ] **Step 3: Update Copy Key Modal**
+- [x] **Step 3: Update Copy Key Modal**
 
 Old wrapper:
 ```html
@@ -702,7 +702,7 @@ New:
 <button onclick="doCopyKey()" class="btn-primary px-4 py-2 text-sm font-medium">复制到剪贴板</button>
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Open each modal (添加渠道, 创建 Key, 触发复制) and confirm:
 - Modals have `rounded-2xl`, lighter backdrop
@@ -716,7 +716,7 @@ Open each modal (添加渠道, 创建 Key, 触发复制) and confirm:
 **Files:**
 - Modify: `static/index.html` (remaining stragglers)
 
-- [ ] **Step 1: Sweep for remaining old color classes**
+- [x] **Step 1: Sweep for remaining old color classes**
 
 Search the file for any remaining Tailwind classes that reference old colors and update them:
 
@@ -734,7 +734,7 @@ Search the file for any remaining Tailwind classes that reference old colors and
 
 Make sure body class `bg-slate-100` is removed (since body background is set via custom CSS).
 
-- [ ] **Step 2: Final visual verification**
+- [x] **Step 2: Final visual verification**
 
 1. Refresh all three tabs.
 2. Check that no old blue-gray (`slate-*`) colors remain visible.
@@ -742,7 +742,7 @@ Make sure body class `bg-slate-100` is removed (since body background is set via
 4. Check mobile responsiveness (narrow browser window).
 5. Verify modals are centered and styled correctly.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add static/index.html

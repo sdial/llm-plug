@@ -1,6 +1,6 @@
 # Startup Warmup & Model List Public Access - Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make `/v1/models` always accessible without auth, and pre-warm storage cache on startup to reduce first-request latency.
 
@@ -27,7 +27,7 @@
 - Modify: `routers/proxy_models.py:1-7,31-33,57`
 - Create: `tests/routers/test_proxy_models.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/routers/test_proxy_models.py`:
 
@@ -152,12 +152,12 @@ class TestAnthropicModelsEndpoint:
         assert len(resp.json()["data"]) > 0
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/routers/test_proxy_models.py -v`
 Expected: FAIL — tests with `PROXY_API_KEY` set will get 401 because `check_proxy_authorization` still blocks them.
 
-- [ ] **Step 3: Implement the change**
+- [x] **Step 3: Implement the change**
 
 In `routers/proxy_models.py`, remove auth checks and unused imports.
 
@@ -245,17 +245,17 @@ async def list_models_anthropic(
 ):
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/routers/test_proxy_models.py -v`
 Expected: All 5 tests PASS.
 
-- [ ] **Step 5: Run full test suite to check for regressions**
+- [x] **Step 5: Run full test suite to check for regressions**
 
 Run: `uv run pytest tests/ -v`
 Expected: All tests PASS (no regressions).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add routers/proxy_models.py tests/routers/test_proxy_models.py
@@ -270,7 +270,7 @@ git commit -m "feat: make /v1/models endpoints publicly accessible without auth"
 - Modify: `main.py:1-22`
 - Create: `tests/test_lifespan.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_lifespan.py`:
 
@@ -390,12 +390,12 @@ class TestLifespanPreWarming:
         assert "个模型" in captured.out
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/test_lifespan.py -v`
 Expected: FAIL — `mock_load_data` not called because current `lifespan` does nothing before `yield`.
 
-- [ ] **Step 3: Implement the change**
+- [x] **Step 3: Implement the change**
 
 In `main.py`, current imports (lines 1-16):
 ```python
@@ -460,17 +460,17 @@ async def lifespan(app):
     await close_all_clients()
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_lifespan.py -v`
 Expected: All 2 tests PASS.
 
-- [ ] **Step 5: Run full test suite to check for regressions**
+- [x] **Step 5: Run full test suite to check for regressions**
 
 Run: `uv run pytest tests/ -v`
 Expected: All tests PASS (no regressions).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add main.py tests/test_lifespan.py
@@ -481,12 +481,12 @@ git commit -m "feat: pre-warm storage cache on startup and log diagnostic info"
 
 ### Task 3: Final verification
 
-- [ ] **Step 1: Run the complete test suite**
+- [x] **Step 1: Run the complete test suite**
 
 Run: `uv run pytest tests/ -v`
 Expected: All tests PASS.
 
-- [ ] **Step 2: Manual smoke test**
+- [x] **Step 2: Manual smoke test**
 
 Start the server and verify model list is accessible:
 ```bash
@@ -497,7 +497,7 @@ curl -s http://localhost:8000/v1/anthropic/models | python -m json.tool
 ```
 Expected: Both return 200 with model data. Check console for `[STARTUP]` log line.
 
-- [ ] **Step 3: Verify with PROXY_API_KEY set**
+- [x] **Step 3: Verify with PROXY_API_KEY set**
 
 ```bash
 PROXY_API_KEY=test-secret uv run python main.py &

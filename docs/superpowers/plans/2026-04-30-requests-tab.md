@@ -1,6 +1,6 @@
 # 请求记录 TAB 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 在管理后台新增「请求记录」TAB，展示 PostgreSQL requests 表数据，支持搜索过滤、分页浏览和详情查看，URL hash 同步状态。
 
@@ -28,7 +28,7 @@
 - Modify: `stats_pg.py`
 - Test: `tests/test_stats_pg.py`
 
-- [ ] **Step 1: 写 failing test**
+- [x] **Step 1: 写 failing test**
 
 在 `tests/test_stats_pg.py` 末尾新增 `TestListRequests` 类：
 
@@ -125,12 +125,12 @@ class TestListRequests:
         assert result["items"][0]["model"] == "gpt-4"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pytest tests/test_stats_pg.py::TestListRequests -v`
 Expected: FAIL with `AttributeError: module 'stats_pg' has no attribute 'list_requests'`
 
-- [ ] **Step 3: 实现 `list_requests()`**
+- [x] **Step 3: 实现 `list_requests()`**
 
 在 `stats_pg.py` 的 `cleanup_old_data` 函数之后新增：
 
@@ -208,12 +208,12 @@ async def list_requests(
         }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pytest tests/test_stats_pg.py::TestListRequests -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/test_stats_pg.py stats_pg.py
@@ -228,7 +228,7 @@ git commit -m "feat: add list_requests() with pagination and filtering"
 - Modify: `routers/admin.py`
 - Test: `tests/routers/test_admin.py`
 
-- [ ] **Step 1: 写 failing test**
+- [x] **Step 1: 写 failing test**
 
 创建 `tests/routers/test_admin.py`：
 
@@ -290,12 +290,12 @@ class TestListRequestsEndpoint:
             assert len(data["items"]) == 5
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pytest tests/routers/test_admin.py -v`
 Expected: FAIL with `404 Not Found`
 
-- [ ] **Step 3: 实现端点**
+- [x] **Step 3: 实现端点**
 
 在 `routers/admin.py` 中：
 
@@ -341,12 +341,12 @@ async def list_requests_endpoint(
     return result
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pytest tests/routers/test_admin.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/routers/test_admin.py routers/admin.py
@@ -360,7 +360,7 @@ git commit -m "feat: add /admin/requests endpoint"
 **Files:**
 - Modify: `static/index.html`
 
-- [ ] **Step 1: 新增 TAB 按钮**
+- [x] **Step 1: 新增 TAB 按钮**
 
 old_string:
 ```html
@@ -377,7 +377,7 @@ new_string:
     </div>
 ```
 
-- [ ] **Step 2: 新增 `requestsTab` 面板（在 `statsTab` 之后）**
+- [x] **Step 2: 新增 `requestsTab` 面板（在 `statsTab` 之后）**
 
 old_string:
 ```html
@@ -478,7 +478,7 @@ new_string:
     <!-- 添加/编辑渠道模态框 -->
 ```
 
-- [ ] **Step 3: 新增详情模态框（在 `copyKeyModal` 之后）**
+- [x] **Step 3: 新增详情模态框（在 `copyKeyModal` 之后）**
 
 old_string:
 ```html
@@ -507,7 +507,7 @@ new_string:
     <script>
 ```
 
-- [ ] **Step 4: 新增全局变量**
+- [x] **Step 4: 新增全局变量**
 
 old_string:
 ```javascript
@@ -528,7 +528,7 @@ new_string:
         function esc(s) {
 ```
 
-- [ ] **Step 5: 修改 `switchTab` 支持 requests**
+- [x] **Step 5: 修改 `switchTab` 支持 requests**
 
 old_string:
 ```javascript
@@ -573,7 +573,7 @@ new_string:
         }
 ```
 
-- [ ] **Step 6: 修改 `initTabFromHash` 支持 requests 状态恢复**
+- [x] **Step 6: 修改 `initTabFromHash` 支持 requests 状态恢复**
 
 old_string:
 ```javascript
@@ -611,7 +611,7 @@ new_string:
         }
 ```
 
-- [ ] **Step 7: 在 `cleanupStats` 之后新增请求记录相关 JS 函数**
+- [x] **Step 7: 在 `cleanupStats` 之后新增请求记录相关 JS 函数**
 
 old_string:
 ```javascript
@@ -843,7 +843,7 @@ new_string:
         initTabFromHash();
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add static/index.html
@@ -854,12 +854,12 @@ git commit -m "feat: add requests tab UI with search, pagination and detail moda
 
 ### Task 4: 整合验证
 
-- [ ] **Step 1: 运行所有相关测试**
+- [x] **Step 1: 运行所有相关测试**
 
 Run: `pytest tests/test_stats_pg.py tests/routers/test_admin.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 2: 手动验证前端**
+- [x] **Step 2: 手动验证前端**
 
 启动服务：`uv run main.py`
 打开浏览器访问 `http://localhost:8000/static/index.html`
@@ -871,7 +871,7 @@ Expected: ALL PASS
 5. URL hash 随搜索/分页同步
 6. 刷新页面后状态和搜索结果保持
 
-- [ ] **Step 3: Commit（如有修复）**
+- [x] **Step 3: Commit（如有修复）**
 
 ```bash
 git add -A

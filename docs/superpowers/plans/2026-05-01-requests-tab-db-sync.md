@@ -1,6 +1,6 @@
 # 请求记录标签页适配数据库变更 实现计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
+> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [x]`）语法来跟踪进度。
 
 **目标：** 适配前端请求记录标签页以展示数据库新增的 request_headers、response_headers、request_body、response_body 字段。
 
@@ -29,7 +29,7 @@
 - 修改：`stats.py:691`（在 `list_requests` 函数前插入）
 - 测试：`tests/test_stats_pg.py`
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 在 `tests/test_stats_pg.py` 末尾新增类 `TestGetRequestField`：
 
@@ -76,12 +76,12 @@ class TestGetRequestField:
         assert result is None
 ```
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：`cd /d h:\temp\temp\llm-plug && .venv\Scripts\python -m pytest tests/test_stats_pg.py::TestGetRequestField -v`
 预期：FAIL，报错 `AttributeError: module 'stats' has no attribute 'get_request_field'`
 
-- [ ] **步骤 3：编写实现代码**
+- [x] **步骤 3：编写实现代码**
 
 在 `stats.py` 的 `list_requests` 函数之前（约第 691 行）插入：
 
@@ -114,12 +114,12 @@ async def get_request_field(request_id: int, field: str) -> dict | None:
         return {"data": row[column]}
 ```
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：`cd /d h:\temp\temp\llm-plug && .venv\Scripts\python -m pytest tests/test_stats_pg.py::TestGetRequestField -v`
 预期：PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add stats.py tests/test_stats_pg.py
@@ -134,7 +134,7 @@ git commit -m "feat: add get_request_field() for on-demand JSONB field queries"
 - 修改：`stats.py:749-753`
 - 测试：`tests/test_stats_pg.py`
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 在 `tests/test_stats_pg.py` 的 `TestListRequests` 类中新增：
 
@@ -160,12 +160,12 @@ git commit -m "feat: add get_request_field() for on-demand JSONB field queries"
         assert "channel_id" in item
 ```
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：`cd /d h:\temp\temp\llm-plug && .venv\Scripts\python -m pytest tests/test_stats_pg.py::TestListRequests::test_list_requests_no_jsonb_fields -v`
 预期：FAIL，因为 `request_headers` 等字段仍然出现在 item 中
 
-- [ ] **步骤 3：修改 list_requests 的 SELECT**
+- [x] **步骤 3：修改 list_requests 的 SELECT**
 
 修改 `stats.py` 第 749-753 行，将：
 
@@ -184,12 +184,12 @@ git commit -m "feat: add get_request_field() for on-demand JSONB field queries"
                    finish_reason, success, error_msg
 ```
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：`cd /d h:\temp\temp\llm-plug && .venv\Scripts\python -m pytest tests/test_stats_pg.py::TestListRequests -v`
 预期：全部 PASS
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add stats.py tests/test_stats_pg.py
@@ -204,7 +204,7 @@ git commit -m "perf: remove large JSONB fields from list_requests SELECT"
 - 修改：`routers/admin.py:495`（在 `list_requests_endpoint` 之后）
 - 测试：`tests/routers/test_admin.py`
 
-- [ ] **步骤 1：编写失败的测试**
+- [x] **步骤 1：编写失败的测试**
 
 在 `tests/routers/test_admin.py` 末尾新增类：
 
@@ -282,12 +282,12 @@ class TestRequestFieldEndpoints:
         assert resp.json()["data"] is None
 ```
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：`cd /d h:\temp\temp\llm-plug && .venv\Scripts\python -m pytest tests/routers/test_admin.py::TestRequestFieldEndpoints -v`
 预期：FAIL，404 因为端点不存在
 
-- [ ] **步骤 3：编写实现代码**
+- [x] **步骤 3：编写实现代码**
 
 在 `routers/admin.py` 中，先在文件顶部的 import 区域添加 `get_request_field`：
 
@@ -324,17 +324,17 @@ async def get_request_field_endpoint(request_id: int, field_name: str):
     return result
 ```
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：`cd /d h:\temp\temp\llm-plug && .venv\Scripts\python -m pytest tests/routers/test_admin.py::TestRequestFieldEndpoints -v`
 预期：PASS
 
-- [ ] **步骤 5：运行全部现有测试确认无回归**
+- [x] **步骤 5：运行全部现有测试确认无回归**
 
 运行：`cd /d h:\temp\temp\llm-plug && .venv\Scripts\python -m pytest tests/routers/test_admin.py tests/test_stats_pg.py -v`
 预期：全部 PASS
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add routers/admin.py tests/routers/test_admin.py
@@ -348,7 +348,7 @@ git commit -m "feat: add 4 GET endpoints for on-demand request JSONB fields"
 **文件：**
 - 创建：`static/json-viewer.html`
 
-- [ ] **步骤 1：创建文件**
+- [x] **步骤 1：创建文件**
 
 ```html
 <!DOCTYPE html>
@@ -444,11 +444,11 @@ git commit -m "feat: add 4 GET endpoints for on-demand request JSONB fields"
 </html>
 ```
 
-- [ ] **步骤 2：手动验证**
+- [x] **步骤 2：手动验证**
 
 启动服务后访问 `/static/json-viewer.html?url=/admin/requests/1/request-headers&title=Request%20Headers`，确认页面能正常显示 JSON。
 
-- [ ] **步骤 3：Commit**
+- [x] **步骤 3：Commit**
 
 ```bash
 git add static/json-viewer.html
@@ -462,7 +462,7 @@ git commit -m "feat: add standalone JSON viewer page"
 **文件：**
 - 修改：`static/index.html:1224-1258`（`openRequestDetail` 函数）
 
-- [ ] **步骤 1：修改 openRequestDetail 函数**
+- [x] **步骤 1：修改 openRequestDetail 函数**
 
 将 `static/index.html` 第 1246-1249 行的 Headers 展示区块：
 
@@ -487,7 +487,7 @@ git commit -m "feat: add standalone JSON viewer page"
                 </div>
 ```
 
-- [ ] **步骤 2：新增 openJsonInNewTab 函数**
+- [x] **步骤 2：新增 openJsonInNewTab 函数**
 
 在 `static/index.html` 的 `<script>` 区域中，`openRequestDetail` 函数之前，新增：
 
@@ -498,11 +498,11 @@ git commit -m "feat: add standalone JSON viewer page"
         }
 ```
 
-- [ ] **步骤 3：手动验证**
+- [x] **步骤 3：手动验证**
 
 启动服务，进入请求记录标签页，点击某条记录查看详情，确认 4 个链接正常显示。点击每个链接确认新标签页能正确展示 JSON 数据。
 
-- [ ] **步骤 4：Commit**
+- [x] **步骤 4：Commit**
 
 ```bash
 git add static/index.html
@@ -513,12 +513,12 @@ git commit -m "feat: update request detail modal with 4 JSON field links"
 
 ### 任务 6：最终验证
 
-- [ ] **步骤 1：运行全部测试**
+- [x] **步骤 1：运行全部测试**
 
 运行：`cd /d h:\temp\temp\llm-plug && .venv\Scripts\python -m pytest tests/ -v`
 预期：全部 PASS
 
-- [ ] **步骤 2：端到端手动验证**
+- [x] **步骤 2：端到端手动验证**
 
 1. 启动服务
 2. 访问 `#requests` 标签页
