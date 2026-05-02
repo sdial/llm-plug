@@ -13,6 +13,11 @@ _pool: asyncpg.Pool | None = None
 _db_available: bool = False
 
 
+def utc8_now() -> datetime:
+    """返回当前东8区时间（硬编码 UTC+8）"""
+    return datetime.utcnow() + timedelta(hours=8)
+
+
 def safe_parse_json(body: str | bytes | dict | None) -> dict | None:
     """安全解析 JSON，失败时返回 {"parse_error": true}"""
     if body is None:
@@ -248,8 +253,8 @@ async def aggregate_hourly_stats(
             (hour, channel_id, model, api_key_id, request_count, success_count, fail_count,
              input_tokens, output_tokens, avg_latency_ms, avg_lag_ms, updated_at)
             SELECT
-                date_trunc('hour', timestamp) as hour,
-                channel_id,
+date_trunc('hour', timestamp + interval '8 hours') as hour,
+        channel_id,
                 model,
                 COALESCE(api_key_id, '') as api_key_id,
                 COUNT(*) as request_count,
@@ -292,11 +297,11 @@ async def aggregate_daily_stats(
     async with _get_conn() as conn:
         await conn.execute(
             """
-            INSERT INTO daily_stats
-            (date, channel_id, model, api_key_id, request_count, success_count, fail_count,
-             input_tokens, output_tokens, avg_latency_ms, avg_lag_ms, updated_at)
-            SELECT
-                date_trunc('day', timestamp)::date as date,
+INSERT INTO daily_stats
+        (date, channel_id, model, api_key_id, request_count, success_count, fail_count,
+         input_tokens, output_tokens, avg_latency_ms, avg_lag_ms, updated_at)
+        SELECT
+        date_trunc('day', timestamp + interval '8 hours')::date as date,
                 channel_id,
                 model,
                 COALESCE(api_key_id, '') as api_key_id,
