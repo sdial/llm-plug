@@ -13,6 +13,31 @@ export PORT="${PORT:-55555}"
 export WORKERS="${WORKERS:-2}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
 
+# 清理函数：杀死所有子进程
+cleanup() {
+    echo ""
+    echo ">>> 正在停止服务..."
+    # 杀死当前进程组的所有进程
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+        # Windows: 使用 taskkill 杀死进程树
+        local main_pid=$$
+        taskkill //F //T //PID $main_pid 2>/dev/null || true
+    else
+        # Unix: 杀死进程组
+        kill -TERM -- -$$ 2>/dev/null || true
+    fi
+    # 额外清理：杀死残留的端口监听进程
+    sleep 1
+    if command -v lsof &> /dev/null; then
+        lsof -ti:$PORT | xargs -r kill -9 2>/dev/null || true
+    fi
+    echo ">>> 服务已停止"
+    exit 0
+}
+
+# 捕获 SIGINT (CTRL+C) 和 SIGTERM
+trap cleanup SIGINT SIGTERM
+
 # 安装依赖（若尚未安装）
 if [ ! -d ".venv" ]; then
     echo ">>> 首次运行，安装依赖..."
