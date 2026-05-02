@@ -10,6 +10,7 @@ import httpx
 from client import get_upstream_headers, remove_channel_client
 from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
+from models.model_group import LBConfig, ModelGroup, ModelGroupCreate, ModelGroupUpdate
 from datetime import date, datetime, timedelta
 
 from stats import (
@@ -18,7 +19,11 @@ from stats import (
     aggregate_hourly_stats, aggregate_daily_stats, list_requests,
     refresh_missing_daily_stats, get_request_field,
 )
-from storage import load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache
+from storage import (
+    load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache,
+    load_model_groups, add_model_group, update_model_group, delete_model_group,
+    get_lb_config, save_lb_config,
+)
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -514,3 +519,92 @@ async def get_request_field_endpoint(request_id: int, field_name: str):
     if result is None:
         raise HTTPException(status_code=404, detail="请求记录不存在")
     return result
+
+
+# ============ 模型组 CRUD ============
+
+
+@router.get("/model-groups")
+def list_model_groups():
+    """获取所有模型组"""
+    return load_model_groups()
+
+
+@router.post("/model-groups", response_model=ModelGroup)
+def create_model_group(body: ModelGroupCreate):
+    """创建模型组"""
+    with get_lock():
+        groups = load_model_groups()
+        # 检查名称是否重复
+        if any(g.name == body.name for g in groups):
+            raise HTTPException(status_code=400, detail="模型组名称已存在")
+        group = ModelGroup(**body.model_dump())
+        groups.append(group)
+        from storage import save_model_groups
+        save_model_groups(groups)
+    return group
+
+
+@router.put("/model-groups/{group_id}", response_model=ModelGroup)
+def update_model_group_endpoint(group_id: str, body: ModelGroupUpdate):
+    """更新模型组"""
+    with get_lock():
+        groups = load_model_groups()
+        for i, g in enumerate(groups):
+            if g.id == group_id:
+                update_data = body.model_dump(exclude_unset=True)
+                # 检查名称是否与其他组重复
+                if "name" in update_data:
+                    if any(other.id != group_id and other.name == update_data["name"] for other in groups):
+                        raise HTTPException(status_code=400, detail="模型组名称已存在")
+                updated = g.model_copy(update=update_data)
+                groups[i] = updated
+                from storage import save_model_groups
+                save_model_groups(groups)
+                return updated
+    raise HTTPException(status_code=404, detail="模型组不存在")
+
+
+@router.delete("/model-groups/{group_id}")
+def delete_model_group_endpoint(group_id: str):
+    """删除模型组"""
+    with get_lock():
+        groups = load_model_groups()
+        new_groups = [g for g in groups if g.id != group_id]
+        if len(new_groups) == len(groups):
+            raise HTTPException(status_code=404, detail="模型组不存在")
+        from storage import save_model_groups
+        save_model_groups(new_groups)
+    return {"message": "删除成功"}
+
+
+@router.patch("/model-groups/{group_id}/toggle", response_model=ModelGroup)
+def toggle_model_group(group_id: str):
+    """启用/禁用模型组"""
+    with get_lock():
+        groups = load_model_groups()
+        for i, g in enumerate(groups):
+            if g.id == group_id:
+                updated = g.model_copy(update={"enabled": not g.enabled})
+                groups[i] = updated
+                from storage import save_model_groups
+                save_model_groups(groups)
+                return updated
+    raise HTTPException(status_code=404, detail="模型组不存在")
+
+
+# ============ 负载均衡配置 ============
+
+
+@router.get("/lb-config", response_model=LBConfig)
+def get_lb_config_endpoint():
+    """获取负载均衡全局配置"""
+    return get_lb_config()
+
+
+@router.put("/lb-config", response_model=LBConfig)
+def update_lb_config_endpoint(body: LBConfig):
+    """更新负载均衡全局配置"""
+    with get_lock():
+        save_lb_config(body)
+    return body

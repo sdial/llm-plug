@@ -27,9 +27,8 @@ DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "data")
 CHANNELS_FILE = os.getenv("CHANNELS_FILE", os.path.join(DATA_DIR, "channels.json"))
 API_KEYS_FILE = os.getenv("API_KEYS_FILE", os.path.join(DATA_DIR, "api_keys.json"))
 
-# 负载均衡
-MAX_FAIL_COUNT = _int_env("MAX_FAIL_COUNT", 5)  # 连续失败N次后剔除
-COOLDOWN_SECONDS = _int_env("COOLDOWN_SECONDS", 60)  # 冷却恢复时间(秒)
+# 负载均衡配置已移至 storage.py (channels.json 中的 lb_config 字段)
+# 这样可以在后台动态修改，无需重启服务
 
 # 请求超时（秒）
 REQUEST_TIMEOUT = _int_env("REQUEST_TIMEOUT", 300)

@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import Optional
 
 from models.channel import Channel
-from config import MAX_FAIL_COUNT, COOLDOWN_SECONDS
+import storage
 
 
 class ChannelHealth:
@@ -24,9 +24,10 @@ class ChannelHealth:
 
     @property
     def is_healthy(self) -> bool:
-        if self.fail_count < MAX_FAIL_COUNT:
+        config = storage.get_lb_config()
+        if self.fail_count < config.max_fail_count:
             return True
-        return (time.time() - self.last_fail_time) > COOLDOWN_SECONDS
+        return (time.time() - self.last_fail_time) > config.cooldown_seconds
 
 
 class LoadBalancer:

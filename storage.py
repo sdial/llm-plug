@@ -6,6 +6,7 @@ import time
 from typing import Any, Callable
 
 import config
+from models.model_group import LBConfig, ModelGroup
 
 _lock = threading.RLock()
 
@@ -164,3 +165,115 @@ def invalidate_keys_cache() -> None:
     with _lock:
         _keys_cache = None
         _keys_cache_ts = 0
+
+
+# ============ 负载均衡配置 ============
+
+_LB_CONFIG_CACHE: LBConfig | None = None
+_LB_CONFIG_CACHE_TS: float = 0
+
+
+def get_lb_config() -> LBConfig:
+    """获取负载均衡全局配置"""
+    global _LB_CONFIG_CACHE, _LB_CONFIG_CACHE_TS
+    now = time.time()
+    if _LB_CONFIG_CACHE is not None and (now - _LB_CONFIG_CACHE_TS) < _CACHE_TTL:
+        return _LB_CONFIG_CACHE
+
+    data = load_data()
+    lb_dict = data.get("lb_config", {})
+    config = LBConfig(**lb_dict)
+    _LB_CONFIG_CACHE = config
+    _LB_CONFIG_CACHE_TS = now
+    return config
+
+
+def save_lb_config(config: LBConfig) -> None:
+    """保存负载均衡全局配置"""
+    global _LB_CONFIG_CACHE, _LB_CONFIG_CACHE_TS
+    data = load_data()
+    data["lb_config"] = config.model_dump()
+    save_data(data)
+    _LB_CONFIG_CACHE = config
+    _LB_CONFIG_CACHE_TS = time.time()
+
+
+# ============ 模型组存储 ============
+
+_MODEL_GROUPS_CACHE: list[ModelGroup] | None = None
+_MODEL_GROUPS_CACHE_TS: float = 0
+
+
+def load_model_groups() -> list[ModelGroup]:
+    """获取所有模型组"""
+    global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
+    now = time.time()
+    if _MODEL_GROUPS_CACHE is not None and (now - _MODEL_GROUPS_CACHE_TS) < _CACHE_TTL:
+        return _MODEL_GROUPS_CACHE
+
+    data = load_data()
+    groups = [ModelGroup(**g) for g in data.get("model_groups", [])]
+    _MODEL_GROUPS_CACHE = groups
+    _MODEL_GROUPS_CACHE_TS = now
+    return groups
+
+
+def get_model_group_by_name(name: str) -> ModelGroup | None:
+    """根据名称获取模型组"""
+    groups = load_model_groups()
+    for g in groups:
+        if g.name == name and g.enabled:
+            return g
+    return None
+
+
+def save_model_groups(groups: list[ModelGroup]) -> None:
+    """保存所有模型组"""
+    global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
+    data = load_data()
+    data["model_groups"] = [g.model_dump() for g in groups]
+    save_data(data)
+    _MODEL_GROUPS_CACHE = groups
+    _MODEL_GROUPS_CACHE_TS = time.time()
+
+
+def add_model_group(group: ModelGroup) -> ModelGroup:
+    """添加模型组"""
+    groups = load_model_groups()
+    groups.append(group)
+    save_model_groups(groups)
+    return group
+
+
+def update_model_group(group_id: str, updates: dict) -> ModelGroup | None:
+    """更新模型组"""
+    groups = load_model_groups()
+    for i, g in enumerate(groups):
+        if g.id == group_id:
+            updated = g.model_copy(update=updates)
+            groups[i] = updated
+            save_model_groups(groups)
+            return updated
+    return None
+
+
+def delete_model_group(group_id: str) -> bool:
+    """删除模型组"""
+    groups = load_model_groups()
+    new_groups = [g for g in groups if g.id != group_id]
+    if len(new_groups) == len(groups):
+        return False
+    save_model_groups(new_groups)
+    return True
+
+
+def invalidate_model_groups_cache() -> None:
+    """使模型组缓存失效"""
+    global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
+    with _lock:
+        _MODEL_GROUPS_CACHE = None
+        _MODEL_GROUPS_CACHE_TS = 0
+
+
+# 注册缓存失效回调
+register_save_callback(invalidate_model_groups_cache)

@@ -109,6 +109,7 @@
         <div class="max-w-6xl mx-auto px-4 flex gap-1">
             <button onclick="switchTab('channels')" id="tab_channels" class="px-4 py-2.5 text-sm font-medium tab-active">渠道管理</button>
             <button onclick="switchTab('apikeys')" id="tab_apikeys" class="px-4 py-2.5 text-sm font-medium tab-inactive">API Key</button>
+            <button onclick="switchTab('lb')" id="tab_lb" class="px-4 py-2.5 text-sm font-medium tab-inactive">负载均衡</button>
             <button onclick="switchTab('stats')" id="tab_stats" class="px-4 py-2.5 text-sm font-medium tab-inactive">统计</button>
             <button onclick="switchTab('requests')" id="tab_requests" class="px-4 py-2.5 text-sm font-medium tab-inactive">请求记录</button>
         </div>
@@ -325,6 +326,34 @@
                 </div>
             </div>
         </div>
+
+        <!-- 负载均衡 Tab -->
+        <div id="lbTab" class="hidden">
+            <!-- 全局参数 -->
+            <div class="card p-5 mb-5">
+                <h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-4">全局参数</h2>
+                <div class="flex items-end gap-4">
+                    <div>
+                        <label class="block text-xs text-ink-600 mb-1">失败次数阈值</label>
+                        <input type="number" id="lbMaxFailCount" min="1" class="text-sm border border-surface-200 rounded-lg px-3 py-2 w-24 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white" value="5">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-ink-600 mb-1">冷却时间(秒)</label>
+                        <input type="number" id="lbCooldownSeconds" min="1" class="text-sm border border-surface-200 rounded-lg px-3 py-2 w-24 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white" value="60">
+                    </div>
+                    <button onclick="saveLbConfig()" class="btn-primary text-sm px-4 py-2 font-medium">保存</button>
+                </div>
+            </div>
+
+            <!-- 模型组管理 -->
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider">模型组</h2>
+                <button onclick="openModelGroupModal()" class="btn-primary text-sm px-4 py-2 font-medium">+ 添加模型组</button>
+            </div>
+            <div id="modelGroupList" class="space-y-3">
+                <p class="text-ink-400 text-center py-8 text-sm">加载中...</p>
+            </div>
+        </div>
     </div>
 
     <!-- 添加/编辑渠道模态框 -->
@@ -459,6 +488,44 @@
         </div>
     </div>
 
+    <!-- 添加/编辑模型组模态框 -->
+    <div id="modelGroupModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="modelGroupModalTitle" class="text-base font-bold text-ink-900">添加模型组</h3>
+                    <button onclick="closeModelGroupModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
+                </div>
+                <form id="modelGroupForm" onsubmit="saveModelGroup(event)">
+                    <input type="hidden" id="modelGroupId">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-ink-900 mb-1">组名 <span class="text-red-500">*</span></label>
+                            <input type="text" id="modelGroupName" required placeholder="如 glm5-group" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                            <p class="text-xs text-ink-400 mt-1">客户端请求时使用此名称</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-ink-900 mb-1">模型列表 <span class="text-red-500">*</span></label>
+                            <div id="modelGroupModelsContainer" class="space-y-2">
+                                <!-- 动态添加模型输入 -->
+                            </div>
+                            <button type="button" onclick="addModelInput()" class="mt-2 text-sm text-brand-600 hover:text-brand-700 font-medium">+ 添加模型</button>
+                            <p class="text-xs text-ink-400 mt-1">按顺序 Fallback，排在前面的优先使用</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="modelGroupEnabled" checked class="w-4 h-4 rounded border-surface-200 text-brand-600 focus:ring-brand-500">
+                            <label for="modelGroupEnabled" class="text-sm text-ink-900">启用</label>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-4 border-t border-surface-100 mt-4">
+                        <button type="button" onclick="closeModelGroupModal()" class="btn-secondary px-4 py-2 text-sm font-medium">取消</button>
+                        <button type="submit" class="btn-primary px-4 py-2 text-sm font-medium">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script>
         const API = '/admin/channels';
         const API_KEYS = '/admin/api-keys';
@@ -490,8 +557,8 @@
                     history.replaceState(null, '', '#' + tab);
                 }
             }
-            const tabs = ['channels', 'apikeys', 'stats', 'requests'];
-            const panelMap = { channels: 'channelsTab', apikeys: 'apikeysTab', stats: 'statsTab', requests: 'requestsTab' };
+            const tabs = ['channels', 'apikeys', 'lb', 'stats', 'requests'];
+            const panelMap = { channels: 'channelsTab', apikeys: 'apikeysTab', lb: 'lbTab', stats: 'statsTab', requests: 'requestsTab' };
             tabs.forEach(t => {
                 const panel = document.getElementById(panelMap[t]);
                 const btn = document.getElementById('tab_' + t);
@@ -506,13 +573,14 @@
             if (tab === 'stats') loadStats();
             if (tab === 'apikeys') loadApiKeys();
             if (tab === 'requests') loadRequests();
+            if (tab === 'lb') { loadLbConfig(); loadModelGroups(); }
         }
 
         // 从 URL hash 恢复 tab 状态
         function initTabFromHash() {
             const hash = window.location.hash.slice(1);
             const [tab, queryString] = hash.split('?');
-            const validTabs = ['channels', 'apikeys', 'stats', 'requests'];
+            const validTabs = ['channels', 'apikeys', 'lb', 'stats', 'requests'];
             if (tab && validTabs.includes(tab)) {
                 if (tab === 'requests' && queryString) {
                     const params = new URLSearchParams(queryString);
@@ -1269,6 +1337,210 @@ function renderStats(data) {
 
         function closeRequestDetailModal() {
             document.getElementById('requestDetailModal').classList.add('hidden');
+        }
+
+        // ========== 负载均衡管理 ==========
+
+        let modelGroups = [];
+        let editingModelGroupId = null;
+
+        async function loadLbConfig() {
+            try {
+                const resp = await fetch('/admin/lb-config');
+                const data = await resp.json();
+                document.getElementById('lbMaxFailCount').value = data.max_fail_count;
+                document.getElementById('lbCooldownSeconds').value = data.cooldown_seconds;
+            } catch (e) {
+                console.error('加载负载均衡配置失败:', e);
+            }
+        }
+
+        async function saveLbConfig() {
+            const maxFailCount = parseInt(document.getElementById('lbMaxFailCount').value) || 5;
+            const cooldownSeconds = parseInt(document.getElementById('lbCooldownSeconds').value) || 60;
+
+            try {
+                const resp = await fetch('/admin/lb-config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        max_fail_count: maxFailCount,
+                        cooldown_seconds: cooldownSeconds
+                    })
+                });
+                if (resp.ok) {
+                    alert('保存成功');
+                } else {
+                    const err = await resp.json();
+                    alert('保存失败: ' + (err.detail || JSON.stringify(err)));
+                }
+            } catch (e) {
+                alert('保存失败: ' + e.message);
+            }
+        }
+
+        async function loadModelGroups() {
+            try {
+                const resp = await fetch('/admin/model-groups');
+                modelGroups = await resp.json();
+                renderModelGroups();
+            } catch (e) {
+                console.error('加载模型组失败:', e);
+                document.getElementById('modelGroupList').innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">加载失败</p>';
+            }
+        }
+
+        function renderModelGroups() {
+            const container = document.getElementById('modelGroupList');
+            if (!modelGroups.length) {
+                container.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">暂无模型组，点击上方按钮添加</p>';
+                return;
+            }
+
+            container.innerHTML = modelGroups.map(g => `
+                <div class="card p-4 flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-medium text-ink-900">${esc(g.name)}</span>
+                            <span class="pill ${g.enabled ? 'pill-success' : 'pill-muted'}">${g.enabled ? '启用' : '禁用'}</span>
+                        </div>
+                        <div class="text-sm text-ink-600 mt-1">
+                            ${g.models.map((m, i) => `<span class="${i === 0 ? 'font-medium text-ink-900' : ''}">${esc(m)}</span>${i < g.models.length - 1 ? ' <span class="text-ink-400">→</span> ' : ''}`).join('')}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="toggleModelGroup('${g.id}')" class="btn-secondary text-xs px-3 py-1.5 font-medium">${g.enabled ? '禁用' : '启用'}</button>
+                        <button onclick="editModelGroup('${g.id}')" class="btn-secondary text-xs px-3 py-1.5 font-medium">编辑</button>
+                        <button onclick="deleteModelGroupConfirm('${g.id}')" class="text-rose-600 hover:text-rose-700 text-xs px-3 py-1.5 font-medium">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openModelGroupModal(group = null) {
+            editingModelGroupId = group ? group.id : null;
+            document.getElementById('modelGroupModalTitle').textContent = group ? '编辑模型组' : '添加模型组';
+            document.getElementById('modelGroupId').value = group ? group.id : '';
+            document.getElementById('modelGroupName').value = group ? group.name : '';
+            document.getElementById('modelGroupEnabled').checked = group ? group.enabled : true;
+
+            // 初始化模型输入
+            const container = document.getElementById('modelGroupModelsContainer');
+            container.innerHTML = '';
+            const models = group ? group.models : [''];
+            models.forEach(m => addModelInput(m));
+
+            document.getElementById('modelGroupModal').classList.remove('hidden');
+        }
+
+        function closeModelGroupModal() {
+            document.getElementById('modelGroupModal').classList.add('hidden');
+            editingModelGroupId = null;
+        }
+
+        function addModelInput(value = '') {
+            const container = document.getElementById('modelGroupModelsContainer');
+            const index = container.children.length;
+            const div = document.createElement('div');
+            div.className = 'flex items-center gap-2';
+            div.innerHTML = `
+                <span class="text-ink-400 text-sm w-6">${index + 1}.</span>
+                <input type="text" value="${esc(value)}" placeholder="模型名称" class="model-input flex-1 text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <button type="button" onclick="removeModelInput(this)" class="text-ink-400 hover:text-rose-600 text-sm ${index === 0 ? 'invisible' : ''}">×</button>
+            `;
+            container.appendChild(div);
+        }
+
+        function removeModelInput(btn) {
+            const container = document.getElementById('modelGroupModelsContainer');
+            if (container.children.length > 1) {
+                btn.parentElement.remove();
+                // 重新编号
+                container.querySelectorAll('span').forEach((s, i) => s.textContent = (i + 1) + '.');
+            }
+        }
+
+        async function saveModelGroup(e) {
+            e.preventDefault();
+
+            const name = document.getElementById('modelGroupName').value.trim();
+            const enabled = document.getElementById('modelGroupEnabled').checked;
+            const modelInputs = document.querySelectorAll('.model-input');
+            const models = Array.from(modelInputs).map(i => i.value.trim()).filter(v => v);
+
+            if (!name) {
+                alert('请输入组名');
+                return;
+            }
+            if (models.length === 0) {
+                alert('请至少添加一个模型');
+                return;
+            }
+
+            const data = { name, models, enabled };
+
+            try {
+                let resp;
+                if (editingModelGroupId) {
+                    resp = await fetch(`/admin/model-groups/${editingModelGroupId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                } else {
+                    resp = await fetch('/admin/model-groups', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                }
+
+                if (resp.ok) {
+                    closeModelGroupModal();
+                    loadModelGroups();
+                } else {
+                    const err = await resp.json();
+                    alert('保存失败: ' + (err.detail || JSON.stringify(err)));
+                }
+            } catch (e) {
+                alert('保存失败: ' + e.message);
+            }
+        }
+
+        function editModelGroup(id) {
+            const group = modelGroups.find(g => g.id === id);
+            if (group) {
+                openModelGroupModal(group);
+            }
+        }
+
+        async function toggleModelGroup(id) {
+            try {
+                const resp = await fetch(`/admin/model-groups/${id}/toggle`, { method: 'PATCH' });
+                if (resp.ok) {
+                    loadModelGroups();
+                } else {
+                    const err = await resp.json();
+                    alert('操作失败: ' + (err.detail || JSON.stringify(err)));
+                }
+            } catch (e) {
+                alert('操作失败: ' + e.message);
+            }
+        }
+
+        async function deleteModelGroupConfirm(id) {
+            if (!confirm('确定删除该模型组？')) return;
+            try {
+                const resp = await fetch(`/admin/model-groups/${id}`, { method: 'DELETE' });
+                if (resp.ok) {
+                    loadModelGroups();
+                } else {
+                    const err = await resp.json();
+                    alert('删除失败: ' + (err.detail || JSON.stringify(err)));
+                }
+            } catch (e) {
+                alert('删除失败: ' + e.message);
+            }
         }
 
         // 初始化

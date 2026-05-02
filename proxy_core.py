@@ -15,6 +15,7 @@ import httpx
 from balancer.load_balancer import load_balancer
 from client import create_client, create_stream_client, get_upstream_headers
 from config import DEBUG, DEBUG_LOG_DIR, LOG_LEVEL
+import storage
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
@@ -382,7 +383,37 @@ async def proxy_request(
     """
     执行代理请求，返回 (response_data_or_stream, selected_channel)
     自动进行负载均衡和故障转移
+
+    支持模型组：如果 model 是模型组名，按 Fallback 顺序尝试组内模型
     """
+    # 检查是否为模型组
+    group = storage.get_model_group_by_name(model)
+
+    if group:
+        # 模型组请求：按 Fallback 顺序尝试每个模型
+        return await _proxy_model_group_request(
+            group, request_data, target_api_type, is_stream,
+            query_string, client_headers, api_key_id, tracked_headers
+        )
+    else:
+        # 单模型请求：现有逻辑
+        return await _proxy_single_model_request(
+            model, request_data, target_api_type, is_stream,
+            query_string, client_headers, api_key_id, tracked_headers
+        )
+
+
+async def _proxy_single_model_request(
+    model: str,
+    request_data: dict[str, Any],
+    target_api_type: APIType,
+    is_stream: bool,
+    query_string: str | None,
+    client_headers: dict[str, str] | None,
+    api_key_id: str | None,
+    tracked_headers: dict[str, str] | None,
+) -> tuple[Any, Channel]:
+    """单模型请求，现有逻辑"""
     channels = _get_channels_for_model(model)
     if not channels:
         raise ValueError(f"没有可用渠道支持模型: {model}")
@@ -398,11 +429,60 @@ async def proxy_request(
             raise ValueError(f"模型 {model} 的所有渠道均不可用")
 
         try:
-            return await _do_request(selected, request_data, target_api_type, is_stream, query_string=query_string, client_headers=client_headers, api_key_id=api_key_id, tracked_headers=tracked_headers), selected
+            return await _do_request(
+                selected, request_data, target_api_type, is_stream,
+                query_string=query_string, client_headers=client_headers,
+                api_key_id=api_key_id, tracked_headers=tracked_headers
+            ), selected
         except _RETRYABLE_EXCEPTIONS as e:
             load_balancer.record_failure(selected.id)
             last_error = e
             all_tried.add(selected.id)
+
+
+async def _proxy_model_group_request(
+    group,
+    request_data: dict[str, Any],
+    target_api_type: APIType,
+    is_stream: bool,
+    query_string: str | None,
+    client_headers: dict[str, str] | None,
+    api_key_id: str | None,
+    tracked_headers: dict[str, str] | None,
+) -> tuple[Any, Channel]:
+    """模型组请求：按 Fallback 顺序尝试每个模型"""
+    # 按组内模型的 Fallback 顺序尝试
+    tried_channels: set[str] = set()  # 所有已尝试的渠道
+    last_error: Exception | None = None
+
+    for current_model in group.models:
+        channels = _get_channels_for_model(current_model)
+        if not channels:
+            continue  # 该模型无渠道，尝试下一个模型
+
+        # 在该模型的渠道中尝试
+        while True:
+            selected = await load_balancer.select_channel(channels, exclude_ids=tried_channels)
+            if not selected:
+                break  # 该模型所有渠道都试过了，切换下一个模型
+
+            try:
+                # 修改请求中的模型名
+                modified_request = {**request_data, "model": current_model}
+                return await _do_request(
+                    selected, modified_request, target_api_type, is_stream,
+                    query_string=query_string, client_headers=client_headers,
+                    api_key_id=api_key_id, tracked_headers=tracked_headers
+                ), selected
+            except _RETRYABLE_EXCEPTIONS as e:
+                load_balancer.record_failure(selected.id)
+                last_error = e
+                tried_channels.add(selected.id)
+
+    # 所有模型的所有渠道都失败了
+    if last_error is not None:
+        raise last_error
+    raise ValueError(f"模型组 {group.name} 的所有渠道均不可用")
 
 
 async def _do_request(
