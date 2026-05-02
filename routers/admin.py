@@ -17,7 +17,7 @@ from stats import (
     get_daily_stats, get_daily_stats_from_requests,
     get_overall_stats, get_hourly_stats, get_hourly_stats_from_requests,
     aggregate_hourly_stats, aggregate_daily_stats, list_requests,
-    refresh_missing_daily_stats, get_request_field, utc8_now,
+    refresh_missing_daily_stats, get_request_field, utc8_now, refresh_stats,
 )
 from storage import (
     load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache,
@@ -453,6 +453,13 @@ async def refresh_daily_stats_endpoint():
         msg += f" | requests日期: {', '.join(result['debug'].get('request_dates', []))}"
         msg += f" | 缺失日期: {', '.join(result['debug'].get('missing_dates', []))}"
     return {"message": msg, **result}
+
+
+@router.post("/stats/refresh")
+async def refresh_stats_endpoint():
+    """补全缺失历史聚合 + 强制刷新近3天日聚合 + 刷新近24小时时聚合"""
+    result = await refresh_stats()
+    return result
 
 
 @router.post("/stats/aggregate/hourly")
