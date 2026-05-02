@@ -146,12 +146,18 @@ class CombinedMiddleware:
         api_keys = keys_data.get("api_keys", [])
 
         if api_keys:
+            # 支持两种认证方式：Authorization: Bearer xxx 或 x-api-key: xxx
             auth_header = headers_dict.get("authorization", "")
-            if not auth_header.startswith("Bearer "):
+            x_api_key = headers_dict.get("x-api-key", "")
+
+            if auth_header.startswith("Bearer "):
+                token = auth_header[len("Bearer "):]
+            elif x_api_key:
+                token = x_api_key
+            else:
                 await self._send_error(send, 401, "Missing or invalid Authorization header")
                 self._log_request(ts_start, method, path, query, model, stream, "", 401, start)
                 return
-            token = auth_header[len("Bearer "):]
 
             matched_key = None
             for key in api_keys:
