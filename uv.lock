@@ -1,6 +1,10 @@
 version = 1
 revision = 3
 requires-python = ">=3.10"
+resolution-markers = [
+    "sys_platform != 'win32'",
+    "sys_platform == 'win32'",
+]
 
 [[package]]
 name = "annotated-doc"
@@ -286,7 +290,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "python-socks", extra = ["asyncio"] },
     { name = "uvicorn" },
-    { name = "uvloop", marker = "sys_platform != 'win32'" },
+    { name = "uvloop" },
 ]
 
 [package.dev-dependencies]
@@ -311,6 +315,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-socks", extras = ["asyncio"], specifier = ">=2.8.1" },
     { name = "uvicorn", specifier = ">=0.46.0" },
+    { name = "uvloop", specifier = ">=0.22.1" },
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.21.0" },
 ]
 
