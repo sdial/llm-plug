@@ -389,7 +389,7 @@ async def get_daily_stats(
     """查询日聚合统计"""
     if not _db_available:
         return []
-    start_date = date.today() - timedelta(days=days - 1)
+    start_date = utc8_now().date() - timedelta(days=days - 1)
     conditions = ["date >= $1"]
     args: list[Any] = [start_date]
     if channel_id:
@@ -426,9 +426,9 @@ async def get_daily_stats_from_requests(
     """从 requests 明细表实时聚合日统计（daily_stats 无数据时的兜底）"""
     if not _db_available:
         return []
-    start_date = date.today() - timedelta(days=days - 1)
-    conditions = ["timestamp >= $1"]
-    args: list[Any] = [datetime.combine(start_date, datetime.min.time())]
+    start_date = utc8_now().date() - timedelta(days=days - 1)
+    conditions = ["timestamp >= ($1::date - interval '8 hours')"]
+    args: list[Any] = [start_date]
     if channel_id:
         args.append(channel_id)
         conditions.append(f"channel_id = ${len(args)}")
@@ -445,18 +445,18 @@ async def get_daily_stats_from_requests(
             return []
         rows = await conn.fetch(
             f"""
-            SELECT
-                date_trunc('day', timestamp)::date as date,
-                COUNT(*) as request_count,
-                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
-                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
-                SUM(input_tokens) as input_tokens,
-                SUM(output_tokens) as output_tokens,
-                AVG(latency_ms)::int as avg_latency_ms,
-                AVG(lag_ms)::int as avg_lag_ms
-            FROM requests
-            WHERE {where_clause}
-            GROUP BY date_trunc('day', timestamp)::date
+        SELECT
+        date_trunc('day', timestamp + interval '8 hours')::date as date,
+        COUNT(*) as request_count,
+        SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
+        SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
+        SUM(input_tokens) as input_tokens,
+        SUM(output_tokens) as output_tokens,
+        AVG(latency_ms)::int as avg_latency_ms,
+        AVG(lag_ms)::int as avg_lag_ms
+        FROM requests
+        WHERE {where_clause}
+        GROUP BY date_trunc('day', timestamp + interval '8 hours')::date
             ORDER BY date ASC
             """,
             *args
@@ -498,18 +498,18 @@ async def get_hourly_stats_from_requests(
             return []
         rows = await conn.fetch(
             f"""
-            SELECT
-                date_trunc('hour', timestamp) as hour,
-                COUNT(*) as request_count,
-                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
-                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
-                SUM(input_tokens) as input_tokens,
-                SUM(output_tokens) as output_tokens,
-                AVG(latency_ms)::int as avg_latency_ms,
-                AVG(lag_ms)::int as avg_lag_ms
-            FROM requests
-            WHERE {where_clause}
-            GROUP BY date_trunc('hour', timestamp)
+        SELECT
+        date_trunc('hour', timestamp + interval '8 hours') as hour,
+        COUNT(*) as request_count,
+        SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
+        SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
+        SUM(input_tokens) as input_tokens,
+        SUM(output_tokens) as output_tokens,
+        AVG(latency_ms)::int as avg_latency_ms,
+        AVG(lag_ms)::int as avg_lag_ms
+        FROM requests
+        WHERE {where_clause}
+        GROUP BY date_trunc('hour', timestamp + interval '8 hours')
             ORDER BY hour ASC
             """,
             *args
@@ -532,15 +532,15 @@ async def refresh_missing_daily_stats() -> dict[str, Any]:
                 "debug": {"db_available": True, "conn": None}
             }
 
-        today = date.today()
-        now_dt = datetime.now()
+        today = utc8_now().date()
+        now_dt = utc8_now()
 
         # 获取 requests 表中存在的日期（排除当天）
         request_dates = await conn.fetch(
             """
-            SELECT DISTINCT date_trunc('day', timestamp)::date as d
+            SELECT DISTINCT date_trunc('day', timestamp + interval '8 hours')::date as d
             FROM requests
-            WHERE date_trunc('day', timestamp)::date < $1
+            WHERE date_trunc('day', timestamp + interval '8 hours')::date < $1
             ORDER BY d
             """,
             today,
@@ -639,7 +639,7 @@ async def get_overall_stats(days: int = 7) -> dict[str, Any]:
                 COALESCE(SUM(input_tokens), 0) as total_input_tokens,
                 COALESCE(SUM(output_tokens), 0) as total_output_tokens
             FROM requests
-            WHERE timestamp >= now() - ($1 || ' days')::interval
+            WHERE timestamp >= (now() + interval '8 hours') - ($1 || ' days')::interval
             """,
             str(days)
         )
@@ -648,7 +648,7 @@ async def get_overall_stats(days: int = 7) -> dict[str, Any]:
             """
             SELECT channel_name, COUNT(*) as count
             FROM requests
-            WHERE timestamp >= now() - ($1 || ' days')::interval
+            WHERE timestamp >= (now() + interval '8 hours') - ($1 || ' days')::interval
             GROUP BY channel_id, channel_name
             ORDER BY count DESC
             """,
@@ -659,7 +659,7 @@ async def get_overall_stats(days: int = 7) -> dict[str, Any]:
             """
             SELECT model, COUNT(*) as count
             FROM requests
-            WHERE timestamp >= now() - ($1 || ' days')::interval
+            WHERE timestamp >= (now() + interval '8 hours') - ($1 || ' days')::interval
             GROUP BY model
             ORDER BY count DESC
             LIMIT 20
@@ -674,7 +674,7 @@ async def get_overall_stats(days: int = 7) -> dict[str, Any]:
                    COALESCE(SUM(output_tokens), 0) as output_tokens
             FROM requests
             WHERE api_key_id IS NOT NULL AND api_key_id != ''
-              AND timestamp >= now() - ($1 || ' days')::interval
+              AND timestamp >= (now() + interval '8 hours') - ($1 || ' days')::interval
             GROUP BY api_key_id
             ORDER BY count DESC
             """,
