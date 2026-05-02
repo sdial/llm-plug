@@ -14,6 +14,28 @@ from starlette.types import ASGIApp, Receive, Scope, Send, Message
 
 from client import close_all_clients, cleanup_stale_clients
 from config import DEBUG, HOST, PORT, MAX_BODY_SIZE
+
+# 配置日志级别文件输出
+_log_dir = Path(__file__).parent / "logs"
+_log_dir.mkdir(exist_ok=True)
+logger.add(
+    _log_dir / "warning.log",
+    level="WARNING",
+    rotation="10 MB",
+    filter=lambda r: r["level"].name == "WARNING"
+)
+logger.add(
+    _log_dir / "error.log",
+    level="ERROR",
+    rotation="10 MB",
+    filter=lambda r: r["level"].name == "ERROR"
+)
+logger.add(
+    _log_dir / "critical.log",
+    level="CRITICAL",
+    rotation="10 MB",
+    filter=lambda r: r["level"].name == "CRITICAL"
+)
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
 from stats import init_db as init_stats_db, close_pool as close_stats_pool
 from storage import load_data, load_api_keys
