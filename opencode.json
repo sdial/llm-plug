@@ -6,11 +6,15 @@
       "name": "llm-plug-openai",
       "options": {
         "apiKey": "opencode",
-        "baseURL": "http://127.0.0.1:55555/v1"
+        "baseURL": "http://192.168.123.1:55555/v1"
       },
       "models": {
         "code-group": {
           "name": "code-group",
+          "reasoning": true
+        },
+        "z-ai/glm-5.1": {
+          "name": "z-ai/glm-5.1",
           "reasoning": true
         }
       }

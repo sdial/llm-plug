@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from typing import Any
 
+import asyncio
+
 import asyncpg
 from loguru import logger
 
@@ -11,6 +13,7 @@ from config import DATABASE_URL, STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
 
 _pool: asyncpg.Pool | None = None
 _db_available: bool = False
+_pool_lock = asyncio.Lock()
 
 
 def utc8_now() -> datetime:
@@ -36,17 +39,18 @@ def safe_parse_json(body: str | bytes | dict | None) -> dict | None:
 async def init_pool() -> asyncpg.Pool | None:
     """初始化数据库连接池"""
     global _pool, _db_available
-    if _pool is None and not _db_available:
-        if not DATABASE_URL:
-            logger.warning("DATABASE_URL 未配置，PostgreSQL 统计功能已禁用")
-            return None
-        try:
-            _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
-            _db_available = True
-        except Exception as exc:
-            logger.warning("PostgreSQL 连接失败，统计功能已禁用: %s", exc)
-            _db_available = False
-    return _pool
+    async with _pool_lock:
+        if _pool is None and not _db_available:
+            if not DATABASE_URL:
+                logger.warning("DATABASE_URL 未配置，PostgreSQL 统计功能已禁用")
+                return None
+            try:
+                _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+                _db_available = True
+            except Exception as exc:
+                logger.warning("PostgreSQL 连接失败，统计功能已禁用: %s", exc)
+                _db_available = False
+        return _pool
 
 
 async def close_pool():

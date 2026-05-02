@@ -25,7 +25,7 @@ import stats
 from storage import load_data, register_save_callback
 
 # 流式响应最大记录chunk数量，防止内存溢出
-MAX_STREAM_CHUNKS = 10000
+MAX_STREAM_CHUNKS = 2000
 
 
 def _build_stream_response_body(
@@ -288,6 +288,9 @@ def _invalidate_model_channels_cache() -> None:
     global _model_channels_cache
     with _model_channels_lock:
         _model_channels_cache = None
+    data = storage.load_data()
+    active_ids = {ch.get("id") for ch in data.get("channels", [])}
+    load_balancer.cleanup_removed_channels(active_ids)
 
 
 register_save_callback(_invalidate_model_channels_cache)
@@ -776,7 +779,7 @@ async def _do_stream_request(
                     for part in sse.split("\n\n"):
                         if part.strip():
                             _log_stream_event(part + "\n\n")
-                    results.append(sse)
+                        results.append(sse)
                 else:
                     for extra_evt in extra:
                         sse = _format_sse(extra_evt)
@@ -788,21 +791,16 @@ async def _do_stream_request(
                 if not line.strip():
                     continue
                 if is_upstream_anthropic and line.startswith("event:"):
-                    # 支持 "event:" 和 "event: " 两种格式
-                    # 注意：某些上游可能返回 "event::type" 格式（双冒号），需要处理
                     raw_type = line[5:].strip()
-                    # 移除前导冒号（如果有）
                     if raw_type.startswith(":"):
                         raw_type = raw_type[1:].strip()
                     upstream_event_type = raw_type
                     continue
-                # 支持 "data:" 和 "data: " 两种格式
                 if line.startswith("data: "):
                     data_str = line[6:]
                 elif line.startswith("data:"):
                     data_str = line[5:]
                 else:
-                    # 非 data 行（如 SSE 注释），原样转发
                     _record_chunk(line)
                     continue
 
@@ -834,10 +832,7 @@ async def _do_stream_request(
                         _mark_first_token()
                         for extra_sse in _yield_extra_events(converted):
                             yield extra_sse
-                    # 如果 converted is None，表示该事件应被跳过（如 message_stop）
-                    # 不再转发原始 chunk
                 else:
-                    # 无转换器时才转发原始 chunk
                     if output_anthropic_sse and is_upstream_anthropic:
                         sse = _format_sse(chunk, upstream_event_type or "ping")
                     else:
@@ -849,16 +844,15 @@ async def _do_stream_request(
                 if is_upstream_anthropic:
                     upstream_event_type = None
 
-        stream_success = True
-        _log_debug(
-            channel=channel, upstream_url=url, upstream_data=upstream_data,
-            upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
-            response_headers=resp_headers, status_code=resp_status_code,
-        )
+            stream_success = True
+            _log_debug(
+                channel=channel, upstream_url=url, upstream_data=upstream_data,
+                upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
+                response_headers=resp_headers, status_code=resp_status_code,
+            )
     except Exception as e:
         stream_error = str(e)
         load_balancer.record_failure(channel.id)
-        # 控制台输出详细错误
         err_body = ""
         if isinstance(e, httpx.HTTPStatusError):
             try:
@@ -876,7 +870,6 @@ async def _do_stream_request(
             upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
             response_headers=resp_headers, status_code=resp_status_code, error=str(e),
         )
-        # 流式传输中发生错误，向客户端发送错误事件后结束流
         if output_anthropic_sse:
             yield _yield_anthropic_event("error", {
                 "type": "error",
@@ -885,14 +878,19 @@ async def _do_stream_request(
         else:
             error_data = {"error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
-            yield "data: [DONE]\n\n"
+        yield "data: [DONE]\n\n"
     finally:
+        try:
+            if not client.is_closed:
+                await client.aclose()
+        except Exception as close_err:
+            logger.debug(f"stream client close error: {close_err}")
+
         try:
             latency_ms = int((time.time() - start_time) * 1000)
             lag_ms = None
             if first_token_time is not None:
                 lag_ms = int((first_token_time - start_time) * 1000)
-            # 从 stream_chunks 中提取 token 使用量（按上游格式分别处理）
             if is_upstream_anthropic:
                 for chunk in stream_chunks:
                     if isinstance(chunk, dict):
@@ -907,30 +905,25 @@ async def _do_stream_request(
                         if usage:
                             input_tokens = usage.get("prompt_tokens", input_tokens)
                             output_tokens = usage.get("completion_tokens", output_tokens)
-            # 从 stream_chunks 中提取 finish_reason
             finish_reason = None
             for chunk in reversed(stream_chunks):
                 if isinstance(chunk, dict):
-                    # OpenAI format
                     choices = chunk.get("choices", [])
                     if choices and isinstance(choices[0], dict):
                         fr = choices[0].get("finish_reason")
                         if fr:
                             finish_reason = fr
                             break
-                    # Anthropic format in message_delta
                     if chunk.get("type") == "message_delta":
                         fr = chunk.get("delta", {}).get("stop_reason")
                         if fr:
                             finish_reason = fr
                             break
-            # 构建流式响应体（拼装后的最终结果）
             response_body = _build_stream_response_body(
                 chunks=stream_chunks,
                 is_upstream_anthropic=is_upstream_anthropic,
                 model=model,
             )
-            # 记录统计
             await stats.record_request(
                 channel_id=channel.id,
                 channel_name=channel.name,
@@ -952,12 +945,4 @@ async def _do_stream_request(
             if stream_success:
                 load_balancer.record_success(channel.id)
         except Exception as finally_err:
-            # finally 块中的异常不能让它传播出去，否则会覆盖流式错误事件
-            # 导致客户端收到原始网络错误而非 SSE 错误消息
             logger.warning(f"stream finally error: {finally_err}")
-        finally:
-            try:
-                if not client.is_closed:
-                    await client.aclose()
-            except Exception as close_err:
-                logger.debug(f"stream client close error: {close_err}")
