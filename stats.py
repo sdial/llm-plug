@@ -45,7 +45,12 @@ async def init_pool() -> asyncpg.Pool | None:
                 logger.warning("DATABASE_URL 未配置，PostgreSQL 统计功能已禁用")
                 return None
             try:
-                _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+                _pool = await asyncpg.create_pool(
+                DATABASE_URL,
+                min_size=2,
+                max_size=40,
+                max_inactive_connection_lifetime=600,
+            )
                 _db_available = True
             except Exception as exc:
                 logger.warning("PostgreSQL 连接失败，统计功能已禁用: %s", exc)

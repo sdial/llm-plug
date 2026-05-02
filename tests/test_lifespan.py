@@ -59,13 +59,19 @@ def setup_data(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", str(data_dir))
     monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
     monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
-    storage.invalidate_cache()
-    storage.invalidate_keys_cache()
+    storage._cache = None
+    storage._cache_ts = 0
+    storage._keys_cache = None
+    storage._keys_cache_ts = 0
+    storage._lock = None
 
     yield
 
-    storage.invalidate_cache()
-    storage.invalidate_keys_cache()
+    storage._cache = None
+    storage._cache_ts = 0
+    storage._keys_cache = None
+    storage._keys_cache_ts = 0
+    storage._lock = None
 
 
 class TestLifespanPreWarming:
@@ -99,8 +105,11 @@ class TestLifespanPreWarming:
         from main import app
 
         # Reset caches so load_data/load_api_keys actually run
-        storage.invalidate_cache()
-        storage.invalidate_keys_cache()
+        storage._cache = None
+        storage._cache_ts = 0
+        storage._keys_cache = None
+        storage._keys_cache_ts = 0
+        storage._lock = None
 
         # Capture loguru output
         messages = []

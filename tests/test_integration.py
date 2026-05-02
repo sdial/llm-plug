@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 def _run_mock_server():
     import uvicorn
     from tests.mock_server import app
-    uvicorn.run(app, host="127.0.0.1", port=19999, log_level="error")
+    uvicorn.run(app, host="127.0.0.1", port=19999, log_level="error", loop="auto")
 
 
 def _run_proxy_server():
@@ -21,7 +21,7 @@ def _run_proxy_server():
     # 设置测试环境变量
     os.environ["PORT"] = "19998"
     os.environ["DATA_DIR"] = os.path.join(os.path.dirname(__file__), "fixtures", "test_data")
-    uvicorn.run("main:app", host="127.0.0.1", port=19998, log_level="error")
+    uvicorn.run("main:app", host="127.0.0.1", port=19998, log_level="error", loop="auto")
 
 
 @pytest.fixture(scope="module")
