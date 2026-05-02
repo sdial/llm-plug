@@ -13,7 +13,7 @@ from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send, Message
 
 from client import close_all_clients, cleanup_stale_clients
-from config import DEBUG, HOST, PORT
+from config import DEBUG, HOST, PORT, MAX_BODY_SIZE
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
 from stats import init_db as init_stats_db, close_pool as close_stats_pool
 from storage import load_data, load_api_keys
@@ -21,8 +21,8 @@ from storage import load_data, load_api_keys
 
 @asynccontextmanager
 async def lifespan(app):
-    channels_data = load_data()
-    keys_data = load_api_keys()
+    channels_data = await load_data()
+    keys_data = await load_api_keys()
     channel_count = len(channels_data.get("channels", []))
     model_count = len({m for ch in channels_data.get("channels", []) for m in ch.get("models", [])})
     key_count = len(keys_data.get("api_keys", []))
@@ -80,9 +80,15 @@ class CombinedMiddleware:
         # Buffer the request body once
         body_parts = []
         more_body = True
+        total_size = 0
         while more_body:
             message = await receive()
-            body_parts.append(message.get("body", b""))
+            chunk = message.get("body", b"")
+            body_parts.append(chunk)
+            total_size += len(chunk)
+            if total_size > MAX_BODY_SIZE:
+                await self._send_error(send, 413, "Request body too large")
+                return
             more_body = message.get("more_body", False)
         body_bytes = b"".join(body_parts)
 
@@ -114,7 +120,7 @@ class CombinedMiddleware:
         scope["state"]["body_bytes"] = body_bytes
 
         # Auth check
-        keys_data = load_api_keys()
+        keys_data = await load_api_keys()
         api_keys = keys_data.get("api_keys", [])
 
         if api_keys:
@@ -294,4 +300,4 @@ if __name__ == "__main__":
     else:
         # 热重载模式：注意 Windows 下 Ctrl+C 后端口可能短暂占用
         uvicorn.run("main:app", host=HOST, port=PORT, reload=True,
-                    log_level=args.log_level, log_config=log_config)
+        log_level=args.log_level, log_config=log_config, http="httptools", loop="auto")

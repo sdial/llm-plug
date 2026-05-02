@@ -1,9 +1,9 @@
 """
 通用代理逻辑，供三个代理路由共用
 """
+import asyncio
 import json
 import os
-import threading
 import time
 from datetime import datetime
 from typing import Any
@@ -13,7 +13,7 @@ from loguru import logger
 import httpx
 
 from balancer.load_balancer import load_balancer
-from client import create_client, create_stream_client, get_upstream_headers
+from client import create_client, get_or_create_stream_client, get_upstream_headers
 from config import DEBUG, DEBUG_LOG_DIR, LOG_LEVEL
 import storage
 from converters.to_anthropic import ToAnthropicConverter
@@ -22,7 +22,7 @@ from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
 import stats
-from storage import load_data, register_save_callback
+from storage import register_save_callback
 
 # 流式响应最大记录chunk数量，防止内存溢出
 MAX_STREAM_CHUNKS = 2000
@@ -210,7 +210,12 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
     }
 
 
-def _log_debug(
+def _write_log_line(log_file: str, line: str) -> None:
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(line)
+
+
+async def _log_debug(
     channel: Channel,
     upstream_url: str,
     upstream_data: dict,
@@ -225,16 +230,12 @@ def _log_debug(
     """记录 debug 日志（包含完整 request + response）"""
     if not DEBUG:
         return
-
     try:
-        # 确保日志目录存在
         os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
 
-        # 生成文件名（按日期）
         today = datetime.now().strftime("%Y-%m-%d")
         log_file = os.path.join(DEBUG_LOG_DIR, f"debug_{today}.jsonl")
 
-        # 构建日志条目 - 完整记录请求和响应
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "channel": {
@@ -255,53 +256,54 @@ def _log_debug(
             },
         }
 
-        # 根据类型记录响应内容
         if is_stream:
-            # 流式：记录所有 chunks（限制大小）
             if stream_content:
-                # 只保留前 100 个 chunk 的摘要，避免日志过大
                 if isinstance(stream_content, list) and len(stream_content) > 100:
                     log_entry["response"]["stream_chunks_count"] = len(stream_content)
                     log_entry["response"]["stream_content_sample"] = stream_content[:10] + stream_content[-10:]
                 else:
                     log_entry["response"]["stream_content"] = stream_content
         else:
-            # 非流式：记录完整响应
             log_entry["response"]["data"] = response_data
 
         if error:
             log_entry["error"] = error
 
-        # 追加写入日志文件
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        line = json.dumps(log_entry, ensure_ascii=False) + "\n"
+        await asyncio.to_thread(_write_log_line, log_file, line)
     except Exception as log_err:
-        # 日志记录失败不应影响主流程，仅打印警告
         logger.warning(f"Failed to write debug log: {log_err}")
 
 
 _model_channels_cache: dict[str, list[Channel]] | None = None
-_model_channels_lock = threading.Lock()
+_model_channels_lock = asyncio.Lock()
 
 
-def _invalidate_model_channels_cache() -> None:
+async def _invalidate_model_channels_cache() -> None:
     global _model_channels_cache
-    with _model_channels_lock:
+    async with _model_channels_lock:
         _model_channels_cache = None
-    data = storage.load_data()
+    data = await storage.load_data()
     active_ids = {ch.get("id") for ch in data.get("channels", [])}
     load_balancer.cleanup_removed_channels(active_ids)
 
 
-register_save_callback(_invalidate_model_channels_cache)
+def _schedule_invalidate_model_channels_cache() -> None:
+    try:
+        asyncio.create_task(_invalidate_model_channels_cache())
+    except RuntimeError:
+        pass
 
 
-def _get_channels_for_model(model: str) -> list[Channel]:
+register_save_callback(_schedule_invalidate_model_channels_cache)
+
+
+async def _get_channels_for_model(model: str) -> list[Channel]:
     global _model_channels_cache
-    with _model_channels_lock:
+    async with _model_channels_lock:
         if _model_channels_cache is not None:
             return _model_channels_cache.get(model, [])
-        data = load_data()
+        data = await storage.load_data()
         channels = [Channel(**ch) for ch in data.get("channels", [])]
         _model_channels_cache = {}
         for ch in channels:
@@ -383,6 +385,12 @@ _RETRYABLE_EXCEPTIONS = (
 )
 
 
+def _fire_and_forget(coro):
+    task = asyncio.create_task(coro)
+    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+    return task
+
+
 async def proxy_request(
     model: str,
     request_data: dict[str, Any],
@@ -400,7 +408,7 @@ async def proxy_request(
     支持模型组：如果 model 是模型组名，按 Fallback 顺序尝试组内模型
     """
     # 检查是否为模型组
-    group = storage.get_model_group_by_name(model)
+    group = await storage.get_model_group_by_name(model)
 
     if group:
         # 模型组请求：按 Fallback 顺序尝试每个模型
@@ -427,7 +435,7 @@ async def _proxy_single_model_request(
     tracked_headers: dict[str, str] | None,
 ) -> tuple[Any, Channel]:
     """单模型请求，现有逻辑"""
-    channels = _get_channels_for_model(model)
+    channels = await _get_channels_for_model(model)
     if not channels:
         raise ValueError(f"没有可用渠道支持模型: {model}")
 
@@ -469,7 +477,7 @@ async def _proxy_model_group_request(
     last_error: Exception | None = None
 
     for current_model in group.models:
-        channels = _get_channels_for_model(current_model)
+        channels = await _get_channels_for_model(current_model)
         if not channels:
             continue  # 该模型无渠道，尝试下一个模型
 
@@ -548,7 +556,7 @@ async def _do_request(
         latency_ms = int((time.time() - start_time) * 1000)
 
         # 记录 debug 日志（包含完整响应和响应头）
-        _log_debug(
+        await _log_debug(
             channel=channel,
             upstream_url=url,
             upstream_data=upstream_data,
@@ -578,8 +586,8 @@ async def _do_request(
             if finish_reason is None:
                 finish_reason = response_data.get("stop_reason")
 
-        # 记录统计
-        await stats.record_request(
+        # 记录统计（后台执行，不阻塞响应）
+        _fire_and_forget(stats.record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -592,10 +600,10 @@ async def _do_request(
             finish_reason=finish_reason,
             api_key_id=api_key_id,
             request_headers=tracked_headers,
-                    response_headers=dict(resp.headers),
-                    request_body=upstream_data,
-                    response_body=response_data,
-                )
+            response_headers=dict(resp.headers),
+            request_body=upstream_data,
+            response_body=response_data,
+        ))
 
         # 非流式响应摘要日志
         content = response_data.get("content", []) if isinstance(response_data, dict) else []
@@ -616,8 +624,8 @@ async def _do_request(
         return response_data
     except Exception as e:
         latency_ms = int((time.time() - start_time) * 1000)
-        # 记录失败统计
-        await stats.record_request(
+        # 记录失败统计（后台执行，不阻塞响应）
+        _fire_and_forget(stats.record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -632,7 +640,7 @@ async def _do_request(
             api_key_id=api_key_id,
             request_headers=tracked_headers,
             request_body=upstream_data,
-        )
+        ))
         # 控制台输出详细错误
         err_body = ""
         if isinstance(e, httpx.HTTPStatusError):
@@ -642,7 +650,7 @@ async def _do_request(
         else:
             logger.error(f"upstream {type(e).__name__}: {e}")
 
-        _log_debug(
+        await _log_debug(
             channel=channel,
             upstream_url=url,
             upstream_data=upstream_data,
@@ -745,7 +753,7 @@ async def _do_stream_request(
             stream_chunk_count += 1
     resp_status_code = None
     resp_headers = None
-    client = create_stream_client(channel)
+    client = await get_or_create_stream_client(channel)
     output_anthropic_sse = target_api_type == APIType.ANTHROPIC
     is_upstream_anthropic = source_type == "anthropic"
 
@@ -844,12 +852,12 @@ async def _do_stream_request(
                 if is_upstream_anthropic:
                     upstream_event_type = None
 
-            stream_success = True
-            _log_debug(
-                channel=channel, upstream_url=url, upstream_data=upstream_data,
-                upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
-                response_headers=resp_headers, status_code=resp_status_code,
-            )
+        stream_success = True
+        await _log_debug(
+            channel=channel, upstream_url=url, upstream_data=upstream_data,
+            upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
+            response_headers=resp_headers, status_code=resp_status_code,
+        )
     except Exception as e:
         stream_error = str(e)
         load_balancer.record_failure(channel.id)
@@ -865,7 +873,7 @@ async def _do_stream_request(
         else:
             logger.error(f"upstream stream {type(e).__name__}: {e}")
 
-        _log_debug(
+        await _log_debug(
             channel=channel, upstream_url=url, upstream_data=upstream_data,
             upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
             response_headers=resp_headers, status_code=resp_status_code, error=str(e),
@@ -880,12 +888,6 @@ async def _do_stream_request(
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
     finally:
-        try:
-            if not client.is_closed:
-                await client.aclose()
-        except Exception as close_err:
-            logger.debug(f"stream client close error: {close_err}")
-
         try:
             latency_ms = int((time.time() - start_time) * 1000)
             lag_ms = None
@@ -924,7 +926,7 @@ async def _do_stream_request(
                 is_upstream_anthropic=is_upstream_anthropic,
                 model=model,
             )
-            await stats.record_request(
+            _fire_and_forget(stats.record_request(
                 channel_id=channel.id,
                 channel_name=channel.name,
                 model=model,
@@ -941,7 +943,7 @@ async def _do_stream_request(
                 response_headers=resp_headers,
                 request_body=upstream_data,
                 response_body=response_body,
-            )
+            ))
             if stream_success:
                 load_balancer.record_success(channel.id)
         except Exception as finally_err:

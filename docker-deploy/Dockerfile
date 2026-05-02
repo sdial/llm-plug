@@ -17,8 +17,8 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    HOST=0.0.0.0 \
-    PORT=55555
+HOST=0.0.0.0 \
+PORT=55555
 
 COPY . .
 
@@ -27,11 +27,14 @@ RUN mkdir -p data logs
 EXPOSE 55555
 
 CMD ["uvicorn", "main:app", \
-     "--host", "0.0.0.0", \
-     "--port", "55555", \
-     "--http", "httptools", \
-     "--workers", "2", \
-     "--timeout-keep-alive", "360", \
-     "--log-level", "debug", \
-     "--no-use-colors", \
-     "--no-server-header"]
+"--host", "0.0.0.0", \
+"--port", "55555", \
+"--http", "httptools", \
+"--workers", "2", \
+"--timeout-keep-alive", "360", \
+"--log-level", "info", \
+"--no-use-colors", \
+"--no-server-header", \
+"--ws", "none", \
+"--loop", "uvloop", \
+"--backlog", "2048"]

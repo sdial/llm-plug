@@ -45,37 +45,41 @@ if [ ! -d ".venv" ]; then
 fi
 
 case "$MODE" in
-    run)
-        echo ">>> 正常运行 -> http://${HOST}:${PORT} (workers=${WORKERS})"
-        uv run uvicorn main:app \
-            --host "$HOST" \
-            --port "$PORT" \
-            --workers "$WORKERS" \
-            --http httptools \
-            --timeout-keep-alive 360 \
-            --log-level "$LOG_LEVEL" \
-            --access-log \
-            --no-use-colors \
-            --no-server-header
-        ;;
-    debug)
-        echo ">>> 调试运行 (reload + trace + debug日志) -> http://${HOST}:${PORT}"
-        export LOG_LEVEL=debug
-        export DEBUG=true
-        uv run uvicorn main:app \
-            --host "$HOST" \
-            --port "$PORT" \
-            --http httptools \
-            --timeout-keep-alive 360 \
-            --reload \
-            --log-level trace \
-            --access-log \
-            --use-colors
-        ;;
-    *)
-        echo "用法: $0 [run|debug]"
-        echo "  run   - 正常运行（默认）"
-        echo "  debug - 调试运行（热重载）"
-        exit 1
-        ;;
+run)
+    echo ">>> 正常运行 -> http://${HOST}:${PORT} (workers=${WORKERS})"
+    uv run uvicorn main:app \
+    --host "$HOST" \
+    --port "$PORT" \
+    --workers "$WORKERS" \
+    --http httptools \
+    --loop auto \
+    --timeout-keep-alive 360 \
+    --log-level "$LOG_LEVEL" \
+    --access-log \
+    --no-use-colors \
+    --no-server-header \
+    --ws none \
+    --backlog 2048
+    ;;
+debug)
+    echo ">>> 调试运行 (reload + trace + debug日志) -> http://${HOST}:${PORT}"
+    export LOG_LEVEL=debug
+    export DEBUG=true
+    uv run uvicorn main:app \
+    --host "$HOST" \
+    --port "$PORT" \
+    --http httptools \
+    --loop auto \
+    --timeout-keep-alive 360 \
+    --reload \
+    --log-level trace \
+    --access-log \
+    --use-colors
+    ;;
+*)
+    echo "用法: $0 [run|debug]"
+    echo " run - 正常运行（默认）"
+    echo " debug - 调试运行（热重载）"
+    exit 1
+    ;;
 esac

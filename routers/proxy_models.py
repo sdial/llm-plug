@@ -7,9 +7,9 @@ from storage import load_data
 router = APIRouter(tags=["代理"])
 
 
-def _collect_models() -> list[dict]:
+async def _collect_models() -> list[dict]:
     """从所有已启用渠道中聚合模型列表（去重）"""
-    data = load_data()
+    data = await load_data()
     channels = [Channel(**ch) for ch in data.get("channels", [])]
     seen: set[str] = set()
     models: list[dict] = []
@@ -27,7 +27,7 @@ def _collect_models() -> list[dict]:
 
 @router.get("/v1/models")
 async def list_models_openai():
-    models = _collect_models()
+    models = await _collect_models()
     data = [
         {
             "id": m["id"],
@@ -48,11 +48,9 @@ async def list_models_anthropic(
     before: str | None = Query(default=None),
     after: str | None = Query(default=None),
 ):
-    models = _collect_models()
-    # 只取 anthropic 类型的模型
+    models = await _collect_models()
     anthropic_models = [m for m in models if m["api_type"] == APIType.ANTHROPIC.value]
 
-    # 简单分页
     start = 0
     if after:
         for i, m in enumerate(anthropic_models):

@@ -9,7 +9,15 @@ from models.channel import Channel
 
 _clients: dict[str, httpx.AsyncClient] = {}
 _cache_ts: dict[str, float] = {}
+_stream_clients: dict[str, httpx.AsyncClient] = {}
+_stream_cache_ts: dict[str, float] = {}
 _lock = asyncio.Lock()
+
+_DEFAULT_LIMITS = httpx.Limits(
+    max_connections=200,
+    max_keepalive_connections=50,
+    keepalive_expiry=60.0,
+)
 
 
 def _cache_key(channel: Channel) -> str:
@@ -34,10 +42,12 @@ async def get_or_create_client(channel: Channel, timeout: float | None = None) -
             client = httpx.AsyncClient(
                 proxy=proxy,
                 timeout=httpx.Timeout(timeout, connect=10.0),
+                limits=_DEFAULT_LIMITS,
             )
         else:
             client = httpx.AsyncClient(
                 timeout=httpx.Timeout(timeout, connect=10.0),
+                limits=_DEFAULT_LIMITS,
             )
         _clients[key] = client
         _cache_ts[key] = time.time()
@@ -48,6 +58,36 @@ async def create_client(channel: Channel, timeout: float | None = None) -> httpx
     return await get_or_create_client(channel, timeout)
 
 
+async def get_or_create_stream_client(channel: Channel, timeout: float | None = None) -> httpx.AsyncClient:
+    if timeout is None:
+        timeout = float(REQUEST_TIMEOUT)
+    key = _cache_key(channel)
+    client = _stream_clients.get(key)
+    if client is not None and not client.is_closed:
+        _stream_cache_ts[key] = time.time()
+        return client
+    async with _lock:
+        client = _stream_clients.get(key)
+        if client is not None and not client.is_closed:
+            _stream_cache_ts[key] = time.time()
+            return client
+        proxy = channel.socks5_proxy
+        if proxy:
+            client = httpx.AsyncClient(
+                proxy=proxy,
+                timeout=httpx.Timeout(timeout, connect=10.0, read=timeout),
+                limits=_DEFAULT_LIMITS,
+            )
+        else:
+            client = httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout, connect=10.0, read=timeout),
+                limits=_DEFAULT_LIMITS,
+            )
+        _stream_clients[key] = client
+        _stream_cache_ts[key] = time.time()
+        return client
+
+
 def create_stream_client(channel: Channel) -> httpx.AsyncClient:
     timeout = float(REQUEST_TIMEOUT)
     proxy = channel.socks5_proxy
@@ -55,9 +95,11 @@ def create_stream_client(channel: Channel) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             proxy=proxy,
             timeout=httpx.Timeout(timeout, connect=10.0, read=timeout),
+            limits=_DEFAULT_LIMITS,
         )
     return httpx.AsyncClient(
         timeout=httpx.Timeout(timeout, connect=10.0, read=timeout),
+        limits=_DEFAULT_LIMITS,
     )
 
 
@@ -67,16 +109,27 @@ async def close_all_clients():
             await client.aclose()
     _clients.clear()
     _cache_ts.clear()
+    for key, client in list(_stream_clients.items()):
+        if not client.is_closed:
+            await client.aclose()
+    _stream_clients.clear()
+    _stream_cache_ts.clear()
 
 
 async def cleanup_stale_clients(max_age: float = 300.0):
     """关闭并移除超过 max_age 秒未使用的客户端连接。"""
     now = time.time()
     stale_keys = [k for k, ts in _cache_ts.items() if now - ts > max_age]
+    stale_stream_keys = [k for k, ts in _stream_cache_ts.items() if now - ts > max_age]
     async with _lock:
         for key in stale_keys:
             client = _clients.pop(key, None)
             _cache_ts.pop(key, None)
+            if client and not client.is_closed:
+                await client.aclose()
+        for key in stale_stream_keys:
+            client = _stream_clients.pop(key, None)
+            _stream_cache_ts.pop(key, None)
             if client and not client.is_closed:
                 await client.aclose()
 
@@ -87,9 +140,13 @@ async def remove_channel_client(channel: Channel):
     async with _lock:
         client = _clients.pop(key, None)
         _cache_ts.pop(key, None)
-    if client and not client.is_closed:
-        await client.aclose()
-    return client
+        if client and not client.is_closed:
+            await client.aclose()
+        stream_client = _stream_clients.pop(key, None)
+        _stream_cache_ts.pop(key, None)
+        if stream_client and not stream_client.is_closed:
+            await stream_client.aclose()
+        return client
 
 
 def get_upstream_headers(channel: Channel, extra_headers: dict | None = None) -> dict:

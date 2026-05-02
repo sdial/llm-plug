@@ -30,16 +30,22 @@ def setup_test_data():
         config.DATA_DIR = tmpdir
         config.CHANNELS_FILE = channels_file
         config.API_KEYS_FILE = api_keys_file
-        storage.invalidate_cache()
-        storage.invalidate_keys_cache()
+        storage._cache = None
+        storage._cache_ts = 0
+        storage._keys_cache = None
+        storage._keys_cache_ts = 0
+        storage._lock = None
 
         yield
 
         config.DATA_DIR = old_data_dir
         config.CHANNELS_FILE = old_channels_file
         config.API_KEYS_FILE = old_api_keys_file
-        storage.invalidate_cache()
-        storage.invalidate_keys_cache()
+        storage._cache = None
+        storage._cache_ts = 0
+        storage._keys_cache = None
+        storage._keys_cache_ts = 0
+        storage._lock = None
 
 
 def test_invalid_json_request_returns_400():

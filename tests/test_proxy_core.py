@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 import pytest
 
@@ -11,22 +11,25 @@ from proxy_core import (
     _get_channels_for_model,
     _get_converter_and_upstream_type,
     _get_upstream_url,
-    _invalidate_model_channels_cache,
     _yield_anthropic_event,
     _yield_anthropic_events,
     CONVERTER_MAP,
+    _model_channels_cache,
 )
 
 
 @pytest.fixture(autouse=True)
 def reset_model_cache():
     """每个测试前清理模型渠道缓存。"""
-    _invalidate_model_channels_cache()
+    _model_channels_cache.cache_clear() if hasattr(_model_channels_cache, 'cache_clear') else None
+    import proxy_core
+    proxy_core._model_channels_cache = None
     yield
 
 
 class TestGetChannelsForModel:
-    def test_filters_by_model_and_enabled(self):
+    @pytest.mark.anyio
+    async def test_filters_by_model_and_enabled(self):
         mock_data = {
             "channels": [
                 {
@@ -64,17 +67,21 @@ class TestGetChannelsForModel:
                 },
             ]
         }
-        with patch("proxy_core.load_data", return_value=mock_data):
-            channels = _get_channels_for_model("gpt-4")
+        import storage
+        with patch.object(storage, 'load_data', new_callable=AsyncMock, return_value=mock_data):
+            channels = await _get_channels_for_model("gpt-4")
             assert len(channels) == 2
             assert {ch.id for ch in channels} == {"ch_1", "ch_2"}
 
-    def test_returns_empty_when_no_match(self):
-        with patch("proxy_core.load_data", return_value={"channels": []}):
-            channels = _get_channels_for_model("gpt-4")
+    @pytest.mark.anyio
+    async def test_returns_empty_when_no_match(self):
+        import storage
+        with patch.object(storage, 'load_data', new_callable=AsyncMock, return_value={"channels": []}):
+            channels = await _get_channels_for_model("gpt-4")
             assert channels == []
 
-    def test_excludes_disabled_channels(self):
+    @pytest.mark.anyio
+    async def test_excludes_disabled_channels(self):
         mock_data = {
             "channels": [
                 {
@@ -90,8 +97,9 @@ class TestGetChannelsForModel:
                 },
             ]
         }
-        with patch("proxy_core.load_data", return_value=mock_data):
-            channels = _get_channels_for_model("gpt-4")
+        import storage
+        with patch.object(storage, 'load_data', new_callable=AsyncMock, return_value=mock_data):
+            channels = await _get_channels_for_model("gpt-4")
             assert channels == []
 
 

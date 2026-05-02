@@ -21,7 +21,7 @@ from stats import (
     refresh_missing_daily_stats, get_request_field, refresh_stats,
 )
 from storage import (
-    load_api_keys, load_data, save_api_keys, save_data, get_lock, invalidate_keys_cache,
+    load_api_keys, load_data, save_api_keys, save_data, invalidate_keys_cache,
     load_model_groups,
     get_lb_config, save_lb_config,
 )
@@ -32,21 +32,21 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 router = APIRouter(prefix="/admin", tags=["管理"])
 
 
-def _get_channels() -> list[Channel]:
-    data = load_data()
+async def _get_channels() -> list[Channel]:
+    data = await load_data()
     return [Channel(**ch) for ch in data.get("channels", [])]
 
 
-def _save_channels(channels: list[Channel]):
-    data = load_data()
+async def _save_channels(channels: list[Channel]):
+    data = await load_data()
     data["channels"] = [ch.model_dump() for ch in channels]
-    save_data(data)
+    await save_data(data)
 
 
 @router.get("/channels")
-def list_channels():
+async def list_channels():
     """获取所有渠道（API Key 脱敏）"""
-    channels = _get_channels()
+    channels = await _get_channels()
     result = []
     for ch in channels:
         d = ch.model_dump()
@@ -58,32 +58,29 @@ def list_channels():
 
 
 @router.post("/channels", response_model=Channel)
-def create_channel(body: ChannelCreate):
+async def create_channel(body: ChannelCreate):
     """添加渠道"""
-    with get_lock():
-        channels = _get_channels()
-        channel = Channel(**body.model_dump())
-        channels.append(channel)
-        _save_channels(channels)
+    channels = await _get_channels()
+    channel = Channel(**body.model_dump())
+    channels.append(channel)
+    await _save_channels(channels)
     return channel
 
 
 @router.put("/channels/{channel_id}", response_model=Channel)
 async def update_channel(channel_id: str, body: ChannelUpdate):
     """更新渠道"""
-    with get_lock():
-        channels = _get_channels()
-        for i, ch in enumerate(channels):
-            if ch.id == channel_id:
-                update_data = body.model_dump(exclude_unset=True)
-                updated = ch.model_copy(update=update_data)
-                channels[i] = updated
-                _save_channels(channels)
-                old_channel = ch
-                break
-        else:
-            raise HTTPException(status_code=404, detail="渠道不存在")
-    # 渠道配置变更（base_url/socks5_proxy）时刷新客户端缓存（锁外执行）
+    channels = await _get_channels()
+    for i, ch in enumerate(channels):
+        if ch.id == channel_id:
+            update_data = body.model_dump(exclude_unset=True)
+            updated = ch.model_copy(update=update_data)
+            channels[i] = updated
+            await _save_channels(channels)
+            old_channel = ch
+            break
+    else:
+        raise HTTPException(status_code=404, detail="渠道不存在")
     await remove_channel_client(old_channel)
     return updated
 
@@ -91,15 +88,12 @@ async def update_channel(channel_id: str, body: ChannelUpdate):
 @router.delete("/channels/{channel_id}")
 async def delete_channel(channel_id: str):
     """删除渠道"""
-    with get_lock():
-        channels = _get_channels()
-        new_channels = [ch for ch in channels if ch.id != channel_id]
-        if len(new_channels) == len(channels):
-            raise HTTPException(status_code=404, detail="渠道不存在")
-        # 记录被删除的渠道用于锁外清理
-        removed_channel = next((ch for ch in channels if ch.id == channel_id), None)
-        _save_channels(new_channels)
-    # 移除被删除渠道的客户端缓存（锁外执行）
+    channels = await _get_channels()
+    new_channels = [ch for ch in channels if ch.id != channel_id]
+    if len(new_channels) == len(channels):
+        raise HTTPException(status_code=404, detail="渠道不存在")
+    removed_channel = next((ch for ch in channels if ch.id == channel_id), None)
+    await _save_channels(new_channels)
     if removed_channel:
         await remove_channel_client(removed_channel)
     return {"message": "删除成功"}
@@ -108,18 +102,16 @@ async def delete_channel(channel_id: str):
 @router.patch("/channels/{channel_id}/toggle", response_model=Channel)
 async def toggle_channel(channel_id: str):
     """启用/禁用渠道"""
-    with get_lock():
-        channels = _get_channels()
-        for i, ch in enumerate(channels):
-            if ch.id == channel_id:
-                updated = ch.model_copy(update={"enabled": not ch.enabled})
-                channels[i] = updated
-                _save_channels(channels)
-                old_channel = ch
-                break
-        else:
-            raise HTTPException(status_code=404, detail="渠道不存在")
-    # 渠道配置变更时刷新客户端缓存（锁外执行）
+    channels = await _get_channels()
+    for i, ch in enumerate(channels):
+        if ch.id == channel_id:
+            updated = ch.model_copy(update={"enabled": not ch.enabled})
+            channels[i] = updated
+            await _save_channels(channels)
+            old_channel = ch
+            break
+    else:
+        raise HTTPException(status_code=404, detail="渠道不存在")
     await remove_channel_client(old_channel)
     return updated
 
@@ -127,13 +119,13 @@ async def toggle_channel(channel_id: str):
 # ============ API Keys CRUD ============
 
 
-def _get_api_keys() -> list[ApiKey]:
-    data = load_api_keys()
+async def _get_api_keys() -> list[ApiKey]:
+    data = await load_api_keys()
     return [ApiKey(**k) for k in data.get("api_keys", [])]
 
 
-def _save_api_keys(keys: list[ApiKey]):
-    save_api_keys({"api_keys": [k.model_dump() for k in keys]})
+async def _save_api_keys(keys: list[ApiKey]):
+    await save_api_keys({"api_keys": [k.model_dump() for k in keys]})
 
 
 @router.get("/api-keys")
@@ -141,7 +133,7 @@ async def list_api_keys():
     """获取所有 API Key（Key 脱敏），统计数据从 PG 聚合"""
     import stats as _stats
 
-    keys = _get_api_keys()
+    keys = await _get_api_keys()
     key_stats = await _stats.get_api_key_stats()
     result = []
     for k in keys:
@@ -158,51 +150,48 @@ async def list_api_keys():
 
 
 @router.post("/api-keys", response_model=ApiKey)
-def create_api_key(body: ApiKeyCreate):
+async def create_api_key(body: ApiKeyCreate):
     """添加 API Key"""
-    with get_lock():
-        keys = _get_api_keys()
-        data = body.model_dump(exclude_none=True)
-        key = ApiKey(**data)
-        keys.append(key)
-        _save_api_keys(keys)
-        invalidate_keys_cache()
+    keys = await _get_api_keys()
+    data = body.model_dump(exclude_none=True)
+    key = ApiKey(**data)
+    keys.append(key)
+    await _save_api_keys(keys)
+    await invalidate_keys_cache()
     return key
 
 
 @router.put("/api-keys/{key_id}", response_model=ApiKey)
-def update_api_key(key_id: str, body: ApiKeyUpdate):
+async def update_api_key(key_id: str, body: ApiKeyUpdate):
     """更新 API Key"""
-    with get_lock():
-        keys = _get_api_keys()
-        for i, k in enumerate(keys):
-            if k.id == key_id:
-                update_data = body.model_dump(exclude_unset=True)
-                updated = k.model_copy(update=update_data)
-                keys[i] = updated
-                _save_api_keys(keys)
-                invalidate_keys_cache()
-                return updated
+    keys = await _get_api_keys()
+    for i, k in enumerate(keys):
+        if k.id == key_id:
+            update_data = body.model_dump(exclude_unset=True)
+            updated = k.model_copy(update=update_data)
+            keys[i] = updated
+            await _save_api_keys(keys)
+            await invalidate_keys_cache()
+            return updated
     raise HTTPException(status_code=404, detail="API Key 不存在")
 
 
 @router.delete("/api-keys/{key_id}")
-def delete_api_key(key_id: str):
+async def delete_api_key(key_id: str):
     """删除 API Key"""
-    with get_lock():
-        keys = _get_api_keys()
-        new_keys = [k for k in keys if k.id != key_id]
-        if len(new_keys) == len(keys):
-            raise HTTPException(status_code=404, detail="API Key 不存在")
-        _save_api_keys(new_keys)
-        invalidate_keys_cache()
+    keys = await _get_api_keys()
+    new_keys = [k for k in keys if k.id != key_id]
+    if len(new_keys) == len(keys):
+        raise HTTPException(status_code=404, detail="API Key 不存在")
+    await _save_api_keys(new_keys)
+    await invalidate_keys_cache()
     return {"message": "删除成功"}
 
 
 @router.get("/api-keys/{key_id}/key")
-def get_api_key_value(key_id: str):
+async def get_api_key_value(key_id: str):
     """获取 API Key 的完整值（用于复制）"""
-    keys = _get_api_keys()
+    keys = await _get_api_keys()
     for k in keys:
         if k.id == key_id:
             return {"key": k.key}
@@ -210,25 +199,24 @@ def get_api_key_value(key_id: str):
 
 
 @router.patch("/api-keys/{key_id}/regenerate", response_model=ApiKey)
-def regenerate_api_key(key_id: str):
+async def regenerate_api_key(key_id: str):
     """重新生成 API Key"""
-    with get_lock():
-        keys = _get_api_keys()
-        for i, k in enumerate(keys):
-            if k.id == key_id:
-                new_key_value = f"sk-{secrets.token_hex(24)}"
-                updated = k.model_copy(update={"key": new_key_value})
-                keys[i] = updated
-                _save_api_keys(keys)
-                invalidate_keys_cache()
-                return updated
+    keys = await _get_api_keys()
+    for i, k in enumerate(keys):
+        if k.id == key_id:
+            new_key_value = f"sk-{secrets.token_hex(24)}"
+            updated = k.model_copy(update={"key": new_key_value})
+            keys[i] = updated
+            await _save_api_keys(keys)
+            await invalidate_keys_cache()
+            return updated
     raise HTTPException(status_code=404, detail="API Key 不存在")
 
 
 @router.post("/channels/{channel_id}/test")
 async def test_channel(channel_id: str, model: str | None = Query(default=None)):
     """测试渠道连通性：发送最简prompt，检查返回"""
-    channels = _get_channels()
+    channels = await _get_channels()
     channel = next((ch for ch in channels if ch.id == channel_id), None)
     if not channel:
         raise HTTPException(status_code=404, detail="渠道不存在")
@@ -244,7 +232,6 @@ async def test_channel(channel_id: str, model: str | None = Query(default=None))
         test_model = channel.models[0]
     api_type = channel.api_type.value
 
-    # 使用统一的 URL 构建函数，智能处理已包含完整路径的 base_url
     url = _get_upstream_url(channel)
 
     if api_type == "openai-chat-completions":
@@ -271,7 +258,6 @@ async def test_channel(channel_id: str, model: str | None = Query(default=None))
     headers = get_upstream_headers(channel)
     headers["Content-Type"] = "application/json"
 
-    # 测试使用独立客户端（非缓存），可安全关闭
     if channel.socks5_proxy:
         test_client = httpx.AsyncClient(
             proxy=channel.socks5_proxy,
@@ -328,7 +314,7 @@ async def test_channel(channel_id: str, model: str | None = Query(default=None))
 
 
 @router.get("/logs")
-def list_logs():
+async def list_logs():
     """列出所有日志文件"""
     if not LOGS_DIR.exists():
         return []
@@ -337,7 +323,7 @@ def list_logs():
 
 
 @router.get("/logs/{filename}")
-def get_log(filename: str):
+async def get_log(filename: str):
     """获取日志文件内容"""
     file_path = (LOGS_DIR / filename).resolve()
     if not file_path.is_relative_to(LOGS_DIR.resolve()):
@@ -427,8 +413,7 @@ async def refresh_stats_endpoint():
 
 @router.post("/stats/aggregate/daily")
 async def trigger_daily_aggregation(
-    start_date: date,
-    end_date: date,
+    start_date: date, end_date: date,
 ):
     result = await aggregate_daily_stats(start_date, end_date)
     return {"message": f"已更新 {result['updated_rows']} 条日聚合记录", **result}
@@ -461,7 +446,6 @@ async def list_requests_endpoint(
     return result
 
 
-# URL 路径字段名 → stats.get_request_field 的 field 参数名
 _FIELD_PATH_MAP = {
     "request-headers": "request_headers",
     "request-body": "request_body",
@@ -486,71 +470,65 @@ async def get_request_field_endpoint(request_id: int, field_name: str):
 
 
 @router.get("/model-groups")
-def list_model_groups():
+async def list_model_groups():
     """获取所有模型组"""
-    return load_model_groups()
+    return await load_model_groups()
 
 
 @router.post("/model-groups", response_model=ModelGroup)
-def create_model_group(body: ModelGroupCreate):
+async def create_model_group(body: ModelGroupCreate):
     """创建模型组"""
-    with get_lock():
-        groups = load_model_groups()
-        # 检查名称是否重复
-        if any(g.name == body.name for g in groups):
-            raise HTTPException(status_code=400, detail="模型组名称已存在")
-        group = ModelGroup(**body.model_dump())
-        groups.append(group)
-        from storage import save_model_groups
-        save_model_groups(groups)
+    groups = await load_model_groups()
+    if any(g.name == body.name for g in groups):
+        raise HTTPException(status_code=400, detail="模型组名称已存在")
+    group = ModelGroup(**body.model_dump())
+    groups.append(group)
+    from storage import save_model_groups
+    await save_model_groups(groups)
     return group
 
 
 @router.put("/model-groups/{group_id}", response_model=ModelGroup)
-def update_model_group_endpoint(group_id: str, body: ModelGroupUpdate):
+async def update_model_group_endpoint(group_id: str, body: ModelGroupUpdate):
     """更新模型组"""
-    with get_lock():
-        groups = load_model_groups()
-        for i, g in enumerate(groups):
-            if g.id == group_id:
-                update_data = body.model_dump(exclude_unset=True)
-                # 检查名称是否与其他组重复
-                if "name" in update_data:
-                    if any(other.id != group_id and other.name == update_data["name"] for other in groups):
-                        raise HTTPException(status_code=400, detail="模型组名称已存在")
-                updated = g.model_copy(update=update_data)
-                groups[i] = updated
-                from storage import save_model_groups
-                save_model_groups(groups)
-                return updated
+    groups = await load_model_groups()
+    for i, g in enumerate(groups):
+        if g.id == group_id:
+            update_data = body.model_dump(exclude_unset=True)
+            if "name" in update_data:
+                if any(other.id != group_id and other.name == update_data["name"] for other in groups):
+                    raise HTTPException(status_code=400, detail="模型组名称已存在")
+            updated = g.model_copy(update=update_data)
+            groups[i] = updated
+            from storage import save_model_groups
+            await save_model_groups(groups)
+            return updated
     raise HTTPException(status_code=404, detail="模型组不存在")
 
 
 @router.delete("/model-groups/{group_id}")
-def delete_model_group_endpoint(group_id: str):
+async def delete_model_group_endpoint(group_id: str):
     """删除模型组"""
-    with get_lock():
-        groups = load_model_groups()
-        new_groups = [g for g in groups if g.id != group_id]
-        if len(new_groups) == len(groups):
-            raise HTTPException(status_code=404, detail="模型组不存在")
-        from storage import save_model_groups
-        save_model_groups(new_groups)
+    groups = await load_model_groups()
+    new_groups = [g for g in groups if g.id != group_id]
+    if len(new_groups) == len(groups):
+        raise HTTPException(status_code=404, detail="模型组不存在")
+    from storage import save_model_groups
+    await save_model_groups(new_groups)
     return {"message": "删除成功"}
 
 
 @router.patch("/model-groups/{group_id}/toggle", response_model=ModelGroup)
-def toggle_model_group(group_id: str):
+async def toggle_model_group(group_id: str):
     """启用/禁用模型组"""
-    with get_lock():
-        groups = load_model_groups()
-        for i, g in enumerate(groups):
-            if g.id == group_id:
-                updated = g.model_copy(update={"enabled": not g.enabled})
-                groups[i] = updated
-                from storage import save_model_groups
-                save_model_groups(groups)
-                return updated
+    groups = await load_model_groups()
+    for i, g in enumerate(groups):
+        if g.id == group_id:
+            updated = g.model_copy(update={"enabled": not g.enabled})
+            groups[i] = updated
+            from storage import save_model_groups
+            await save_model_groups(groups)
+            return updated
     raise HTTPException(status_code=404, detail="模型组不存在")
 
 
@@ -558,14 +536,13 @@ def toggle_model_group(group_id: str):
 
 
 @router.get("/lb-config", response_model=LBConfig)
-def get_lb_config_endpoint():
+async def get_lb_config_endpoint():
     """获取负载均衡全局配置"""
-    return get_lb_config()
+    return await get_lb_config()
 
 
 @router.put("/lb-config", response_model=LBConfig)
-def update_lb_config_endpoint(body: LBConfig):
+async def update_lb_config_endpoint(body: LBConfig):
     """更新负载均衡全局配置"""
-    with get_lock():
-        save_lb_config(body)
+    await save_lb_config(body)
     return body

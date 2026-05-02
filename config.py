@@ -33,6 +33,9 @@ API_KEYS_FILE = os.getenv("API_KEYS_FILE", os.path.join(DATA_DIR, "api_keys.json
 # 请求超时（秒）
 REQUEST_TIMEOUT = _int_env("REQUEST_TIMEOUT", 300)
 
+# 请求体最大字节数（默认 10MB）
+MAX_BODY_SIZE = _int_env("MAX_BODY_SIZE", 10 * 1024 * 1024)
+
 # 代理访问鉴权
 PROXY_API_KEY = os.getenv("PROXY_API_KEY", "")  # 代理API密钥，为空则不鉴权
 
