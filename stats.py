@@ -616,6 +616,70 @@ async def refresh_missing_daily_stats() -> dict[str, Any]:
         }
 
 
+async def refresh_stats() -> dict[str, Any]:
+    """统一刷新统计：补全缺失历史日聚合 + 强制刷新近3天日聚合 + 刷新近24小时时聚合"""
+    if not _db_available:
+        return {"backfilled_count": 0, "recent_refreshed_days": 0, "hourly_refreshed": False}
+
+    today = utc8_now().date()
+    three_days_ago = today - timedelta(days=2)
+
+    # 步骤1：补全缺失历史聚合（排除近3天，避免和步骤2重复）
+    backfilled_count = 0
+    async with _get_conn() as conn:
+        if conn is None:
+            return {"backfilled_count": 0, "recent_refreshed_days": 0, "hourly_refreshed": False}
+
+        request_dates = await conn.fetch(
+            """
+            SELECT DISTINCT date_trunc('day', timestamp + interval '8 hours')::date as d
+            FROM requests
+            WHERE date_trunc('day', timestamp + interval '8 hours')::date < $1
+            ORDER BY d
+            """,
+            three_days_ago,
+        )
+        all_request_dates = {r["d"] for r in request_dates}
+
+        if all_request_dates:
+            min_date = min(all_request_dates)
+            max_date = max(all_request_dates)
+            existing_rows = await conn.fetch(
+                "SELECT DISTINCT date FROM daily_stats WHERE date >= $1 AND date <= $2",
+                min_date, max_date,
+            )
+            existing_dates = {r["date"] for r in existing_rows}
+            missing_dates = sorted(all_request_dates - existing_dates)
+
+            if missing_dates:
+                start = missing_dates[0]
+                prev = missing_dates[0]
+                for d in missing_dates[1:]:
+                    if d == prev + timedelta(days=1):
+                        prev = d
+                    else:
+                        await aggregate_daily_stats(start, prev)
+                        start = d
+                        prev = d
+                await aggregate_daily_stats(start, prev)
+                backfilled_count = len(missing_dates)
+
+    # 步骤2：强制刷新近3天日聚合（含当天）
+    await aggregate_daily_stats(three_days_ago, today)
+
+    # 步骤3：强制刷新近24小时时聚合
+    now = utc8_now()
+    hour_end = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    hour_start = hour_end - timedelta(hours=24)
+    await aggregate_hourly_stats(hour_start, hour_end)
+
+    return {
+        "backfilled_count": backfilled_count,
+        "recent_refreshed_days": 3,
+        "hourly_refreshed": True,
+    }
+
+
 async def get_overall_stats(days: int = 7) -> dict[str, Any]:
     """总体统计数据"""
     if not _db_available:
