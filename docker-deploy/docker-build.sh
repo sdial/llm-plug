@@ -8,23 +8,17 @@ IMAGE_REGISTRY="docker.cnb.cool/lfo.cc/llm-plug"
 TAG="${1:-$(date +%Y%m%d-%H%M)}"
 FULL_IMAGE="${IMAGE_REGISTRY}:${TAG}"
 
-echo ">>> 构建镜像: ${FULL_IMAGE}"
-docker build -f "${SCRIPT_DIR}/Dockerfile" -t "${FULL_IMAGE}" "${PROJECT_ROOT}"
+echo ">>> 构建多架构镜像 (amd64, arm64): ${FULL_IMAGE}"
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -f "${SCRIPT_DIR}/Dockerfile" \
+  -t "${FULL_IMAGE}" \
+  -t "${IMAGE_REGISTRY}:latest" \
+  --push \
+  "${PROJECT_ROOT}"
 
-echo ">>> 推送到 CNB: ${FULL_IMAGE}"
-docker push "${FULL_IMAGE}"
+echo ">>> 镜像已推送到 CNB"
 
-docker tag "${FULL_IMAGE}" "${IMAGE_REGISTRY}:latest"
-echo ">>> 推送到 CNB: ${IMAGE_REGISTRY}:latest"
-docker push "${IMAGE_REGISTRY}:latest"
-
-DIST_DIR="${SCRIPT_DIR}/dist"
-mkdir -p "${DIST_DIR}"
-ARCHIVE="${DIST_DIR}/llm-plug-${TAG}.tar.gz"
-echo ">>> 保存镜像到: ${ARCHIVE}"
-docker save "${FULL_IMAGE}" | gzip > "${ARCHIVE}"
-
-IMAGE_SIZE=$(du -h "${ARCHIVE}" | cut -f1)
-echo ">>> 完成! 镜像大小: ${IMAGE_SIZE}"
+echo ">>> 完成!"
 echo "    远程: ${FULL_IMAGE}"
-echo "    本地: ${ARCHIVE}"
+echo "    远程: ${IMAGE_REGISTRY}:latest"
