@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from client import close_all_clients
-from config import DEBUG, HOST, PORT
+from config import DEBUG, HOST, PORT, LOG_LEVEL
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
 from stats import init_db as init_stats_db, close_pool as close_stats_pool
 from storage import load_data, load_api_keys
@@ -186,8 +186,7 @@ app = FastAPI(title="LLM API 转换器", version="0.1.0", lifespan=lifespan)
 # uvicorn --debug 会设置 sys.flags.debug
 _debug_enabled = DEBUG or getattr(sys.flags, "debug", False)
 
-# 日志级别（由 --log-level 参数控制，默认 info）
-LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
+    # 日志级别（由 --log-level 参数控制，默认 info）
 
 # Add pure ASGI middleware
 app.add_middleware(CombinedMiddleware)
@@ -224,6 +223,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     os.environ["LOG_LEVEL"] = args.log_level
+    import config as _config
+    _config.LOG_LEVEL = args.log_level
     log_config = {
         "version": 1,
         "disable_existing_loggers": False,
