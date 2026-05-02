@@ -12,6 +12,7 @@ from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from models.model_group import LBConfig, ModelGroup, ModelGroupCreate, ModelGroupUpdate
 from datetime import date, datetime
+from proxy_core import _get_upstream_url
 
 from stats import (
     get_daily_stats, get_daily_stats_from_requests,
@@ -240,24 +241,23 @@ async def test_channel(channel_id: str, model: str | None = Query(default=None))
     else:
         test_model = channel.models[0]
     api_type = channel.api_type.value
-    base = channel.base_url.rstrip("/")
+
+    # 使用统一的 URL 构建函数，智能处理已包含完整路径的 base_url
+    url = _get_upstream_url(channel)
 
     if api_type == "openai-chat-completions":
-        url = f"{base}/v1/chat/completions"
         payload = {
             "model": test_model,
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 5,
         }
     elif api_type == "openai-response":
-        url = f"{base}/v1/responses"
         payload = {
             "model": test_model,
             "input": "Hi",
             "max_output_tokens": 5,
         }
     elif api_type == "anthropic":
-        url = f"{base}/v1/messages"
         payload = {
             "model": test_model,
             "messages": [{"role": "user", "content": "Hi"}],
