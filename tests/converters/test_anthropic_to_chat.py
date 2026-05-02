@@ -17,7 +17,8 @@ class TestAnthropicToChat:
         }
         result = self.converter.convert_request(request, APIType.ANTHROPIC)
         assert "reasoning_effort" in result
-        assert result["reasoning_effort"] == 16000
+        assert result["reasoning_effort"] == "high"
+        assert result["enable_thinking"] is True
 
     def test_thinking_adaptive_to_reasoning_effort_medium(self):
         request = {

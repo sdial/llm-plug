@@ -73,9 +73,10 @@ class ToAnthropicConverter(BaseConverter):
                                 "source": {"type": "base64", "media_type": media_type, "data": data},
                             })
                         else:
-                            raise ValueError(
-                                f"Anthropic only supports base64-encoded images (data: URI). "
-                                f"Got URL: {url[:50]}..."
+                            logger.warning(
+                                "Anthropic only supports base64-encoded images (data: URI). "
+                                "Skipping HTTP URL image: %s...",
+                                url[:50],
                             )
 
                 elif isinstance(item, str):
@@ -102,6 +103,9 @@ class ToAnthropicConverter(BaseConverter):
                             system.append({"type": "text", "text": item})
             elif role == "assistant":
                 content_parts = []
+                reasoning_content = msg.get("reasoning_content")
+                if reasoning_content:
+                    content_parts.append({"type": "thinking", "thinking": reasoning_content})
                 text_content = msg.get("content")
                 if text_content:
                     if isinstance(text_content, str):
@@ -389,6 +393,22 @@ class ToAnthropicConverter(BaseConverter):
                 if tc.get("function", {}).get("arguments") is not None:
                     if not self._stream_state["content_block_started"]:
                         self._stream_state["content_block_started"] = True
+                        self._stream_state["current_content_type"] = "tool_use"
+                        # 如果 name chunk 未触发 content_block_start，此处补发
+                        tool_id = self._stream_state.get("tool_id") or tc.get("id", "")
+                        tool_name = self._stream_state.get("tool_name") or tc.get("function", {}).get("name", "")
+                        events.append(
+                            ("content_block_start", {
+                                "type": "content_block_start",
+                                "index": self._stream_state["content_block_index"],
+                                "content_block": {
+                                    "type": "tool_use",
+                                    "id": tool_id,
+                                    "name": tool_name,
+                                    "input": {},
+                                },
+                            })
+                        )
                     args = tc["function"].get("arguments", "")
                     if args:
                         events.append(

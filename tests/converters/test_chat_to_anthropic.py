@@ -87,5 +87,13 @@ class TestChatToAnthropic:
                 ],
             }],
         }
-        with pytest.raises(ValueError, match="Anthropic only supports base64-encoded images"):
-            self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        # HTTP URL 图片应被跳过而非抛出异常
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        # 应只包含 text 部分，image_url 被跳过
+        user_msg = result["messages"][0]
+        assert user_msg["role"] == "user"
+        has_image = any(
+            isinstance(c, dict) and c.get("type") == "image"
+            for c in (user_msg.get("content") if isinstance(user_msg.get("content"), list) else [])
+        )
+        assert not has_image
