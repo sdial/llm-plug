@@ -1,10 +1,11 @@
-import os
 import json
+import os
 import tempfile
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+
+from main import app
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +40,6 @@ def setup_test_data():
         config.API_KEYS_FILE = old_api_keys_file
         storage.invalidate_cache()
         storage.invalidate_keys_cache()
-
-
-from main import app
 
 
 def test_invalid_json_request_returns_400():

@@ -132,7 +132,7 @@
 - [x] 错误处理与日志
 - [x] 代理API Key认证（`PROXY_API_KEY` 已生效）
 - [x] ~~管理API Key认证~~（已移除，管理接口无需认证）
-- [ ] Dockerfile
+- [x] Dockerfile
 - [x] 基础测试（`tests/` 已覆盖转换器、路由、负载均衡等）
 
 ## API端点设计

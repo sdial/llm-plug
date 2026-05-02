@@ -16,6 +16,7 @@ class TestClaudeCodeToAnthropic:
             "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
+            "stream": False,
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -47,6 +48,7 @@ class TestClaudeCodeToOpenAI:
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 100,
+            "stream": False,
         })
         assert resp.status_code == 200
         data = resp.json()
