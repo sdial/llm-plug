@@ -38,7 +38,9 @@ def _get_channels() -> list[Channel]:
 
 
 def _save_channels(channels: list[Channel]):
-    save_data({"channels": [ch.model_dump() for ch in channels]})
+    data = load_data()
+    data["channels"] = [ch.model_dump() for ch in channels]
+    save_data(data)
 
 
 @router.get("/channels")
