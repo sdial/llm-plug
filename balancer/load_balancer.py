@@ -22,12 +22,16 @@ class ChannelHealth:
         self.fail_count += 1
         self.last_fail_time = time.time()
 
-    @property
-    def is_healthy(self) -> bool:
-        config = storage.get_lb_config()
-        if self.fail_count < config.max_fail_count:
+    def is_healthy(self, max_fail_count: int, cooldown_seconds: float) -> bool:
+        """检查渠道是否健康
+
+        Args:
+            max_fail_count: 最大允许失败次数
+            cooldown_seconds: 冷却时间（秒）
+        """
+        if self.fail_count < max_fail_count:
             return True
-        return (time.time() - self.last_fail_time) > config.cooldown_seconds
+        return (time.time() - self.last_fail_time) > cooldown_seconds
 
 
 class LoadBalancer:
@@ -65,13 +69,14 @@ class LoadBalancer:
         整个选择过程在锁内完成，确保健康检查与轮询的原子性。
         """
         exclude_ids = exclude_ids or set()
+        config = await storage.get_lb_config()
         async with self._lock:
             available = [
                 ch
                 for ch in channels
                 if ch.enabled
                 and ch.id not in exclude_ids
-                and self._health[ch.id].is_healthy
+                and self._health[ch.id].is_healthy(config.max_fail_count, config.cooldown_seconds)
             ]
             if not available:
                 return None
