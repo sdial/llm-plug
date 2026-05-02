@@ -2,6 +2,7 @@
 将其他格式转换为 OpenAI Chat Completions 格式
 """
 import json
+import time
 from typing import Any
 
 from converters.base import BaseConverter
@@ -50,6 +51,7 @@ class ToChatCompletionsConverter(BaseConverter):
                 tool_calls = []
                 tool_result_parts = []
                 image_parts = []
+                reasoning_parts = []
                 for part in content:
                     if part.get("type") == "text":
                         text_parts.append(part["text"])
@@ -71,11 +73,15 @@ class ToChatCompletionsConverter(BaseConverter):
                         })
                     elif part.get("type") == "tool_result":
                         tool_result_parts.append(part)
+                    elif part.get("type") == "thinking":
+                        reasoning_parts.append(part.get("thinking", ""))
 
                 if role == "assistant":
                     assistant_msg = {"role": "assistant", "content": None}
                     if text_parts:
                         assistant_msg["content"] = "\n".join(text_parts)
+                    if reasoning_parts:
+                        assistant_msg["reasoning_content"] = "\n".join(reasoning_parts)
                     if tool_calls:
                         assistant_msg["tool_calls"] = tool_calls
                     messages.append(assistant_msg)
@@ -88,6 +94,9 @@ class ToChatCompletionsConverter(BaseConverter):
                             )
                         else:
                             result_text = str(tool_result_content) if tool_result_content else ""
+                        is_error = tr.get("is_error", False)
+                        if is_error:
+                            result_text = f"[ERROR] {result_text}"
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tr.get("tool_use_id", ""),
@@ -137,15 +146,28 @@ class ToChatCompletionsConverter(BaseConverter):
             if isinstance(thinking, dict):
                 if thinking.get("type") == "enabled":
                     budget = thinking.get("budget_tokens", 0)
-                    result["reasoning_effort"] = budget
+                    # 将 budget_tokens 映射为语义合理的 reasoning_effort 值
+                    if budget <= 0:
+                        result["reasoning_effort"] = "low"
+                    elif budget <= 2048:
+                        result["reasoning_effort"] = "low"
+                    elif budget <= 8192:
+                        result["reasoning_effort"] = "medium"
+                    else:
+                        result["reasoning_effort"] = "high"
+                    result["enable_thinking"] = True
                 elif thinking.get("type") == "adaptive":
                     result["reasoning_effort"] = "medium"
+                    result["enable_thinking"] = True
         return result
 
     def _anthropic_tools_to_openai(self, tools: list) -> list:
         openai_tools = []
         for tool in tools:
-            if tool.get("type") == "custom" or "name" in tool:
+            tool_type = tool.get("type")
+            # Anthropic tools 规范：type 可省略（默认即工具），或为 "custom"
+            # 必须同时包含 name 和 input_schema 才是有效工具定义
+            if (tool_type in (None, "custom") or "name" in tool) and "input_schema" in tool:
                 openai_tools.append({
                     "type": "function",
                     "function": {
@@ -188,7 +210,7 @@ class ToChatCompletionsConverter(BaseConverter):
         result = {
             "id": f"chatcmpl-{data.get('id', '')}",
             "object": "chat.completion",
-            "created": data.get("created", 0),
+            "created": data.get("created") or int(time.time()),
             "model": data.get("model", ""),
             "choices": [{
                 "index": 0,
