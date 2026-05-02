@@ -4,7 +4,7 @@ import os
 import pytest
 import pytest_asyncio
 import asyncpg
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import stats
 
@@ -320,3 +320,90 @@ class TestGetRequestField:
     async def test_invalid_field(self):
         result = await stats.get_request_field(1, "invalid_field")
         assert result is None
+
+
+class TestTimezoneOffset:
+    async def test_daily_aggregation_respects_utc8_boundary(self):
+        """验证日聚合按东8区日期归类：UTC 15:00 = 东8区 23:00 归入同一天，UTC 01:00 = 东8区 09:00"""
+        pool = await _create_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO requests
+                (timestamp, model, channel_id, channel_name, api_key_id, request_headers,
+                 is_stream, input_tokens, output_tokens, latency_ms, success, error_msg)
+                VALUES
+                ($1, 'gpt-4', 'ch_1', 'Test', '', '{}', false, 100, 50, 200, true, NULL),
+                ($2, 'gpt-4', 'ch_1', 'Test', '', '{}', false, 100, 50, 200, true, NULL)
+                """,
+                datetime(2026, 5, 2, 15, 0, 0),
+                datetime(2026, 5, 2, 1, 0, 0),
+            )
+        await pool.close()
+
+        result = await stats.aggregate_daily_stats(date(2026, 5, 2), date(2026, 5, 2))
+        assert result["updated_rows"] >= 1
+
+        raw_daily = await stats.get_daily_stats(days=1)
+        assert len(raw_daily) >= 1
+        day_data = next((d for d in raw_daily if str(d.get("date")) == "2026-05-02"), None)
+        assert day_data is not None
+        assert day_data["request_count"] == 2
+
+    async def test_daily_aggregation_cross_day_boundary(self):
+        """UTC 16:00 = 东8区 00:00 次日，应归入次日的聚合行"""
+        pool = await _create_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO requests
+                (timestamp, model, channel_id, channel_name, api_key_id, request_headers,
+                 is_stream, input_tokens, output_tokens, latency_ms, success, error_msg)
+                VALUES
+                ($1, 'gpt-4', 'ch_1', 'Test', '', '{}', false, 100, 50, 200, true, NULL)
+                """,
+                datetime(2026, 5, 2, 16, 0, 0),
+            )
+        await pool.close()
+
+        result = await stats.aggregate_daily_stats(date(2026, 5, 2), date(2026, 5, 3))
+        assert result["updated_rows"] >= 1
+
+        raw_daily = await stats.get_daily_stats(days=2)
+        may3_data = next((d for d in raw_daily if str(d.get("date")) == "2026-05-03"), None)
+        assert may3_data is not None
+        assert may3_data["request_count"] == 1
+
+
+class TestRefreshStats:
+    async def test_refresh_stats_backfills_and_refreshes_recent(self):
+        """验证 refresh_stats 补全历史 + 强制刷新近3天"""
+        pool = await _create_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO requests
+                (timestamp, model, channel_id, channel_name, api_key_id, request_headers,
+                 is_stream, input_tokens, output_tokens, latency_ms, success, error_msg)
+                VALUES
+                ($1, 'gpt-4', 'ch_1', 'Test', '', '{}', false, 100, 50, 200, true, NULL),
+                ($2, 'gpt-4', 'ch_1', 'Test', '', '{}', false, 200, 100, 300, true, NULL),
+                ($3, 'gpt-4', 'ch_1', 'Test', '', '{}', false, 50, 25, 100, true, NULL)
+                """,
+                datetime(2026, 4, 28, 12, 0, 0),
+                datetime(2026, 5, 1, 12, 0, 0),
+                datetime.utcnow(),
+            )
+        await pool.close()
+
+        result = await stats.refresh_stats()
+        assert result["recent_refreshed_days"] == 3
+        assert result["hourly_refreshed"] is True
+
+        raw_daily = await stats.get_daily_stats(days=7)
+        assert len(raw_daily) >= 1
+
+        raw_hourly = await stats.get_hourly_stats(
+            start_time=datetime.utcnow() - timedelta(hours=24)
+        )
+        assert len(raw_hourly) >= 1
