@@ -11,3 +11,10 @@ docs/
 !README.md
 .env
 *.db
+docker-deploy/
+.codebuddy/
+opencode.json*
+REVIEW*.md
+serve_viewer.py
+test_jsonb_debug.py
+kill_port.sh

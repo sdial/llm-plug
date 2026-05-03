@@ -17,3 +17,5 @@ services:
       - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-300}
       - DATABASE_URL=${DATABASE_URL:-}
       - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKERS=${WORKERS:-1}
