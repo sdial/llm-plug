@@ -93,10 +93,10 @@
         .status-badge {
             display: inline-flex;
             align-items: center;
-            gap: 5px;
-            padding: 5px 14px;
+            gap: 4px;
+            padding: 3px 10px;
             border-radius: 9999px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.15s ease;
@@ -745,7 +745,7 @@
                                     <td class="py-3 px-4 font-medium text-ink-900">${esc(ch.name)}</td>
                                     <td class="py-3 px-2 text-center">
                                         <span class="status-badge ${ch.enabled ? 'status-enabled' : 'status-disabled'}" onclick="toggleStatusWithConfirm('${ch.id}', ${ch.enabled})" title="点击切换状态">
-                                            ${ch.enabled ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>' : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'}
+                                            ${ch.enabled ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>' : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'}
                                             ${ch.enabled ? '启用' : '禁用'}
                                         </span>
                                     </td>
