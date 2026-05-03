@@ -938,29 +938,6 @@
             loadChannels();
         }
 
-        async function testChannel(id, btn) {
-            const modelSelect = document.getElementById(`model_${id}`);
-            const model = modelSelect ? modelSelect.value : null;
-            const origText = btn.textContent;
-            btn.textContent = '测试中...';
-            btn.disabled = true;
-            try {
-                const url = model ? `${API}/${id}/test?model=${encodeURIComponent(model)}` : `${API}/${id}/test`;
-                const resp = await fetch(url, { method: 'POST' });
-                const result = await resp.json();
-                if (result.success) {
-                    alert(`✅ 测试通过\n模型: ${result.model}\n延迟: ${result.latency_ms}ms\n回复: ${result.reply}`);
-                } else {
-                    alert(`❌ 测试失败\n${result.message}${result.latency_ms ? '\n延迟: ' + result.latency_ms + 'ms' : ''}`);
-                }
-            } catch (e) {
-                alert(`❌ 请求异常: ${e.message}`);
-            } finally {
-                btn.textContent = origText;
-                btn.disabled = false;
-            }
-        }
-
         // ========== API Key 管理 ==========
         async function loadApiKeys() {
             try {
