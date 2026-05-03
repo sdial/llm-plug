@@ -252,6 +252,9 @@ async def test_channel(channel_id: str, model: str | None = Query(default=None))
             "messages": [{"role": "user", "content": "Hi"}],
             "max_tokens": 5,
         }
+        # 如果是 thinking 模型，添加 thinking 参数
+        if "thinking" in test_model.lower():
+            payload["thinking"] = {"type": "enabled", "budget_tokens": 1024}
     else:
         return {"success": False, "message": f"不支持的API类型: {api_type}", "latency_ms": None}
 
