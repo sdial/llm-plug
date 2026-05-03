@@ -1,6 +1,6 @@
 """代理 API 的鉴权（与 /admin 管理接口分离）"""
 
-from config import PROXY_API_KEY
+# from config import PROXY_API_KEY
 
 
 def check_proxy_authorization(authorization: str | None, request_state=None) -> bool:
