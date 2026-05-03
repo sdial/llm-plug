@@ -10,7 +10,7 @@ MODE="${1:-run}"
 # 环境变量（按需修改或 export 覆盖）
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-55555}"
-export WORKERS="${WORKERS:-2}"
+export WORKERS="${WORKERS:-1}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
 
 # 清理函数：杀死所有子进程
