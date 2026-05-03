@@ -137,6 +137,8 @@ class CombinedMiddleware:
         api_keys = keys_data.get("api_keys", [])
 
         if api_keys:
+            # 从 scope 中提取 headers（ASGI 格式：[(b"name", b"value"), ...]）
+            headers_dict = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
             # 支持两种认证方式：Authorization: Bearer xxx 或 x-api-key: xxx
             auth_header = headers_dict.get("authorization", "")
             x_api_key = headers_dict.get("x-api-key", "")
