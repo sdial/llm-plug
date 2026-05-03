@@ -783,10 +783,13 @@ async def _do_stream_request(
                     return []
                 results = []
                 if output_anthropic_sse:
-                    sse = _yield_anthropic_events(extra)
-                    for part in sse.split("\n\n"):
-                        if part.strip():
-                            _log_stream_event(part + "\n\n")
+                    for extra_evt in extra:
+                        if isinstance(extra_evt, tuple) and len(extra_evt) == 2:
+                            evt_type, evt_data = extra_evt
+                            sse = _yield_anthropic_event(evt_type, evt_data)
+                        else:
+                            sse = _format_sse(extra_evt)
+                        _log_stream_event(sse)
                         results.append(sse)
                 else:
                     for extra_evt in extra:
