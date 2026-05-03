@@ -20,36 +20,45 @@
 
 ```
 /workspace
-├── main.py                  # 入口文件，FastAPI应用
-├── config.py                # 配置管理（端口、存储路径等）
-├── storage.py               # JSON文件读写封装
-├── client.py                # HTTP客户端创建（含SOCKS5代理支持）
-├── proxy_core.py            # 代理请求核心逻辑（负载均衡+故障转移+格式转换）
+├── main.py # 入口文件，FastAPI应用
+├── config.py # 配置管理（端口、存储路径等）
+├── storage.py # JSON文件读写封装
+├── client.py # HTTP客户端创建（含SOCKS5代理支持）
+├── proxy_core.py # 代理请求核心逻辑（负载均衡+故障转移+格式转换）
+├── stats.py # PostgreSQL 统计模块
+├── serve_viewer.py # 日志查看服务
 ├── models/
-│   ├── __init__.py
-│   ├── channel.py           # 渠道数据模型
-│   └── api_types.py         # API类型枚举与定义
+│ ├── __init__.py
+│ ├── channel.py # 渠道数据模型
+│ ├── api_key.py # API Key 数据模型
+│ ├── model_group.py # 模型组数据模型
+│ └── api_types.py # API类型枚举与定义
 ├── routers/
-│   ├── __init__.py
-│   ├── admin.py             # 管理API（渠道CRUD、模型管理）
-│   ├── proxy_chat.py        # OpenAI Chat Completions 代理
-│   ├── proxy_response.py    # OpenAI Response 代理
-│   └── proxy_anthropic.py   # Anthropic 代理
+│ ├── __init__.py
+│ ├── admin.py # 管理API（渠道CRUD、模型管理）
+│ ├── proxy_base.py # 代理路由工厂函数
+│ ├── proxy_models.py # 模型列表聚合
+│ ├── proxy_errors.py # 代理错误映射
+│ ├── auth.py # Bearer Token 校验
+│ ├── proxy_chat.py # OpenAI Chat Completions 代理
+│ ├── proxy_response.py # OpenAI Response 代理
+│ └── proxy_anthropic.py # Anthropic 代理
 ├── converters/
-│   ├── __init__.py
-│   ├── base.py              # 转换器基类
-│   ├── to_chat.py           # 任意格式 → OpenAI Chat Completions
-│   ├── to_response.py       # 任意格式 → OpenAI Response
-│   └── to_anthropic.py      # 任意格式 → Anthropic
+│ ├── __init__.py
+│ ├── base.py # 转换器基类
+│ ├── to_chat.py # 任意格式 → OpenAI Chat Completions
+│ ├── to_response.py # 任意格式 → OpenAI Response
+│ └── to_anthropic.py # 任意格式 → Anthropic
 ├── balancer/
-│   ├── __init__.py
-│   └── load_balancer.py     # 负载均衡策略（轮询/加权/最少连接）
+│ ├── __init__.py
+│ └── load_balancer.py # 负载均衡策略（轮询/加权/最少连接）
 ├── static/
-│   └── index.html           # 管理页面（内嵌TailwindCSS）
+│ └── index.html # 管理页面（内嵌TailwindCSS）
 ├── data/
-│   ├── channels.json        # 渠道与模型存储文件
-│   └── api_keys.json        # API Keys 存储文件
-└── pyproject.toml           # uv项目配置与依赖
+│ ├── channels.json # 渠道与模型存储文件
+│ └── api_keys.json # API Keys 存储文件
+├── logs/ # 调试日志目录（JSONL格式）
+└── pyproject.toml # uv项目配置与依赖
 ```
 
 ## 数据模型
@@ -79,6 +88,21 @@
 | `priority` | int | 优先级，数字越小优先级越高，同优先级内按权重负载均衡 |
 | `socks5_proxy` | string? | 可选，SOCKS5代理地址，格式 `socks5://[user:pass@]host:port`，为空则直连 |
 
+### API Key
+```json
+{
+  "id": "key_xxxx",
+  "name": "生产环境",
+  "key": "llmplug-api-xxx",
+  "allowed_models": [],
+  "notes": "",
+  "request_count": 0,
+  "total_input_tokens": 0,
+  "total_output_tokens": 0,
+  "created_at": "2026-01-01T00:00:00Z"
+}
+```
+
 ### 模型路由规则
 - 请求到达时，根据 `model` 字段匹配渠道
 - 支持同一模型名映射到多个渠道（负载均衡/故障转移）
@@ -90,6 +114,8 @@
 2. **组内加权轮询**：同一优先级内，按 `weight` 加权轮询分配请求
 3. **故障转移**：当前渠道请求失败时，自动降级到下一优先级组重试
 4. **健康检查**：渠道连续失败N次后自动暂时剔除，定时恢复探测
+
+> **注意**：`MAX_FAIL_COUNT` 和 `COOLDOWN_SECONDS` 除可通过环境变量配置外，还支持通过管理界面或 `channels.json` 中的 `lb_config` 节动态配置，优先级高于环境变量。
 
 ## 开发计划
 
@@ -145,6 +171,17 @@
 | PUT | /admin/channels/{id} | 更新渠道 |
 | DELETE | /admin/channels/{id} | 删除渠道 |
 | PATCH | /admin/channels/{id}/toggle | 启用/禁用渠道 |
+| POST | /admin/channels/{id}/test | 测试渠道连通性 |
+| GET | /admin/logs | 列出日志文件 |
+| GET | /admin/logs/{filename} | 查看日志内容 |
+| GET | /admin/api-keys | 获取所有 API Key |
+| POST | /admin/api-keys | 添加 API Key |
+| PUT | /admin/api-keys/{id} | 更新 API Key |
+| DELETE | /admin/api-keys/{id} | 删除 API Key |
+| GET | /admin/api-keys/{id}/key | 获取 API Key 完整值 |
+| PATCH | /admin/api-keys/{id}/regenerate | 重新生成 API Key |
+| GET | /admin/stats | 获取统计数据 |
+| GET | /admin/requests | 查询请求记录 |
 
 ### 代理API
 | 方法 | 路径 | 说明 |
@@ -152,6 +189,8 @@
 | POST | /v1/chat/completions | OpenAI Chat Completions 格式 |
 | POST | /v1/responses | OpenAI Response 格式 |
 | POST | /v1/messages | Anthropic Messages 格式 |
+| GET | /v1/models | OpenAI 格式模型列表 |
+| GET | /v1/anthropic/models | Anthropic 格式模型列表 |
 
 所有代理API的请求体与对应官方API一致，转换器自动根据渠道类型进行格式转换。
 
@@ -183,6 +222,9 @@ uv run uvicorn main:app --host 0.0.0.0 --port 55555 --reload
 | MAX_FAIL_COUNT | 5 | 连续失败剔除阈值 |
 | COOLDOWN_SECONDS | 60 | 渠道冷却恢复时间 |
 | REQUEST_TIMEOUT | 300 | 上游请求超时时间（秒） |
+| DATABASE_URL | (空) | PostgreSQL 连接 URL |
+| STATS_TRACKED_HEADERS | (空) | 统计追踪的请求头 |
+| MAX_BODY_SIZE | 10485760 | 请求体最大字节数（默认 10MB） |
 | LOG_LEVEL | info | 日志级别 |
 | PROXY_API_KEY | (空) | 代理API密钥，空则不鉴权 |
 | DEBUG | false | 调试日志开关 |
