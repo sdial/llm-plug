@@ -17,8 +17,6 @@ from routers.proxy_errors import (
     unauthorized,
 )
 
-# 需要转发给上游 Anthropic 的客户端请求头
-_FORWARDED_ANTHROPIC_HEADERS = {"anthropic-beta", "anthropic-version"}
 
 
 async def _closeable_stream(gen: AsyncGenerator):
@@ -60,12 +58,7 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
             is_stream = body.get("stream", False)
         query_string = str(request.url.query) if request.url.query else None
 
-        # 收集需要转发的客户端 Anthropic 请求头
-        client_headers = {}
-        for h in _FORWARDED_ANTHROPIC_HEADERS:
-            val = request.headers.get(h)
-            if val:
-                client_headers[h] = val
+        client_headers = dict(request.headers)
 
         api_key_id = getattr(request.state, 'api_key_id', None)
         tracked_headers = getattr(request.state, 'tracked_headers', None)

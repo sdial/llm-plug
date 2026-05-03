@@ -542,13 +542,11 @@ async def _do_request(
     headers = get_upstream_headers(channel)
     headers["Content-Type"] = "application/json"
 
-    # 合并客户端的 Anthropic 请求头（anthropic-beta, anthropic-version）
-    if client_headers and channel.api_type == APIType.ANTHROPIC:
+    # 透传客户端 header（排除 host 和认证相关）
+    _SKIP_HEADERS = {"host", "authorization", "x-api-key", "content-type"}
+    if client_headers:
         for key, val in client_headers.items():
-            existing = headers.get(key, "")
-            if existing:
-                headers[key] = f"{existing},{val}"
-            else:
+            if key.lower() not in _SKIP_HEADERS:
                 headers[key] = val
 
     if is_stream:
@@ -862,6 +860,7 @@ async def _do_stream_request(
                     else:
                         usage = chunk.get("usage")
                         if usage:
+                            logger.info(f"[STREAM USAGE] upstream returned usage: {usage}")
                             input_tokens = usage.get("prompt_tokens", input_tokens)
                             output_tokens = usage.get("completion_tokens", output_tokens)
                         choices = chunk.get("choices", [])
