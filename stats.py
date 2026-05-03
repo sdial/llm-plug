@@ -9,7 +9,7 @@ import asyncio
 import asyncpg
 from loguru import logger
 
-from config import DATABASE_URL, STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
+from config import DATABASE_URL
 
 _pool: asyncpg.Pool | None = None
 _db_available: bool = False
@@ -182,24 +182,13 @@ async def record_request(
     # 处理 request_headers：确保所有值都是字符串
     req_headers = {}
     if request_headers:
-        if TRACK_ALL_HEADERS:
-            for k, v in request_headers.items():
-                if isinstance(v, str):
-                    req_headers[k] = v
-                elif v is None:
-                    req_headers[k] = ""
-                else:
-                    req_headers[k] = str(v)
-        else:
-            target_keys = {k.lower() for k in STATS_TRACKED_HEADERS}
-            for k, v in request_headers.items():
-                if k.lower() in target_keys:
-                    if isinstance(v, str):
-                        req_headers[k] = v
-                    elif v is None:
-                        req_headers[k] = ""
-                    else:
-                        req_headers[k] = str(v)
+        for k, v in request_headers.items():
+            if isinstance(v, str):
+                req_headers[k] = v
+            elif v is None:
+                req_headers[k] = ""
+            else:
+                req_headers[k] = str(v)
 
     # 处理 response_headers：确保所有值都是字符串
     resp_headers = {}

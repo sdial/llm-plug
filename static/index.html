@@ -133,7 +133,7 @@
                 <h1 class="text-xl font-bold tracking-tight text-ink-900">LLM API 转换器</h1>
                 <p class="text-ink-600 text-xs mt-0.5">openai-chat-completions / openai-response / anthropic 三格式互转 + 负载均衡</p>
             </div>
-            <div class="text-xs text-ink-400">v1.0.8 release 2026-05-03</div>
+            <div class="text-xs text-ink-400">v1.0.9 release 2026-05-03</div>
         </div>
     </div>
 
@@ -422,21 +422,12 @@
 </div>
 </div>
 
-<!-- 统计 -->
-<div class="card p-5">
-<h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-4">统计</h2>
-<div>
-<label class="block text-xs text-ink-600 mb-1">追踪请求头 <span class="text-ink-400 font-normal">(逗号分隔)</span></label>
-<input type="text" id="set_stats_tracked_headers" placeholder="x-request-id, x-trace-id" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-</div>
-</div>
-
 <!-- 数据库 -->
 <div class="card p-5">
 <h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-4">数据库</h2>
 <div>
 <label class="block text-xs text-ink-600 mb-1">数据库 URL <span class="pill pill-warning">需重启</span></label>
-<input type="password" id="set_database_url" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white font-mono" placeholder="留空保持不变">
+<input type="text" id="set_database_url" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white font-mono" placeholder="留空保持不变">
 </div>
 <p class="text-xs text-ink-400 mt-1">包含密码的连接串，仅展示脱敏值，修改时输入完整值</p>
 </div>
@@ -1663,15 +1654,20 @@ async function loadSettings() {
     const resp = await fetch('/admin/settings');
     const data = await resp.json();
     _settingsOriginal = data;
-    document.getElementById('set_host').value = data.host || '';
-    document.getElementById('set_port').value = data.port || '';
-    document.getElementById('set_request_timeout').value = data.request_timeout ?? '';
-    document.getElementById('set_max_body_size').value = data.max_body_size ?? '';
+    // 服务信息
+    document.getElementById('set_host').value = data.host || '0.0.0.0';
+    document.getElementById('set_port').value = data.port || 55555;
+    // 请求处理
+    document.getElementById('set_request_timeout').value = data.request_timeout ?? 300;
+    document.getElementById('set_max_body_size').value = data.max_body_size_mb ?? 10;
+    // 调试与日志
     document.getElementById('set_debug').checked = !!data.debug;
     document.getElementById('set_debug_label').textContent = data.debug ? '开启' : '关闭';
-    document.getElementById('set_log_level').value = data.log_level || 'INFO';
-    document.getElementById('set_stats_tracked_headers').value = (data.stats_tracked_headers || []).join(', ');
+    document.getElementById('set_log_level').value = (data.log_level || 'INFO').toUpperCase();
+
+    // 数据库
     document.getElementById('set_database_url').value = data.database_url_masked || '';
+    // 负载均衡
     document.getElementById('set_max_fail_count').value = data.max_fail_count ?? 5;
     document.getElementById('set_cooldown_seconds').value = data.cooldown_seconds ?? 60;
     document.getElementById('restartBtn').classList.add('hidden');
@@ -1688,18 +1684,27 @@ document.getElementById('set_debug').addEventListener('change', function() {
 async function saveSettings() {
   const data = {};
   const orig = _settingsOriginal;
-  if (document.getElementById('set_request_timeout').value != (orig.request_timeout ?? '')) data.request_timeout = parseInt(document.getElementById('set_request_timeout').value) || null;
-  if (document.getElementById('set_max_body_size').value != (orig.max_body_size ?? '')) data.max_body_size = parseInt(document.getElementById('set_max_body_size').value) || null;
+  // 请求超时
+  const requestTimeout = parseInt(document.getElementById('set_request_timeout').value) || 300;
+  if (requestTimeout !== (orig.request_timeout ?? 300)) data.request_timeout = requestTimeout;
+  // 最大请求体：前端显示 MB，后端存储字节
+  const maxBodyMB = parseInt(document.getElementById('set_max_body_size').value) || 10;
+  const origMaxBodyMB = orig.max_body_size_mb ?? 10;
+  if (maxBodyMB !== origMaxBodyMB) data.max_body_size = maxBodyMB * 1024 * 1024;
+  // 调试模式
   if (document.getElementById('set_debug').checked !== !!orig.debug) data.debug = document.getElementById('set_debug').checked;
+  // 日志级别
   const newLogLevel = document.getElementById('set_log_level').value;
-  if (newLogLevel !== (orig.log_level || 'INFO')) data.log_level = newLogLevel;
-  const newHeaders = document.getElementById('set_stats_tracked_headers').value.split(',').map(s => s.trim()).filter(Boolean);
-  const origHeaders = orig.stats_tracked_headers || [];
-  if (newHeaders.join(',') !== origHeaders.join(',')) data.stats_tracked_headers = newHeaders;
+  if (newLogLevel !== (orig.log_level || 'INFO').toUpperCase()) data.log_level = newLogLevel;
+
+  // 数据库 URL
   const dbUrl = document.getElementById('set_database_url').value;
   if (dbUrl && dbUrl !== (orig.database_url_masked || '')) data.database_url = dbUrl;
-  if (document.getElementById('set_max_fail_count').value != (orig.max_fail_count ?? 5)) data.max_fail_count = parseInt(document.getElementById('set_max_fail_count').value) || 5;
-  if (document.getElementById('set_cooldown_seconds').value != (orig.cooldown_seconds ?? 60)) data.cooldown_seconds = parseInt(document.getElementById('set_cooldown_seconds').value) || 60;
+  // 负载均衡
+  const maxFailCount = parseInt(document.getElementById('set_max_fail_count').value) || 5;
+  if (maxFailCount !== (orig.max_fail_count ?? 5)) data.max_fail_count = maxFailCount;
+  const cooldownSeconds = parseInt(document.getElementById('set_cooldown_seconds').value) || 60;
+  if (cooldownSeconds !== (orig.cooldown_seconds ?? 60)) data.cooldown_seconds = cooldownSeconds;
 
   if (Object.keys(data).length === 0) {
     document.getElementById('settingsMsg').textContent = '没有修改';

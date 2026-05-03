@@ -19,7 +19,6 @@ _CONFIG_SCHEMA = {
     "max_body_size": {"type": "int", "default": 10 * 1024 * 1024, "requires_restart": False, "env": "MAX_BODY_SIZE"},
     "debug": {"type": "bool", "default": False, "requires_restart": True, "env": "DEBUG"},
     "log_level": {"type": "str", "default": "info", "requires_restart": True, "env": "LOG_LEVEL"},
-    "stats_tracked_headers": {"type": "str", "default": "", "requires_restart": False, "env": "STATS_TRACKED_HEADERS"},
     "database_url": {"type": "str", "default": "", "requires_restart": True, "env": "DATABASE_URL"},
     "max_fail_count": {"type": "int", "default": 5, "requires_restart": False, "env": "MAX_FAIL_COUNT"},
     "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False, "env": "COOLDOWN_SECONDS"},
@@ -55,10 +54,6 @@ DEBUG_LOG_DIR = os.getenv("DEBUG_LOG_DIR", os.path.join(os.path.dirname(__file__
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-
-_stats_tracked_headers_raw = os.getenv("STATS_TRACKED_HEADERS", "")
-TRACK_ALL_HEADERS = _stats_tracked_headers_raw.strip().upper() == "ALL" or not _stats_tracked_headers_raw.strip()
-STATS_TRACKED_HEADERS = None if TRACK_ALL_HEADERS else _stats_tracked_headers_raw.split(",")
 
 
 def _cast_value(value, type_name):
@@ -135,13 +130,6 @@ def _apply_lb_settings():
         )
     except Exception:
         pass
-
-
-def _apply_stats_headers_settings():
-    global TRACK_ALL_HEADERS, STATS_TRACKED_HEADERS
-    raw = _settings.get("stats_tracked_headers", "")
-    TRACK_ALL_HEADERS = raw.strip().upper() == "ALL" or not raw.strip()
-    STATS_TRACKED_HEADERS = None if TRACK_ALL_HEADERS else [h.strip() for h in raw.split(",") if h.strip()]
 
 
 async def _save_settings_to_disk():
@@ -248,6 +236,5 @@ async def update_settings(updates: dict) -> dict:
         if updated_keys:
             await _save_settings_to_disk()
             _sync_module_vars()
-            _apply_lb_settings()
-            _apply_stats_headers_settings()
+    _apply_lb_settings()
     return {"updated": updated_keys, "needs_restart": needs_restart}
