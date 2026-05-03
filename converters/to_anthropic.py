@@ -218,14 +218,19 @@ class ToAnthropicConverter(BaseConverter):
     def _chat_response_to_anthropic(self, data: dict[str, Any]) -> dict[str, Any]:
         choices = data.get("choices", [])
         text = ""
+        reasoning_content = ""
         finish_reason = "end_turn"
         tool_calls = None
         if choices:
             msg = choices[0].get("message", {})
             text = msg.get("content", "") or ""
+            reasoning_content = msg.get("reasoning_content", "") or ""
             tool_calls = msg.get("tool_calls")
 
         content = []
+        # thinking block 必须在 text block 之前
+        if reasoning_content:
+            content.append({"type": "thinking", "thinking": reasoning_content})
         if text:
             content.append({"type": "text", "text": text})
         if tool_calls:
@@ -316,7 +321,37 @@ class ToAnthropicConverter(BaseConverter):
         delta = choices[0].get("delta", {})
         finish_reason = choices[0].get("finish_reason")
 
-        if delta.get("content") is not None:
+        # 先处理 reasoning_content，因为 thinking block 应该在 text block 之前
+        if delta.get("reasoning_content") is not None:
+            self._ensure_message_started(chunk, events)
+            if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "thinking":
+                events.append(
+                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                )
+                self._stream_state["content_block_started"] = False
+                self._stream_state["content_block_index"] += 1
+
+            if not self._stream_state["content_block_started"]:
+                self._stream_state["content_block_started"] = True
+                self._stream_state["current_content_type"] = "thinking"
+                events.append(
+                    ("content_block_start", {
+                        "type": "content_block_start",
+                        "index": self._stream_state["content_block_index"],
+                        "content_block": {"type": "thinking", "thinking": ""},
+                    })
+                )
+            events.append(
+                ("content_block_delta", {
+                    "type": "content_block_delta",
+                    "index": self._stream_state["content_block_index"],
+                    "delta": {"type": "thinking_delta", "thinking": delta["reasoning_content"]},
+                })
+            )
+
+        # 处理 content（忽略空字符串，避免创建空的 text block）
+        content_text = delta.get("content")
+        if content_text is not None and content_text != "":
             self._ensure_message_started(chunk, events)
             if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "text":
                 if self._stream_state["current_content_type"] == "thinking":
@@ -347,7 +382,7 @@ class ToAnthropicConverter(BaseConverter):
                 ("content_block_delta", {
                     "type": "content_block_delta",
                     "index": self._stream_state["content_block_index"],
-                    "delta": {"type": "text_delta", "text": delta["content"]},
+                    "delta": {"type": "text_delta", "text": content_text},
                 })
             )
 
@@ -418,33 +453,6 @@ class ToAnthropicConverter(BaseConverter):
                                 "delta": {"type": "input_json_delta", "partial_json": args},
                             })
                         )
-
-        if delta.get("reasoning_content") is not None:
-            self._ensure_message_started(chunk, events)
-            if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "thinking":
-                events.append(
-                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
-                )
-                self._stream_state["content_block_started"] = False
-                self._stream_state["content_block_index"] += 1
-
-            if not self._stream_state["content_block_started"]:
-                self._stream_state["content_block_started"] = True
-                self._stream_state["current_content_type"] = "thinking"
-                events.append(
-                    ("content_block_start", {
-                        "type": "content_block_start",
-                        "index": self._stream_state["content_block_index"],
-                        "content_block": {"type": "thinking", "thinking": ""},
-                    })
-                )
-            events.append(
-                ("content_block_delta", {
-                    "type": "content_block_delta",
-                    "index": self._stream_state["content_block_index"],
-                    "delta": {"type": "thinking_delta", "thinking": delta["reasoning_content"]},
-                })
-            )
 
         if finish_reason is not None:
             self._ensure_message_started(chunk, events)
