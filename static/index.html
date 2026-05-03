@@ -119,10 +119,56 @@
             font-size: 13px;
             font-weight: 600;
         }
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
+.settings-nav-btn {
+  color: #6b6b6b;
+  position: relative;
+  text-align: left;
+}
+.settings-nav-btn:hover {
+  color: #1a1a1a;
+  background-color: #f5f5f4;
+}
+.settings-nav-btn.active {
+  color: #635bff;
+  background-color: #f0efff;
+}
+.settings-nav-btn.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background-color: #635bff;
+}
+#settingsToastInner.success {
+  background-color: #ecfdf5;
+  color: #059669;
+  border: 1px solid #d1fae5;
+}
+#settingsToastInner.error {
+  background-color: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #ffe4e6;
+}
+#settingsToastInner.info {
+  background-color: #f0efff;
+  color: #635bff;
+  border: 1px solid #e0dfff;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes toast-in {
+  from { transform: translateY(-12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes toast-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(-12px); opacity: 0; }
+}
     </style>
 </head>
 <body class="min-h-screen">
@@ -133,7 +179,7 @@
                 <h1 class="text-xl font-bold tracking-tight text-ink-900">LLM API 转换器</h1>
                 <p class="text-ink-600 text-xs mt-0.5">openai-chat-completions / openai-response / anthropic 三格式互转 + 负载均衡</p>
             </div>
-            <div class="text-xs text-ink-400">v1.0.9 release 2026-05-03</div>
+            <div class="text-xs text-ink-400">v1.0.91 release 2026-05-03</div>
         </div>
     </div>
 
@@ -363,98 +409,184 @@
             </div>
         </div>
 
-<!-- 设置 Tab -->
-<div id="settingsTab" class="hidden">
-<div class="space-y-5">
-<!-- 服务信息 -->
-<div class="card p-5">
-<h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-4">服务信息</h2>
-<div class="grid grid-cols-2 gap-4">
-<div>
-<label class="block text-xs text-ink-600 mb-1">Host</label>
-<input type="text" id="set_host" readonly class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 bg-surface-50 text-ink-400 cursor-not-allowed">
-</div>
-<div>
-<label class="block text-xs text-ink-600 mb-1">Port</label>
-<input type="text" id="set_port" readonly class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 bg-surface-50 text-ink-400 cursor-not-allowed">
-</div>
-</div>
-</div>
+  <!-- 设置 Tab -->
+  <div id="settingsTab" class="hidden">
+    <div class="flex gap-6">
+      <!-- 左侧导航 -->
+      <nav class="w-48 flex-shrink-0">
+        <ul class="space-y-1 sticky top-20" id="settingsNav">
+          <li>
+            <button onclick="switchSettingsSection('server')" data-section="server" class="settings-nav-btn active w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="18" r="1" fill="currentColor"/></svg>
+              <span>服务信息</span>
+              <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+            </button>
+          </li>
+          <li>
+            <button onclick="switchSettingsSection('request')" data-section="request" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span>请求处理</span>
+              <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+            </button>
+          </li>
+          <li>
+            <button onclick="switchSettingsSection('lb')" data-section="lb" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M8 21H3v-5"/><path d="M3 21l7-7"/></svg>
+              <span>负载均衡</span>
+              <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+            </button>
+          </li>
+          <li>
+            <button onclick="switchSettingsSection('debug')" data-section="debug" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
+              <span>调试与日志</span>
+              <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+            </button>
+          </li>
+          <li>
+            <button onclick="switchSettingsSection('database')" data-section="database" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+              <span>数据库</span>
+              <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+            </button>
+          </li>
+        </ul>
+      </nav>
 
-<!-- 请求处理 -->
-<div class="card p-5">
-<h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-4">请求处理</h2>
-<div class="grid grid-cols-2 gap-4">
-<div>
-<label class="block text-xs text-ink-600 mb-1">请求超时(秒)</label>
-<input type="number" id="set_request_timeout" min="1" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-</div>
-<div>
-<label class="block text-xs text-ink-600 mb-1">最大请求体(MB)</label>
-<input type="number" id="set_max_body_size" min="1" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-</div>
-</div>
-</div>
+      <!-- 右侧内容 -->
+      <div class="flex-1 min-w-0">
+        <!-- 服务信息 -->
+        <div id="settings_server" class="settings-section">
+          <div class="mb-5">
+            <h2 class="text-base font-semibold text-ink-900">服务信息</h2>
+            <p class="text-sm text-ink-400 mt-0.5">当前服务监听地址和端口，启动后不可修改</p>
+          </div>
+          <div class="card p-5">
+            <div class="grid grid-cols-2 gap-5">
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">Host</label>
+                <input type="text" id="set_host" readonly class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 bg-surface-50 text-ink-400 cursor-not-allowed">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">Port</label>
+                <input type="text" id="set_port" readonly class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 bg-surface-50 text-ink-400 cursor-not-allowed">
+              </div>
+            </div>
+          </div>
+        </div>
 
-<!-- 调试与日志 -->
-<div class="card p-5">
-<h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-4">调试与日志</h2>
-<div class="grid grid-cols-2 gap-4">
-<div>
-<label class="block text-xs text-ink-600 mb-1">调试模式 <span class="pill pill-warning">需重启</span></label>
-<div class="flex items-center gap-3 mt-2">
-<label class="relative inline-flex items-center cursor-pointer">
-<input type="checkbox" id="set_debug" class="sr-only peer">
-<div class="w-9 h-5 bg-surface-200 peer-focus:ring-2 peer-focus:ring-brand-500/30 rounded-full peer peer-checked:bg-brand-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
-</label>
-<span id="set_debug_label" class="text-sm text-ink-600">关闭</span>
-</div>
-</div>
-<div>
-<label class="block text-xs text-ink-600 mb-1">日志级别 <span class="pill pill-warning">需重启</span></label>
-<select id="set_log_level" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-<option value="DEBUG">DEBUG</option>
-<option value="INFO">INFO</option>
-<option value="WARNING">WARNING</option>
-<option value="ERROR">ERROR</option>
-</select>
-</div>
-</div>
-</div>
+        <!-- 请求处理 -->
+        <div id="settings_request" class="settings-section hidden">
+          <div class="mb-5">
+            <h2 class="text-base font-semibold text-ink-900">请求处理</h2>
+            <p class="text-sm text-ink-400 mt-0.5">控制代理请求的超时时间和请求体大小限制</p>
+          </div>
+          <div class="card p-5">
+            <div class="grid grid-cols-2 gap-5">
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">请求超时</label>
+                <input type="number" id="set_request_timeout" min="1" data-section="request" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <p class="text-xs text-ink-400 mt-1">单位：秒，超过此时间未响应的请求将被终止</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">最大请求体</label>
+                <input type="number" id="set_max_body_size" min="1" data-section="request" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <p class="text-xs text-ink-400 mt-1">单位：MB，超过此大小的请求将被拒绝</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
-<!-- 数据库 -->
-<div class="card p-5">
-<h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-4">数据库</h2>
-<div>
-<label class="block text-xs text-ink-600 mb-1">数据库 URL <span class="pill pill-warning">需重启</span></label>
-<input type="text" id="set_database_url" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white font-mono" placeholder="留空保持不变">
-</div>
-<p class="text-xs text-ink-400 mt-1">包含密码的连接串，仅展示脱敏值，修改时输入完整值</p>
-</div>
+        <!-- 负载均衡 -->
+        <div id="settings_lb" class="settings-section hidden">
+          <div class="mb-5">
+            <h2 class="text-base font-semibold text-ink-900">负载均衡</h2>
+            <p class="text-sm text-ink-400 mt-0.5">渠道故障剔除与自动恢复策略</p>
+          </div>
+          <div class="card p-5">
+            <div class="grid grid-cols-2 gap-5">
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">失败次数阈值</label>
+                <input type="number" id="set_max_fail_count" min="1" data-section="lb" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <p class="text-xs text-ink-400 mt-1">渠道连续请求失败达到此次数后将被暂时剔除</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">冷却时间</label>
+                <input type="number" id="set_cooldown_seconds" min="1" data-section="lb" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <p class="text-xs text-ink-400 mt-1">单位：秒，剔除的渠道经过此时间后自动恢复探测</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
-<!-- 负载均衡 -->
-<div class="card p-5">
-<h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-4">负载均衡</h2>
-<div class="grid grid-cols-2 gap-4">
-<div>
-<label class="block text-xs text-ink-600 mb-1">失败次数阈值</label>
-<input type="number" id="set_max_fail_count" min="1" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-</div>
-<div>
-<label class="block text-xs text-ink-600 mb-1">冷却时间(秒)</label>
-<input type="number" id="set_cooldown_seconds" min="1" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-</div>
-</div>
-</div>
+        <!-- 调试与日志 -->
+        <div id="settings_debug" class="settings-section hidden">
+          <div class="mb-5">
+            <h2 class="text-base font-semibold text-ink-900">调试与日志</h2>
+            <p class="text-sm text-ink-400 mt-0.5">调试模式将记录详细请求日志，修改后需重启服务生效</p>
+          </div>
+          <div class="card p-5 space-y-5">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-medium text-ink-900">调试模式</span>
+                  <span class="pill pill-warning">需重启</span>
+                </div>
+                <p class="text-xs text-ink-400 mt-0.5">开启后会记录请求和响应的详细日志到磁盘</p>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                <input type="checkbox" id="set_debug" data-section="debug" class="settings-input sr-only peer">
+                <div class="w-11 h-6 bg-surface-200 peer-focus:ring-2 peer-focus:ring-brand-500/30 rounded-full peer peer-checked:bg-brand-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full shadow-inner"></div>
+              </label>
+            </div>
+            <div class="border-t border-surface-100 pt-5">
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-sm font-medium text-ink-900">日志级别</span>
+                <span class="pill pill-warning">需重启</span>
+              </div>
+              <select id="set_log_level" data-section="debug" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <option value="DEBUG">DEBUG</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+              </select>
+              <p class="text-xs text-ink-400 mt-1">控制日志输出的最低级别</p>
+            </div>
+          </div>
+        </div>
 
-<!-- 底部操作栏 -->
-<div class="flex items-center gap-3">
-<button onclick="saveSettings()" class="btn-primary text-sm px-4 py-2 font-medium">保存设置</button>
-<button onclick="restartServer()" id="restartBtn" class="btn-secondary text-sm px-4 py-2 font-medium hidden text-rose-600 border border-rose-200 hover:bg-rose-50">重启服务</button>
-<span id="settingsMsg" class="text-sm ml-2"></span>
-</div>
-</div>
-</div>
+        <!-- 数据库 -->
+        <div id="settings_database" class="settings-section hidden">
+          <div class="mb-5">
+            <h2 class="text-base font-semibold text-ink-900">数据库</h2>
+            <p class="text-sm text-ink-400 mt-0.5">数据存储连接配置，修改后需重启服务生效</p>
+          </div>
+          <div class="card p-5">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-sm font-medium text-ink-900">数据库 URL</span>
+              <span class="pill pill-warning">需重启</span>
+            </div>
+            <input type="text" id="set_database_url" data-section="database" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white font-mono" placeholder="留空保持不变">
+            <p class="text-xs text-ink-400 mt-1">包含密码的连接串，仅展示脱敏值，修改时输入完整值</p>
+          </div>
+        </div>
+
+        <!-- 底部操作栏 -->
+        <div class="mt-6 flex items-center gap-3 pb-2">
+          <button onclick="saveSettings()" class="btn-primary text-sm px-5 py-2.5 font-medium">保存设置</button>
+          <button onclick="restartServer()" id="restartBtn" class="btn-secondary text-sm px-4 py-2.5 font-medium hidden text-rose-600 border border-rose-200 hover:bg-rose-50">重启服务</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast 提示 -->
+    <div id="settingsToast" class="fixed top-6 right-6 z-50 hidden">
+      <div id="settingsToastInner" class="flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 transform translate-y-0 opacity-100">
+        <svg id="settingsToastIcon" class="w-4 h-4 flex-shrink-0"></svg>
+        <span id="settingsToastMsg"></span>
+      </div>
+    </div>
+  </div>
 
 <!-- 模型分组 Tab -->
 <div id="lbTab" class="hidden">
@@ -746,7 +878,7 @@
             if (tab === 'apikeys') loadApiKeys();
             if (tab === 'requests') { setDefaultRequestTimeRange(); loadRequests(); }
             if (tab === 'lb') { loadModelGroups(); }
-  if (tab === 'settings') { loadSettings(); }
+  if (tab === 'settings') { switchSettingsSection('server'); loadSettings(); }
         }
 
         // 从 URL hash 恢复 tab 状态
@@ -1648,67 +1780,126 @@ function resetRequestFilters() {
 let modelGroups = [];
 let editingModelGroupId = null;
 let _settingsOriginal = {};
+let _settingsCurrentSection = 'server';
+let _settingsDirtySections = new Set();
+let _settingsToastTimer = null;
+
+function switchSettingsSection(section) {
+  _settingsCurrentSection = section;
+  document.querySelectorAll('.settings-section').forEach(el => el.classList.add('hidden'));
+  document.getElementById('settings_' + section).classList.remove('hidden');
+  document.querySelectorAll('.settings-nav-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.section === section);
+  });
+}
+
+function _updateSettingsDirtyIndicators() {
+  document.querySelectorAll('.settings-nav-btn').forEach(btn => {
+    const dot = btn.querySelector('.settings-dirty-dot');
+    if (dot) {
+      if (_settingsDirtySections.has(btn.dataset.section)) {
+        dot.classList.remove('hidden');
+        dot.classList.add('inline-block');
+      } else {
+        dot.classList.add('hidden');
+        dot.classList.remove('inline-block');
+      }
+    }
+  });
+}
+
+function _detectSettingsDirty() {
+  if (!_settingsOriginal || Object.keys(_settingsOriginal).length === 0) return;
+  _settingsDirtySections.clear();
+  const orig = _settingsOriginal;
+  const timeout = parseInt(document.getElementById('set_request_timeout').value) || 300;
+  if (timeout !== (orig.request_timeout ?? 300)) _settingsDirtySections.add('request');
+  const maxBody = parseInt(document.getElementById('set_max_body_size').value) || 10;
+  if (maxBody !== (orig.max_body_size_mb ?? 10)) _settingsDirtySections.add('request');
+  const maxFail = parseInt(document.getElementById('set_max_fail_count').value) || 5;
+  if (maxFail !== (orig.max_fail_count ?? 5)) _settingsDirtySections.add('lb');
+  const cooldown = parseInt(document.getElementById('set_cooldown_seconds').value) || 60;
+  if (cooldown !== (orig.cooldown_seconds ?? 60)) _settingsDirtySections.add('lb');
+  if (document.getElementById('set_debug').checked !== !!orig.debug) _settingsDirtySections.add('debug');
+  const newLevel = document.getElementById('set_log_level').value;
+  if (newLevel !== (orig.log_level || 'INFO').toUpperCase()) _settingsDirtySections.add('debug');
+  const dbUrl = document.getElementById('set_database_url').value;
+  if (dbUrl && dbUrl !== (orig.database_url_masked || '')) _settingsDirtySections.add('database');
+  _updateSettingsDirtyIndicators();
+}
+
+function _showSettingsToast(msg, type) {
+  const toast = document.getElementById('settingsToast');
+  const inner = document.getElementById('settingsToastInner');
+  const icon = document.getElementById('settingsToastIcon');
+  const msgEl = document.getElementById('settingsToastMsg');
+  if (_settingsToastTimer) clearTimeout(_settingsToastTimer);
+  inner.className = 'flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 ' + type;
+  inner.style.animation = 'toast-in 0.3s ease-out';
+  const icons = {
+    success: '<path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
+    error: '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    info: '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="12" y1="16" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="8" x2="12.01" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  };
+  icon.innerHTML = icons[type] || icons.info;
+  msgEl.textContent = msg;
+  toast.classList.remove('hidden');
+  _settingsToastTimer = setTimeout(() => {
+    inner.style.animation = 'toast-out 0.3s ease-in forwards';
+    setTimeout(() => toast.classList.add('hidden'), 300);
+  }, 2500);
+}
 
 async function loadSettings() {
   try {
     const resp = await fetch('/admin/settings');
     const data = await resp.json();
     _settingsOriginal = data;
-    // 服务信息
+    _settingsDirtySections.clear();
+    _updateSettingsDirtyIndicators();
     document.getElementById('set_host').value = data.host || '0.0.0.0';
     document.getElementById('set_port').value = data.port || 55555;
-    // 请求处理
     document.getElementById('set_request_timeout').value = data.request_timeout ?? 300;
     document.getElementById('set_max_body_size').value = data.max_body_size_mb ?? 10;
-    // 调试与日志
     document.getElementById('set_debug').checked = !!data.debug;
-    document.getElementById('set_debug_label').textContent = data.debug ? '开启' : '关闭';
     document.getElementById('set_log_level').value = (data.log_level || 'INFO').toUpperCase();
-
-    // 数据库
     document.getElementById('set_database_url').value = data.database_url_masked || '';
-    // 负载均衡
     document.getElementById('set_max_fail_count').value = data.max_fail_count ?? 5;
     document.getElementById('set_cooldown_seconds').value = data.cooldown_seconds ?? 60;
     document.getElementById('restartBtn').classList.add('hidden');
-    document.getElementById('settingsMsg').textContent = '';
   } catch (e) {
     console.error('加载设置失败:', e);
   }
 }
 
 document.getElementById('set_debug').addEventListener('change', function() {
-  document.getElementById('set_debug_label').textContent = this.checked ? '开启' : '关闭';
+  _detectSettingsDirty();
+});
+document.querySelectorAll('.settings-input').forEach(el => {
+  el.addEventListener('input', () => _detectSettingsDirty());
+  el.addEventListener('change', () => _detectSettingsDirty());
 });
 
 async function saveSettings() {
   const data = {};
   const orig = _settingsOriginal;
-  // 请求超时
   const requestTimeout = parseInt(document.getElementById('set_request_timeout').value) || 300;
   if (requestTimeout !== (orig.request_timeout ?? 300)) data.request_timeout = requestTimeout;
-  // 最大请求体：前端显示 MB，后端存储字节
   const maxBodyMB = parseInt(document.getElementById('set_max_body_size').value) || 10;
   const origMaxBodyMB = orig.max_body_size_mb ?? 10;
   if (maxBodyMB !== origMaxBodyMB) data.max_body_size = maxBodyMB * 1024 * 1024;
-  // 调试模式
   if (document.getElementById('set_debug').checked !== !!orig.debug) data.debug = document.getElementById('set_debug').checked;
-  // 日志级别
   const newLogLevel = document.getElementById('set_log_level').value;
   if (newLogLevel !== (orig.log_level || 'INFO').toUpperCase()) data.log_level = newLogLevel;
-
-  // 数据库 URL
   const dbUrl = document.getElementById('set_database_url').value;
   if (dbUrl && dbUrl !== (orig.database_url_masked || '')) data.database_url = dbUrl;
-  // 负载均衡
   const maxFailCount = parseInt(document.getElementById('set_max_fail_count').value) || 5;
   if (maxFailCount !== (orig.max_fail_count ?? 5)) data.max_fail_count = maxFailCount;
   const cooldownSeconds = parseInt(document.getElementById('set_cooldown_seconds').value) || 60;
   if (cooldownSeconds !== (orig.cooldown_seconds ?? 60)) data.cooldown_seconds = cooldownSeconds;
 
   if (Object.keys(data).length === 0) {
-    document.getElementById('settingsMsg').textContent = '没有修改';
-    document.getElementById('settingsMsg').className = 'text-sm ml-2 text-ink-400';
+    _showSettingsToast('没有修改', 'info');
     return;
   }
 
@@ -1720,8 +1911,7 @@ async function saveSettings() {
     });
     if (resp.ok) {
       const result = await resp.json();
-      document.getElementById('settingsMsg').textContent = '保存成功';
-      document.getElementById('settingsMsg').className = 'text-sm ml-2 text-emerald-600';
+      _showSettingsToast('保存成功', 'success');
       if (result.needs_restart) {
         document.getElementById('restartBtn').classList.remove('hidden');
       } else {
@@ -1730,12 +1920,10 @@ async function saveSettings() {
       loadSettings();
     } else {
       const err = await resp.json();
-      document.getElementById('settingsMsg').textContent = '保存失败: ' + (err.detail || JSON.stringify(err));
-      document.getElementById('settingsMsg').className = 'text-sm ml-2 text-rose-600';
+      _showSettingsToast('保存失败: ' + (err.detail || JSON.stringify(err)), 'error');
     }
   } catch (e) {
-    document.getElementById('settingsMsg').textContent = '保存失败: ' + e.message;
-    document.getElementById('settingsMsg').className = 'text-sm ml-2 text-rose-600';
+    _showSettingsToast('保存失败: ' + e.message, 'error');
   }
 }
 
@@ -1744,8 +1932,7 @@ async function restartServer() {
   try {
     await fetch('/admin/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
   } catch (e) { }
-  document.getElementById('settingsMsg').textContent = '正在重启，5秒后刷新页面...';
-  document.getElementById('settingsMsg').className = 'text-sm ml-2 text-amber-600';
+  _showSettingsToast('正在重启，5秒后刷新页面...', 'info');
   setTimeout(() => location.reload(), 5000);
 }
 
