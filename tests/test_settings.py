@@ -121,3 +121,31 @@ def test_config_readonly():
     readonly_keys = [k for k, v in _CONFIG_SCHEMA.items() if v.get("readonly")]
     assert "host" in readonly_keys
     assert "port" in readonly_keys
+
+
+def test_migrate_lb_config(tmp_path):
+    """lb_config 自动迁移到 settings.json"""
+    import json
+    channels_file = str(tmp_path / "channels.json")
+    settings_file = str(tmp_path / "settings.json")
+
+    channels_data = {
+        "channels": [],
+        "lb_config": {"max_fail_count": 8, "cooldown_seconds": 120}
+    }
+    with open(channels_file, "w") as f:
+        json.dump(channels_data, f)
+
+    import config
+    orig_settings = config._SETTINGS_FILE
+    config._SETTINGS_FILE = settings_file
+    config._settings = {"max_fail_count": 5, "cooldown_seconds": 60}
+    try:
+        config._migrate_lb_config_sync(channels_file)
+        assert config._settings["max_fail_count"] == 8
+        assert config._settings["cooldown_seconds"] == 120
+        with open(channels_file, "r") as f:
+            migrated = json.load(f)
+        assert "lb_config" not in migrated
+    finally:
+        config._SETTINGS_FILE = orig_settings

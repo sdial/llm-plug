@@ -176,7 +176,57 @@ async def _save_settings_to_disk():
 
 async def init_settings():
     _init_settings_sync()
-    # await _migrate_lb_config()  -- 将在任务4中实现
+    await _migrate_lb_config()
+
+
+def _migrate_lb_config_sync(channels_file: str):
+    """从 channels.json 的 lb_config 迁移到 settings.json"""
+    global _settings
+    if not os.path.exists(channels_file):
+        return
+    try:
+        with open(channels_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return
+
+    lb_config = data.get("lb_config")
+    if not lb_config:
+        return
+
+    if "max_fail_count" in lb_config and _settings.get("max_fail_count", 5) == 5:
+        _settings["max_fail_count"] = lb_config["max_fail_count"]
+    if "cooldown_seconds" in lb_config and _settings.get("cooldown_seconds", 60) == 60:
+        _settings["cooldown_seconds"] = lb_config["cooldown_seconds"]
+
+    if "lb_config" in data:
+        del data["lb_config"]
+        dir_name = os.path.dirname(os.path.abspath(channels_file)) or "."
+        f = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=dir_name, delete=False,
+            prefix=".channels_", suffix=".tmp.json",
+        )
+        tmp_path = f.name
+        try:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+            f.close()
+            os.replace(tmp_path, channels_file)
+        except Exception:
+            try:
+                f.close()
+            except Exception:
+                pass
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+async def _migrate_lb_config():
+    """异步迁移（从 CHANNELS_FILE 读取）"""
+    _migrate_lb_config_sync(CHANNELS_FILE)
 
 
 async def update_settings(updates: dict) -> dict:
