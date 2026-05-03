@@ -1,0 +1,125 @@
+<h2>最终布局设计</h2>
+<p class="subtitle">单行展示所有关键信息，简洁高效</p>
+
+<div class="mockup">
+  <div class="mockup-header">优化后的渠道列表（单行布局）</div>
+  <div class="mockup-body" style="background:#faf9f7;padding:16px;">
+    <!-- 表头 -->
+    <div style="background:#fff;border-radius:12px;border:1px solid #e8e6e3;overflow:hidden;">
+      <table style="width:100%;font-size:13px;table-layout:fixed;">
+        <thead>
+          <tr style="background:#faf9f7;border-bottom:1px solid #e8e6e3;">
+            <th style="width:140px;text-align:left;padding:10px 12px;color:#6b6b6b;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">名称</th>
+            <th style="width:70px;text-align:center;padding:10px 8px;color:#6b6b6b;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">状态</th>
+            <th style="width:40px;text-align:center;padding:10px 8px;color:#6b6b6b;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">类型</th>
+            <th style="text-align:left;padding:10px 12px;color:#6b6b6b;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">模型</th>
+            <th style="width:160px;text-align:left;padding:10px 12px;color:#6b6b6b;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Base URL</th>
+            <th style="width:100px;text-align:right;padding:10px 12px;color:#6b6b6b;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- 示例行1 -->
+          <tr style="border-bottom:1px solid #e8e6e3;cursor:pointer;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='#fff'">
+            <td style="padding:12px;font-weight:500;color:#1a1a1a;">OpenAI官方</td>
+            <td style="padding:12px;text-align:center;">
+              <span style="display:inline-flex;align-items:center;gap:4px;background:#ecfdf5;color:#059669;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:500;cursor:pointer;" title="点击切换状态">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                启用
+              </span>
+            </td>
+            <td style="padding:12px;text-align:center;">
+              <span style="background:#f0efff;color:#635bff;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:600;" title="openai-chat-completions">C</span>
+            </td>
+            <td style="padding:12px;color:#6b6b6b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo">gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo</td>
+            <td style="padding:12px;color:#9ca3af;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="https://api.openai.com/v1">https://api.openai.com/v1</td>
+            <td style="padding:12px;text-align:right;">
+              <span style="background:#f5f5f4;color:#6b6b6b;padding:4px 10px;border-radius:999px;font-size:11px;cursor:pointer;margin-right:4px;" onmouseover="this.style.background='#e8e6e3'" onmouseout="this.style.background='#f5f5f4'">编辑</span>
+              <span style="background:#f0efff;color:#635bff;padding:4px 10px;border-radius:999px;font-size:11px;cursor:pointer;" onmouseover="this.style.background='#e0dfff'" onmouseout="this.style.background='#f0efff'">测试</span>
+            </td>
+          </tr>
+          <!-- 示例行2 -->
+          <tr style="border-bottom:1px solid #e8e6e3;cursor:pointer;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='#fff'">
+            <td style="padding:12px;font-weight:500;color:#1a1a1a;">Anthropic直连</td>
+            <td style="padding:12px;text-align:center;">
+              <span style="display:inline-flex;align-items:center;gap:4px;background:#f5f5f4;color:#6b6b6b;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:500;cursor:pointer;" title="点击切换状态">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                禁用
+              </span>
+            </td>
+            <td style="padding:12px;text-align:center;">
+              <span style="background:#fef3c7;color:#d97706;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:600;" title="anthropic">A</span>
+            </td>
+            <td style="padding:12px;color:#6b6b6b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="claude-3-opus, claude-3-sonnet">claude-3-opus, claude-3-sonnet</td>
+            <td style="padding:12px;color:#9ca3af;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="https://api.anthropic.com">https://api.anthropic.com</td>
+            <td style="padding:12px;text-align:right;">
+              <span style="background:#f5f5f4;color:#6b6b6b;padding:4px 10px;border-radius:999px;font-size:11px;cursor:pointer;margin-right:4px;">编辑</span>
+              <span style="background:#f0efff;color:#635bff;padding:4px 10px;border-radius:999px;font-size:11px;cursor:pointer;">测试</span>
+            </td>
+          </tr>
+          <!-- 示例行3 -->
+          <tr style="cursor:pointer;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='#fff'">
+            <td style="padding:12px;font-weight:500;color:#1a1a1a;">Azure OpenAI</td>
+            <td style="padding:12px;text-align:center;">
+              <span style="display:inline-flex;align-items:center;gap:4px;background:#ecfdf5;color:#059669;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:500;cursor:pointer;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                启用
+              </span>
+            </td>
+            <td style="padding:12px;text-align:center;">
+              <span style="background:#dbeafe;color:#2563eb;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:600;" title="openai-response">R</span>
+            </td>
+            <td style="padding:12px;color:#6b6b6b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="gpt-4o">gpt-4o</td>
+            <td style="padding:12px;color:#9ca3af;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="https://xxx.openai.azure.com">https://xxx.openai.azure.com</td>
+            <td style="padding:12px;text-align:right;">
+              <span style="background:#f5f5f4;color:#6b6b6b;padding:4px 10px;border-radius:999px;font-size:11px;cursor:pointer;margin-right:4px;">编辑</span>
+              <span style="background:#f0efff;color:#635bff;padding:4px 10px;border-radius:999px;font-size:11px;cursor:pointer;">测试</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:24px;">
+  <h3>交互说明</h3>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:12px;">
+    <div style="background:#fff;border:1px solid #e8e6e3;border-radius:12px;padding:16px;">
+      <h4 style="margin:0 0 8px 0;color:#1a1a1a;font-size:14px;">状态切换</h4>
+      <p style="margin:0;color:#6b6b6b;font-size:12px;line-height:1.6;">点击状态徽章 → 弹出POP确认 → 确认后切换状态</p>
+    </div>
+    <div style="background:#fff;border:1px solid #e8e6e3;border-radius:12px;padding:16px;">
+      <h4 style="margin:0 0 8px 0;color:#1a1a1a;font-size:14px;">测试功能</h4>
+      <p style="margin:0;color:#6b6b6b;font-size:12px;line-height:1.6;">点击"测试"按钮 → 弹出模型选择 → 选择后执行测试</p>
+    </div>
+    <div style="background:#fff;border:1px solid #e8e6e3;border-radius:12px;padding:16px;">
+      <h4 style="margin:0 0 8px 0;color:#1a1a1a;font-size:14px;">编辑面板</h4>
+      <p style="margin:0;color:#6b6b6b;font-size:12px;line-height:1.6;">点击"编辑"按钮 → 打开编辑弹窗（含删除按钮）</p>
+    </div>
+    <div style="background:#fff;border:1px solid #e8e6e3;border-radius:12px;padding:16px;">
+      <h4 style="margin:0 0 8px 0;color:#1a1a1a;font-size:14px;">API类型图例</h4>
+      <p style="margin:0;color:#6b6b6b;font-size:12px;line-height:1.6;">
+        <span style="background:#f0efff;color:#635bff;padding:2px 6px;border-radius:4px;font-weight:600;">C</span> Chat Completions
+        <span style="background:#dbeafe;color:#2563eb;padding:2px 6px;border-radius:4px;font-weight:600;margin-left:8px;">R</span> Response
+        <span style="background:#fef3c7;color:#d97706;padding:2px 6px;border-radius:4px;font-weight:600;margin-left:8px;">A</span> Anthropic
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>确认此设计</h3>
+      <p>布局和交互符合预期，可以开始实现</p>
+    </div>
+  </div>
+  <div class="option" data-choice="revise" onclick="toggleSelect(this)">
+    <div class="letter">✗</div>
+    <div class="content">
+      <h3>需要调整</h3>
+      <p>在终端中说明需要修改的地方</p>
+    </div>
+  </div>
+</div>
