@@ -560,7 +560,7 @@ async def toggle_model_group(group_id: str):
     raise HTTPException(status_code=404, detail="模型组不存在")
 
 
-# ============ 负载均衡配置 ============
+# ============ 负载均衡配置（兼容接口） ============
 
 
 @router.get("/lb-config", response_model=LBConfig)
@@ -574,3 +574,32 @@ async def update_lb_config_endpoint(body: LBConfig):
     """更新负载均衡全局配置"""
     await save_lb_config(body)
     return body
+
+
+# ============ 全局设置 ============
+
+
+@router.get("/settings")
+async def get_settings_endpoint():
+    """获取所有配置项"""
+    import config as _config
+    return _config.get_settings()
+
+
+@router.put("/settings")
+async def update_settings_endpoint(body: dict):
+    """批量更新配置"""
+    import config as _config
+    result = await _config.update_settings(body)
+    return result
+
+
+@router.post("/restart")
+async def restart_server(body: dict):
+    """触发服务重启（Docker restart 策略自动拉起）"""
+    if not body.get("confirm"):
+        raise HTTPException(status_code=400, detail="需要 confirm=true 确认重启")
+    from loguru import logger as _logger
+    _logger.info("配置变更触发重启")
+    import os
+    os._exit(0)
