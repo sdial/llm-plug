@@ -4,7 +4,6 @@ from collections import defaultdict
 from typing import Optional
 
 from models.channel import Channel
-import storage
 
 
 class ChannelHealth:
@@ -40,6 +39,13 @@ class LoadBalancer:
     def __init__(self):
         self._health: dict[str, ChannelHealth] = defaultdict(ChannelHealth)
         self._lock = asyncio.Lock()
+        self._max_fail_count: int = 5
+        self._cooldown_seconds: float = 60.0
+
+    def update_config(self, max_fail_count: int = 5, cooldown_seconds: int = 60):
+        """热更新配置参数"""
+        self._max_fail_count = max_fail_count
+        self._cooldown_seconds = float(cooldown_seconds)
 
     def get_health(self, channel_id: str) -> ChannelHealth:
         return self._health[channel_id]
@@ -69,14 +75,13 @@ class LoadBalancer:
         整个选择过程在锁内完成，确保健康检查与轮询的原子性。
         """
         exclude_ids = exclude_ids or set()
-        config = await storage.get_lb_config()
         async with self._lock:
             available = [
                 ch
                 for ch in channels
                 if ch.enabled
                 and ch.id not in exclude_ids
-                and self._health[ch.id].is_healthy(config.max_fail_count, config.cooldown_seconds)
+                and self._health[ch.id].is_healthy(self._max_fail_count, self._cooldown_seconds)
             ]
             if not available:
                 return None
