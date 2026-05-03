@@ -539,7 +539,7 @@ async def _do_request(
     headers["Content-Type"] = "application/json"
 
     # 透传客户端 header（排除 host 和认证相关）
-    _SKIP_HEADERS = {"host", "authorization", "x-api-key", "content-type"}
+    _SKIP_HEADERS = {"host", "authorization", "x-api-key", "content-type", "content-length"}
     if client_headers:
         for key, val in client_headers.items():
             if key.lower() not in _SKIP_HEADERS:
