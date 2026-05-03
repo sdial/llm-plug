@@ -19,6 +19,7 @@ from stats import (
     get_overall_stats, list_requests,
     aggregate_daily_stats,
     refresh_missing_daily_stats, get_request_field, refresh_stats,
+    get_today_stats,
 )
 from storage import (
     load_api_keys, load_data, save_api_keys, save_data, invalidate_keys_cache,
@@ -401,6 +402,20 @@ async def get_stats(days: int = Query(default=7, ge=1)):
             "query_days": days,
             "raw_daily_count": len(raw_daily),
             "fallback_used": fallback_used,
+        },
+    }
+
+
+@router.get("/stats/today")
+async def get_stats_today():
+    """获取今天（东8区0点至今）的实时统计数据"""
+    data = await get_today_stats()
+    return {
+        "overall": data["overall"],
+        "daily": data["daily"],
+        "_debug": {
+            "server_now": datetime.now().isoformat(),
+            "mode": "today_realtime",
         },
     }
 
