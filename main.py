@@ -14,6 +14,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send, Message
 
 from client import close_all_clients, cleanup_stale_clients
 from config import DEBUG, HOST, PORT, MAX_BODY_SIZE
+from config import init_settings
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
@@ -43,6 +44,7 @@ from storage import load_data, load_api_keys
 
 @asynccontextmanager
 async def lifespan(app):
+    await init_settings()
     channels_data = await load_data()
     keys_data = await load_api_keys()
     channel_count = len(channels_data.get("channels", []))
@@ -126,17 +128,6 @@ class CombinedMiddleware:
 
         # Initialize state
         scope.setdefault("state", {})
-
-        # Store tracked headers
-        from config import STATS_TRACKED_HEADERS, TRACK_ALL_HEADERS
-        headers_dict = {k.decode(): v.decode() for k, v in scope.get("headers", [])}
-        if TRACK_ALL_HEADERS:
-            scope["state"]["tracked_headers"] = headers_dict
-        else:
-            scope["state"]["tracked_headers"] = {
-                k: v for k, v in headers_dict.items()
-                if k.lower() in [h.lower() for h in STATS_TRACKED_HEADERS]
-            }
 
         # Store body for downstream handlers
         scope["state"]["body_bytes"] = body_bytes
