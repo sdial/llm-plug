@@ -99,8 +99,12 @@ def _setup_e2e_channels():
     config.DATA_DIR = _E2E_DATA_DIR
     config.CHANNELS_FILE = _E2E_CHANNELS_FILE
     config.API_KEYS_FILE = api_keys_file
-    storage.invalidate_cache()
-    storage.invalidate_keys_cache()
+    storage._cache = None
+    storage._cache_ts = 0
+    storage._keys_cache = None
+    storage._keys_cache_ts = 0
+    storage._channels_lock = None
+    storage._keys_lock = None
 
 
 def _run_mock_server():
@@ -137,6 +141,10 @@ def e2e_client(e2e_mock_server):
     import proxy_core
     storage._cache = None
     storage._cache_ts = 0
+    storage._keys_cache = None
+    storage._keys_cache_ts = 0
+    storage._channels_lock = None
+    storage._keys_lock = None
     proxy_core._model_channels_cache = None
     from main import app
     from fastapi.testclient import TestClient

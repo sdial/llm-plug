@@ -58,7 +58,8 @@ def setup_channels(tmp_path, monkeypatch):
     storage._cache_ts = 0
     storage._keys_cache = None
     storage._keys_cache_ts = 0
-    storage._lock = None
+    storage._channels_lock = None
+    storage._keys_lock = None
 
     yield
 
@@ -66,7 +67,8 @@ def setup_channels(tmp_path, monkeypatch):
     storage._cache_ts = 0
     storage._keys_cache = None
     storage._keys_cache_ts = 0
-    storage._lock = None
+    storage._channels_lock = None
+    storage._keys_lock = None
 
 
 class TestOpenAIModelsEndpoint:

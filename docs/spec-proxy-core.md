@@ -1,6 +1,6 @@
 # spec-proxy-core — 代理核心模块
 
-> 对应文件：`proxy_core.py`（约 650 行）
+> 对应文件：`proxy_core.py`（约 950 行）
 
 ## 模块定位
 
@@ -27,13 +27,14 @@ async def proxy_request(
 
 **流程**：
 
-1. 调用 `_get_channels_for_model(model)` 获取匹配的已启用渠道
-2. 进入 while 循环（故障转移循环）：
-   - `load_balancer.select_channel(channels, exclude_ids=all_tried)` 选择渠道
-   - 调用 `_do_request()` 执行请求
-   - 成功则返回 `(响应, 渠道)`
-   - 失败则 `load_balancer.record_failure()`，加入已试集合，继续循环
-3. 所有渠道耗尽则抛出最后一次异常
+1. 检查 model 是否匹配模型组（model group），若匹配则调用 `_proxy_model_group_request()`，按组内 fallback 顺序依次尝试每个模型
+2. 若非模型组，调用 `_get_channels_for_model(model)` 获取匹配的已启用渠道
+3. 进入 while 循环（故障转移循环）：
+- `load_balancer.select_channel(channels, exclude_ids=all_tried)` 选择渠道
+- 调用 `_do_request()` 执行请求
+- 成功则返回 `(响应, 渠道)`
+- 失败则 `load_balancer.record_failure()`，加入已试集合，继续循环
+4. 所有渠道耗尽则抛出最后一次异常
 
 ### `_do_request(channel, request_data, target_api_type, is_stream, query_string, client_headers, api_key_id, tracked_headers)`
 
@@ -77,14 +78,14 @@ async def _do_stream_request(
 
 **关键细节**：
 
-- 使用 `create_stream_client(channel)` 创建**独立的** httpx 客户端（不缓存）
+- 使用 `get_or_create_stream_client(channel)` 获取**缓存的**流式 httpx 客户端
 - 通过 `client.stream("POST", ...)` 进入流式上下文
 - 逐行 `aiter_lines()` 解析 SSE
 - Anthropic 上游有 `event:` 行 + `data:` 行；OpenAI 上游仅有 `data:` 行
 - 每个 chunk 通过 `converter.convert_stream_chunk()` 转换
 - 转换结果可能附带 `_extra_events`，通过 `converter.get_extra_events()` 取出并一起输出
 - Anthropic 输出格式需要 `event:` 行（通过 `_yield_anthropic_event()` 生成）
-- `finally` 块中 `client.aclose()` 确保连接不泄漏
+- 流式客户端已缓存，`finally` 块不再手动关闭
 - 流式传输中途出错时，向客户端发送错误事件后结束流
 
 ## 辅助函数
@@ -128,16 +129,17 @@ async def _do_stream_request(
 
 | 常量 | 值 | 说明 |
 |------|----|------|
-| `MAX_STREAM_CHUNKS` | 10000 | 流式响应最大记录 chunk 数量，防止内存溢出 |
+| `MAX_STREAM_CHUNKS` | 2000 | 流式响应最大记录 chunk 数量，防止内存溢出 |
 
 ## 与其他模块的交互
 
 ```
 proxy_core.py
   ├── 导入 balancer.load_balancer     → 选择渠道、记录成功/失败
-  ├── 导入 client.create_client       → 非流式请求（缓存客户端）
-  ├── 导入 client.create_stream_client→ 流式请求（独立客户端）
-  ├── 导入 client.get_upstream_headers→ 构建上游认证头
+├── 导入 client.create_client → 非流式请求（缓存客户端）
+├── 导入 client.get_or_create_stream_client → 流式请求（缓存流式客户端）
+├── 导入 client.create_stream_client → 流式请求（独立客户端，不缓存）
+├── 导入 client.get_upstream_headers → 构建上游认证头
   ├── 导入 converters.to_chat         → 格式转换
   ├── 导入 converters.to_response     → 格式转换
   ├── 导入 converters.to_anthropic    → 格式转换
@@ -171,7 +173,7 @@ proxy_core.py
 ## 注意事项
 
 1. **非流式请求使用缓存客户端**：`create_client()` 按 base_url+proxy 缓存，不能 `async with` 关闭。
-2. **流式请求使用独立客户端**：`create_stream_client()` 每次新建，在 `finally` 中 `aclose()`。不可缓存，否则连接会被提前关闭。
+2. **流式请求使用缓存流式客户端**：`get_or_create_stream_client()` 按 base_url+proxy 缓存流式客户端，`finally` 块不再手动关闭。`create_stream_client()` 用于需要独立客户端的场景（不缓存）。
 3. **故障转移循环**：`all_tried` 集合保证同一渠道不会重试。循环直到有渠道成功或全部耗尽。
 4. **query_string 透传**：某些 API（如 Anthropic）使用 query 参数（如 `?beta=...`），需要从原始请求透传给上游。
 5. **流式中途错误**：流式传输已经开始向客户端写数据后，无法改变 HTTP 状态码，只能通过 SSE 错误事件通知客户端。

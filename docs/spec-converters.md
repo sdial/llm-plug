@@ -197,9 +197,10 @@ _stream_state = {
 
 ```
 _stream_state = {
-    "reasoning_started": False,  # 是否已创建 reasoning item
-    "reasoning_id": "",          # reasoning item 的 ID
-    "message_id": "",            # 消息 ID
+    "reasoning_started": False, # 是否已创建 reasoning item
+    "reasoning_id": "", # reasoning item 的 ID
+    "message_id": "", # 消息 ID
+    "output_index": 0, # 当前 output item 的索引
 }
 ```
 
@@ -242,14 +243,18 @@ _stream_state = {
 
 ```
 _stream_state = {
-    "started": False,                  # 是否已发 message_start
-    "content_block_started": False,     # 是否有正在进行的 content block
-    "content_block_index": 0,           # 当前 content block index
-    "current_content_type": None,       # 当前内容类型（text/tool_use/thinking）
-    "tool_id": None,                    # 当前 tool call 的 ID
-    "tool_name": None,                  # 当前 tool call 的名称
-    "tool_call_indices": {},            # OpenAI tool_call index → content_block_index 映射
+    "started": False, # 是否已发 message_start
+    "content_block_started": False, # 是否有正在进行的 content block
+    "content_block_index": 0, # 当前 content block index
+    "current_content_type": None, # 当前内容类型（text/tool_use/thinking）
+    "tool_id": None, # 当前 tool call 的 ID
+    "tool_name": None, # 当前 tool call 的名称
+    "tool_call_indices": {}, # OpenAI tool_call index → content_block_index 映射
+    "_prev_completion_tokens": 0, # 上一次累计的 output tokens，用于计算增量
 }
+```
+
+**`message_start` 生成时机**：当前实现在 `_ensure_message_started()` 中，当收到第一个包含 `role: "assistant"` 的 chunk 时即发射 `message_start`，确保上游首个 chunk 携带的 `usage.prompt_tokens` 被正确捕获到 `message_start` 事件的 `usage.input_tokens` 字段中。此前的实现在首个实际内容到达时才发射 `message_start`，导致 prompt tokens 信息丢失。
 ```
 
 ## 流式 SSE 格式差异
