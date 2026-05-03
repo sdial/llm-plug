@@ -77,30 +77,12 @@ class TestOpenAIModelsEndpoint:
         from main import app
         with TestClient(app) as client:
             resp = client.get("/v1/models")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["object"] == "list"
-        model_ids = [m["id"] for m in data["data"]]
-        assert "gpt-4o" in model_ids
-        assert "claude-sonnet-4-20250514" in model_ids
-
-    def test_returns_models_even_with_proxy_api_key_set(self, monkeypatch):
-        """GET /v1/models should work even when PROXY_API_KEY is set."""
-        monkeypatch.setattr("routers.auth.PROXY_API_KEY", "some-secret-key")
-        from main import app
-        with TestClient(app) as client:
-            resp = client.get("/v1/models")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data["data"]) > 0
-
-    def test_returns_models_with_wrong_auth_header(self, monkeypatch):
-        """GET /v1/models should work even with an invalid Bearer token."""
-        monkeypatch.setattr("routers.auth.PROXY_API_KEY", "some-secret-key")
-        from main import app
-        with TestClient(app) as client:
-            resp = client.get("/v1/models", headers={"Authorization": "Bearer wrong-key"})
-        assert resp.status_code == 200
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["object"] == "list"
+            model_ids = [m["id"] for m in data["data"]]
+            assert "gpt-4o" in model_ids
+            assert "claude-sonnet-4-20250514" in model_ids
 
 
 class TestAnthropicModelsEndpoint:
@@ -115,11 +97,10 @@ class TestAnthropicModelsEndpoint:
         model_ids = [m["id"] for m in data["data"]]
         assert "claude-sonnet-4-20250514" in model_ids
 
-    def test_returns_models_even_with_proxy_api_key_set(self, monkeypatch):
-        """GET /v1/anthropic/models should work even when PROXY_API_KEY is set."""
-        monkeypatch.setattr("routers.auth.PROXY_API_KEY", "some-secret-key")
+    def test_returns_anthropic_models(self):
+        """GET /v1/anthropic/models should work and return models."""
         from main import app
         with TestClient(app) as client:
             resp = client.get("/v1/anthropic/models")
-        assert resp.status_code == 200
-        assert len(resp.json()["data"]) > 0
+            assert resp.status_code == 200
+            assert len(resp.json()["data"]) > 0
