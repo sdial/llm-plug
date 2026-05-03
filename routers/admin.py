@@ -285,7 +285,17 @@ async def test_channel(channel_id: str, model: str | None = Query(default=None))
         elif api_type == "anthropic":
             content = data.get("content", [])
             ok = bool(content)
-            reply = content[0].get("text", "")[:100] if ok else str(data)[:200]
+            # 处理 thinking 模式：找到第一个 text 类型的内容
+            text_reply = None
+            thinking_reply = None
+            for part in content:
+                if part.get("type") == "text":
+                    text_reply = part.get("text", "")
+                    break
+                elif part.get("type") == "thinking":
+                    thinking_reply = part.get("thinking", "")
+            # 优先使用 text 内容，如果没有则使用 thinking 内容
+            reply = (text_reply or thinking_reply or "")[:100] if ok else str(data)[:200]
         else:
             ok = True
             reply = str(data)[:200]
