@@ -223,6 +223,9 @@ class ToChatCompletionsConverter(BaseConverter):
                 "total_tokens": data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0),
             }
         }
+        stop_seq = data.get("stop_sequence")
+        if data.get("stop_reason") == "stop_sequence" and stop_seq:
+            result["choices"][0]["x_stop_sequence"] = stop_seq
         return result
 
     def _map_stop_reason(self, reason: str | None) -> str:
@@ -307,22 +310,20 @@ class ToChatCompletionsConverter(BaseConverter):
                 }
 
         elif event_type == "content_block_stop":
-            return {
-                "id": self._stream_state["msg_id"],
-                "object": "chat.completion.chunk",
-                "created": 0,
-                "model": self._stream_state["model"],
-                "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
-            }
+            return None
 
         elif event_type == "message_delta":
             stop_reason = chunk.get("delta", {}).get("stop_reason")
+            choice = {"index": 0, "delta": {}, "finish_reason": self._map_stop_reason(stop_reason)}
+            stop_seq = chunk.get("delta", {}).get("stop_sequence") or chunk.get("stop_sequence")
+            if stop_reason == "stop_sequence" and stop_seq:
+                choice["x_stop_sequence"] = stop_seq
             return {
                 "id": self._stream_state["msg_id"],
                 "object": "chat.completion.chunk",
                 "created": 0,
                 "model": self._stream_state["model"],
-                "choices": [{"index": 0, "delta": {}, "finish_reason": self._map_stop_reason(stop_reason)}],
+                "choices": [choice],
             }
 
         elif event_type == "message_stop":

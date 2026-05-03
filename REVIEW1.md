@@ -182,15 +182,6 @@ if tool.get("type") == "custom" or "name" in tool:
 
 ---
 
-## 📊 问题统计
-
-| 类别 | 数量 | 关键项 |
-|------|------|--------|
-| 🔴 严重（数据丢失） | 6 | `reasoning_content` 双向丢失、`is_error` 丢失、`stop_sequence` 信息丢失 |
-| 🟡 中等 | 5 | 流式状态泄漏风险、`thinking` 映射不对称、参数 chunk 处理缺陷 |
-| 🟢 轻微 | 5 | 多 choices 丢弃、时间戳丢失、空 chunk、URL 图片、工具过滤 |
-
----
 
 ## 🔧 优先修复建议
 

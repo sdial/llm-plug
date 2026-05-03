@@ -81,6 +81,9 @@ class ToAnthropicConverter(BaseConverter):
 
                 elif isinstance(item, str):
                     result.append({"type": "text", "text": item})
+                else:
+                    logger.warning("Unsupported content item type '%s', converting to text", item.get("type", "unknown") if isinstance(item, dict) else type(item).__name__)
+                    result.append({"type": "text", "text": json.dumps(item, ensure_ascii=False) if isinstance(item, dict) else str(item)})
             return result
         return content
 
@@ -105,7 +108,7 @@ class ToAnthropicConverter(BaseConverter):
                 content_parts = []
                 reasoning_content = msg.get("reasoning_content")
                 if reasoning_content:
-                    content_parts.append({"type": "thinking", "thinking": reasoning_content})
+                    content_parts.append({"type": "thinking", "thinking": reasoning_content, "signature": ""})
                 text_content = msg.get("content")
                 if text_content:
                     if isinstance(text_content, str):
@@ -217,6 +220,8 @@ class ToAnthropicConverter(BaseConverter):
 
     def _chat_response_to_anthropic(self, data: dict[str, Any]) -> dict[str, Any]:
         choices = data.get("choices", [])
+        if len(choices) > 1:
+            logger.warning("Multiple choices (%d) received, only the first will be converted (Anthropic does not support n>1)", len(choices))
         text = ""
         reasoning_content = ""
         finish_reason = "end_turn"
@@ -230,7 +235,7 @@ class ToAnthropicConverter(BaseConverter):
         content = []
         # thinking block 必须在 text block 之前
         if reasoning_content:
-            content.append({"type": "thinking", "thinking": reasoning_content})
+            content.append({"type": "thinking", "thinking": reasoning_content, "signature": ""})
         if text:
             content.append({"type": "text", "text": text})
         if tool_calls:
@@ -321,6 +326,11 @@ class ToAnthropicConverter(BaseConverter):
         delta = choices[0].get("delta", {})
         finish_reason = choices[0].get("finish_reason")
 
+        # 第一个 chunk 通常带 role: "assistant"，此时应发出 message_start
+        # 这样 chunk 中的 usage 信息（如 prompt_tokens）可以正确传递
+        if delta.get("role") == "assistant":
+            self._ensure_message_started(chunk, events)
+
         # 先处理 reasoning_content，因为 thinking block 应该在 text block 之前
         if delta.get("reasoning_content") is not None:
             self._ensure_message_started(chunk, events)
@@ -338,7 +348,7 @@ class ToAnthropicConverter(BaseConverter):
                     ("content_block_start", {
                         "type": "content_block_start",
                         "index": self._stream_state["content_block_index"],
-                        "content_block": {"type": "thinking", "thinking": ""},
+                        "content_block": {"type": "thinking", "thinking": "", "signature": ""},
                     })
                 )
             events.append(
