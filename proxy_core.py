@@ -300,9 +300,14 @@ register_save_callback(_schedule_invalidate_model_channels_cache)
 
 async def _get_channels_for_model(model: str) -> list[Channel]:
     global _model_channels_cache
+    cache = _model_channels_cache
+    if cache is not None:
+        return cache.get(model, [])
+
     async with _model_channels_lock:
-        if _model_channels_cache is not None:
-            return _model_channels_cache.get(model, [])
+        cache = _model_channels_cache
+        if cache is not None:
+            return cache.get(model, [])
         data = await storage.load_data()
         channels = [Channel(**ch) for ch in data.get("channels", [])]
         _model_channels_cache = {}
@@ -386,8 +391,15 @@ _RETRYABLE_EXCEPTIONS = (
 
 
 def _fire_and_forget(coro):
+    def _on_done(t: asyncio.Task) -> None:
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.warning(f"fire-and-forget task failed: {type(exc).__name__}: {exc}")
+
     task = asyncio.create_task(coro)
-    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+    task.add_done_callback(_on_done)
     return task
 
 
@@ -691,6 +703,7 @@ async def _do_stream_request(
     model = upstream_data.get("model", "")
     input_tokens = 0
     output_tokens = 0
+    finish_reason = None
     stream_chunks: list[Any] = []
     stream_chunk_count = 0
     _stream_log_enabled = LOG_LEVEL == "debug"
@@ -830,6 +843,27 @@ async def _do_stream_request(
 
                 _record_chunk(chunk)
 
+                # 增量提取 token 用量和 finish_reason，避免 finally 中二次遍历
+                if isinstance(chunk, dict):
+                    if is_upstream_anthropic:
+                        if chunk.get("type") == "message_start":
+                            input_tokens = chunk.get("message", {}).get("usage", {}).get("input_tokens", 0)
+                        elif chunk.get("type") == "message_delta":
+                            output_tokens = chunk.get("usage", {}).get("output_tokens", output_tokens)
+                            fr = chunk.get("delta", {}).get("stop_reason")
+                            if fr:
+                                finish_reason = fr
+                    else:
+                        usage = chunk.get("usage")
+                        if usage:
+                            input_tokens = usage.get("prompt_tokens", input_tokens)
+                            output_tokens = usage.get("completion_tokens", output_tokens)
+                        choices = chunk.get("choices", [])
+                        if choices and isinstance(choices[0], dict):
+                            fr = choices[0].get("finish_reason")
+                            if fr:
+                                finish_reason = fr
+
                 if is_upstream_anthropic and upstream_event_type is not None:
                     chunk["_event_type"] = upstream_event_type
 
@@ -896,34 +930,6 @@ async def _do_stream_request(
             lag_ms = None
             if first_token_time is not None:
                 lag_ms = int((first_token_time - start_time) * 1000)
-            if is_upstream_anthropic:
-                for chunk in stream_chunks:
-                    if isinstance(chunk, dict):
-                        if chunk.get("type") == "message_start":
-                            input_tokens = chunk.get("message", {}).get("usage", {}).get("input_tokens", 0)
-                        elif chunk.get("type") == "message_delta":
-                            output_tokens = chunk.get("usage", {}).get("output_tokens", output_tokens)
-            else:
-                for chunk in stream_chunks:
-                    if isinstance(chunk, dict):
-                        usage = chunk.get("usage")
-                        if usage:
-                            input_tokens = usage.get("prompt_tokens", input_tokens)
-                            output_tokens = usage.get("completion_tokens", output_tokens)
-            finish_reason = None
-            for chunk in reversed(stream_chunks):
-                if isinstance(chunk, dict):
-                    choices = chunk.get("choices", [])
-                    if choices and isinstance(choices[0], dict):
-                        fr = choices[0].get("finish_reason")
-                        if fr:
-                            finish_reason = fr
-                            break
-                    if chunk.get("type") == "message_delta":
-                        fr = chunk.get("delta", {}).get("stop_reason")
-                        if fr:
-                            finish_reason = fr
-                            break
             response_body = _build_stream_response_body(
                 chunks=stream_chunks,
                 is_upstream_anthropic=is_upstream_anthropic,

@@ -8,14 +8,22 @@ from typing import Any, Callable
 import config
 from models.model_group import LBConfig, ModelGroup
 
-_lock: asyncio.Lock | None = None
+_channels_lock: asyncio.Lock | None = None
+_keys_lock: asyncio.Lock | None = None
 
 
-def _get_lock() -> asyncio.Lock:
-    global _lock
-    if _lock is None:
-        _lock = asyncio.Lock()
-    return _lock
+def _get_channels_lock() -> asyncio.Lock:
+    global _channels_lock
+    if _channels_lock is None:
+        _channels_lock = asyncio.Lock()
+    return _channels_lock
+
+
+def _get_keys_lock() -> asyncio.Lock:
+    global _keys_lock
+    if _keys_lock is None:
+        _keys_lock = asyncio.Lock()
+    return _keys_lock
 
 _cache: dict[str, Any] | None = None
 _cache_ts: float = 0
@@ -77,7 +85,7 @@ def _write_channels_to_disk(data: dict[str, Any]) -> None:
 async def load_data() -> dict[str, Any]:
     global _cache, _cache_ts
     _ensure_data_dir()
-    async with _get_lock():
+    async with _get_channels_lock():
         now = time.time()
         if _cache is not None and (now - _cache_ts) < _CACHE_TTL:
             return _cache
@@ -93,21 +101,22 @@ async def load_data() -> dict[str, Any]:
 
 async def invalidate_cache() -> None:
     global _cache, _cache_ts, _keys_cache, _keys_cache_ts, _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS, _LB_CONFIG_CACHE, _LB_CONFIG_CACHE_TS
-    async with _get_lock():
+    async with _get_channels_lock():
         _cache = None
         _cache_ts = 0
-        _keys_cache = None
-        _keys_cache_ts = 0
         _MODEL_GROUPS_CACHE = None
         _MODEL_GROUPS_CACHE_TS = 0
         _LB_CONFIG_CACHE = None
         _LB_CONFIG_CACHE_TS = 0
+    async with _get_keys_lock():
+        _keys_cache = None
+        _keys_cache_ts = 0
 
 
 async def save_data(data: dict[str, Any]) -> None:
     global _cache, _cache_ts
     _ensure_data_dir()
-    async with _get_lock():
+    async with _get_channels_lock():
         await asyncio.to_thread(_write_channels_to_disk, data)
         _cache = data
         _cache_ts = time.time()
@@ -157,7 +166,7 @@ def _write_api_keys_to_disk(data: dict[str, Any]) -> None:
 async def load_api_keys() -> dict[str, Any]:
     global _keys_cache, _keys_cache_ts
     _ensure_data_dir()
-    async with _get_lock():
+    async with _get_keys_lock():
         now = time.time()
         if _keys_cache is not None and (now - _keys_cache_ts) < _CACHE_TTL:
             return _keys_cache
@@ -174,7 +183,7 @@ async def load_api_keys() -> dict[str, Any]:
 async def save_api_keys(data: dict[str, Any]) -> None:
     global _keys_cache, _keys_cache_ts
     _ensure_data_dir()
-    async with _get_lock():
+    async with _get_keys_lock():
         await asyncio.to_thread(_write_api_keys_to_disk, data)
         _keys_cache = data
         _keys_cache_ts = time.time()
@@ -182,7 +191,7 @@ async def save_api_keys(data: dict[str, Any]) -> None:
 
 async def invalidate_keys_cache() -> None:
     global _keys_cache, _keys_cache_ts
-    async with _get_lock():
+    async with _get_keys_lock():
         _keys_cache = None
         _keys_cache_ts = 0
 
@@ -281,7 +290,7 @@ async def delete_model_group(group_id: str) -> bool:
 
 async def invalidate_model_groups_cache() -> None:
     global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
-    async with _get_lock():
+    async with _get_channels_lock():
         _MODEL_GROUPS_CACHE = None
         _MODEL_GROUPS_CACHE_TS = 0
 

@@ -1,4 +1,5 @@
 import json
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import StreamingResponse
@@ -18,6 +19,15 @@ from routers.proxy_errors import (
 
 # 需要转发给上游 Anthropic 的客户端请求头
 _FORWARDED_ANTHROPIC_HEADERS = {"anthropic-beta", "anthropic-version"}
+
+
+async def _closeable_stream(gen: AsyncGenerator):
+    """包装流式生成器，确保客户端断开时显式关闭，释放 converter 等资源。"""
+    try:
+        async for chunk in gen:
+            yield chunk
+    finally:
+        await gen.aclose()
 
 
 def _pick_error_helpers(api_type: APIType):
@@ -75,7 +85,7 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
 
         if is_stream:
             return StreamingResponse(
-                result,
+                _closeable_stream(result),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
