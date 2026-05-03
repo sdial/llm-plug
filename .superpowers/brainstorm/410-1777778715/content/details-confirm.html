@@ -1,0 +1,69 @@
+<h2>单行布局细节确认</h2>
+<p class="subtitle">基于你的优化方向，确认几个关键细节</p>
+
+<div class="section">
+  <h3 style="margin-top:0;">已确认的优化项</h3>
+  <ul style="color:#059669;font-size:13px;line-height:1.8;">
+    <li>✓ 去掉抽屉，信息集中到一行</li>
+    <li>✓ 状态列可点击切换（POP确认）</li>
+    <li>✓ API类型简写：A / C / R</li>
+    <li>✓ Base URL 截断显示 + title完整</li>
+    <li>✓ 删除按钮移入编辑面板</li>
+  </ul>
+</div>
+
+<h3>问题1：模型列表如何展示？</h3>
+<p class="subtitle">当渠道有多个模型时，一行内如何呈现？</p>
+
+<div class="options">
+  <div class="option" data-choice="count" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>数量徽章</h3>
+      <p>显示模型数量，如 <span style="background:#f0efff;color:#635bff;padding:2px 8px;border-radius:999px;font-size:11px;">3 模型</span>，hover显示全部列表</p>
+    </div>
+  </div>
+  <div class="option" data-choice="first" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>首个+数量</h3>
+      <p>显示第一个模型 + 数量，如 <span style="background:#f5f5f4;color:#6b6b6b;padding:2px 8px;border-radius:999px;font-size:11px;">gpt-4o</span> <span style="color:#9ca3af;font-size:11px;">+2</span></p>
+    </div>
+  </div>
+  <div class="option" data-choice="truncate" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>截断展示</h3>
+      <p>直接显示，超出部分截断，hover显示完整。如 <span style="font-size:12px;">gpt-4o, gpt-4o-mini, claude...</span></p>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:24px;">问题2：测试功能放在哪里？</h3>
+<p class="subtitle">测试连接需要选择模型，如何放置？</p>
+
+<div class="options">
+  <div class="option" data-choice="edit" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>移入编辑面板</h3>
+      <p>在编辑弹窗中添加测试按钮，测试时选择模型</p>
+    </div>
+  </div>
+  <div class="option" data-choice="hover" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Hover 浮层</h3>
+      <p>鼠标悬停渠道行时，显示测试按钮和模型选择</p>
+    </div>
+  </div>
+  <div class="option" data-choice="row-end" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>行末操作区</h3>
+      <p>在操作列添加测试按钮，点击后弹出模型选择</p>
+    </div>
+  </div>
+</div>
+
+<p style="text-align:center;color:#6b6b6b;font-size:12px;margin-top:16px;">请分别选择模型展示方式和测试功能位置</p>
