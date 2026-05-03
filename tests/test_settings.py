@@ -1,6 +1,4 @@
 import pytest
-import tempfile
-import os
 
 
 @pytest.fixture
