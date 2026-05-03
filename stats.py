@@ -235,9 +235,17 @@ async def aggregate_daily_stats(
     start_date: date,
     end_date: date,
 ) -> dict[str, Any]:
-    """手动触发指定日期范围的日聚合"""
+    """手动触发指定日期范围的日聚合
+
+    注意：start_date 和 end_date 是东8区日期，需要转换为 UTC 时间查询
+    """
     if not _db_available:
         return {"updated_rows": 0}
+    # 东8区日期的0点 = 该日期前一天的 16:00 UTC
+    # 例如：东8区 2026-05-03 00:00:00 = UTC 2026-05-02 16:00:00
+    start_utc = datetime.combine(start_date, datetime.min.time()) - timedelta(hours=8)
+    end_utc = datetime.combine(end_date, datetime.min.time()) + timedelta(days=1) - timedelta(hours=8)
+
     async with _get_conn() as conn:
         await conn.execute(
             """
@@ -270,8 +278,8 @@ INSERT INTO daily_stats
                 avg_lag_ms = EXCLUDED.avg_lag_ms,
                 updated_at = now()
             """,
-            datetime.combine(start_date, datetime.min.time()),
-            datetime.combine(end_date, datetime.min.time()) + timedelta(days=1)
+            start_utc,
+            end_utc
         )
         count = await conn.fetchval(
             "SELECT COUNT(*) FROM daily_stats WHERE date >= $1 AND date <= $2",
@@ -328,9 +336,15 @@ async def get_daily_stats_from_requests(
     """从 requests 明细表实时聚合日统计（daily_stats 无数据时的兜底）"""
     if not _db_available:
         return []
-    start_date = utc8_now().date() - timedelta(days=days - 1)
-    conditions = ["timestamp >= ($1::date - interval '8 hours')"]
-    args: list[Any] = [start_date]
+
+    # 计算东8区今天的日期，然后计算查询起始时间（UTC时间）
+    today_utc8 = utc8_now().date()
+    start_date = today_utc8 - timedelta(days=days - 1)
+    # 东8区日期对应的UTC时间范围：start_date 00:00 UTC+8 = start_date-1 16:00 UTC
+    start_utc = datetime.combine(start_date, datetime.min.time()) - timedelta(hours=8)
+
+    conditions = ["timestamp >= $1"]
+    args: list[Any] = [start_utc]
     if channel_id:
         args.append(channel_id)
         conditions.append(f"channel_id = ${len(args)}")
@@ -599,6 +613,119 @@ async def get_overall_stats(days: int = 7) -> dict[str, Any]:
             "api_keys": [{"key_id": r["api_key_id"], "count": r["count"],
                           "input_tokens": r["input_tokens"], "output_tokens": r["output_tokens"]} for r in key_rows],
         }
+
+
+async def get_today_stats() -> dict[str, Any]:
+    """今天（东8区0点至今）的实时统计，直接查 requests 表"""
+    if not _db_available:
+        return {
+            "overall": {
+                "total_requests": 0, "success_count": 0, "fail_count": 0,
+                "total_input_tokens": 0, "total_output_tokens": 0,
+                "channels": [], "models": [], "api_keys": [],
+            },
+            "daily": [],
+        }
+    utc8 = utc8_now()
+    start_of_today = (utc8.replace(hour=0, minute=0, second=0, microsecond=0)
+                      - timedelta(hours=8))
+
+    async with _get_conn() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT
+                COUNT(*) as total_requests,
+                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
+                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
+                COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) as total_output_tokens
+            FROM requests
+            WHERE timestamp >= $1
+            """,
+            start_of_today,
+        )
+
+        channel_rows = await conn.fetch(
+            """
+            SELECT channel_name, COUNT(*) as count
+            FROM requests
+            WHERE timestamp >= $1
+            GROUP BY channel_id, channel_name
+            ORDER BY count DESC
+            """,
+            start_of_today,
+        )
+
+        model_rows = await conn.fetch(
+            """
+            SELECT model, COUNT(*) as count
+            FROM requests
+            WHERE timestamp >= $1
+            GROUP BY model
+            ORDER BY count DESC
+            LIMIT 20
+            """,
+            start_of_today,
+        )
+
+        key_rows = await conn.fetch(
+            """
+            SELECT api_key_id, COUNT(*) as count,
+                   COALESCE(SUM(input_tokens), 0) as input_tokens,
+                   COALESCE(SUM(output_tokens), 0) as output_tokens
+            FROM requests
+            WHERE api_key_id IS NOT NULL AND api_key_id != ''
+              AND timestamp >= $1
+            GROUP BY api_key_id
+            ORDER BY count DESC
+            """,
+            start_of_today,
+        )
+
+        daily_row = await conn.fetchrow(
+            """
+            SELECT
+                COUNT(*) as request_count,
+                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
+                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
+                SUM(input_tokens) as input_tokens,
+                SUM(output_tokens) as output_tokens,
+                AVG(latency_ms)::int as avg_latency_ms,
+                AVG(lag_ms) FILTER (WHERE lag_ms IS NOT NULL)::int as avg_lag_ms
+            FROM requests
+            WHERE timestamp >= $1
+            """,
+            start_of_today,
+        )
+
+    total = row["total_requests"] or 0
+    daily = []
+    if total > 0:
+        daily = [{
+            "date": str(utc8.date()),
+            "total_requests": daily_row["request_count"] or 0,
+            "success_count": daily_row["success_count"] or 0,
+            "fail_count": daily_row["fail_count"] or 0,
+            "total_input_tokens": daily_row["input_tokens"] or 0,
+            "total_output_tokens": daily_row["output_tokens"] or 0,
+            "avg_latency_ms": daily_row["avg_latency_ms"] or 0,
+            "avg_lag_ms": daily_row["avg_lag_ms"] or 0,
+        }]
+
+    return {
+        "overall": {
+            "total_requests": total,
+            "success_count": row["success_count"] or 0,
+            "fail_count": row["fail_count"] or 0,
+            "total_input_tokens": row["total_input_tokens"] or 0,
+            "total_output_tokens": row["total_output_tokens"] or 0,
+            "channels": [{"name": r["channel_name"], "count": r["count"]} for r in channel_rows],
+            "models": [{"name": r["model"], "count": r["count"]} for r in model_rows],
+            "api_keys": [{"key_id": r["api_key_id"], "count": r["count"],
+                          "input_tokens": r["input_tokens"], "output_tokens": r["output_tokens"]} for r in key_rows],
+        },
+        "daily": daily,
+    }
 
 
 async def get_api_key_stats() -> dict[str, dict[str, int]]:
