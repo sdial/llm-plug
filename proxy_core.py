@@ -411,7 +411,6 @@ async def proxy_request(
     query_string: str | None = None,
     client_headers: dict[str, str] | None = None,
     api_key_id: str | None = None,
-    tracked_headers: dict[str, str] | None = None,
 ) -> tuple[Any, Channel]:
     """
     执行代理请求，返回 (response_data_or_stream, selected_channel)
@@ -426,13 +425,13 @@ async def proxy_request(
         # 模型组请求：按 Fallback 顺序尝试每个模型
         return await _proxy_model_group_request(
             group, request_data, target_api_type, is_stream,
-            query_string, client_headers, api_key_id, tracked_headers
+            query_string, client_headers, api_key_id
         )
     else:
         # 单模型请求：现有逻辑
         return await _proxy_single_model_request(
             model, request_data, target_api_type, is_stream,
-            query_string, client_headers, api_key_id, tracked_headers
+            query_string, client_headers, api_key_id
         )
 
 
@@ -444,7 +443,6 @@ async def _proxy_single_model_request(
     query_string: str | None,
     client_headers: dict[str, str] | None,
     api_key_id: str | None,
-    tracked_headers: dict[str, str] | None,
 ) -> tuple[Any, Channel]:
     """单模型请求，现有逻辑"""
     channels = await _get_channels_for_model(model)
@@ -465,7 +463,7 @@ async def _proxy_single_model_request(
             return await _do_request(
                 selected, request_data, target_api_type, is_stream,
                 query_string=query_string, client_headers=client_headers,
-                api_key_id=api_key_id, tracked_headers=tracked_headers
+                api_key_id=api_key_id,
             ), selected
         except _RETRYABLE_EXCEPTIONS as e:
             load_balancer.record_failure(selected.id)
@@ -481,7 +479,6 @@ async def _proxy_model_group_request(
     query_string: str | None,
     client_headers: dict[str, str] | None,
     api_key_id: str | None,
-    tracked_headers: dict[str, str] | None,
 ) -> tuple[Any, Channel]:
     """模型组请求：按 Fallback 顺序尝试每个模型"""
     # 按组内模型的 Fallback 顺序尝试
@@ -505,7 +502,7 @@ async def _proxy_model_group_request(
                 return await _do_request(
                     selected, modified_request, target_api_type, is_stream,
                     query_string=query_string, client_headers=client_headers,
-                    api_key_id=api_key_id, tracked_headers=tracked_headers
+                    api_key_id=api_key_id,
                 ), selected
             except _RETRYABLE_EXCEPTIONS as e:
                 load_balancer.record_failure(selected.id)
@@ -526,7 +523,6 @@ async def _do_request(
     query_string: str | None = None,
     client_headers: dict[str, str] | None = None,
     api_key_id: str | None = None,
-    tracked_headers: dict[str, str] | None = None,
 ):
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
 
@@ -558,7 +554,7 @@ async def _do_request(
             }
         return _do_stream_request(
             channel, url, headers, upstream_data, response_converter, source_type, target_api_type,
-            api_key_id=api_key_id, tracked_headers=tracked_headers,
+            api_key_id=api_key_id,
         )
 
     # 非流式：使用缓存的 httpx 客户端（不可 async with，否则会关闭共享连接）
@@ -615,7 +611,7 @@ async def _do_request(
             success=True,
             finish_reason=finish_reason,
             api_key_id=api_key_id,
-            request_headers=tracked_headers,
+            request_headers={k: v for k, v in headers.items() if k.lower() not in ("authorization", "x-api-key")},
             response_headers=dict(resp.headers),
             request_body=upstream_data,
             response_body=response_data,
@@ -654,7 +650,7 @@ async def _do_request(
             error_msg=str(e),
             finish_reason=None,
             api_key_id=api_key_id,
-            request_headers=tracked_headers,
+            request_headers={k: v for k, v in headers.items() if k.lower() not in ("authorization", "x-api-key")},
             request_body=upstream_data,
         ))
         # 控制台输出详细错误
@@ -694,7 +690,6 @@ def _yield_anthropic_events(events: list[tuple[str, dict[str, Any]] | dict[str, 
 async def _do_stream_request(
     channel: Channel, url: str, headers: dict, upstream_data: dict, response_converter, source_type: str,
     target_api_type: APIType = APIType.OPENAI_CHAT, api_key_id: str | None = None,
-    tracked_headers: dict[str, str] | None = None,
 ):
     """流式请求，yield SSE 数据行。
 
@@ -953,7 +948,7 @@ async def _do_stream_request(
                 error_msg=stream_error,
                 finish_reason=finish_reason,
                 api_key_id=api_key_id,
-                request_headers=tracked_headers,
+                request_headers={k: v for k, v in headers.items() if k.lower() not in ("authorization", "x-api-key")},
                 response_headers=resp_headers,
                 request_body=upstream_data,
                 response_body=response_body,
