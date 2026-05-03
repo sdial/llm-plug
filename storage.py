@@ -100,14 +100,12 @@ async def load_data() -> dict[str, Any]:
 
 
 async def invalidate_cache() -> None:
-    global _cache, _cache_ts, _keys_cache, _keys_cache_ts, _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS, _LB_CONFIG_CACHE, _LB_CONFIG_CACHE_TS
+    global _cache, _cache_ts, _keys_cache, _keys_cache_ts, _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
     async with _get_channels_lock():
         _cache = None
         _cache_ts = 0
         _MODEL_GROUPS_CACHE = None
         _MODEL_GROUPS_CACHE_TS = 0
-        _LB_CONFIG_CACHE = None
-        _LB_CONFIG_CACHE_TS = 0
     async with _get_keys_lock():
         _keys_cache = None
         _keys_cache_ts = 0
@@ -196,33 +194,24 @@ async def invalidate_keys_cache() -> None:
         _keys_cache_ts = 0
 
 
-# ============ 负载均衡配置 ============
-
-_LB_CONFIG_CACHE: LBConfig | None = None
-_LB_CONFIG_CACHE_TS: float = 0
-
+# ============ 负载均衡配置（兼容接口，代理到 config settings） ============
 
 async def get_lb_config() -> LBConfig:
-    global _LB_CONFIG_CACHE, _LB_CONFIG_CACHE_TS
-    now = time.time()
-    if _LB_CONFIG_CACHE is not None and (now - _LB_CONFIG_CACHE_TS) < _CACHE_TTL:
-        return _LB_CONFIG_CACHE
-
-    data = await load_data()
-    lb_dict = data.get("lb_config", {})
-    cfg = LBConfig(**lb_dict)
-    _LB_CONFIG_CACHE = cfg
-    _LB_CONFIG_CACHE_TS = now
-    return cfg
+    """兼容接口：从 config settings 读取 lb 配置"""
+    import config as _config
+    return LBConfig(
+        max_fail_count=_config.get_setting("max_fail_count"),
+        cooldown_seconds=_config.get_setting("cooldown_seconds"),
+    )
 
 
 async def save_lb_config(cfg: LBConfig) -> None:
-    global _LB_CONFIG_CACHE, _LB_CONFIG_CACHE_TS
-    data = await load_data()
-    data["lb_config"] = cfg.model_dump()
-    await save_data(data)
-    _LB_CONFIG_CACHE = cfg
-    _LB_CONFIG_CACHE_TS = time.time()
+    """兼容接口：写入 config settings"""
+    import config as _config
+    await _config.update_settings({
+        "max_fail_count": cfg.max_fail_count,
+        "cooldown_seconds": cfg.cooldown_seconds,
+    })
 
 
 # ============ 模型组存储 ============
