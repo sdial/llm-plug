@@ -583,7 +583,18 @@ async def update_lb_config_endpoint(body: LBConfig):
 async def get_settings_endpoint():
     """获取所有配置项"""
     import config as _config
-    return _config.get_settings()
+    settings = _config.get_settings()
+    # 添加 database_url_masked 字段
+    if settings.get("database_url"):
+        settings["database_url_masked"] = settings["database_url"]
+    else:
+        settings["database_url_masked"] = ""
+    # max_body_size 转换为 MB 单位
+    if settings.get("max_body_size"):
+        settings["max_body_size_mb"] = settings["max_body_size"] // (1024 * 1024)
+    else:
+        settings["max_body_size_mb"] = _config._CONFIG_SCHEMA["max_body_size"]["default"] // (1024 * 1024)
+    return settings
 
 
 @router.put("/settings")
