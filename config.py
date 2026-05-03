@@ -5,6 +5,24 @@ from loguru import logger
 
 load_dotenv()
 
+import json
+
+DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+_SETTINGS_FILE = os.getenv("SETTINGS_FILE", os.path.join(DATA_DIR, "settings.json"))
+
+_CONFIG_SCHEMA = {
+    "host": {"type": "str", "default": "0.0.0.0", "requires_restart": True, "readonly": True, "env": "HOST"},
+    "port": {"type": "int", "default": 55555, "requires_restart": True, "readonly": True, "env": "PORT"},
+    "request_timeout": {"type": "int", "default": 300, "requires_restart": False, "env": "REQUEST_TIMEOUT"},
+    "max_body_size": {"type": "int", "default": 10 * 1024 * 1024, "requires_restart": False, "env": "MAX_BODY_SIZE"},
+    "debug": {"type": "bool", "default": False, "requires_restart": True, "env": "DEBUG"},
+    "log_level": {"type": "str", "default": "info", "requires_restart": True, "env": "LOG_LEVEL"},
+    "stats_tracked_headers": {"type": "str", "default": "", "requires_restart": False, "env": "STATS_TRACKED_HEADERS"},
+    "database_url": {"type": "str", "default": "", "requires_restart": True, "env": "DATABASE_URL"},
+    "max_fail_count": {"type": "int", "default": 5, "requires_restart": False, "env": "MAX_FAIL_COUNT"},
+    "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False, "env": "COOLDOWN_SECONDS"},
+}
+
 
 def _int_env(key: str, default: int) -> int:
     """读取整数环境变量，格式错误时回退到默认值。"""
@@ -18,39 +36,22 @@ def _int_env(key: str, default: int) -> int:
         return default
 
 
-# 服务器配置
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = _int_env("PORT", 55555)
 
-# 数据存储
-DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 CHANNELS_FILE = os.getenv("CHANNELS_FILE", os.path.join(DATA_DIR, "channels.json"))
 API_KEYS_FILE = os.getenv("API_KEYS_FILE", os.path.join(DATA_DIR, "api_keys.json"))
 
-# 负载均衡配置已移至 storage.py (channels.json 中的 lb_config 字段)
-# 这样可以在后台动态修改，无需重启服务
-
-# 请求超时（秒）
 REQUEST_TIMEOUT = _int_env("REQUEST_TIMEOUT", 300)
-
-# 请求体最大字节数（默认 10MB）
 MAX_BODY_SIZE = _int_env("MAX_BODY_SIZE", 10 * 1024 * 1024)
 
-# 代理访问鉴权
-PROXY_API_KEY = os.getenv("PROXY_API_KEY", "")  # 代理API密钥，为空则不鉴权
-
-# Debug 模式
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 DEBUG_LOG_DIR = os.getenv("DEBUG_LOG_DIR", os.path.join(os.path.dirname(__file__), "logs"))
 
-# 日志级别
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
 
-# PostgreSQL 配置
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
-# 统计追踪的请求头
-# 空值或 "ALL" 表示追踪所有请求头
 _stats_tracked_headers_raw = os.getenv("STATS_TRACKED_HEADERS", "")
 TRACK_ALL_HEADERS = _stats_tracked_headers_raw.strip().upper() == "ALL" or not _stats_tracked_headers_raw.strip()
 STATS_TRACKED_HEADERS = None if TRACK_ALL_HEADERS else _stats_tracked_headers_raw.split(",")
