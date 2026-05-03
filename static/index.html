@@ -634,6 +634,8 @@
         let requestPageSize = 10;
         let requestTotal = 0;
         let pendingChannelRestore = '';
+        let pendingTestChannelId = null;
+        let pendingConfirmAction = null;
         let lastStatsData = null;
 
         function esc(s) {
@@ -780,6 +782,86 @@
             `;
         }
 
+        function openTestModal(channelId) {
+            const ch = channels.find(c => c.id === channelId);
+            if (!ch || !ch.models.length) {
+                alert('该渠道没有配置模型');
+                return;
+            }
+            pendingTestChannelId = channelId;
+            const select = document.getElementById('testModelSelect');
+            select.innerHTML = ch.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+            document.getElementById('testResult').classList.add('hidden');
+            document.getElementById('executeTestBtn').disabled = false;
+            document.getElementById('executeTestBtn').textContent = '开始测试';
+            document.getElementById('testModal').classList.remove('hidden');
+        }
+
+        function closeTestModal() {
+            document.getElementById('testModal').classList.add('hidden');
+            pendingTestChannelId = null;
+        }
+
+        async function executeTestFromModal() {
+            if (!pendingTestChannelId) return;
+            const model = document.getElementById('testModelSelect').value;
+            const btn = document.getElementById('executeTestBtn');
+            const resultDiv = document.getElementById('testResult');
+            const resultContent = document.getElementById('testResultContent');
+
+            btn.textContent = '测试中...';
+            btn.disabled = true;
+
+            try {
+                const resp = await fetch(`${API}/${pendingTestChannelId}/test?model=${encodeURIComponent(model)}`, { method: 'POST' });
+                const result = await resp.json();
+                resultDiv.classList.remove('hidden');
+                if (result.success) {
+                    resultContent.innerHTML = `
+                        <div class="text-emerald-600 font-medium mb-2">✅ 测试通过</div>
+                        <div class="text-ink-600">模型: ${esc(result.model)}</div>
+                        <div class="text-ink-600">延迟: ${result.latency_ms}ms</div>
+                        <div class="text-ink-600 mt-2">回复: ${esc(result.reply || '(空)')}</div>
+                    `;
+                } else {
+                    resultContent.innerHTML = `
+                        <div class="text-rose-600 font-medium mb-2">❌ 测试失败</div>
+                        <div class="text-ink-600">${esc(result.message)}</div>
+                        ${result.latency_ms ? `<div class="text-ink-600">延迟: ${result.latency_ms}ms</div>` : ''}
+                    `;
+                }
+            } catch (e) {
+                resultDiv.classList.remove('hidden');
+                resultContent.innerHTML = `<div class="text-rose-600 font-medium">❌ 请求异常: ${esc(e.message)}</div>`;
+            } finally {
+                btn.textContent = '开始测试';
+                btn.disabled = false;
+            }
+        }
+
+        function toggleStatusWithConfirm(channelId, currentEnabled) {
+            const action = currentEnabled ? '禁用' : '启用';
+            document.getElementById('confirmTitle').textContent = '确认' + action;
+            document.getElementById('confirmMessage').textContent = `确定要${action}该渠道吗？`;
+            pendingConfirmAction = async () => {
+                await fetch(`${API}/${channelId}/toggle`, { method: 'PATCH' });
+                loadChannels();
+            };
+            document.getElementById('confirmModal').classList.remove('hidden');
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').classList.add('hidden');
+            pendingConfirmAction = null;
+        }
+
+        async function confirmAction() {
+            if (pendingConfirmAction) {
+                await pendingConfirmAction();
+            }
+            closeConfirmModal();
+        }
+
         function openModal(channel = null) {
             document.getElementById('modalTitle').textContent = channel ? '编辑渠道' : '添加渠道';
             document.getElementById('editId').value = channel ? channel.id : '';
@@ -835,11 +917,6 @@
                 await fetch(API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
             }
             closeModal();
-            loadChannels();
-        }
-
-        async function toggleChannel(id) {
-            await fetch(`${API}/${id}/toggle`, { method: 'PATCH' });
             loadChannels();
         }
 
