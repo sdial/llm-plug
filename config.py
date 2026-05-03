@@ -1,11 +1,13 @@
+import asyncio
+import json
 import os
+import re
+import tempfile
 
 from dotenv import load_dotenv
 from loguru import logger
 
 load_dotenv()
-
-import json
 
 DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 _SETTINGS_FILE = os.getenv("SETTINGS_FILE", os.path.join(DATA_DIR, "settings.json"))
@@ -23,9 +25,11 @@ _CONFIG_SCHEMA = {
     "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False, "env": "COOLDOWN_SECONDS"},
 }
 
+_settings: dict = {}
+_settings_lock = asyncio.Lock()
+
 
 def _int_env(key: str, default: int) -> int:
-    """读取整数环境变量，格式错误时回退到默认值。"""
     raw = os.getenv(key)
     if raw is None:
         return default
@@ -55,3 +59,145 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 _stats_tracked_headers_raw = os.getenv("STATS_TRACKED_HEADERS", "")
 TRACK_ALL_HEADERS = _stats_tracked_headers_raw.strip().upper() == "ALL" or not _stats_tracked_headers_raw.strip()
 STATS_TRACKED_HEADERS = None if TRACK_ALL_HEADERS else _stats_tracked_headers_raw.split(",")
+
+
+def _cast_value(value, type_name):
+    if type_name == "int":
+        return int(value)
+    if type_name == "bool":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ("true", "1", "yes")
+        return bool(value)
+    return str(value)
+
+
+def _init_settings_sync():
+    global _settings
+    file_data = {}
+    if os.path.exists(_SETTINGS_FILE):
+        try:
+            with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                file_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            logger.warning(f"Failed to read {_SETTINGS_FILE}, using defaults")
+    _settings = {}
+    for key, schema in _CONFIG_SCHEMA.items():
+        if key in file_data:
+            _settings[key] = _cast_value(file_data[key], schema["type"])
+        else:
+            env_key = schema.get("env", "")
+            env_val = os.getenv(env_key) if env_key else None
+            if env_val is not None:
+                _settings[key] = _cast_value(env_val, schema["type"])
+            else:
+                _settings[key] = schema["default"]
+    _sync_module_vars()
+
+
+def _sync_module_vars():
+    global HOST, PORT, DEBUG, LOG_LEVEL, REQUEST_TIMEOUT, MAX_BODY_SIZE
+    HOST = _settings.get("host", "0.0.0.0")
+    PORT = _settings.get("port", 55555)
+    DEBUG = _settings.get("debug", False)
+    LOG_LEVEL = _settings.get("log_level", "info")
+    REQUEST_TIMEOUT = _settings.get("request_timeout", 300)
+    MAX_BODY_SIZE = _settings.get("max_body_size", 10 * 1024 * 1024)
+
+
+def get_setting(key: str):
+    if key in _settings:
+        return _settings[key]
+    schema = _CONFIG_SCHEMA.get(key)
+    if schema:
+        return schema["default"]
+    return None
+
+
+def _mask_db_url(url: str) -> str:
+    return re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', url)
+
+
+def get_settings() -> dict:
+    result = dict(_settings)
+    if "database_url" in result and result["database_url"]:
+        result["database_url"] = _mask_db_url(result["database_url"])
+    return result
+
+
+def _apply_lb_settings():
+    try:
+        from balancer.load_balancer import load_balancer
+        load_balancer.update_config(
+            max_fail_count=_settings.get("max_fail_count", 5),
+            cooldown_seconds=_settings.get("cooldown_seconds", 60),
+        )
+    except Exception:
+        pass
+
+
+def _apply_stats_headers_settings():
+    global TRACK_ALL_HEADERS, STATS_TRACKED_HEADERS
+    raw = _settings.get("stats_tracked_headers", "")
+    TRACK_ALL_HEADERS = raw.strip().upper() == "ALL" or not raw.strip()
+    STATS_TRACKED_HEADERS = None if TRACK_ALL_HEADERS else [h.strip() for h in raw.split(",") if h.strip()]
+
+
+async def _save_settings_to_disk():
+    dir_name = os.path.dirname(os.path.abspath(_SETTINGS_FILE)) or "."
+    os.makedirs(dir_name, exist_ok=True)
+    f = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=dir_name,
+        delete=False,
+        prefix=".settings_",
+        suffix=".tmp.json",
+    )
+    tmp_path = f.name
+    try:
+        json.dump(_settings, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+        f.close()
+        os.replace(tmp_path, _SETTINGS_FILE)
+    except Exception:
+        try:
+            f.close()
+        except Exception:
+            pass
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+async def init_settings():
+    _init_settings_sync()
+    # await _migrate_lb_config()  -- 将在任务4中实现
+
+
+async def update_settings(updates: dict) -> dict:
+    global _settings
+    updated_keys = []
+    needs_restart = False
+    async with _settings_lock:
+        for key, value in updates.items():
+            schema = _CONFIG_SCHEMA.get(key)
+            if schema is None:
+                continue
+            if schema.get("readonly"):
+                continue
+            casted = _cast_value(value, schema["type"])
+            _settings[key] = casted
+            updated_keys.append(key)
+            if schema.get("requires_restart"):
+                needs_restart = True
+        if updated_keys:
+            await _save_settings_to_disk()
+            _sync_module_vars()
+            _apply_lb_settings()
+            _apply_stats_headers_settings()
+    return {"updated": updated_keys, "needs_restart": needs_restart}
