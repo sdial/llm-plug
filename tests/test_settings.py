@@ -1,4 +1,85 @@
 import pytest
+import tempfile
+import os
+
+
+@pytest.fixture
+def tmp_settings_file(tmp_path):
+    settings_path = tmp_path / "settings.json"
+    return str(settings_path)
+
+
+def test_init_settings_from_file(tmp_settings_file):
+    """从 settings.json 加载配置"""
+    import json
+    data = {"request_timeout": 600, "max_fail_count": 10, "cooldown_seconds": 60}
+    with open(tmp_settings_file, "w") as f:
+        json.dump(data, f)
+    import config
+    original = config._SETTINGS_FILE
+    try:
+        config._SETTINGS_FILE = tmp_settings_file
+        config._settings = {}
+        config._init_settings_sync()
+        assert config._settings["request_timeout"] == 600
+        assert config._settings["max_fail_count"] == 10
+        assert config._settings["cooldown_seconds"] == 60
+    finally:
+        config._SETTINGS_FILE = original
+
+
+def test_init_settings_env_fallback(tmp_settings_file, monkeypatch):
+    """settings.json 无对应项时回退到环境变量"""
+    import json
+    with open(tmp_settings_file, "w") as f:
+        json.dump({}, f)
+    monkeypatch.setenv("REQUEST_TIMEOUT", "500")
+    import config
+    original = config._SETTINGS_FILE
+    try:
+        config._SETTINGS_FILE = tmp_settings_file
+        config._settings = {}
+        config._init_settings_sync()
+        assert config._settings["request_timeout"] == 500
+    finally:
+        config._SETTINGS_FILE = original
+
+
+def test_init_settings_defaults(tmp_settings_file):
+    """settings.json 不存在时使用默认值"""
+    import config
+    original = config._SETTINGS_FILE
+    try:
+        config._SETTINGS_FILE = tmp_settings_file
+        config._settings = {}
+        config._init_settings_sync()
+        assert config._settings["request_timeout"] == 300
+        assert config._settings["max_fail_count"] == 5
+    finally:
+        config._SETTINGS_FILE = original
+
+
+def test_get_setting():
+    """get_setting 返回内存缓存中的值"""
+    import config
+    config._settings = {"request_timeout": 600}
+    assert config.get_setting("request_timeout") == 600
+
+
+def test_get_setting_default():
+    """get_setting 对不存在的键返回默认值"""
+    import config
+    config._settings = {}
+    assert config.get_setting("max_fail_count") == 5
+
+
+def test_get_settings_masks_db_url():
+    """get_settings 脱敏 database_url"""
+    import config
+    config._settings = {"database_url": "postgres://user:secret@host:5432/db", "host": "0.0.0.0", "port": 55555}
+    all_settings = config.get_settings()
+    assert "secret" not in all_settings["database_url"]
+    assert "***" in all_settings["database_url"]
 
 
 def test_config_defaults():
