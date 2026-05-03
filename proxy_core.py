@@ -552,6 +552,12 @@ async def _do_request(
                 headers[key] = val
 
     if is_stream:
+        # OpenAI 流式请求需要注入 stream_options 以获取 usage 信息
+        if source_type != "anthropic" and isinstance(upstream_data, dict):
+            upstream_data = {
+                **upstream_data,
+                "stream_options": {"include_usage": True}
+            }
         return _do_stream_request(
             channel, url, headers, upstream_data, response_converter, source_type, target_api_type,
             api_key_id=api_key_id, tracked_headers=tracked_headers,
