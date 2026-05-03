@@ -83,7 +83,7 @@
             border-radius: 9999px;
             font-size: 0.75rem;
             font-weight: 500;
-            padding: 0.125rem 0.625rem;
+            padding: 0.125rem 0.4rem;
         }
         .pill-brand { background-color: #f0efff; color: #635bff; }
         .pill-success { background-color: #ecfdf5; color: #059669; }
@@ -721,8 +721,8 @@
                     <table class="w-full text-sm" style="table-layout:fixed">
                         <colgroup>
                             <col style="width:140px">
-                            <col style="width:90px">
-                            <col style="width:60px">
+                            <col style="width:70px">
+                            <col style="width:45px">
                             <col style="width:220px">
                             <col style="width:200px">
                             <col style="width:120px">
@@ -752,7 +752,7 @@
                                     <td class="py-3 px-2 text-center">
                                         <span class="type-badge ${typeInfo.color}" title="${typeInfo.title}">${typeInfo.short}</span>
                                     </td>
-                                    <td class="py-3 px-4 text-ink-600">${ch.models.map(m => `<span class="pill pill-muted mr-1">${esc(m)}</span>`).join('')}</td>
+                                    <td class="py-3 px-2 text-ink-600">${ch.models.map(m => `<span class="pill pill-muted mr-1">${esc(m)}</span>`).join('')}</td>
                                     <td class="py-3 px-4 text-ink-400 text-xs" title="${esc(ch.base_url)}">${esc(ch.base_url)}</td>
                                     <td class="py-3 px-4 text-right">
                                         <div class="flex items-center justify-end gap-2">
