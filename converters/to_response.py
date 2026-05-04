@@ -21,6 +21,14 @@ class ToResponseConverter(BaseConverter):
             "reasoning_id": "",
             "message_id": "",
             "output_index": 0,
+            "response_created_sent": False,
+            "output_item_added_sent": False,
+            "accumulated_text": "",
+            "tool_calls": {},  # call_id -> {name, arguments}
+            "reasoning_content": "",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
         }
         self._pending_extra_events = []
 
@@ -316,13 +324,20 @@ class ToResponseConverter(BaseConverter):
         if self._stream_state is None:
             self._reset_stream_state()
 
+        # 提取 usage（可能在任何 chunk 中，包括 choices 为空的 usage-only chunk）
+        usage = chunk.get("usage")
+        if usage:
+            self._stream_state["input_tokens"] = usage.get("prompt_tokens", self._stream_state["input_tokens"])
+            self._stream_state["output_tokens"] = usage.get("completion_tokens", self._stream_state["output_tokens"])
+            self._stream_state["total_tokens"] = usage.get("total_tokens", self._stream_state["total_tokens"])
+
         choices = chunk.get("choices", [])
         if not choices:
             return None
         delta = choices[0].get("delta", {})
         finish_reason = choices[0].get("finish_reason")
 
-        if delta.get("role") == "assistant":
+        def _make_created_event() -> dict[str, Any]:
             return {
                 "type": "response.created",
                 "response": {
@@ -334,16 +349,62 @@ class ToResponseConverter(BaseConverter):
                 },
             }
 
-        if delta.get("content") is not None:
-            return {
-                "type": "response.output_text.delta",
-                "delta": delta["content"],
-            }
+        def _ensure_created() -> bool:
+            """确保 response.created 已发送，返回是否需要发送"""
+            if not self._stream_state["response_created_sent"]:
+                self._stream_state["response_created_sent"] = True
+                self._stream_state["message_id"] = chunk.get("id", "")
+                return True
+            return False
 
+        def _ensure_output_item_added() -> bool:
+            """确保 response.output_item.added 已发送，返回是否需要发送"""
+            if not self._stream_state["output_item_added_sent"]:
+                self._stream_state["output_item_added_sent"] = True
+                idx = self._stream_state["output_index"]
+                self._stream_state["output_index"] = idx + 1
+                return True
+            return False
+
+        # 处理第一个 chunk 带 role 的情况
+        if delta.get("role") == "assistant":
+            self._stream_state["response_created_sent"] = True
+            self._stream_state["message_id"] = chunk.get("id", "")
+            return _make_created_event()
+
+        # 处理文本内容
+        if delta.get("content") is not None:
+            text = delta["content"]
+            self._stream_state["accumulated_text"] += text
+            event = {
+                "type": "response.output_text.delta",
+                "delta": text,
+            }
+            if _ensure_created():
+                self._pending_extra_events = [event]
+                return _make_created_event()
+            if _ensure_output_item_added():
+                self._pending_extra_events = [event]
+                return {
+                    "type": "response.output_item.added",
+                    "output_index": self._stream_state["output_index"] - 1,
+                    "item": {
+                        "type": "message",
+                        "id": f"msg_{self._stream_state['message_id']}",
+                        "role": "assistant",
+                        "content": [],
+                    },
+                }
+            return event
+
+        # 处理工具调用
         if delta.get("tool_calls"):
             events = []
             for tc in delta["tool_calls"]:
+                call_id = tc.get("id", "")
                 if tc.get("function", {}).get("name"):
+                    name = tc["function"]["name"]
+                    self._stream_state["tool_calls"][call_id] = {"name": name, "arguments": ""}
                     idx = self._stream_state["output_index"]
                     self._stream_state["output_index"] = idx + 1
                     events.append({
@@ -351,32 +412,40 @@ class ToResponseConverter(BaseConverter):
                         "output_index": idx,
                         "item": {
                             "type": "function_call",
-                            "call_id": tc.get("id", ""),
-                            "name": tc["function"]["name"],
+                            "call_id": call_id,
+                            "name": name,
                             "arguments": "",
                         },
                     })
                 elif tc.get("function", {}).get("arguments") is not None:
                     args = tc["function"].get("arguments", "")
                     if args:
+                        if call_id in self._stream_state["tool_calls"]:
+                            self._stream_state["tool_calls"][call_id]["arguments"] += args
                         events.append({
                             "type": "response.function_call_arguments.delta",
                             "delta": args,
                         })
             if events:
+                if _ensure_created():
+                    self._pending_extra_events = events
+                    return _make_created_event()
                 if len(events) == 1:
                     return events[0]
                 result = dict(events[0])
                 self._pending_extra_events = events[1:]
                 return result
 
+        # 处理推理内容
         if delta.get("reasoning_content") is not None:
+            rc = delta["reasoning_content"]
+            self._stream_state["reasoning_content"] += rc
             if not self._stream_state["reasoning_started"]:
                 self._stream_state["reasoning_started"] = True
                 self._stream_state["reasoning_id"] = f"rs_{chunk.get('id', '')}"
                 idx = self._stream_state["output_index"]
                 self._stream_state["output_index"] = idx + 1
-                result = {
+                added_event = {
                     "type": "response.output_item.added",
                     "output_index": idx,
                     "item": {
@@ -387,25 +456,102 @@ class ToResponseConverter(BaseConverter):
                 }
                 delta_event = {
                     "type": "response.reasoning_summary_text.delta",
-                    "delta": delta["reasoning_content"],
+                    "delta": rc,
                 }
+                if _ensure_created():
+                    self._pending_extra_events = [added_event, delta_event]
+                    return _make_created_event()
                 self._pending_extra_events = [delta_event]
-                return result
-            return {
+                return added_event
+            event = {
                 "type": "response.reasoning_summary_text.delta",
-                "delta": delta["reasoning_content"],
+                "delta": rc,
+            }
+            if _ensure_created():
+                self._pending_extra_events = [event]
+                return _make_created_event()
+            return event
+
+        # 处理结束原因
+        if finish_reason is not None:
+            need_created = _ensure_created()
+
+            # 构建完整的 response.completed 事件
+            output = []
+            if self._stream_state["accumulated_text"]:
+                output.append({
+                    "type": "message",
+                    "id": f"msg_{self._stream_state['message_id']}",
+                    "status": "completed",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": self._stream_state["accumulated_text"]}],
+                })
+            for call_id, tc_data in self._stream_state["tool_calls"].items():
+                output.append({
+                    "type": "function_call",
+                    "call_id": call_id,
+                    "name": tc_data["name"],
+                    "arguments": tc_data["arguments"],
+                })
+            if self._stream_state["reasoning_content"]:
+                output.append({
+                    "type": "reasoning",
+                    "id": self._stream_state["reasoning_id"],
+                    "summary": [],
+                    "content": [{"type": "reasoning_text", "text": self._stream_state["reasoning_content"]}],
+                })
+            if not output:
+                output.append({
+                    "type": "message",
+                    "id": f"msg_{self._stream_state['message_id']}",
+                    "status": "completed",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": ""}],
+                })
+
+            status = "completed" if finish_reason != "length" else "incomplete"
+            usage_data = {
+                "input_tokens": self._stream_state["input_tokens"],
+                "output_tokens": self._stream_state["output_tokens"],
+                "total_tokens": self._stream_state["total_tokens"],
             }
 
-        if finish_reason is not None:
-            return {
+            completed_event = {
                 "type": "response.completed",
                 "response": {
                     "id": chunk.get("id", ""),
                     "object": "response",
-                    "status": "completed" if finish_reason != "length" else "incomplete",
+                    "created_at": chunk.get("created", 0),
                     "model": chunk.get("model", ""),
+                    "status": status,
+                    "output": output,
+                    "usage": usage_data,
                 },
             }
+
+            if need_created:
+                self._pending_extra_events = [completed_event]
+                return _make_created_event()
+
+            # 发送完成前事件：output_text.done → output_item.done → response.completed
+            done_events = []
+            if self._stream_state["output_item_added_sent"]:
+                if self._stream_state["accumulated_text"]:
+                    done_events.append({
+                        "type": "response.output_text.done",
+                        "text": self._stream_state["accumulated_text"],
+                    })
+                done_events.append({
+                    "type": "response.output_item.done",
+                    "output_index": self._stream_state["output_index"] - 1,
+                    "item": output[0] if output else {},
+                })
+            done_events.append(completed_event)
+
+            if len(done_events) == 1:
+                return done_events[0]
+            self._pending_extra_events = done_events[1:]
+            return done_events[0]
 
         return None
 
