@@ -35,7 +35,6 @@ async def get_or_create_client(channel: Channel, timeout: float | None = None) -
     async with _lock:
         client = _clients.get(key)
         if client is not None and not client.is_closed:
-            _cache_ts[key] = time.time()
             return client
         proxy = channel.socks5_proxy
         if proxy:
@@ -69,7 +68,6 @@ async def get_or_create_stream_client(channel: Channel, timeout: float | None = 
     async with _lock:
         client = _stream_clients.get(key)
         if client is not None and not client.is_closed:
-            _stream_cache_ts[key] = time.time()
             return client
         proxy = channel.socks5_proxy
         if proxy:
