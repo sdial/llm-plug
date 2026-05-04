@@ -558,14 +558,16 @@ async def _do_request(
         )
 
     # 非流式：使用缓存的 httpx 客户端（不可 async with，否则会关闭共享连接）
-    start_time = time.time()
     model = request_data.get("model", "")
+    request_start = time.time()  # 整体起点，create_client 失败时兜底
+    upstream_start: float | None = None  # 上游请求起点（不含连接建立）
     try:
         client = await create_client(channel)
+        upstream_start = time.time()
         resp = await client.post(url, json=upstream_data, headers=headers)
         resp.raise_for_status()
         response_data = resp.json()
-        latency_ms = int((time.time() - start_time) * 1000)
+        latency_ms = int((time.time() - upstream_start) * 1000)
 
         # 记录 debug 日志（包含完整响应和响应头）
         await _log_debug(
@@ -635,7 +637,8 @@ async def _do_request(
         load_balancer.record_success(channel.id)
         return response_data
     except Exception as e:
-        latency_ms = int((time.time() - start_time) * 1000)
+        # upstream_start 为 None 表示 create_client 失败，此时用 request_start 兜底
+        latency_ms = int((time.time() - (upstream_start or request_start)) * 1000)
         # 记录失败统计（后台执行，不阻塞响应）
         _fire_and_forget(stats.record_request(
             channel_id=channel.id,
@@ -837,10 +840,12 @@ async def _do_stream_request(
                     chunk = json.loads(data_str)
                 except json.JSONDecodeError:
                     _record_chunk(line)
+                    _mark_first_token()
                     yield line + "\n\n"
                     continue
 
                 _record_chunk(chunk)
+                _mark_first_token()
 
                 # 增量提取 token 用量和 finish_reason，避免 finally 中二次遍历
                 if isinstance(chunk, dict):
@@ -874,7 +879,6 @@ async def _do_stream_request(
                         sse = _format_sse(converted, evt_type)
                         _log_stream_event(sse)
                         yield sse
-                        _mark_first_token()
                         for extra_sse in _yield_extra_events(converted):
                             yield extra_sse
                 else:
@@ -884,7 +888,6 @@ async def _do_stream_request(
                         sse = _format_sse(chunk)
                     _log_stream_event(sse)
                     yield sse
-                    _mark_first_token()
 
                 if is_upstream_anthropic:
                     upstream_event_type = None
