@@ -31,6 +31,7 @@ class ToResponseConverter(BaseConverter):
             "total_tokens": 0,
         }
         self._pending_extra_events = []
+        self._need_in_progress = False
 
     # --- Chat Completions → Response ---
 
@@ -338,6 +339,7 @@ class ToResponseConverter(BaseConverter):
         finish_reason = choices[0].get("finish_reason")
 
         def _make_created_event() -> dict[str, Any]:
+            self._need_in_progress = True
             return {
                 "type": "response.created",
                 "response": {
@@ -566,6 +568,7 @@ class ToResponseConverter(BaseConverter):
         if event_type == "message_start":
             msg = chunk.get("message", {})
             self._stream_state["message_id"] = msg.get("id", "")
+            self._need_in_progress = True
             return {
                 "type": "response.created",
                 "response": {
@@ -681,4 +684,18 @@ class ToResponseConverter(BaseConverter):
         # 从实例变量获取额外事件
         events = self._pending_extra_events
         self._pending_extra_events = []  # 清空，避免重复发送
+        # 在 response.created 之后注入 response.in_progress
+        if self._need_in_progress:
+            self._need_in_progress = False
+            in_progress = {
+                "type": "response.in_progress",
+                "response": {
+                    "id": self._stream_state.get("message_id", ""),
+                    "object": "response",
+                    "status": "in_progress",
+                    "model": "",
+                    "output": [],
+                },
+            }
+            events.insert(0, in_progress)
         return events
