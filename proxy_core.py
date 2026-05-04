@@ -690,6 +690,61 @@ def _yield_anthropic_events(events: list[tuple[str, dict[str, Any]] | dict[str, 
     return "".join(parts)
 
 
+def _convert_anthropic_response_to_events(converted: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    events: list[tuple[str, dict[str, Any]]] = []
+    message_for_start = {k: v for k, v in converted.items() if k not in ("stop_reason", "stop_sequence")}
+    message_for_start["usage"] = {"input_tokens": 0, "output_tokens": 0}
+    events.append(("message_start", {"message": message_for_start}))
+
+    for i, block in enumerate(converted.get("content", [])):
+        block_type = block.get("type", "text")
+        if block_type == "thinking":
+            events.append(("content_block_start", {"index": i, "content_block": {"type": "thinking", "thinking": ""}}))
+            events.append(("content_block_delta", {"index": i, "delta": {"type": "thinking_delta", "thinking": block.get("thinking", "")}}))
+        elif block_type == "tool_use":
+            events.append(("content_block_start", {"index": i, "content_block": {"type": "tool_use", "id": block.get("id", ""), "name": block.get("name", ""), "input": ""}}))
+            events.append(("content_block_delta", {"index": i, "delta": {"type": "input_json_delta", "partial_json": json.dumps(block.get("input", {}), ensure_ascii=False)}}))
+        else:
+            events.append(("content_block_start", {"index": i, "content_block": {"type": "text", "text": ""}}))
+            events.append(("content_block_delta", {"index": i, "delta": {"type": "text_delta", "text": block.get("text", "")}}))
+        events.append(("content_block_stop", {"index": i}))
+
+    usage = converted.get("usage", {})
+    events.append(("message_delta", {"delta": {"stop_reason": converted.get("stop_reason", "end_turn")}, "usage": {"output_tokens": usage.get("output_tokens", 0)}}))
+    events.append(("message_stop", {}))
+    return events
+
+
+def _convert_non_stream_to_stream_events(
+    full_response: dict[str, Any], response_converter, source_type: str, output_responses_sse: bool,
+) -> list[str]:
+    if output_responses_sse:
+        converted = response_converter.convert_response(full_response, source_type)
+        events: list[str] = []
+        events.append(_format_sse_for_list({"type": "response.created", "response": converted}))
+        for idx, item in enumerate(converted.get("output", [])):
+            events.append(_format_sse_for_list({"type": "response.output_item.added", "output_index": idx, "item": item}))
+            if item.get("type") == "message":
+                for part_idx, part in enumerate(item.get("content", [])):
+                    if part.get("type") == "output_text":
+                        events.append(_format_sse_for_list({"type": "response.content_part.added", "output_index": idx, "content_index": part_idx, "part": {"type": "output_text", "text": ""}}))
+                        text = part.get("text", "")
+                        if text:
+                            events.append(_format_sse_for_list({"type": "response.output_text.delta", "output_index": idx, "content_index": part_idx, "delta": text}))
+                        events.append(_format_sse_for_list({"type": "response.content_part.done", "output_index": idx, "content_index": part_idx, "part": part}))
+            events.append(_format_sse_for_list({"type": "response.output_item.done", "output_index": idx, "item": item}))
+        status = converted.get("status", "completed")
+        events.append(_format_sse_for_list({"type": "response.completed", "response": {**converted, "status": status}}))
+        return events
+    return []
+
+
+def _format_sse_for_list(data: dict[str, Any]) -> str:
+    if data.get("type"):
+        return _yield_anthropic_event(data["type"], data)
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 async def _do_stream_request(
     channel: Channel, url: str, headers: dict, upstream_data: dict, response_converter, source_type: str,
     target_api_type: APIType = APIType.OPENAI_CHAT, api_key_id: str | None = None,
@@ -916,7 +971,7 @@ async def _do_stream_request(
                 logger.warning(f"upstream returned non-SSE JSON for streaming request (object={full_response.get('object')}), converting to stream events")
                 _record_chunk(full_response)
                 _mark_first_token()
-                if is_upstream_anthropic:
+                if output_anthropic_sse:
                     if response_converter:
                         converted = response_converter.convert_response(full_response, source_type)
                         for evt_type, evt_data in _convert_anthropic_response_to_events(converted):
@@ -927,11 +982,16 @@ async def _do_stream_request(
                         sse = _format_sse(full_response)
                         _log_stream_event(sse)
                         yield sse
-                elif response_converter:
-                    stream_events = _convert_non_stream_to_stream_events(
-                        full_response, response_converter, source_type, output_responses_sse,
-                    )
-                    for sse in stream_events:
+                elif output_responses_sse:
+                    if response_converter:
+                        stream_events = _convert_non_stream_to_stream_events(
+                            full_response, response_converter, source_type, output_responses_sse,
+                        )
+                        for sse in stream_events:
+                            _log_stream_event(sse)
+                            yield sse
+                    else:
+                        sse = _format_sse(full_response)
                         _log_stream_event(sse)
                         yield sse
                 else:
