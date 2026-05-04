@@ -92,6 +92,199 @@ class TestChatToResponseStream:
         assert reasoning_events[0]["output_index"] == 1
 
 
+    def test_response_completed_sent_on_finish_reason(self):
+        """finish_reason 应生成包含完整 output 和 usage 的 response.completed 事件"""
+        converter = ToResponseConverter()
+        events = [
+            {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {"choices": [{"delta": {"content": "Hello"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                extra = converter.get_extra_events(result or {})
+                outputs.extend(extra)
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        assert len(completed_events) == 1
+        resp = completed_events[0]["response"]
+        assert resp["status"] == "completed"
+        # response.completed 必须包含完整的 output 和 usage
+        assert "output" in resp
+        assert len(resp["output"]) > 0
+        assert resp["output"][0]["type"] == "message"
+        assert resp["output"][0]["content"][0]["text"] == "Hello"
+        assert "usage" in resp
+        assert "input_tokens" in resp["usage"]
+        assert "output_tokens" in resp["usage"]
+
+    def test_response_completed_with_empty_choices(self):
+        """choices 为空但有 finish_reason 时仍应发送 response.completed"""
+        converter = ToResponseConverter()
+        # 某些上游可能在最后一个 chunk 中 choices 为空数组
+        # 但正确的实现应该在有 finish_reason 的 chunk 中处理
+        events = [
+            {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {"choices": [{"delta": {"content": "Hello"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                extra = converter.get_extra_events(result or {})
+                outputs.extend(extra)
+        # 验证 response.completed 被发送
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        assert len(completed_events) == 1
+
+    def test_response_completed_incomplete_status(self):
+        """finish_reason 为 length 时 response.completed 状态应为 incomplete"""
+        converter = ToResponseConverter()
+        events = [
+            {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {"choices": [{"delta": {"content": "Partial..."}}]},
+            {"choices": [{"delta": {}, "finish_reason": "length"}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                extra = converter.get_extra_events(result or {})
+                outputs.extend(extra)
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        assert len(completed_events) == 1
+        assert completed_events[0]["response"]["status"] == "incomplete"
+
+    def test_usage_chunk_with_empty_choices_is_ignored(self):
+        """usage chunk（choices 为空数组）应被忽略，不产生事件，但 usage 数据被累积"""
+        converter = ToResponseConverter()
+        events = [
+            {"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 5}},
+        ]
+        result = converter.convert_stream_chunk(events[0], "openai-chat-completions")
+        assert result is None
+        # usage 数据应被累积到 stream_state 中
+        assert converter._stream_state["input_tokens"] == 10
+        assert converter._stream_state["output_tokens"] == 5
+
+    def test_response_created_sent_when_first_chunk_has_no_role(self):
+        """第一个 chunk 没有 role 字段时应自动发送 response.created"""
+        converter = ToResponseConverter()
+        # 模拟某些上游实现：第一个 chunk 直接有 content，没有 role
+        events = [
+            {"choices": [{"delta": {"content": "Hello"}}]},
+            {"choices": [{"delta": {"content": " world"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                extra = converter.get_extra_events(result or {})
+                outputs.extend(extra)
+        # 应有 response.created
+        created_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.created"]
+        assert len(created_events) == 1
+        # 应有 response.completed
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        assert len(completed_events) == 1
+
+    def test_response_created_sent_before_first_content(self):
+        """response.created 应在第一个内容事件之前发送"""
+        converter = ToResponseConverter()
+        events = [
+            {"choices": [{"delta": {"content": "Hello"}}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                extra = converter.get_extra_events(result or {})
+                outputs.extend(extra)
+        # 验证顺序：response.created 应该在 response.output_text.delta 之前
+        event_types = [o.get("type") if isinstance(o, dict) else None for o in outputs]
+        assert event_types[0] == "response.created"
+        assert "response.output_text.delta" in event_types
+
+    def test_output_item_added_before_text_delta(self):
+        """response.output_item.added 应在第一个 text delta 之前发送"""
+        converter = ToResponseConverter()
+        events = [
+            {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {"choices": [{"delta": {"content": "Hello"}}]},
+            {"choices": [{"delta": {"content": " world"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                extra = converter.get_extra_events(result or {})
+                outputs.extend(extra)
+        event_types = [o.get("type") if isinstance(o, dict) else None for o in outputs]
+        # output_item.added 应在第一个 output_text.delta 之前
+        item_added_idx = event_types.index("response.output_item.added")
+        first_delta_idx = event_types.index("response.output_text.delta")
+        assert item_added_idx < first_delta_idx, f"output_item.added at {item_added_idx} should be before first delta at {first_delta_idx}"
+        # 验证 item 类型为 message
+        item_added = outputs[item_added_idx]
+        assert item_added["item"]["type"] == "message"
+
+    def test_output_text_done_and_output_item_done_sent_on_finish(self):
+        """finish_reason 时应发送 response.output_text.done 和 response.output_item.done"""
+        converter = ToResponseConverter()
+        events = [
+            {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {"choices": [{"delta": {"content": "Hello"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                extra = converter.get_extra_events(result or {})
+                outputs.extend(extra)
+        event_types = [o.get("type") if isinstance(o, dict) else None for o in outputs]
+        assert "response.output_text.done" in event_types
+        assert "response.output_item.done" in event_types
+        # 验证顺序：output_text.done → output_item.done → response.completed
+        text_done_idx = event_types.index("response.output_text.done")
+        item_done_idx = event_types.index("response.output_item.done")
+        completed_idx = event_types.index("response.completed")
+        assert text_done_idx < item_done_idx < completed_idx
+
+    def test_usage_data_in_response_completed(self):
+        """usage 数据应包含在 response.completed 中"""
+        converter = ToResponseConverter()
+        events = [
+            {"choices": [{"delta": {"role": "assistant", "content": ""}}], "usage": {"prompt_tokens": 100}},
+            {"choices": [{"delta": {"content": "Hello"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}], "usage": {"completion_tokens": 50, "total_tokens": 150}},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                extra = converter.get_extra_events(result or {})
+                outputs.extend(extra)
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        assert len(completed_events) == 1
+        usage = completed_events[0]["response"]["usage"]
+        assert usage["input_tokens"] == 100
+        assert usage["output_tokens"] == 50
+        assert usage["total_tokens"] == 150
+
+
 class TestAnthropicToChatStream:
     def test_text_stream(self):
         """Anthropic 文本流 -> OpenAI Chat 流"""
