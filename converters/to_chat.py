@@ -356,40 +356,45 @@ class ToChatCompletionsConverter(BaseConverter):
         if instructions:
             messages.append({"role": "system", "content": instructions})
 
-        for item in data.get("input", []):
-            if isinstance(item, str):
-                messages.append({"role": "user", "content": item})
-            elif isinstance(item, dict):
-                item_type = item.get("type", "")
-                role = item.get("role", "user")
-                if item_type == "function_call_output":
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": item.get("call_id", ""),
-                        "content": item.get("output", ""),
-                    })
-                elif item_type == "function_call":
-                    messages.append({
-                        "role": "assistant",
-                        "tool_calls": [{
-                            "id": item.get("call_id", item.get("id", "")),
-                            "type": "function",
-                            "function": {
-                                "name": item.get("name", ""),
-                                "arguments": item.get("arguments", "{}"),
-                            }
-                        }],
-                        "content": None,
-                    })
-                else:
-                    content = item.get("content", "")
-                    if isinstance(content, list):
-                        content = "\n".join(
-                            c.get("text", "") if isinstance(c, dict) and c.get("type") == "input_text"
-                            else (str(c) if not isinstance(c, dict) else "")
-                            for c in content
-                        )
-                    messages.append({"role": role, "content": content})
+        input_data = data.get("input", [])
+        # input 可以是字符串或列表，需要先判断类型
+        if isinstance(input_data, str):
+            messages.append({"role": "user", "content": input_data})
+        else:
+            for item in input_data:
+                if isinstance(item, str):
+                    messages.append({"role": "user", "content": item})
+                elif isinstance(item, dict):
+                    item_type = item.get("type", "")
+                    role = item.get("role", "user")
+                    if item_type == "function_call_output":
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": item.get("call_id", ""),
+                            "content": item.get("output", ""),
+                        })
+                    elif item_type == "function_call":
+                        messages.append({
+                            "role": "assistant",
+                            "tool_calls": [{
+                                "id": item.get("call_id", item.get("id", "")),
+                                "type": "function",
+                                "function": {
+                                    "name": item.get("name", ""),
+                                    "arguments": item.get("arguments", "{}"),
+                                }
+                            }],
+                            "content": None,
+                        })
+                    else:
+                        content = item.get("content", "")
+                        if isinstance(content, list):
+                            content = "\n".join(
+                                c.get("text", "") if isinstance(c, dict) and c.get("type") == "input_text"
+                                else (str(c) if not isinstance(c, dict) else "")
+                                for c in content
+                            )
+                        messages.append({"role": role, "content": content})
 
         result = {
             "model": data.get("model", ""),
