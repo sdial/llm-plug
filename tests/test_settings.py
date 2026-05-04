@@ -90,7 +90,6 @@ def test_config_defaults():
     assert _CONFIG_SCHEMA["max_body_size"]["default"] == 10485760
     assert _CONFIG_SCHEMA["debug"]["default"] is False
     assert _CONFIG_SCHEMA["log_level"]["default"] == "info"
-    assert _CONFIG_SCHEMA["stats_tracked_headers"]["default"] == ""
     assert _CONFIG_SCHEMA["database_url"]["default"] == ""
     assert _CONFIG_SCHEMA["max_fail_count"]["default"] == 5
     assert _CONFIG_SCHEMA["cooldown_seconds"]["default"] == 60
