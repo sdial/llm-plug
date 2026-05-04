@@ -770,6 +770,8 @@ async def _do_stream_request(
     resp_headers = None
     client = await get_or_create_stream_client(channel)
     output_anthropic_sse = target_api_type == APIType.ANTHROPIC
+    output_responses_sse = target_api_type == APIType.OPENAI_RESPONSE
+    output_sse_events = output_anthropic_sse or output_responses_sse
     is_upstream_anthropic = source_type == "anthropic"
 
     stream_success = False
@@ -790,6 +792,8 @@ async def _do_stream_request(
             def _format_sse(data: dict, event_type: str | None = None) -> str:
                 if event_type:
                     return _yield_anthropic_event(event_type, data)
+                if output_responses_sse and isinstance(data, dict) and data.get("type"):
+                    return _yield_anthropic_event(data["type"], data)
                 return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
             def _yield_extra_events(converted: dict):
@@ -832,7 +836,7 @@ async def _do_stream_request(
 
                 if data_str.strip() == "[DONE]":
                     _record_chunk("[DONE]")
-                    if not output_anthropic_sse:
+                    if not output_sse_events:
                         yield "data: [DONE]\n\n"
                     continue
 
@@ -923,10 +927,14 @@ async def _do_stream_request(
                 "type": "error",
                 "error": {"type": "api_error", "message": str(e)},
             })
+        elif output_responses_sse:
+            error_data = {"type": "error", "error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
+            yield _yield_anthropic_event("error", error_data)
         else:
             error_data = {"error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
+        if not output_sse_events:
+            yield "data: [DONE]\n\n"
     finally:
         try:
             latency_ms = int((time.time() - start_time) * 1000)
