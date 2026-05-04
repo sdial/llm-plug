@@ -817,84 +817,139 @@ async def _do_stream_request(
                         results.append(sse)
                 return results
 
-            async for line in resp.aiter_lines():
-                if not line.strip():
-                    continue
-                if is_upstream_anthropic and line.startswith("event:"):
-                    raw_type = line[5:].strip()
-                    if raw_type.startswith(":"):
-                        raw_type = raw_type[1:].strip()
-                    upstream_event_type = raw_type
-                    continue
-                if line.startswith("data: "):
-                    data_str = line[6:]
-                elif line.startswith("data:"):
-                    data_str = line[5:]
-                else:
-                    _record_chunk(line)
-                    continue
+        nonlocal_stream_body = None
+        _first_line_checked = False
 
-                if data_str.strip() == "[DONE]":
-                    _record_chunk("[DONE]")
-                    if not output_sse_events:
-                        yield "data: [DONE]\n\n"
-                    continue
+        async for line in resp.aiter_lines():
+            if not line.strip():
+                continue
+            if is_upstream_anthropic and line.startswith("event:"):
+                raw_type = line[5:].strip()
+                if raw_type.startswith(":"):
+                    raw_type = raw_type[1:].strip()
+                upstream_event_type = raw_type
+                continue
+            if line.startswith("data: "):
+                _first_line_checked = True
+                data_str = line[6:]
+            elif line.startswith("data:"):
+                _first_line_checked = True
+                data_str = line[5:]
+            else:
+                if not _first_line_checked:
+                    nonlocal_stream_body = line
+                    async for remaining in resp.aiter_lines():
+                        if remaining.strip():
+                            nonlocal_stream_body += "\n" + remaining
+                    break
+                _record_chunk(line)
+                continue
 
-                try:
-                    chunk = json.loads(data_str)
-                except json.JSONDecodeError:
-                    _record_chunk(line)
-                    _mark_first_token()
-                    yield line + "\n\n"
-                    continue
+            if data_str.strip() == "[DONE]":
+                _record_chunk("[DONE]")
+                if not output_sse_events:
+                    yield "data: [DONE]\n\n"
+                continue
 
-                _record_chunk(chunk)
+            try:
+                chunk = json.loads(data_str)
+            except json.JSONDecodeError:
+                _record_chunk(line)
                 _mark_first_token()
+                yield line + "\n\n"
+                continue
 
-                # 增量提取 token 用量和 finish_reason，避免 finally 中二次遍历
-                if isinstance(chunk, dict):
-                    if is_upstream_anthropic:
-                        if chunk.get("type") == "message_start":
-                            input_tokens = chunk.get("message", {}).get("usage", {}).get("input_tokens", 0)
-                        elif chunk.get("type") == "message_delta":
-                            output_tokens = chunk.get("usage", {}).get("output_tokens", output_tokens)
-                            fr = chunk.get("delta", {}).get("stop_reason")
-                            if fr:
-                                finish_reason = fr
-                    else:
-                        usage = chunk.get("usage")
-                        if usage:
-                            logger.info(f"[STREAM USAGE] upstream returned usage: {usage}")
-                            input_tokens = usage.get("prompt_tokens", input_tokens)
-                            output_tokens = usage.get("completion_tokens", output_tokens)
-                        choices = chunk.get("choices", [])
-                        if choices and isinstance(choices[0], dict):
-                            fr = choices[0].get("finish_reason")
-                            if fr:
-                                finish_reason = fr
+            _record_chunk(chunk)
+            _mark_first_token()
 
-                if is_upstream_anthropic and upstream_event_type is not None:
-                    chunk["_event_type"] = upstream_event_type
-
-                if response_converter:
-                    converted = response_converter.convert_stream_chunk(chunk, source_type)
-                    if converted is not None:
-                        evt_type = response_converter.get_stream_event_type(chunk, source_type) if output_anthropic_sse else None
-                        sse = _format_sse(converted, evt_type)
-                        _log_stream_event(sse)
-                        yield sse
-                        for extra_sse in _yield_extra_events(converted):
-                            yield extra_sse
+            # 增量提取 token 用量和 finish_reason，避免 finally 中二次遍历
+            if isinstance(chunk, dict):
+                if is_upstream_anthropic:
+                    if chunk.get("type") == "message_start":
+                        input_tokens = chunk.get("message", {}).get("usage", {}).get("input_tokens", 0)
+                    elif chunk.get("type") == "message_delta":
+                        output_tokens = chunk.get("usage", {}).get("output_tokens", output_tokens)
+                        fr = chunk.get("delta", {}).get("stop_reason")
+                        if fr:
+                            finish_reason = fr
                 else:
-                    if output_anthropic_sse and is_upstream_anthropic:
-                        sse = _format_sse(chunk, upstream_event_type or "ping")
-                    else:
-                        sse = _format_sse(chunk)
+                    usage = chunk.get("usage")
+                    if usage:
+                        logger.info(f"[STREAM USAGE] upstream returned usage: {usage}")
+                        input_tokens = usage.get("prompt_tokens", input_tokens)
+                        output_tokens = usage.get("completion_tokens", output_tokens)
+                    choices = chunk.get("choices", [])
+                    if choices and isinstance(choices[0], dict):
+                        fr = choices[0].get("finish_reason")
+                        if fr:
+                            finish_reason = fr
+
+            if is_upstream_anthropic and upstream_event_type is not None:
+                chunk["_event_type"] = upstream_event_type
+
+            if response_converter:
+                converted = response_converter.convert_stream_chunk(chunk, source_type)
+                if converted is not None:
+                    evt_type = response_converter.get_stream_event_type(chunk, source_type) if output_anthropic_sse else None
+                    sse = _format_sse(converted, evt_type)
                     _log_stream_event(sse)
                     yield sse
+                    for extra_sse in _yield_extra_events(converted):
+                        yield extra_sse
+            else:
+                if output_anthropic_sse and is_upstream_anthropic:
+                    sse = _format_sse(chunk, upstream_event_type or "ping")
+                else:
+                    sse = _format_sse(chunk)
+                _log_stream_event(sse)
+                yield sse
 
+            if is_upstream_anthropic:
+                upstream_event_type = None
+
+        if nonlocal_stream_body is not None:
+            try:
+                full_response = json.loads(nonlocal_stream_body)
+            except json.JSONDecodeError:
+                full_response = None
+            if isinstance(full_response, dict):
+                logger.warning(f"upstream returned non-SSE JSON for streaming request (object={full_response.get('object')}), converting to stream events")
+                _record_chunk(full_response)
+                _mark_first_token()
                 if is_upstream_anthropic:
-                    upstream_event_type = None
+                    if response_converter:
+                        converted = response_converter.convert_response(full_response, source_type)
+                        for evt_type, evt_data in _convert_anthropic_response_to_events(converted):
+                            sse = _yield_anthropic_event(evt_type, evt_data)
+                            _log_stream_event(sse)
+                            yield sse
+                    else:
+                        sse = _format_sse(full_response)
+                        _log_stream_event(sse)
+                        yield sse
+                elif response_converter:
+                    stream_events = _convert_non_stream_to_stream_events(
+                        full_response, response_converter, source_type, output_responses_sse,
+                    )
+                    for sse in stream_events:
+                        _log_stream_event(sse)
+                        yield sse
+                else:
+                    sse = _format_sse(full_response)
+                    _log_stream_event(sse)
+                    yield sse
+                if not output_sse_events:
+                    yield "data: [DONE]\n\n"
+                input_tokens = full_response.get("usage", {}).get("prompt_tokens", full_response.get("usage", {}).get("input_tokens", input_tokens))
+                output_tokens = full_response.get("usage", {}).get("completion_tokens", full_response.get("usage", {}).get("output_tokens", output_tokens))
+                choices = full_response.get("choices", [])
+                if choices and isinstance(choices[0], dict):
+                    fr = choices[0].get("finish_reason")
+                    if fr:
+                        finish_reason = fr
+                stop_reason = full_response.get("stop_reason")
+                if stop_reason:
+                    finish_reason = stop_reason
 
         stream_success = True
         await _log_debug(
