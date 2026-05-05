@@ -84,6 +84,8 @@ async def post_response(request: Request, authorization: str | None = None):
     client_headers = dict(request.headers)
     api_key_id = getattr(request.state, 'api_key_id', None)
 
+    logger.debug(f"[RESPONSES REQUEST] model={model} stream={is_stream} api_key_id={api_key_id}")
+
     try:
         result, _channel = await proxy_request(
             model, body, APIType.OPENAI_RESPONSE, is_stream,
@@ -91,11 +93,12 @@ async def post_response(request: Request, authorization: str | None = None):
             api_key_id=api_key_id,
         )
         request.state.selected_channel_name = _channel.name
+        logger.debug(f"[RESPONSES SUCCESS] model={model} channel={_channel.name}")
     except ValueError as e:
-        logger.error(f"/v1/responses ValueError: {e}")
+        logger.error(f"[RESPONSES ERROR] /v1/responses ValueError: {e}")
         return invalid_request(str(e))
     except Exception as e:
-        logger.error(f"/v1/responses {type(e).__name__}: {e}")
+        logger.error(f"[RESPONSES ERROR] /v1/responses {type(e).__name__}: {e}")
         return response_from_proxy_exception(e)
 
     if is_stream:

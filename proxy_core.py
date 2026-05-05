@@ -866,11 +866,13 @@ async def _do_stream_request(
 
     stream_success = False
     stream_error = None
+    logger.debug(f"[STREAM START] model={model} url={url} target={target_api_type.value}")
     try:
         async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
             resp.raise_for_status()
             resp_status_code = resp.status_code
             resp_headers = dict(resp.headers)
+            logger.debug(f"[STREAM CONNECTED] status={resp_status_code} headers={resp_headers}")
 
             upstream_event_type = None
 
@@ -880,11 +882,17 @@ async def _do_stream_request(
                     first_token_time = time.time()
 
             def _format_sse(data: dict, event_type: str | None = None) -> str:
-                if event_type:
-                    return _yield_anthropic_event(event_type, data)
-                if output_responses_sse and isinstance(data, dict) and data.get("type"):
-                    return _yield_anthropic_event(data["type"], data)
-                return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                try:
+                    if event_type:
+                        return _yield_anthropic_event(event_type, data)
+                    if output_responses_sse and isinstance(data, dict) and data.get("type"):
+                        return _yield_anthropic_event(data["type"], data)
+                    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                except Exception as sse_err:
+                    logger.error(f"[FORMAT SSE ERROR] {type(sse_err).__name__}: {sse_err} data={data}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    raise
 
             def _yield_extra_events(converted: dict):
                 extra = response_converter.get_extra_events(converted)
@@ -894,26 +902,35 @@ async def _do_stream_request(
                 if not extra:
                     return []
                 results = []
-                if output_anthropic_sse:
-                    for extra_evt in extra:
-                        if isinstance(extra_evt, tuple) and len(extra_evt) == 2:
-                            evt_type, evt_data = extra_evt
-                            sse = _yield_anthropic_event(evt_type, evt_data)
-                        else:
+                try:
+                    if output_anthropic_sse:
+                        for extra_evt in extra:
+                            if isinstance(extra_evt, tuple) and len(extra_evt) == 2:
+                                evt_type, evt_data = extra_evt
+                                sse = _yield_anthropic_event(evt_type, evt_data)
+                            else:
+                                sse = _format_sse(extra_evt)
+                            _log_stream_event(sse)
+                            results.append(sse)
+                    else:
+                        for extra_evt in extra:
                             sse = _format_sse(extra_evt)
-                        _log_stream_event(sse)
-                        results.append(sse)
-                else:
-                    for extra_evt in extra:
-                        sse = _format_sse(extra_evt)
-                        _log_stream_event(sse)
-                        results.append(sse)
+                            _log_stream_event(sse)
+                            results.append(sse)
+                except Exception as format_err:
+                    logger.error(f"[FORMAT EXTRA ERROR] {type(format_err).__name__}: {format_err}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    raise
                 return results
 
             nonlocal_stream_body = None
             _first_line_checked = False
+            _line_count = 0
+            _done_received = False
 
             async for line in resp.aiter_lines():
+                _line_count += 1
                 if not line.strip():
                     continue
                 if is_upstream_anthropic and line.startswith("event:"):
@@ -940,13 +957,25 @@ async def _do_stream_request(
 
                 if data_str.strip() == "[DONE]":
                     _record_chunk("[DONE]")
-                    if response_converter:
-                        for final_event in _format_extra_events(response_converter.finalize_stream(source_type)):
-                            yield final_event
-                        for extra_sse in _yield_extra_events({}):
-                            yield extra_sse
-                    if not output_sse_events:
-                        yield "data: [DONE]\n\n"
+                    _done_received = True
+                    logger.debug(f"[STREAM DONE] model={model} lines={_line_count} chunks={len(stream_chunks)}")
+                    try:
+                        if response_converter:
+                            final_events = response_converter.finalize_stream(source_type)
+                            logger.debug(f"[STREAM FINALIZE] model={model} events={len(final_events)}")
+                            for final_event in _format_extra_events(final_events):
+                                yield final_event
+                            extra_events = _yield_extra_events({})
+                            logger.debug(f"[STREAM EXTRA] model={model} events={len(extra_events)}")
+                            for extra_sse in extra_events:
+                                yield extra_sse
+                        if not output_sse_events:
+                            yield "data: [DONE]\n\n"
+                    except Exception as done_err:
+                        logger.error(f"[STREAM DONE ERROR] model={model} error={type(done_err).__name__}: {done_err}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+                        raise
                     continue
 
                 try:
@@ -1005,13 +1034,17 @@ async def _do_stream_request(
                 if is_upstream_anthropic:
                     upstream_event_type = None
 
+        logger.debug(f"[STREAM LOOP END] model={model} lines={_line_count} done={_done_received}")
+        logger.debug(f"[STREAM ASYNC WITH EXIT] model={model}")
         if nonlocal_stream_body is not None:
+            logger.debug(f"[STREAM NON-SSE] model={model} body_length={len(nonlocal_stream_body)}")
             try:
                 full_response = json.loads(nonlocal_stream_body)
             except json.JSONDecodeError:
                 full_response = None
+                logger.warning(f"[STREAM NON-SSE JSON ERROR] model={model}")
             if isinstance(full_response, dict):
-                logger.warning(f"upstream returned non-SSE JSON for streaming request (object={full_response.get('object')}), converting to stream events")
+                logger.warning(f"[STREAM NON-SSE] upstream returned non-SSE JSON for streaming request (object={full_response.get('object')}), converting to stream events")
                 _record_chunk(full_response)
                 _mark_first_token()
                 if output_anthropic_sse:
@@ -1054,7 +1087,9 @@ async def _do_stream_request(
                 if stop_reason:
                     finish_reason = stop_reason
 
+        logger.debug(f"[STREAM FINISH] model={model} done_received={_done_received} nonlocal_body={'yes' if nonlocal_stream_body else 'no'} chunks={len(stream_chunks)}")
         stream_success = True
+        logger.debug(f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} output_tokens={output_tokens} finish_reason={finish_reason}")
         await _log_debug(
             channel=channel, upstream_url=url, upstream_data=upstream_data,
             upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
@@ -1064,16 +1099,18 @@ async def _do_stream_request(
         stream_error = str(e)
         load_balancer.record_failure(channel.id)
         err_body = ""
+        import traceback
+        logger.error(f"[STREAM ERROR TRACEBACK] model={model} url={url}")
+        logger.error(traceback.format_exc())
         if isinstance(e, httpx.HTTPStatusError):
             try:
                 await e.response.aread()
                 err_body = e.response.text[:500]
             except Exception:
                 pass
-            logger.error(f"upstream stream {e.response.status_code} {url}")
-            logger.error(f"body: {err_body}")
+            logger.error(f"[STREAM ERROR] upstream {e.response.status_code} {url} body={err_body}")
         else:
-            logger.error(f"upstream stream {type(e).__name__}: {e}")
+            logger.error(f"[STREAM ERROR] {type(e).__name__}: {e} model={model} url={url}")
 
         await _log_debug(
             channel=channel, upstream_url=url, upstream_data=upstream_data,
@@ -1117,6 +1154,7 @@ async def _do_stream_request(
                 is_upstream_anthropic=is_upstream_anthropic,
                 model=model,
             )
+            logger.debug(f"[STREAM STATS] model={model} success={stream_success} error={stream_error} latency={latency_ms}ms lag={lag_ms}ms chunks={len(stream_chunks)} input={input_tokens} output={output_tokens} finish={finish_reason}")
             _fire_and_forget(stats.record_request(
                 channel_id=channel.id,
                 channel_name=channel.name,
@@ -1137,6 +1175,9 @@ async def _do_stream_request(
             ))
             if stream_success:
                 load_balancer.record_success(channel.id)
+                logger.debug(f"[STREAM RECORDED SUCCESS] channel={channel.name}")
+            else:
+                logger.warning(f"[STREAM RECORDED FAILURE] channel={channel.name} error={stream_error}")
         except Exception as finally_err:
             logger.warning(f"stream finally error: {finally_err}")
         try:
