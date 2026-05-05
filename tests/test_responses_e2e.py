@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 from state_store import FileStore
-from responses_handler import parse_responses_request, build_input_messages, generate_response_id
+from responses_handler import build_input_messages, generate_response_id
 
 
 @pytest.fixture

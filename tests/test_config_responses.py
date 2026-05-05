@@ -1,6 +1,4 @@
 # tests/test_config_responses.py
-import asyncio
-import pytest
 from config import get_setting, _CONFIG_SCHEMA
 
 
