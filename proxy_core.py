@@ -1088,6 +1088,19 @@ async def _do_stream_request(
         elif output_responses_sse:
             error_data = {"type": "error", "error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
             yield _yield_anthropic_event("error", error_data)
+            # 发送 response.completed 事件以便客户端正确识别流结束
+            completed_data = {
+                "type": "response.completed",
+                "response": {
+                    "id": "",
+                    "object": "response",
+                    "status": "failed",
+                    "model": model,
+                    "output": [],
+                    "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+                },
+            }
+            yield _yield_anthropic_event("response.completed", completed_data)
         else:
             error_data = {"error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
