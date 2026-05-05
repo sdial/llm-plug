@@ -1,3 +1,4 @@
+import json
 import os
 import time
 
@@ -62,7 +63,6 @@ async def post_response(request: Request, authorization: str | None = None):
     if not check_proxy_authorization(authorization, request.state):
         return unauthorized()
 
-    import json
     try:
         body = await request.json()
     except json.JSONDecodeError as e:
