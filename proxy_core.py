@@ -13,7 +13,7 @@ from loguru import logger
 import httpx
 
 from balancer.load_balancer import load_balancer
-from client import create_client, get_or_create_stream_client, get_upstream_headers
+from client import create_client, create_stream_client, get_upstream_headers
 from config import DEBUG, DEBUG_LOG_DIR, LOG_LEVEL, DATA_DIR, get_setting
 import storage
 from state_store import FileStore
@@ -858,7 +858,7 @@ async def _do_stream_request(
             stream_chunk_count += 1
     resp_status_code = None
     resp_headers = None
-    client = await get_or_create_stream_client(channel)
+    client = create_stream_client(channel)
     output_anthropic_sse = target_api_type == APIType.ANTHROPIC
     output_responses_sse = target_api_type == APIType.OPENAI_RESPONSE
     output_sse_events = output_anthropic_sse or output_responses_sse
@@ -1118,3 +1118,7 @@ async def _do_stream_request(
                 load_balancer.record_success(channel.id)
         except Exception as finally_err:
             logger.warning(f"stream finally error: {finally_err}")
+        try:
+            await client.aclose()
+        except Exception as e:
+            logger.warning(f"close stream client error: {e}")
