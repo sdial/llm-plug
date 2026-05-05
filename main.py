@@ -14,7 +14,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send, Message
 
 from client import close_all_clients, cleanup_stale_clients
 from config import DEBUG, HOST, PORT, MAX_BODY_SIZE
-from config import init_settings
+from config import init_settings, get_setting, DATA_DIR
+from state_store import FileStore
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
@@ -42,6 +43,25 @@ from stats import init_db as init_stats_db, close_pool as close_stats_pool
 from storage import load_data, load_api_keys
 
 
+_session_dir = os.path.join(DATA_DIR, "responses_session")
+_responses_store = FileStore(
+    data_dir=_session_dir,
+    max_entries=get_setting("response_state_max_entries") or 1000,
+    ttl_minutes=get_setting("response_state_ttl_minutes") or 60,
+)
+
+
+async def _session_cleanup_loop():
+    """定期清理过期会话文件"""
+    interval = get_setting("response_state_cleanup_interval_minutes") or 30
+    while True:
+        await asyncio.sleep(interval * 60)
+        try:
+            await _responses_store._cleanup_if_needed()
+        except Exception as e:
+            logger.warning(f"Session cleanup failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app):
     await init_settings()
@@ -62,14 +82,20 @@ async def lifespan(app):
                 logger.warning(f"client cleanup error: {e}")
 
     cleanup_task = asyncio.create_task(_client_cleanup_loop())
+    session_cleanup_task = asyncio.create_task(_session_cleanup_loop())
     try:
         yield
     except asyncio.CancelledError:
         pass
     finally:
         cleanup_task.cancel()
+        session_cleanup_task.cancel()
         try:
             await cleanup_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await session_cleanup_task
         except asyncio.CancelledError:
             pass
         await close_stats_pool()
