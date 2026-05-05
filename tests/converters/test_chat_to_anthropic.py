@@ -1,4 +1,3 @@
-import pytest
 
 from converters.to_anthropic import ToAnthropicConverter
 from models.api_types import APIType

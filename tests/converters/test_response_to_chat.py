@@ -6,7 +6,6 @@
 - https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/responses/response.py
 - https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/responses/response_stream_event.py
 """
-import json
 
 from converters.to_chat import ToChatCompletionsConverter
 from models.api_types import APIType

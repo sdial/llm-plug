@@ -14,8 +14,8 @@
 # 完整类型定义请参考官方 SDK:
 # https://github.com/openai/openai-python
 
-from typing import List, Union, Iterable, Optional
-from typing_extensions import Literal, Required, TypeAlias, TypedDict
+from typing import Union, Iterable, Optional
+from typing_extensions import Literal, Required, TypedDict
 
 # 关键类型: previous_response_id 和 conversation 用于会话管理
 # 这两个字段是 Response API 有状态特性的核心
