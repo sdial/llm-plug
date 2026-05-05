@@ -24,19 +24,22 @@ logger.add(
     _log_dir / "warning.log",
     level="WARNING",
     rotation="10 MB",
-    filter=lambda r: r["level"].name == "WARNING"
+    filter=lambda r: r["level"].name == "WARNING",
+    encoding="utf-8"
 )
 logger.add(
     _log_dir / "error.log",
     level="ERROR",
     rotation="10 MB",
-    filter=lambda r: r["level"].name == "ERROR"
+    filter=lambda r: r["level"].name == "ERROR",
+    encoding="utf-8"
 )
 logger.add(
     _log_dir / "critical.log",
     level="CRITICAL",
     rotation="10 MB",
-    filter=lambda r: r["level"].name == "CRITICAL"
+    filter=lambda r: r["level"].name == "CRITICAL",
+    encoding="utf-8"
 )
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
 from stats import init_db as init_stats_db, close_pool as close_stats_pool
