@@ -8,6 +8,7 @@ from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
 from proxy_core import (
+    _do_stream_request,
     _get_channels_for_model,
     _get_converter_and_upstream_type,
     _get_upstream_url,
@@ -306,3 +307,59 @@ class TestConverterMap:
             resp_inst = resp_cls()
             assert hasattr(req_inst, "convert_request")
             assert hasattr(resp_inst, "convert_response")
+
+
+class TestDoStreamRequest:
+    @pytest.mark.anyio
+    async def test_emits_response_completed_before_done_when_finish_reason_missing(self):
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"glm-5","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"glm-5","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}'
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_1",
+            name="Test",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["glm-5"],
+        )
+
+        with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.openai.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "glm-5", "stream": True},
+                response_converter=ToResponseConverter(),
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_RESPONSE,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        joined = "".join(outputs)
+        assert "event: response.completed" in joined
+        assert '"text": "Hello"' in joined
