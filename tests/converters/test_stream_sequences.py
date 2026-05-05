@@ -284,6 +284,31 @@ class TestChatToResponseStream:
         assert usage["output_tokens"] == 50
         assert usage["total_tokens"] == 150
 
+    def test_finalize_stream_emits_response_completed_without_finish_reason(self):
+        """上游只返回内容和 [DONE] 时，收尾仍应补出 response.completed"""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "glm-5", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {"id": "chatcmpl_1", "model": "glm-5", "choices": [{"delta": {"content": "Hello"}}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                extra = converter.get_extra_events(result or {})
+                outputs.extend(extra)
+
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
+
+        event_types = [o.get("type") if isinstance(o, dict) else None for o in outputs]
+        assert "response.output_text.done" in event_types
+        assert "response.output_item.done" in event_types
+        assert "response.completed" in event_types
+        completed = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"][0]
+        assert completed["response"]["status"] == "completed"
+        assert completed["response"]["output"][0]["content"][0]["text"] == "Hello"
+
 
 class TestAnthropicToChatStream:
     def test_text_stream(self):

@@ -17,12 +17,16 @@ class ToResponseConverter(BaseConverter):
 
     def _reset_stream_state(self):
         self._stream_state = {
+            "response_id": "",
+            "model": "",
+            "created_at": 0,
             "reasoning_started": False,
             "reasoning_id": "",
             "message_id": "",
             "output_index": 0,
             "response_created_sent": False,
             "output_item_added_sent": False,
+            "completed_sent": False,
             "accumulated_text": "",
             "tool_calls": {},  # call_id -> {name, arguments}
             "reasoning_content": "",
@@ -325,6 +329,15 @@ class ToResponseConverter(BaseConverter):
         if self._stream_state is None:
             self._reset_stream_state()
 
+        if chunk.get("id"):
+            self._stream_state["response_id"] = chunk["id"]
+            if not self._stream_state["message_id"]:
+                self._stream_state["message_id"] = chunk["id"]
+        if chunk.get("model"):
+            self._stream_state["model"] = chunk["model"]
+        if chunk.get("created") is not None:
+            self._stream_state["created_at"] = chunk.get("created", 0)
+
         # 提取 usage（可能在任何 chunk 中，包括 choices 为空的 usage-only chunk）
         usage = chunk.get("usage")
         if usage:
@@ -343,10 +356,10 @@ class ToResponseConverter(BaseConverter):
             return {
                 "type": "response.created",
                 "response": {
-                    "id": chunk.get("id", ""),
+                    "id": self._stream_state["response_id"],
                     "object": "response",
                     "status": "in_progress",
-                    "model": chunk.get("model", ""),
+                    "model": self._stream_state["model"],
                     "output": [],
                 },
             }
@@ -355,7 +368,8 @@ class ToResponseConverter(BaseConverter):
             """确保 response.created 已发送，返回是否需要发送"""
             if not self._stream_state["response_created_sent"]:
                 self._stream_state["response_created_sent"] = True
-                self._stream_state["message_id"] = chunk.get("id", "")
+                if not self._stream_state["message_id"]:
+                    self._stream_state["message_id"] = self._stream_state["response_id"]
                 return True
             return False
 
@@ -477,78 +491,11 @@ class ToResponseConverter(BaseConverter):
         # 处理结束原因
         if finish_reason is not None:
             need_created = _ensure_created()
-
-            # 构建完整的 response.completed 事件
-            output = []
-            if self._stream_state["accumulated_text"]:
-                output.append({
-                    "type": "message",
-                    "id": f"msg_{self._stream_state['message_id']}",
-                    "status": "completed",
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": self._stream_state["accumulated_text"]}],
-                })
-            for call_id, tc_data in self._stream_state["tool_calls"].items():
-                output.append({
-                    "type": "function_call",
-                    "call_id": call_id,
-                    "name": tc_data["name"],
-                    "arguments": tc_data["arguments"],
-                })
-            if self._stream_state["reasoning_content"]:
-                output.append({
-                    "type": "reasoning",
-                    "id": self._stream_state["reasoning_id"],
-                    "summary": [],
-                    "content": [{"type": "reasoning_text", "text": self._stream_state["reasoning_content"]}],
-                })
-            if not output:
-                output.append({
-                    "type": "message",
-                    "id": f"msg_{self._stream_state['message_id']}",
-                    "status": "completed",
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": ""}],
-                })
-
-            status = "completed" if finish_reason != "length" else "incomplete"
-            usage_data = {
-                "input_tokens": self._stream_state["input_tokens"],
-                "output_tokens": self._stream_state["output_tokens"],
-                "total_tokens": self._stream_state["total_tokens"],
-            }
-
-            completed_event = {
-                "type": "response.completed",
-                "response": {
-                    "id": chunk.get("id", ""),
-                    "object": "response",
-                    "created_at": chunk.get("created", 0),
-                    "model": chunk.get("model", ""),
-                    "status": status,
-                    "output": output,
-                    "usage": usage_data,
-                },
-            }
+            done_events = self._build_final_events(finish_reason=finish_reason)
 
             if need_created:
-                self._pending_extra_events = [completed_event]
+                self._pending_extra_events = done_events
                 return _make_created_event()
-
-            # 发送完成前事件：output_text.done → output_item.done → response.completed
-            done_events = []
-            if self._stream_state["output_item_added_sent"]:
-                if self._stream_state["accumulated_text"]:
-                    done_events.append({
-                        "type": "response.output_text.done",
-                        "text": self._stream_state["accumulated_text"],
-                    })
-                done_events.append({
-                    "type": "response.output_item.done",
-                    "output_index": self._stream_state["output_index"] - 1,
-                    "item": output[0] if output else {},
-                })
-            done_events.append(completed_event)
 
             if len(done_events) == 1:
                 return done_events[0]
@@ -699,3 +646,86 @@ class ToResponseConverter(BaseConverter):
             }
             events.insert(0, in_progress)
         return events
+
+    def finalize_stream(self, source_type: str = "") -> list[dict[str, Any]]:
+        if source_type != "openai-chat-completions" or self._stream_state is None:
+            return []
+        if self._stream_state["completed_sent"]:
+            return []
+        if not self._stream_state["response_created_sent"] and not self._stream_state["response_id"]:
+            return []
+        return self._build_final_events(finish_reason="stop")
+
+    def _build_output_items(self) -> list[dict[str, Any]]:
+        output = []
+        if self._stream_state["accumulated_text"]:
+            output.append({
+                "type": "message",
+                "id": f"msg_{self._stream_state['message_id']}",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": self._stream_state["accumulated_text"]}],
+            })
+        for call_id, tc_data in self._stream_state["tool_calls"].items():
+            output.append({
+                "type": "function_call",
+                "call_id": call_id,
+                "name": tc_data["name"],
+                "arguments": tc_data["arguments"],
+            })
+        if self._stream_state["reasoning_content"]:
+            output.append({
+                "type": "reasoning",
+                "id": self._stream_state["reasoning_id"],
+                "summary": [],
+                "content": [{"type": "reasoning_text", "text": self._stream_state["reasoning_content"]}],
+            })
+        if not output:
+            output.append({
+                "type": "message",
+                "id": f"msg_{self._stream_state['message_id']}",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": ""}],
+            })
+        return output
+
+    def _build_final_events(self, finish_reason: str) -> list[dict[str, Any]]:
+        if self._stream_state["completed_sent"]:
+            return []
+
+        output = self._build_output_items()
+        status = "completed" if finish_reason != "length" else "incomplete"
+        usage_data = {
+            "input_tokens": self._stream_state["input_tokens"],
+            "output_tokens": self._stream_state["output_tokens"],
+            "total_tokens": self._stream_state["total_tokens"],
+        }
+        completed_event = {
+            "type": "response.completed",
+            "response": {
+                "id": self._stream_state["response_id"],
+                "object": "response",
+                "created_at": self._stream_state["created_at"],
+                "model": self._stream_state["model"],
+                "status": status,
+                "output": output,
+                "usage": usage_data,
+            },
+        }
+
+        done_events = []
+        if self._stream_state["output_item_added_sent"]:
+            if self._stream_state["accumulated_text"]:
+                done_events.append({
+                    "type": "response.output_text.done",
+                    "text": self._stream_state["accumulated_text"],
+                })
+            done_events.append({
+                "type": "response.output_item.done",
+                "output_index": self._stream_state["output_index"] - 1,
+                "item": output[0] if output else {},
+            })
+        done_events.append(completed_event)
+        self._stream_state["completed_sent"] = True
+        return done_events

@@ -45,3 +45,7 @@ class BaseConverter(ABC):
         if isinstance(chunk, dict) and chunk.get("_extra_events"):
             return chunk["_extra_events"]
         return []
+
+    def finalize_stream(self, source_type: str = "") -> list[dict[str, Any]]:
+        """在上游流结束时补发必要的收尾事件；默认无需额外事件。"""
+        return []

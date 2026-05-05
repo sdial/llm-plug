@@ -888,6 +888,9 @@ async def _do_stream_request(
 
             def _yield_extra_events(converted: dict):
                 extra = response_converter.get_extra_events(converted)
+                return _format_extra_events(extra)
+
+            def _format_extra_events(extra):
                 if not extra:
                     return []
                 results = []
@@ -937,6 +940,11 @@ async def _do_stream_request(
 
                 if data_str.strip() == "[DONE]":
                     _record_chunk("[DONE]")
+                    if response_converter:
+                        for final_event in _format_extra_events(response_converter.finalize_stream(source_type)):
+                            yield final_event
+                        for extra_sse in _yield_extra_events({}):
+                            yield extra_sse
                     if not output_sse_events:
                         yield "data: [DONE]\n\n"
                     continue
@@ -984,8 +992,8 @@ async def _do_stream_request(
                         sse = _format_sse(converted, evt_type)
                         _log_stream_event(sse)
                         yield sse
-                        for extra_sse in _yield_extra_events(converted):
-                            yield extra_sse
+                    for extra_sse in _yield_extra_events(chunk):
+                        yield extra_sse
                 else:
                     if output_anthropic_sse and is_upstream_anthropic:
                         sse = _format_sse(chunk, upstream_event_type or "ping")
