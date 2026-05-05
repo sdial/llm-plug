@@ -22,6 +22,9 @@ _CONFIG_SCHEMA = {
     "database_url": {"type": "str", "default": "", "requires_restart": True, "env": "DATABASE_URL"},
     "max_fail_count": {"type": "int", "default": 5, "requires_restart": False, "env": "MAX_FAIL_COUNT"},
     "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False, "env": "COOLDOWN_SECONDS"},
+    "response_state_max_entries": {"type": "int", "default": 1000, "requires_restart": False, "env": "RESPONSE_STATE_MAX_ENTRIES"},
+    "response_state_ttl_minutes": {"type": "int", "default": 60, "requires_restart": False, "env": "RESPONSE_STATE_TTL_MINUTES"},
+    "response_state_cleanup_interval_minutes": {"type": "int", "default": 30, "requires_restart": False, "env": "RESPONSE_STATE_CLEANUP_INTERVAL_MINUTES"},
 }
 
 _settings: dict = {}
