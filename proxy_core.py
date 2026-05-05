@@ -14,8 +14,9 @@ import httpx
 
 from balancer.load_balancer import load_balancer
 from client import create_client, get_or_create_stream_client, get_upstream_headers
-from config import DEBUG, DEBUG_LOG_DIR, LOG_LEVEL
+from config import DEBUG, DEBUG_LOG_DIR, LOG_LEVEL, DATA_DIR, get_setting
 import storage
+from state_store import FileStore
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
@@ -23,6 +24,14 @@ from models.api_types import APIType
 from models.channel import Channel
 import stats
 from storage import register_save_callback
+
+# Responses 状态存储
+_session_dir = os.path.join(DATA_DIR, "responses_session")
+_responses_store = FileStore(
+    data_dir=_session_dir,
+    max_entries=get_setting("response_state_max_entries") or 1000,
+    ttl_minutes=get_setting("response_state_ttl_minutes") or 60,
+)
 
 # 流式响应最大记录chunk数量，防止内存溢出
 MAX_STREAM_CHUNKS = 2000
@@ -401,6 +410,32 @@ def _fire_and_forget(coro):
     task = asyncio.create_task(coro)
     task.add_done_callback(_on_done)
     return task
+
+
+async def _load_history(previous_response_id: str | None) -> list[dict]:
+    """加载历史消息"""
+    if previous_response_id is None:
+        return []
+
+    conversation = await _responses_store.get_conversation(previous_response_id)
+    if conversation is None:
+        raise ValueError(f"Response {previous_response_id} not found")
+
+    return conversation.get("messages", [])
+
+
+async def _save_response_state(
+    response_id: str,
+    messages: list[dict],
+    response: dict,
+) -> None:
+    """保存响应状态"""
+    conversation = {
+        "messages": messages,
+        "reasoning_history": [],
+        "tool_calls": [],
+    }
+    await _responses_store.put(response_id, conversation, response)
 
 
 async def proxy_request(
