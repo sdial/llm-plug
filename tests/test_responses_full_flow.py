@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from fastapi.responses import StreamingResponse
 from unittest.mock import AsyncMock, patch, MagicMock
 
 
@@ -11,6 +12,28 @@ def client():
     app = FastAPI()
     app.include_router(router)
     return TestClient(app)
+
+
+def test_post_responses_streaming(client):
+    """POST /v1/responses 流式请求应返回 StreamingResponse"""
+    async def mock_stream():
+        yield b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
+        yield b'data: [DONE]\n\n'
+
+    with patch("routers.proxy_response.proxy_request") as mock_proxy:
+        mock_proxy.return_value = (
+            mock_stream(),
+            MagicMock(id="ch1", name="test", api_type=MagicMock(value="openai-chat-completions")),
+        )
+
+        resp = client.post("/v1/responses", json={
+            "model": "gpt-4o",
+            "input": "Hello",
+            "stream": True,
+        })
+        # 流式响应应返回 200 且 content-type 为 text/event-stream
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
 
 
 def test_post_responses_basic(client):

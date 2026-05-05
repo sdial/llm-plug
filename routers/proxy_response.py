@@ -1,9 +1,10 @@
 import json
 import os
 import time
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 
 from config import DATA_DIR, get_setting
@@ -22,6 +23,15 @@ _store = FileStore(
     max_entries=get_setting("response_state_max_entries") or 1000,
     ttl_minutes=get_setting("response_state_ttl_minutes") or 60,
 )
+
+
+async def _closeable_stream(gen: AsyncGenerator):
+    """包装流式生成器，确保客户端断开时显式关闭。"""
+    try:
+        async for chunk in gen:
+            yield chunk
+    finally:
+        await gen.aclose()
 
 
 def _chat_completion_to_response(data: dict, response_id: str) -> dict:
@@ -87,6 +97,17 @@ async def post_response(request: Request, authorization: str | None = None):
     except Exception as e:
         logger.error(f"/v1/responses {type(e).__name__}: {e}")
         return response_from_proxy_exception(e)
+
+    if is_stream:
+        return StreamingResponse(
+            _closeable_stream(result),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     response_id = _store.generate_response_id()
     response_data = _chat_completion_to_response(result, response_id)
