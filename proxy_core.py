@@ -24,6 +24,8 @@ from models.api_types import APIType
 from models.channel import Channel
 import stats
 from storage import register_save_callback
+from capability_manager import infer_capabilities, apply_capability_filter, merge_system_messages
+from think_filter import filter_think_content_static, ThinkFilter
 
 # Responses 状态存储
 _session_dir = os.path.join(DATA_DIR, "responses_session")
@@ -35,6 +37,106 @@ _responses_store = FileStore(
 
 # 流式响应最大记录chunk数量，防止内存溢出
 MAX_STREAM_CHUNKS = 2000
+
+
+def _filter_think_in_response(response_data: dict[str, Any]) -> dict[str, Any]:
+    """过滤响应中的 💭 内容。
+
+    支持两种响应格式：
+    - Chat Completions: choices[].message.content
+    - Responses: output[].content[].text
+
+    Args:
+        response_data: 原始响应数据
+
+    Returns:
+        过滤后的响应数据
+    """
+    if not isinstance(response_data, dict):
+        return response_data
+
+    result = dict(response_data)
+
+    # Chat Completions 格式
+    choices = result.get("choices", [])
+    if choices and isinstance(choices[0], dict):
+        msg = choices[0].get("message", {})
+        if "content" in msg and isinstance(msg["content"], str):
+            msg = dict(msg)
+            msg["content"] = filter_think_content_static(msg["content"])
+            result["choices"] = [dict(choices[0], message=msg)]
+        return result
+
+    # Responses 格式
+    output = result.get("output", [])
+    if output and isinstance(output, list):
+        new_output = []
+        for item in output:
+            if not isinstance(item, dict):
+                new_output.append(item)
+                continue
+            if item.get("type") == "message":
+                content = item.get("content", [])
+                if isinstance(content, list):
+                    new_content = []
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") in ("output_text", "input_text"):
+                            text = part.get("text", "")
+                            part = dict(part, text=filter_think_content_static(text))
+                        new_content.append(part)
+                    item = dict(item, content=new_content)
+            new_output.append(item)
+        result["output"] = new_output
+
+    # 更新 output_text
+    if "output_text" in result:
+        result["output_text"] = filter_think_content_static(result["output_text"])
+
+    return result
+
+
+def _filter_think_in_stream_chunk(chunk: dict[str, Any], think_filter: ThinkFilter) -> dict[str, Any] | None:
+    """过滤流式 chunk 中的 💭 内容。
+
+    处理两种格式：
+    - Chat Completions: choices[].delta.content
+    - Responses: response.output_text.delta 事件
+
+    Args:
+        chunk: 流式 chunk 数据
+        think_filter: ThinkFilter 实例
+
+    Returns:
+        过滤后的 chunk，如果整个 chunk 都被过滤则返回 None
+    """
+    if not isinstance(chunk, dict):
+        return chunk
+
+    event_type = chunk.get("type", "")
+
+    # Responses 格式：response.output_text.delta
+    if event_type == "response.output_text.delta":
+        delta = chunk.get("delta", "")
+        if delta:
+            filtered = think_filter.feed(delta)
+            if not filtered:
+                return None
+            return dict(chunk, delta=filtered)
+
+    # Chat Completions 格式：choices[].delta.content
+    choices = chunk.get("choices", [])
+    if choices and isinstance(choices[0], dict):
+        delta = choices[0].get("delta", {})
+        content = delta.get("content")
+        if content and isinstance(content, str):
+            filtered = think_filter.feed(content)
+            if not filtered:
+                return None
+            new_choice = dict(choices[0])
+            new_choice["delta"] = dict(delta, content=filtered)
+            return dict(chunk, choices=[new_choice])
+
+    return chunk
 
 
 def _build_stream_response_body(
@@ -561,6 +663,21 @@ async def _do_request(
 ):
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
 
+    # === Capability 管理 ===
+    caps = infer_capabilities(channel)
+    request_data = apply_capability_filter(request_data, caps)
+
+    # MiniMax 特殊处理：合并多条 system 消息
+    if caps.requires_single_system_message:
+        if "messages" in request_data:
+            original_count = len([m for m in request_data["messages"] if m.get("role") == "system"])
+            request_data["messages"] = merge_system_messages(request_data["messages"])
+            new_count = len([m for m in request_data["messages"] if m.get("role") == "system"])
+            if original_count > 1:
+                logger.debug(f"[CAPABILITY] MiniMax: 合并 {original_count} 条 system 消息为 {new_count} 条")
+
+    need_think_filter = caps.filter_think_content
+
     # 转换请求：客户端格式 → 上游格式
     if request_converter:
         upstream_data = request_converter.convert_request(request_data, target_api_type.value)
@@ -590,6 +707,7 @@ async def _do_request(
         return _do_stream_request(
             channel, url, headers, upstream_data, response_converter, source_type, target_api_type,
             api_key_id=api_key_id,
+            need_think_filter=need_think_filter,
         )
 
     # 非流式：使用缓存的 httpx 客户端（不可 async with，否则会关闭共享连接）
@@ -619,6 +737,10 @@ async def _do_request(
         # 转换响应：上游格式 → 客户端格式
         if response_converter:
             response_data = response_converter.convert_response(response_data, source_type)
+
+        # 过滤 💭 内容
+        if need_think_filter:
+            response_data = _filter_think_in_response(response_data)
 
         # 提取 token 使用量
         # 注意：某些 API（如 Kimi）的 input_tokens 可能为 0（表示缓存后），实际值在 prompt_tokens
@@ -783,12 +905,14 @@ def _format_sse_for_list(data: dict[str, Any]) -> str:
 async def _do_stream_request(
     channel: Channel, url: str, headers: dict, upstream_data: dict, response_converter, source_type: str,
     target_api_type: APIType = APIType.OPENAI_CHAT, api_key_id: str | None = None,
+    need_think_filter: bool = False,
 ):
     """流式请求，yield SSE 数据行。
 
     当 target_api_type 为 ANTHROPIC 时，输出 Anthropic SSE 格式
     （包含 event: 行）。否则输出 OpenAI SSE 格式（仅 data: 行）。
     response_converter: 用于把上游格式转换为客户端格式
+    need_think_filter: 是否过滤 💭 内容
     """
     start_time = time.time()
     first_token_time = None
@@ -801,6 +925,9 @@ async def _do_stream_request(
     _stream_log_enabled = LOG_LEVEL == "debug"
     _stream_log_count = 0  # 流式事件日志计数器
     _STREAM_LOG_MAX = 20   # 最多记录前 20 个事件
+
+    # 创建 ThinkFilter 实例用于流式过滤
+    think_filter = ThinkFilter() if need_think_filter else None
 
     def _log_stream_event(sse_data: str):
         """记录流式 SSE 事件（仅 debug 级别，限流：最多 _STREAM_LOG_MAX 条）"""
@@ -896,6 +1023,7 @@ async def _do_stream_request(
 
             def _yield_extra_events(converted: dict):
                 extra = response_converter.get_extra_events(converted)
+                logger.debug(f"[_yield_extra_events] got {len(extra)} extra events")
                 return _format_extra_events(extra)
 
             def _format_extra_events(extra):
@@ -960,6 +1088,29 @@ async def _do_stream_request(
                     _done_received = True
                     logger.debug(f"[STREAM DONE] model={model} lines={_line_count} chunks={len(stream_chunks)}")
                     try:
+                        # 输出 ThinkFilter 残余内容
+                        if think_filter:
+                            remaining = think_filter.flush()
+                            if remaining:
+                                # 构造一个 delta 事件输出残余内容
+                                if output_responses_sse:
+                                    remaining_evt = {"type": "response.output_text.delta", "delta": remaining}
+                                    sse = _format_sse(remaining_evt)
+                                    _log_stream_event(sse)
+                                    yield sse
+                                else:
+                                    # Chat Completions 格式
+                                    remaining_chunk = {
+                                        "id": "chatcmpl-stream",
+                                        "object": "chat.completion.chunk",
+                                        "created": 0,
+                                        "model": model,
+                                        "choices": [{"index": 0, "delta": {"content": remaining}, "finish_reason": None}]
+                                    }
+                                    sse = _format_sse(remaining_chunk)
+                                    _log_stream_event(sse)
+                                    yield sse
+
                         if response_converter:
                             final_events = response_converter.finalize_stream(source_type)
                             logger.debug(f"[STREAM FINALIZE] model={model} events={len(final_events)}")
@@ -1016,11 +1167,16 @@ async def _do_stream_request(
 
                 if response_converter:
                     converted = response_converter.convert_stream_chunk(chunk, source_type)
+                    logger.debug(f"[CONVERT_CHUNK] converted={converted is not None} type={converted.get('type') if converted else None}")
                     if converted is not None:
-                        evt_type = response_converter.get_stream_event_type(chunk, source_type) if output_anthropic_sse else None
-                        sse = _format_sse(converted, evt_type)
-                        _log_stream_event(sse)
-                        yield sse
+                        # 应用 ThinkFilter 过滤思考内容
+                        if think_filter and isinstance(converted, dict):
+                            converted = _filter_think_in_stream_chunk(converted, think_filter)
+                        if converted is not None:
+                            evt_type = response_converter.get_stream_event_type(chunk, source_type) if output_anthropic_sse else None
+                            sse = _format_sse(converted, evt_type)
+                            _log_stream_event(sse)
+                            yield sse
                     for extra_sse in _yield_extra_events(chunk):
                         yield extra_sse
                 else:

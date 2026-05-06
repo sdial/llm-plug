@@ -2,6 +2,7 @@
 将其他格式转换为 OpenAI Response 格式
 """
 import json
+import secrets
 import time
 from typing import Any
 
@@ -326,8 +327,10 @@ class ToResponseConverter(BaseConverter):
     # --- Chat Completions 流式 → Response 流式 ---
 
     def _chat_stream_chunk_to_response(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
+        from loguru import logger
         if self._stream_state is None:
             self._reset_stream_state()
+            logger.debug(f"[CHUNK] reset stream_state for first chunk")
 
         if chunk.get("id"):
             self._stream_state["response_id"] = chunk["id"]
@@ -490,15 +493,19 @@ class ToResponseConverter(BaseConverter):
 
         # 处理结束原因
         if finish_reason is not None:
+            logger.debug(f"[CHUNK] finish_reason={finish_reason} response_created_sent={self._stream_state['response_created_sent']}")
             need_created = _ensure_created()
             done_events = self._build_final_events(finish_reason=finish_reason)
+            logger.debug(f"[CHUNK] built {len(done_events)} final events, need_created={need_created}")
 
             if need_created:
                 self._pending_extra_events = done_events
                 return _make_created_event()
 
             if len(done_events) == 1:
+                logger.debug(f"[CHUNK] returning single done_event: {done_events[0].get('type')}")
                 return done_events[0]
+            logger.debug(f"[CHUNK] returning first of {len(done_events)} events, rest in pending")
             self._pending_extra_events = done_events[1:]
             return done_events[0]
 
@@ -628,9 +635,11 @@ class ToResponseConverter(BaseConverter):
         return chunk
 
     def get_extra_events(self, chunk: dict[str, Any]) -> list[dict[str, Any]]:
+        from loguru import logger
         # 从实例变量获取额外事件
         events = self._pending_extra_events
         self._pending_extra_events = []  # 清空，避免重复发送
+        logger.debug(f"[GET_EXTRA_EVENTS] returning {len(events)} events, types={[e.get('type') for e in events]}")
         # 在 response.created 之后注入 response.in_progress
         if self._need_in_progress:
             self._need_in_progress = False
@@ -648,12 +657,20 @@ class ToResponseConverter(BaseConverter):
         return events
 
     def finalize_stream(self, source_type: str = "") -> list[dict[str, Any]]:
+        from loguru import logger
+        logger.debug(f"[FINALIZE] source_type={source_type} stream_state={self._stream_state is not None}")
         if source_type != "openai-chat-completions" or self._stream_state is None:
             return []
         if self._stream_state["completed_sent"]:
+            logger.debug(f"[FINALIZE] already completed, skipping")
             return []
-        if not self._stream_state["response_created_sent"] and not self._stream_state["response_id"]:
-            return []
+        # 如果 response_id 为空，生成一个默认的
+        if not self._stream_state["response_id"]:
+            self._stream_state["response_id"] = f"resp_{secrets.token_hex(12)}"
+            logger.debug(f"[FINALIZE] generated response_id={self._stream_state['response_id']}")
+        if not self._stream_state["message_id"]:
+            self._stream_state["message_id"] = self._stream_state["response_id"]
+        logger.debug(f"[FINALIZE] accumulated_text={repr(self._stream_state['accumulated_text'][:100])} response_created_sent={self._stream_state['response_created_sent']}")
         return self._build_final_events(finish_reason="stop")
 
     def _build_output_items(self) -> list[dict[str, Any]]:
