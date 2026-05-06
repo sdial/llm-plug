@@ -62,6 +62,32 @@ class ToChatCompletionsConverter(BaseConverter):
                                 "url": f"data:{part['source'].get('media_type', 'image/png')};base64,{part['source']['data']}"
                             }
                         })
+                    elif part.get("type") == "document":
+                        # Anthropic document -> 转为文本标记
+                        doc_source = part.get("source", {})
+                        if doc_source.get("type") == "base64":
+                            # 将 document 标记为文本，保留类型信息
+                            text_parts.append(f"[DOCUMENT: {doc_source.get('media_type', 'application/pdf')}]")
+                        elif doc_source.get("type") == "url":
+                            text_parts.append(f"[DOCUMENT URL: {doc_source.get('url', '')}]")
+                        elif doc_source.get("type") == "content":
+                            # 直接内容
+                            doc_content = doc_source.get("content", "")
+                            if isinstance(doc_content, str):
+                                text_parts.append(doc_content)
+                    elif part.get("type") == "redacted_thinking":
+                        # redacted_thinking -> 跳过或标记
+                        # 已编辑的思考块无法显示内容，跳过
+                        pass
+                    elif part.get("type") == "search_result":
+                        # search_result -> 转为文本
+                        search_content = part.get("content", "")
+                        if isinstance(search_content, str):
+                            text_parts.append(f"[SEARCH_RESULT] {search_content}")
+                        elif isinstance(search_content, list):
+                            for sc in search_content:
+                                if isinstance(sc, dict) and sc.get("type") == "text":
+                                    text_parts.append(f"[SEARCH_RESULT] {sc.get('text', '')}")
                     elif part.get("type") == "tool_use":
                         tool_calls.append({
                             "id": part.get("id", ""),
@@ -75,6 +101,12 @@ class ToChatCompletionsConverter(BaseConverter):
                         tool_result_parts.append(part)
                     elif part.get("type") == "thinking":
                         reasoning_parts.append(part.get("thinking", ""))
+                    else:
+                        # 未知类型，尝试提取文本或标记
+                        if "text" in part:
+                            text_parts.append(part["text"])
+                        else:
+                            logger.debug("Unknown Anthropic content block type: %s", part.get("type"))
 
                 if role == "assistant":
                     assistant_msg = {"role": "assistant", "content": None}
@@ -159,6 +191,27 @@ class ToChatCompletionsConverter(BaseConverter):
                 elif thinking.get("type") == "adaptive":
                     result["reasoning_effort"] = "medium"
                     result["enable_thinking"] = True
+
+        # metadata/user_id 处理：Anthropic metadata.user_id -> OpenAI user
+        metadata = data.get("metadata")
+        if metadata:
+            if isinstance(metadata, dict) and metadata.get("user_id"):
+                result["user"] = metadata["user_id"]
+            # 其他 metadata 字段可透传
+            result["metadata"] = metadata
+
+        # Anthropic 独有参数警告（OpenAI 不支持）
+        unsupported_params = []
+        if data.get("top_k") is not None and data["top_k"] != 0:
+            unsupported_params.append("top_k")
+        if data.get("cache_control"):
+            unsupported_params.append("cache_control")
+        if unsupported_params:
+            logger.debug(
+                "Anthropic parameters not supported by OpenAI, will be ignored: %s",
+                ", ".join(unsupported_params)
+            )
+
         return result
 
     def _anthropic_tools_to_openai(self, tools: list) -> list:
@@ -168,13 +221,17 @@ class ToChatCompletionsConverter(BaseConverter):
             # Anthropic tools 规范：type 可省略（默认即工具），或为 "custom"
             # 必须同时包含 name 和 input_schema 才是有效工具定义
             if (tool_type in (None, "custom") or "name" in tool) and "input_schema" in tool:
+                func_def = {
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("input_schema", {}),
+                }
+                # strict 字段透传（OpenAI 也支持）
+                if tool.get("strict") is not None:
+                    func_def["strict"] = tool["strict"]
                 openai_tools.append({
                     "type": "function",
-                    "function": {
-                        "name": tool["name"],
-                        "description": tool.get("description", ""),
-                        "parameters": tool.get("input_schema", {}),
-                    }
+                    "function": func_def,
                 })
         return openai_tools
 
@@ -188,6 +245,9 @@ class ToChatCompletionsConverter(BaseConverter):
                 message_content += part.get("text", "")
             elif part.get("type") == "thinking":
                 reasoning_content += part.get("thinking", "")
+            elif part.get("type") == "redacted_thinking":
+                # 已编辑的思考块，跳过（无法显示内容）
+                pass
             elif part.get("type") == "tool_use":
                 tool_calls.append({
                     "id": part.get("id", ""),
@@ -197,6 +257,30 @@ class ToChatCompletionsConverter(BaseConverter):
                         "arguments": part.get("input", {}),
                     }
                 })
+            elif part.get("type") == "document":
+                # document 内容块 -> 转为文本标记
+                doc_source = part.get("source", {})
+                if doc_source.get("type") == "content":
+                    doc_content = doc_source.get("content", "")
+                    if isinstance(doc_content, str):
+                        message_content += doc_content
+                else:
+                    message_content += f"[DOCUMENT]"
+            elif part.get("type") == "search_result":
+                # search_result -> 转为文本
+                search_content = part.get("content", "")
+                if isinstance(search_content, str):
+                    message_content += search_content
+                elif isinstance(search_content, list):
+                    for sc in search_content:
+                        if isinstance(sc, dict) and sc.get("type") == "text":
+                            message_content += sc.get("text", "")
+            else:
+                # 未知类型，尝试提取文本
+                if "text" in part:
+                    message_content += part["text"]
+                else:
+                    logger.debug("Unknown Anthropic response content block type: %s", part.get("type"))
 
         message = {"role": "assistant", "content": message_content}
         if reasoning_content:

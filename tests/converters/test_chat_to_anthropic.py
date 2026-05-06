@@ -88,7 +88,7 @@ class TestChatToAnthropic:
         }
         # HTTP URL 图片应被跳过而非抛出异常
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
-        # 应只包含 text 部分，image_url 被跳过
+        # 应只包含 text 部分，image_url 被跳过（下载失败时）
         user_msg = result["messages"][0]
         assert user_msg["role"] == "user"
         has_image = any(
@@ -96,3 +96,76 @@ class TestChatToAnthropic:
             for c in (user_msg.get("content") if isinstance(user_msg.get("content"), list) else [])
         )
         assert not has_image
+
+    def test_user_to_metadata_user_id(self):
+        """OpenAI user 参数应转为 Anthropic metadata.user_id"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "user": "user_12345",
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assert "metadata" in result
+        assert result["metadata"]["user_id"] == "user_12345"
+
+    def test_tools_strict_passthrough(self):
+        """OpenAI tools strict 字段应透传到 Anthropic"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "test",
+                        "description": "A test function",
+                        "parameters": {"type": "object"},
+                        "strict": True,
+                    },
+                }
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assert result["tools"][0]["strict"] is True
+
+    def test_input_text_conversion(self):
+        """OpenAI Response input_text 应转为 text"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "Hello from Response API"},
+                ],
+            }],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        user_msg = result["messages"][0]
+        assert user_msg["role"] == "user"
+        content = user_msg.get("content")
+        if isinstance(content, list):
+            assert content[0]["type"] == "text"
+            assert content[0]["text"] == "Hello from Response API"
+        else:
+            assert content == "Hello from Response API"
+
+    def test_refusal_conversion(self):
+        """OpenAI refusal 应转为带标记的 text"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{
+                "role": "assistant",
+                "content": [
+                    {"type": "refusal", "refusal": "I cannot answer this"},
+                ],
+            }],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
+        content = assistant_msg.get("content")
+        if isinstance(content, list):
+            has_refusal = any(
+                c.get("type") == "text" and "[REFUSAL]" in c.get("text", "")
+                for c in content
+            )
+            assert has_refusal
