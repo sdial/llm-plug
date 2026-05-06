@@ -1,12 +1,112 @@
 """
 将其他格式转换为 Anthropic Messages 格式
 """
+import base64
 import json
+import time
 from typing import Any
+from urllib.parse import urlparse
+
+import httpx
 
 from loguru import logger
 
 from converters.base import BaseConverter
+
+# 图像下载缓存（URL -> {base64_data, media_type, timestamp})
+_IMAGE_CACHE: dict[str, dict[str, Any]] = {}
+_IMAGE_CACHE_TTL = 3600  # 1小时缓存
+_IMAGE_DOWNLOAD_TIMEOUT = 30.0  # 下载超时
+_IMAGE_MAX_SIZE = 10 * 1024 * 1024  # 10MB 最大尺寸
+_ENABLE_IMAGE_DOWNLOAD = True  # 是否启用 HTTP URL 图像下载
+
+
+def _get_media_type_from_url(url: str) -> str:
+    """从 URL 推断图像 MIME 类型"""
+    path = urlparse(url).path.lower()
+    if path.endswith(".jpg") or path.endswith(".jpeg"):
+        return "image/jpeg"
+    elif path.endswith(".png"):
+        return "image/png"
+    elif path.endswith(".gif"):
+        return "image/gif"
+    elif path.endswith(".webp"):
+        return "image/webp"
+    return "image/jpeg"  # 默认
+
+
+def _download_image_as_base64(url: str) -> dict[str, Any] | None:
+    """
+    同步下载 HTTP URL 图像并转换为 base64。
+
+    Args:
+        url: HTTP/HTTPS 图像 URL
+
+    Returns:
+        {"media_type": str, "data": str} 或 None（下载失败时）
+    """
+    global _IMAGE_CACHE
+
+    if not _ENABLE_IMAGE_DOWNLOAD:
+        logger.warning("Image download disabled, skipping HTTP URL: %s...", url[:50])
+        return None
+
+    # 检查缓存
+    now = time.time()
+    cached = _IMAGE_CACHE.get(url)
+    if cached and now - cached.get("timestamp", 0) < _IMAGE_CACHE_TTL:
+        return {"media_type": cached["media_type"], "data": cached["data"]}
+
+    # 清理过期缓存
+    expired_keys = [k for k, v in _IMAGE_CACHE.items() if now - v.get("timestamp", 0) > _IMAGE_CACHE_TTL]
+    for k in expired_keys:
+        del _IMAGE_CACHE[k]
+
+    try:
+        with httpx.Client(timeout=_IMAGE_DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
+            response = client.get(url)
+            response.raise_for_status()
+
+            # 检查大小
+            content_length = response.headers.get("content-length")
+            if content_length and int(content_length) > _IMAGE_MAX_SIZE:
+                logger.warning("Image too large (%s bytes), skipping: %s...", content_length, url[:50])
+                return None
+
+            content = response.content
+            if len(content) > _IMAGE_MAX_SIZE:
+                logger.warning("Image too large (%d bytes), skipping: %s...", len(content), url[:50])
+                return None
+
+            # 推断 MIME 类型
+            content_type = response.headers.get("content-type", "")
+            if content_type.startswith("image/"):
+                media_type = content_type.split(";")[0].strip()
+            else:
+                media_type = _get_media_type_from_url(url)
+
+            # 转换为 base64
+            data = base64.b64encode(content).decode("utf-8")
+
+            # 缓存结果
+            _IMAGE_CACHE[url] = {
+                "media_type": media_type,
+                "data": data,
+                "timestamp": now,
+            }
+
+            logger.debug("Downloaded image %d bytes, media_type=%s", len(content), media_type)
+            return {"media_type": media_type, "data": data}
+
+    except httpx.TimeoutException:
+        logger.warning("Image download timeout: %s...", url[:50])
+        return None
+    except httpx.HTTPStatusError as e:
+        logger.warning("Image download HTTP error %d: %s...", e.response.status_code, url[:50])
+        return None
+    except Exception as e:
+        logger.warning("Image download failed: %s: %s...", type(e).__name__, url[:50])
+        return None
 
 
 class ToAnthropicConverter(BaseConverter):
@@ -65,6 +165,7 @@ class ToAnthropicConverter(BaseConverter):
                     elif item.get("type") == "image_url":
                         url = item.get("image_url", {}).get("url", "")
                         if url.startswith("data:"):
+                            # data URI -> base64
                             parts = url.split(",", 1)
                             media_type = parts[0].split(";")[0].split(":")[1] if parts else "image/png"
                             data = parts[1] if len(parts) > 1 else ""
@@ -72,18 +173,35 @@ class ToAnthropicConverter(BaseConverter):
                                 "type": "image",
                                 "source": {"type": "base64", "media_type": media_type, "data": data},
                             })
+                        elif url.startswith("http://") or url.startswith("https://"):
+                            # HTTP URL -> 下载并转为 base64
+                            downloaded = _download_image_as_base64(url)
+                            if downloaded:
+                                result.append({
+                                    "type": "image",
+                                    "source": {"type": "base64", "media_type": downloaded["media_type"], "data": downloaded["data"]},
+                                })
+                            else:
+                                # 下载失败，跳过并已记录警告
+                                pass
                         else:
-                            logger.warning(
-                                "Anthropic only supports base64-encoded images (data: URI). "
-                                "Skipping HTTP URL image: %s...",
-                                url[:50],
-                            )
+                            logger.warning("Unsupported image_url format: %s...", url[:50])
 
-                elif isinstance(item, str):
-                    result.append({"type": "text", "text": item})
-                else:
-                    logger.warning("Unsupported content item type '%s', converting to text", item.get("type", "unknown") if isinstance(item, dict) else type(item).__name__)
-                    result.append({"type": "text", "text": json.dumps(item, ensure_ascii=False) if isinstance(item, dict) else str(item)})
+                    elif item.get("type") == "input_text":
+                        # OpenAI Response API input_text -> text
+                        result.append({"type": "text", "text": item.get("text", "")})
+
+                    elif item.get("type") == "refusal":
+                        # OpenAI refusal -> text with marker
+                        refusal_text = item.get("refusal", "")
+                        if refusal_text:
+                            result.append({"type": "text", "text": f"[REFUSAL] {refusal_text}"})
+
+                    elif isinstance(item, str):
+                        result.append({"type": "text", "text": item})
+                    else:
+                        logger.warning("Unsupported content item type '%s', converting to text", item.get("type", "unknown") if isinstance(item, dict) else type(item).__name__)
+                        result.append({"type": "text", "text": json.dumps(item, ensure_ascii=False) if isinstance(item, dict) else str(item)})
             return result
         return content
 
@@ -181,6 +299,9 @@ class ToAnthropicConverter(BaseConverter):
                     result["tool_choice"] = {"type": "any"}
                 elif tc.get("type") == "function":
                     result["tool_choice"] = {"type": "tool", "name": tc.get("function", {}).get("name", "")}
+                # disable_parallel_tool_use OpenAI 无对应
+                if tc.get("disable_parallel_tool_use"):
+                    logger.debug("OpenAI tool_choice.disable_parallel_tool_use not supported, ignored")
             elif tc == "auto":
                 result["tool_choice"] = {"type": "auto"}
             elif tc == "required":
@@ -204,6 +325,32 @@ class ToAnthropicConverter(BaseConverter):
         if data.get("metadata"):
             result["metadata"] = data["metadata"]
 
+        # user_id 处理：OpenAI user -> Anthropic metadata.user_id
+        if data.get("user"):
+            if "metadata" not in result:
+                result["metadata"] = {}
+            result["metadata"]["user_id"] = data["user"]
+
+        # 参数兼容性警告（Anthropic 不支持的参数）
+        unsupported_params = []
+        if data.get("frequency_penalty") is not None and data["frequency_penalty"] != 0:
+            unsupported_params.append("frequency_penalty")
+        if data.get("presence_penalty") is not None and data["presence_penalty"] != 0:
+            unsupported_params.append("presence_penalty")
+        if data.get("seed") is not None:
+            unsupported_params.append("seed")
+        if data.get("n", 1) > 1:
+            unsupported_params.append("n>1 (multiple choices)")
+        if data.get("response_format"):
+            unsupported_params.append("response_format")
+        if data.get("logprobs"):
+            unsupported_params.append("logprobs")
+        if unsupported_params:
+            logger.debug(
+                "OpenAI parameters not supported by Anthropic, will be ignored: %s",
+                ", ".join(unsupported_params)
+            )
+
         return result
 
     def _openai_tools_to_anthropic(self, tools: list) -> list:
@@ -211,11 +358,15 @@ class ToAnthropicConverter(BaseConverter):
         for tool in tools:
             if tool.get("type") == "function":
                 func = tool.get("function", {})
-                anthropic_tools.append({
+                anthropic_tool = {
                     "name": func.get("name", ""),
                     "description": func.get("description", ""),
                     "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
-                })
+                }
+                # strict 字段透传（Anthropic 也支持）
+                if func.get("strict") is not None:
+                    anthropic_tool["strict"] = func["strict"]
+                anthropic_tools.append(anthropic_tool)
         return anthropic_tools
 
     def _chat_response_to_anthropic(self, data: dict[str, Any]) -> dict[str, Any]:
