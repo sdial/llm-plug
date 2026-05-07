@@ -168,9 +168,14 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
     message_id = None
     role = "assistant"
     content_text = ""
+    thinking_text = ""
+    tool_uses: list[dict] = []
     stop_reason = None
     input_tokens = 0
     output_tokens = 0
+
+    # 用于拼接 tool_use 的 arguments
+    tool_use_buffers: dict[int, dict] = {}  # index -> {id, name, arguments}
 
     for chunk in chunks:
         if not isinstance(chunk, dict):
@@ -185,10 +190,29 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
             usage = msg.get("usage", {})
             input_tokens = usage.get("input_tokens", 0)
 
+        elif chunk_type == "content_block_start":
+            content_block = chunk.get("content_block", {})
+            cb_type = content_block.get("type")
+            block_idx = chunk.get("index", 0)
+            if cb_type == "tool_use":
+                tool_use_buffers[block_idx] = {
+                    "id": content_block.get("id", ""),
+                    "name": content_block.get("name", ""),
+                    "arguments": "",
+                }
+
         elif chunk_type == "content_block_delta":
             delta = chunk.get("delta", {})
-            if delta.get("type") == "text_delta":
+            block_idx = chunk.get("index", 0)
+            delta_type = delta.get("type")
+            if delta_type == "text_delta":
                 content_text += delta.get("text", "")
+            elif delta_type == "thinking_delta":
+                thinking_text += delta.get("thinking", "")
+            elif delta_type == "input_json_delta":
+                # tool_use 的 arguments 拼接
+                if block_idx in tool_use_buffers:
+                    tool_use_buffers[block_idx]["arguments"] += delta.get("partial_json", "")
 
         elif chunk_type == "message_delta":
             delta = chunk.get("delta", {})
@@ -206,11 +230,36 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
     if not message_id:
         return None
 
+    # 构建内容块列表
+    content_blocks: list[dict] = []
+    # thinking block 在 text block 之前
+    if thinking_text:
+        content_blocks.append({"type": "thinking", "thinking": thinking_text, "signature": ""})
+    if content_text:
+        content_blocks.append({"type": "text", "text": content_text})
+    # 添加 tool_use blocks
+    for idx in sorted(tool_use_buffers.keys()):
+        tb = tool_use_buffers[idx]
+        args = tb.get("arguments", "{}")
+        try:
+            args_json = json.loads(args) if args else {}
+        except json.JSONDecodeError:
+            args_json = {}
+        content_blocks.append({
+            "type": "tool_use",
+            "id": tb.get("id", ""),
+            "name": tb.get("name", ""),
+            "input": args_json,
+        })
+
+    if not content_blocks:
+        content_blocks.append({"type": "text", "text": ""})
+
     return {
         "id": message_id,
         "type": "message",
         "role": role,
-        "content": [{"type": "text", "text": content_text}],
+        "content": content_blocks,
         "model": model,
         "stop_reason": stop_reason,
         "usage": {
@@ -224,6 +273,7 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
     """构建 OpenAI 格式的流式响应体。"""
     response_id = None
     content_text = ""
+    reasoning_text = ""
     finish_reason = None
     input_tokens = 0
     output_tokens = 0
@@ -254,6 +304,9 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
             delta = choices[0].get("delta", {})
             if delta and "content" in delta and delta["content"]:
                 content_text += delta["content"]
+            # 拼接 reasoning_content（如 DeepSeek 的思考内容）
+            if delta and "reasoning_content" in delta and delta["reasoning_content"]:
+                reasoning_text += delta["reasoning_content"]
 
             # 拼接 tool_calls
             if delta and "tool_calls" in delta:
@@ -297,6 +350,9 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
         "role": role,
         "content": content_text if content_text else None,
     }
+    # 添加 reasoning_content（如有）
+    if reasoning_text:
+        message["reasoning_content"] = reasoning_text
 
     # 如果有 tool_calls，按 index 顺序添加到 message
     if tool_calls_map:

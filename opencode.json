@@ -5,12 +5,12 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "baiduqianfancodingplan",
       "options": {
-        "baseURL": "https://qianfan.baidubce.com/v2/coding",
-        "apiKey": "bce-v3/ALTAKSP-YVa4gz9dbpXBeXw85DNxP/c7f882502f81628ee97bc717681d398e209ae08b"
+        "baseURL": "http://192.168.123.1:55555/v1",
+        "apiKey": "opencode101"
       },
       "models": {
-        "glm-5": {
-          "name": "GLM-5",
+        "z-ai/glm-5.1": {
+          "name": "z-ai/glm-5.1",
           "modalities": {
             "input": [
               "text"
@@ -30,8 +30,8 @@
             "output": 131072
           }
         },
-        "kimi-k2.5": {
-          "name": "Kimi-K2.5",
+        "moonshotai/kimi-k2.6": {
+          "name": "moonshotai/kimi-k2.6",
           "modalities": {
             "input": [
               "text"
