@@ -75,7 +75,7 @@ async def update_channel(channel_id: str, body: ChannelUpdate):
     for i, ch in enumerate(channels):
         if ch.id == channel_id:
             update_data = body.model_dump(exclude_unset=True)
-            updated = ch.model_copy(update=update_data)
+            updated = Channel(**{**ch.model_dump(), **update_data})
             channels[i] = updated
             await _save_channels(channels)
             old_channel = ch

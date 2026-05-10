@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,8 @@ class Channel(BaseModel):
     weight: int = Field(default=1, ge=1)
     priority: int = Field(default=1, ge=1)
     socks5_proxy: Optional[str] = None
+    capabilities: Optional[dict[str, Any]] = None
+    anthropic_beta: Optional[str] = None
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -33,6 +35,8 @@ class ChannelCreate(BaseModel):
     weight: int = Field(default=1, ge=1)
     priority: int = Field(default=1, ge=1)
     socks5_proxy: Optional[str] = None
+    capabilities: Optional[dict[str, Any]] = None
+    anthropic_beta: Optional[str] = None
 
 
 class ChannelUpdate(BaseModel):
@@ -42,6 +46,8 @@ class ChannelUpdate(BaseModel):
     api_key: Optional[str] = None
     models: Optional[list[str]] = None
     enabled: Optional[bool] = None
-    weight: Optional[int] = None
-    priority: Optional[int] = None
+    weight: Optional[int] = Field(default=None, ge=1)
+    priority: Optional[int] = Field(default=None, ge=1)
     socks5_proxy: Optional[str] = None
+    capabilities: Optional[dict[str, Any]] = None
+    anthropic_beta: Optional[str] = None

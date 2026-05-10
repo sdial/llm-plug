@@ -2,7 +2,8 @@ import json
 from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Header, Request
-from fastapi.responses import StreamingResponse
+import httpx
+from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 
 from models.api_types import APIType
@@ -28,6 +29,24 @@ async def _closeable_stream(gen: AsyncGenerator):
         await gen.aclose()
 
 
+async def _prime_stream(gen: AsyncGenerator) -> AsyncGenerator:
+    """在发送 HTTP 响应头前取到首个 chunk，便于透传首包前错误。"""
+    try:
+        first_chunk = await anext(gen)
+    except StopAsyncIteration:
+        return gen
+
+    async def _replay():
+        try:
+            yield first_chunk
+            async for chunk in gen:
+                yield chunk
+        finally:
+            await gen.aclose()
+
+    return _replay()
+
+
 def _pick_error_helpers(api_type: APIType):
     """根据 API 类型选择对应格式的错误响应函数"""
     if api_type == APIType.ANTHROPIC:
@@ -50,12 +69,7 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
             return err_invalid(f"Invalid JSON: {e}")
 
         model = body.get("model", "")
-        # 对于 Anthropic API，默认使用流式响应（客户端通常期望流式）
-        # 如果客户端明确设置 stream: false，则使用非流式
-        if api_type == APIType.ANTHROPIC and "stream" not in body:
-            is_stream = True  # Anthropic API 默认流式
-        else:
-            is_stream = body.get("stream", False)
+        is_stream = body.get("stream", False)
         query_string = str(request.url.query) if request.url.query else None
 
         client_headers = dict(request.headers)
@@ -68,9 +82,14 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
                 api_key_id=api_key_id,
             )
             request.state.selected_channel_name = _channel.name
+            if is_stream:
+                result = await _prime_stream(result)
         except ValueError as e:
             logger.error(f"{path} ValueError: {e}")
             return err_invalid(str(e))
+        except httpx.HTTPStatusError as e:
+            logger.error(f"{path} upstream HTTP {e.response.status_code}: {e}")
+            return _response_from_upstream_http_error(e)
         except Exception as e:
             logger.error(f"{path} {type(e).__name__}: {e}")
             return err_exception(e)
@@ -89,3 +108,14 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
         return result
 
     return router
+
+
+def _response_from_upstream_http_error(exc: httpx.HTTPStatusError) -> Response:
+    """透传上游 HTTP 错误状态码和响应体。"""
+    content = exc.response.content
+    media_type = exc.response.headers.get("content-type")
+    return Response(
+        content=content,
+        status_code=exc.response.status_code,
+        media_type=media_type,
+    )
