@@ -4,7 +4,8 @@ import time
 from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+import httpx
 from loguru import logger
 
 from config import DATA_DIR, get_setting
@@ -97,6 +98,9 @@ async def post_response(request: Request, authorization: str | None = None):
     except ValueError as e:
         logger.error(f"[RESPONSES ERROR] /v1/responses ValueError: {e}")
         return invalid_request(str(e))
+    except httpx.HTTPStatusError as e:
+        logger.error(f"[RESPONSES ERROR] /v1/responses upstream HTTP {e.response.status_code}: {e}")
+        return _response_from_upstream_http_error(e)
     except Exception as e:
         logger.error(f"[RESPONSES ERROR] /v1/responses {type(e).__name__}: {e}")
         return response_from_proxy_exception(e)
@@ -112,6 +116,11 @@ async def post_response(request: Request, authorization: str | None = None):
             },
         )
 
+    # 同格式透传：上游已经是 Responses 格式，直接返回
+    if _channel.api_type == APIType.OPENAI_RESPONSE:
+        return JSONResponse(content=result)
+
+    # 跨格式转换：Chat Completions → Responses
     response_id = _store.generate_response_id()
     response_data = _chat_completion_to_response(result, response_id)
 
@@ -145,3 +154,14 @@ async def delete_response(response_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Response {response_id} not found")
     return {"deleted": True, "id": response_id}
+
+
+def _response_from_upstream_http_error(exc: httpx.HTTPStatusError) -> Response:
+    """透传上游 HTTP 错误状态码和响应体。"""
+    content = exc.response.content
+    media_type = exc.response.headers.get("content-type")
+    return Response(
+        content=content,
+        status_code=exc.response.status_code,
+        media_type=media_type,
+    )
