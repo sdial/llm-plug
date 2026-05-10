@@ -1125,6 +1125,7 @@ async def _do_stream_request(
     output_responses_sse = target_api_type == APIType.OPENAI_RESPONSE
     output_sse_events = output_anthropic_sse or output_responses_sse
     is_upstream_anthropic = source_type == "anthropic"
+    is_upstream_event_sse = is_upstream_anthropic or source_type == "openai-response"
 
     stream_success = False
     stream_error = None
@@ -1201,7 +1202,7 @@ async def _do_stream_request(
                 _line_count += 1
                 if not line.strip():
                     continue
-                if is_upstream_anthropic and line.startswith("event:"):
+                if is_upstream_event_sse and line.startswith("event:"):
                     raw_type = line[5:].strip()
                     if raw_type.startswith(":"):
                         raw_type = raw_type[1:].strip()
@@ -1331,7 +1332,7 @@ async def _do_stream_request(
                         _mark_output()
                         yield extra_sse
                 else:
-                    if output_anthropic_sse and is_upstream_anthropic:
+                    if output_sse_events and is_upstream_event_sse and upstream_event_type:
                         sse = _format_sse(chunk, upstream_event_type or "ping")
                     else:
                         sse = _format_sse(chunk)
@@ -1339,7 +1340,7 @@ async def _do_stream_request(
                     _mark_output()
                     yield sse
 
-                if is_upstream_anthropic:
+                if is_upstream_event_sse:
                     upstream_event_type = None
 
         logger.debug(f"[STREAM LOOP END] model={model} lines={_line_count} done={_done_received}")
