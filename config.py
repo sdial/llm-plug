@@ -241,4 +241,11 @@ async def update_settings(updates: dict) -> dict:
             await _save_settings_to_disk()
             _sync_module_vars()
     _apply_lb_settings()
+    # 如果 request_timeout 变更，清理客户端缓存以应用新超时
+    if "request_timeout" in updated_keys:
+        try:
+            from client import invalidate_all_clients
+            await invalidate_all_clients()
+        except Exception as e:
+            logger.warning(f"Failed to invalidate clients after timeout change: {e}")
     return {"updated": updated_keys, "needs_restart": needs_restart}

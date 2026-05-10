@@ -42,7 +42,7 @@ logger.add(
     encoding="utf-8"
 )
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
-from stats import init_db as init_stats_db, close_pool as close_stats_pool
+from stats import init_db as init_stats_db, close_pool as close_stats_pool, start_stats_workers, stop_stats_workers
 from storage import load_data, load_api_keys
 
 
@@ -75,6 +75,7 @@ async def lifespan(app):
     key_count = len(keys_data.get("api_keys", []))
     logger.info(f"就绪: {channel_count} 个渠道, {model_count} 个模型, {key_count} 个 API Key")
     await init_stats_db()
+    start_stats_workers()
 
     async def _client_cleanup_loop():
         while True:
@@ -101,6 +102,7 @@ async def lifespan(app):
             await session_cleanup_task
         except asyncio.CancelledError:
             pass
+        await stop_stats_workers()
         await close_stats_pool()
         await close_all_clients()
 

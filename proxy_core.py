@@ -576,19 +576,6 @@ def _is_channel_config_error(exc: BaseException) -> bool:
     return False
 
 
-def _fire_and_forget(coro):
-    def _on_done(t: asyncio.Task) -> None:
-        if t.cancelled():
-            return
-        exc = t.exception()
-        if exc is not None:
-            logger.warning(f"fire-and-forget task failed: {type(exc).__name__}: {exc}")
-
-    task = asyncio.create_task(coro)
-    task.add_done_callback(_on_done)
-    return task
-
-
 async def _load_history(previous_response_id: str | None) -> list[dict]:
     """加载历史消息"""
     if previous_response_id is None:
@@ -892,8 +879,8 @@ async def _do_request(
             if finish_reason is None:
                 finish_reason = response_data.get("stop_reason")
 
-        # 记录统计（后台执行，不阻塞响应）
-        _fire_and_forget(stats.record_request(
+        # 记录统计（入队，由后台 worker 写入，不阻塞响应）
+        stats.record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -909,7 +896,7 @@ async def _do_request(
             response_headers=dict(resp.headers),
             request_body=upstream_data,
             response_body=response_data,
-        ))
+        )
 
         # 非流式响应摘要日志
         content = response_data.get("content", []) if isinstance(response_data, dict) else []
@@ -931,8 +918,8 @@ async def _do_request(
     except Exception as e:
         # upstream_start 为 None 表示 create_client 失败，此时用 request_start 兜底
         latency_ms = int((time.time() - (upstream_start or request_start)) * 1000)
-        # 记录失败统计（后台执行，不阻塞响应）
-        _fire_and_forget(stats.record_request(
+        # 记录失败统计（入队，由后台 worker 写入，不阻塞响应）
+        stats.record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -947,7 +934,7 @@ async def _do_request(
             api_key_id=api_key_id,
             request_headers={k: v for k, v in headers.items() if k.lower() not in ("authorization", "x-api-key")},
             request_body=upstream_data,
-        ))
+        )
         # 控制台输出详细错误
         err_body = ""
         if isinstance(e, httpx.HTTPStatusError):
@@ -1482,7 +1469,7 @@ async def _do_stream_request(
                 model=model,
             )
             logger.debug(f"[STREAM STATS] model={model} success={stream_success} error={stream_error} latency={latency_ms}ms lag={lag_ms}ms chunks={len(stream_chunks)} input={input_tokens} output={output_tokens} finish={finish_reason}")
-            _fire_and_forget(stats.record_request(
+            stats.record_request(
                 channel_id=channel.id,
                 channel_name=channel.name,
                 model=model,
@@ -1499,7 +1486,7 @@ async def _do_stream_request(
                 response_headers=resp_headers,
                 request_body=upstream_data,
                 response_body=response_body,
-            ))
+            )
             if stream_success:
                 load_balancer.record_success(channel.id)
                 logger.debug(f"[STREAM RECORDED SUCCESS] channel={channel.name}")

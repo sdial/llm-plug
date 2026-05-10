@@ -14,8 +14,6 @@ def reset_client_state():
     """每个测试前清理全局客户端缓存。"""
     client._clients.clear()
     client._cache_ts.clear()
-    client._stream_clients.clear()
-    client._stream_cache_ts.clear()
     yield
     # teardown: 关闭所有未关闭的客户端
     for c in list(client._clients.values()):
@@ -26,18 +24,8 @@ def reset_client_state():
                 loop.close()
             except Exception:
                 pass
-    for c in list(client._stream_clients.values()):
-        if not c.is_closed:
-            try:
-                loop = asyncio.new_event_loop()
-                loop.run_until_complete(c.aclose())
-                loop.close()
-            except Exception:
-                pass
     client._clients.clear()
     client._cache_ts.clear()
-    client._stream_clients.clear()
-    client._stream_cache_ts.clear()
 
 
 @pytest.fixture

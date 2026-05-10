@@ -350,7 +350,7 @@ class TestDoRequest:
 
         with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             response = await _do_request(channel, request_data, APIType.OPENAI_CHAT, is_stream=False)
 
         assert captured["json"] == request_data
@@ -392,7 +392,7 @@ class TestDoRequest:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_client", new_callable=AsyncMock, return_value=BadRequestClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             with pytest.raises(httpx.HTTPStatusError) as exc_info:
                 await _proxy_single_model_request(
                     model="gpt-4o",
@@ -446,7 +446,7 @@ class TestDoStreamRequest:
 
         with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.anthropic.com/v1/messages",
@@ -507,7 +507,7 @@ class TestDoStreamRequest:
 
         with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             stream = await _do_request(channel, request_data, APIType.OPENAI_CHAT, is_stream=True)
             outputs = [chunk async for chunk in stream]
 
@@ -558,7 +558,7 @@ class TestDoStreamRequest:
 
         with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.openai.com/v1/responses",
@@ -642,7 +642,7 @@ class TestDoStreamRequest:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             stream, selected = await _proxy_single_model_request(
                 model="gpt-4o",
                 request_data={"model": "gpt-4o", "stream": True, "messages": []},
@@ -705,7 +705,7 @@ class TestAnthropicNonSseJsonFallback:
 
         with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.anthropic.com/v1/messages",
@@ -780,7 +780,7 @@ class TestAnthropicSameTypeFailover:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             result, selected = await _proxy_single_model_request(
                 model="claude-3",
                 request_data={"model": "claude-3", "messages": [{"role": "user", "content": "hi"}]},
@@ -866,7 +866,7 @@ class TestAnthropicSameTypeFailover:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             stream, selected = await _proxy_single_model_request(
                 model="claude-3",
                 request_data={"model": "claude-3", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
@@ -928,7 +928,7 @@ class TestAnthropicHeaderPriority:
 
         with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             await _do_request(
                 channel, {"model": "claude-3", "messages": []},
                 APIType.ANTHROPIC, is_stream=False,
@@ -980,7 +980,7 @@ class TestAnthropicHeaderPriority:
 
         with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.openai.com/v1/chat/completions",
@@ -1043,7 +1043,7 @@ class TestFailoverOn401:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             result, selected = await _proxy_single_model_request(
                 model="gpt-4o",
                 request_data={"model": "gpt-4o", "messages": []},
@@ -1102,7 +1102,7 @@ class TestFailoverOn401:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             result, selected = await _proxy_single_model_request(
                 model="gpt-4o",
                 request_data={"model": "gpt-4o", "messages": []},
@@ -1160,7 +1160,7 @@ class TestFailoverOn401:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             result, selected = await _proxy_single_model_request(
                 model="gpt-4o",
                 request_data={"model": "gpt-4o", "messages": []},
@@ -1195,7 +1195,7 @@ class TestFailoverOn401:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_client", new_callable=AsyncMock, return_value=UnauthorizedClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             with pytest.raises(httpx.HTTPStatusError) as exc_info:
                 await _proxy_single_model_request(
                     model="gpt-4o",
@@ -1261,7 +1261,7 @@ class TestConverterErrorFailover:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             result, selected = await _proxy_single_model_request(
                 model="claude-3",
                 request_data={"model": "claude-3", "messages": [{"role": "user", "content": "hi"}]},
@@ -1347,7 +1347,7 @@ class TestEmptyStreamFailover:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             stream, selected = await _proxy_single_model_request(
                 model="gpt-4o",
                 request_data={"model": "gpt-4o", "stream": True, "messages": []},
@@ -1410,7 +1410,7 @@ class TestAnthropicNonSseJsonFallback:
 
         with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.anthropic.com/v1/messages",
@@ -1485,7 +1485,7 @@ class TestAnthropicSameTypeFailover:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             result, selected = await _proxy_single_model_request(
                 model="claude-3",
                 request_data={"model": "claude-3", "messages": [{"role": "user", "content": "hi"}]},
@@ -1571,7 +1571,7 @@ class TestAnthropicSameTypeFailover:
         with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
                 patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             stream, selected = await _proxy_single_model_request(
                 model="claude-3",
                 request_data={"model": "claude-3", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
@@ -1633,7 +1633,7 @@ class TestAnthropicHeaderPriority:
 
         with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+                patch("proxy_core.stats.record_request"):
             await _do_request(
                 channel, {"model": "claude-3", "messages": []},
                 APIType.ANTHROPIC, is_stream=False,

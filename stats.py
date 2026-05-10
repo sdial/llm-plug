@@ -15,6 +15,13 @@ _pool: asyncpg.Pool | None = None
 _db_available: bool = False
 _pool_lock = asyncio.Lock()
 
+# 统计写入队列与 worker 配置
+_STATS_QUEUE: asyncio.Queue | None = None
+_STATS_WORKERS: list[asyncio.Task] = []
+_STATS_QUEUE_MAX_SIZE = 1000
+_STATS_WORKER_COUNT = 4
+_STATS_WRITE_TIMEOUT = 60  # seconds
+
 
 def utc8_now() -> datetime:
     """返回当前东8区时间（硬编码 UTC+8）"""
@@ -157,30 +164,57 @@ async def init_db():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_response_body ON requests USING GIN (response_body)")
 
 
-async def record_request(
-    channel_id: str,
-    channel_name: str,
-    model: str,
-    is_stream: bool,
-    input_tokens: int,
-    output_tokens: int,
-    latency_ms: int,
-    success: bool,
-    error_msg: str | None = None,
-    api_key_id: str | None = None,
-    request_headers: dict[str, str] | None = None,
-    response_headers: dict[str, str] | None = None,
-    request_body: dict | None = None,
-    response_body: dict | None = None,
-    lag_ms: int | None = None,
-    finish_reason: str | None = None,
-) -> None:
-    """记录一次请求到明细表"""
+def start_stats_workers():
+    """启动统计写入后台 worker"""
+    global _STATS_QUEUE
+    if _STATS_QUEUE is None:
+        _STATS_QUEUE = asyncio.Queue(maxsize=_STATS_QUEUE_MAX_SIZE)
+    for _ in range(_STATS_WORKER_COUNT):
+        task = asyncio.create_task(_stats_worker())
+        _STATS_WORKERS.append(task)
+    logger.info(f"Stats workers started: {_STATS_WORKER_COUNT} workers, queue max={_STATS_QUEUE_MAX_SIZE}, write timeout={_STATS_WRITE_TIMEOUT}s")
+
+
+async def stop_stats_workers():
+    """停止统计写入后台 worker"""
+    for task in _STATS_WORKERS:
+        task.cancel()
+    for task in _STATS_WORKERS:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    _STATS_WORKERS.clear()
+    logger.info("Stats workers stopped")
+
+
+async def _stats_worker():
+    """后台 worker：从队列消费记录并写入数据库，带超时保护"""
+    while True:
+        try:
+            record = await _STATS_QUEUE.get()
+            try:
+                await asyncio.wait_for(_write_record(record), timeout=_STATS_WRITE_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning(f"Stats write timed out ({_STATS_WRITE_TIMEOUT}s), discarding record for model={record.get('model')}")
+            except Exception as e:
+                logger.warning(f"Stats write failed: {e}")
+            finally:
+                _STATS_QUEUE.task_done()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f"Stats worker error: {e}")
+
+
+async def _write_record(record: dict):
+    """实际写入数据库（从队列消费的记录）"""
     if not _db_available:
         return
 
     # 处理 request_headers：确保所有值都是字符串
     req_headers = {}
+    request_headers = record.get("request_headers")
     if request_headers:
         for k, v in request_headers.items():
             if isinstance(v, str):
@@ -192,6 +226,7 @@ async def record_request(
 
     # 处理 response_headers：确保所有值都是字符串
     resp_headers = {}
+    response_headers = record.get("response_headers")
     if response_headers:
         for k, v in response_headers.items():
             if isinstance(v, str):
@@ -212,11 +247,57 @@ async def record_request(
              latency_ms, lag_ms, finish_reason, success, error_msg)
             VALUES (now(), $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16)
             """,
-            model, channel_id, channel_name, api_key_id,
-            req_headers, resp_headers, request_body, response_body,
-            is_stream, input_tokens, output_tokens,
-            latency_ms, lag_ms, finish_reason, success, error_msg
+            record["model"], record["channel_id"], record["channel_name"], record.get("api_key_id"),
+            req_headers, resp_headers, record.get("request_body"), record.get("response_body"),
+            record["is_stream"], record["input_tokens"], record["output_tokens"],
+            record["latency_ms"], record.get("lag_ms"), record.get("finish_reason"), record["success"], record.get("error_msg")
         )
+
+
+def record_request(
+    channel_id: str,
+    channel_name: str,
+    model: str,
+    is_stream: bool,
+    input_tokens: int,
+    output_tokens: int,
+    latency_ms: int,
+    success: bool,
+    error_msg: str | None = None,
+    api_key_id: str | None = None,
+    request_headers: dict[str, str] | None = None,
+    response_headers: dict[str, str] | None = None,
+    request_body: dict | None = None,
+    response_body: dict | None = None,
+    lag_ms: int | None = None,
+    finish_reason: str | None = None,
+) -> None:
+    """将请求记录入队，由后台 worker 写入数据库。队列满时丢弃。"""
+    if not _db_available:
+        return
+    if _STATS_QUEUE is None:
+        return
+    try:
+        _STATS_QUEUE.put_nowait({
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+            "model": model,
+            "is_stream": is_stream,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "latency_ms": latency_ms,
+            "success": success,
+            "error_msg": error_msg,
+            "api_key_id": api_key_id,
+            "request_headers": request_headers,
+            "response_headers": response_headers,
+            "request_body": request_body,
+            "response_body": response_body,
+            "lag_ms": lag_ms,
+            "finish_reason": finish_reason,
+        })
+    except asyncio.QueueFull:
+        logger.warning(f"Stats queue full ({_STATS_QUEUE_MAX_SIZE}), discarding record for model={model}")
 
 
 
