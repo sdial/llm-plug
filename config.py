@@ -168,6 +168,7 @@ async def _save_settings_to_disk():
 async def init_settings():
     _init_settings_sync()
     await _migrate_lb_config()
+    _apply_lb_settings()
 
 
 def _migrate_lb_config_sync(channels_file: str):
