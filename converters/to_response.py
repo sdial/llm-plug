@@ -30,6 +30,7 @@ class ToResponseConverter(BaseConverter):
             "completed_sent": False,
             "accumulated_text": "",
             "tool_calls": {},  # call_id -> {name, arguments}
+            "tool_call_index_to_id": {},
             "reasoning_content": "",
             "input_tokens": 0,
             "output_tokens": 0,
@@ -330,7 +331,7 @@ class ToResponseConverter(BaseConverter):
         from loguru import logger
         if self._stream_state is None:
             self._reset_stream_state()
-            logger.debug(f"[CHUNK] reset stream_state for first chunk")
+            logger.debug("[CHUNK] reset stream_state for first chunk")
 
         if chunk.get("id"):
             self._stream_state["response_id"] = chunk["id"]
@@ -421,8 +422,16 @@ class ToResponseConverter(BaseConverter):
             events = []
             for tc in delta["tool_calls"]:
                 call_id = tc.get("id", "")
-                if tc.get("function", {}).get("name"):
-                    name = tc["function"]["name"]
+                tc_index = tc.get("index")
+                if not call_id and tc_index is not None:
+                    call_id = self._stream_state["tool_call_index_to_id"].get(tc_index, "")
+                function = tc.get("function", {})
+                if function.get("name"):
+                    name = function["name"]
+                    if not call_id:
+                        call_id = f"call_{tc_index}" if tc_index is not None else f"call_{len(self._stream_state['tool_calls'])}"
+                    if tc_index is not None:
+                        self._stream_state["tool_call_index_to_id"][tc_index] = call_id
                     self._stream_state["tool_calls"][call_id] = {"name": name, "arguments": ""}
                     idx = self._stream_state["output_index"]
                     self._stream_state["output_index"] = idx + 1
@@ -436,15 +445,18 @@ class ToResponseConverter(BaseConverter):
                             "arguments": "",
                         },
                     })
-                elif tc.get("function", {}).get("arguments") is not None:
-                    args = tc["function"].get("arguments", "")
+                elif function.get("arguments") is not None:
+                    args = function.get("arguments", "")
                     if args:
                         if call_id in self._stream_state["tool_calls"]:
                             self._stream_state["tool_calls"][call_id]["arguments"] += args
-                        events.append({
+                        event = {
                             "type": "response.function_call_arguments.delta",
                             "delta": args,
-                        })
+                        }
+                        if tc_index is not None:
+                            event["output_index"] = tc_index
+                        events.append(event)
             if events:
                 if _ensure_created():
                     self._pending_extra_events = events
@@ -662,7 +674,7 @@ class ToResponseConverter(BaseConverter):
         if source_type != "openai-chat-completions" or self._stream_state is None:
             return []
         if self._stream_state["completed_sent"]:
-            logger.debug(f"[FINALIZE] already completed, skipping")
+            logger.debug("[FINALIZE] already completed, skipping")
             return []
         # 如果 response_id 为空，生成一个默认的
         if not self._stream_state["response_id"]:

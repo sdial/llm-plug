@@ -295,7 +295,7 @@ class ToChatCompletionsConverter(BaseConverter):
                     if isinstance(doc_content, str):
                         message_content += doc_content
                 else:
-                    message_content += f"[DOCUMENT]"
+                    message_content += "[DOCUMENT]"
             elif part.get("type") == "search_result":
                 # search_result -> 转为文本
                 search_content = part.get("content", "")
@@ -470,6 +470,35 @@ class ToChatCompletionsConverter(BaseConverter):
                 })
         return chat_tools
 
+    def _response_content_to_chat_content(self, content: Any) -> Any:
+        if isinstance(content, str):
+            return content
+        if not isinstance(content, list):
+            return content or ""
+
+        chat_parts = []
+        text_parts = []
+        for part in content:
+            if not isinstance(part, dict):
+                text_parts.append(str(part))
+                continue
+            part_type = part.get("type")
+            if part_type in ("input_text", "output_text", "text"):
+                text_parts.append(part.get("text", ""))
+            elif part_type == "input_image":
+                image_url = part.get("image_url") or part.get("url")
+                if image_url:
+                    chat_parts.append({"type": "image_url", "image_url": {"url": image_url}})
+            elif "text" in part:
+                text_parts.append(part.get("text", ""))
+
+        if chat_parts:
+            text = "\n".join(t for t in text_parts if t)
+            if text:
+                chat_parts.insert(0, {"type": "text", "text": text})
+            return chat_parts
+        return "\n".join(t for t in text_parts if t)
+
     def _response_request_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:
         messages = []
         instructions = data.get("instructions")
@@ -487,6 +516,8 @@ class ToChatCompletionsConverter(BaseConverter):
                 elif isinstance(item, dict):
                     item_type = item.get("type", "")
                     role = item.get("role", "user")
+                    if role == "developer":
+                        role = "system"
                     if item_type == "function_call_output":
                         messages.append({
                             "role": "tool",
@@ -507,13 +538,7 @@ class ToChatCompletionsConverter(BaseConverter):
                             "content": None,
                         })
                     else:
-                        content = item.get("content", "")
-                        if isinstance(content, list):
-                            content = "\n".join(
-                                c.get("text", "") if isinstance(c, dict) and c.get("type") == "input_text"
-                                else (str(c) if not isinstance(c, dict) else "")
-                                for c in content
-                            )
+                        content = self._response_content_to_chat_content(item.get("content", ""))
                         messages.append({"role": role, "content": content})
 
         result = {

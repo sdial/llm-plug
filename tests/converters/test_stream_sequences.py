@@ -70,6 +70,59 @@ class TestChatToResponseStream:
         assert added_events[0]["output_index"] == 0
         assert added_events[1]["output_index"] == 1
 
+    def test_tool_call_arguments_accumulate_by_index_when_delta_has_no_id(self):
+        """Chat tool_call argument deltas often omit id and must still be accumulated."""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "id": "call_1", "function": {"name": "search", "arguments": ""}}
+                        ]
+                    }
+                }],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": '{"q"'}}
+                        ]
+                    }
+                }],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": ':"x"}'}}
+                        ]
+                    }
+                }],
+            },
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+        ]
+
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                outputs.extend(converter.get_extra_events(result or {}))
+
+        completed = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"][0]
+        tool_call = [item for item in completed["response"]["output"] if item["type"] == "function_call"][0]
+        assert tool_call["call_id"] == "call_1"
+        assert tool_call["arguments"] == '{"q":"x"}'
+
     def test_reasoning_output_index_not_zero_when_preceded_by_tool(self):
         """reasoning 在 tool_call 之后应有递增的 output_index"""
         converter = ToResponseConverter()

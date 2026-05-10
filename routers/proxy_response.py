@@ -1,11 +1,11 @@
 import json
 import os
-import time
 from collections.abc import AsyncGenerator
+from typing import Any
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-import httpx
 from loguru import logger
 
 from config import DATA_DIR, get_setting
@@ -17,7 +17,6 @@ from state_store import FileStore
 
 router = APIRouter(tags=["代理"])
 
-# 初始化 FileStore
 _session_dir = os.path.join(DATA_DIR, "responses_session")
 _store = FileStore(
     data_dir=_session_dir,
@@ -26,51 +25,147 @@ _store = FileStore(
 )
 
 
-async def _closeable_stream(gen: AsyncGenerator):
-    """包装流式生成器，确保客户端断开时显式关闭。"""
+def _input_to_items(input_data: Any) -> list[dict[str, Any]]:
+    if input_data is None:
+        return []
+    if isinstance(input_data, str):
+        return [{"role": "user", "content": input_data}]
+    if isinstance(input_data, list):
+        items: list[dict[str, Any]] = []
+        for item in input_data:
+            if isinstance(item, str):
+                items.append({"role": "user", "content": item})
+            elif isinstance(item, dict):
+                items.append(dict(item))
+        return items
+    return [{"role": "user", "content": str(input_data)}]
+
+
+def _message_text(item: dict[str, Any]) -> str:
+    text_parts: list[str] = []
+    for content in item.get("content", []):
+        if not isinstance(content, dict):
+            continue
+        if content.get("type") in ("output_text", "input_text"):
+            text_parts.append(content.get("text", ""))
+    return "\n".join(part for part in text_parts if part)
+
+
+def _response_output_to_items(response: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for item in response.get("output", []):
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type == "message":
+            items.append({
+                "role": item.get("role", "assistant"),
+                "content": _message_text(item),
+            })
+        elif item_type == "function_call":
+            items.append({
+                "type": "function_call",
+                "call_id": item.get("call_id", item.get("id", "")),
+                "name": item.get("name", ""),
+                "arguments": item.get("arguments", "{}"),
+            })
+    return items
+
+
+async def _prepare_body_with_history(body: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    previous_response_id = body.get("previous_response_id")
+    if not previous_response_id:
+        return dict(body), None
+
+    conversation = await _store.get_conversation(previous_response_id)
+    if conversation is None:
+        raise ValueError(f"Response {previous_response_id} not found")
+
+    prepared = dict(body)
+    prepared["input"] = list(conversation.get("messages", [])) + _input_to_items(body.get("input"))
+    if not prepared.get("instructions") and conversation.get("instructions"):
+        prepared["instructions"] = conversation["instructions"]
+    return prepared, conversation
+
+
+async def _save_response_state(
+    request_body: dict[str, Any],
+    previous_conversation: dict[str, Any] | None,
+    response: dict[str, Any],
+) -> None:
+    response_id = response.get("id")
+    if not response_id:
+        response_id = _store.generate_response_id()
+        response["id"] = response_id
+
+    messages = list((previous_conversation or {}).get("messages", []))
+    messages.extend(_input_to_items(request_body.get("input")))
+    messages.extend(_response_output_to_items(response))
+
+    conversation = {
+        "messages": messages,
+        "instructions": request_body.get("instructions") or (previous_conversation or {}).get("instructions", ""),
+        "reasoning_history": [],
+        "tool_calls": [],
+    }
+    await _store.put(response_id, conversation, response)
+
+
+def _extract_response_completed(sse_text: str) -> dict[str, Any] | None:
+    for block in sse_text.split("\n\n"):
+        data_lines = []
+        for line in block.splitlines():
+            if line.startswith("data:"):
+                data_lines.append(line[5:].strip())
+        if not data_lines:
+            continue
+        data_str = "\n".join(data_lines).strip()
+        if not data_str or data_str == "[DONE]":
+            continue
+        try:
+            data = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+        if data.get("type") == "response.completed" and isinstance(data.get("response"), dict):
+            return data["response"]
+    return None
+
+
+async def _stateful_stream(
+    gen: AsyncGenerator,
+    request_body: dict[str, Any],
+    previous_conversation: dict[str, Any] | None,
+    should_store: bool,
+):
+    completed_response: dict[str, Any] | None = None
+    buffer = ""
     try:
         async for chunk in gen:
+            text = chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk)
+            buffer += text
+            if "\n\n" in buffer:
+                complete, buffer = buffer.rsplit("\n\n", 1)
+                parsed = _extract_response_completed(complete + "\n\n")
+                if parsed is not None:
+                    completed_response = parsed
             yield chunk
     finally:
-        await gen.aclose()
-
-
-def _chat_completion_to_response(data: dict, response_id: str) -> dict:
-    """将 Chat Completions 格式转换为 Responses API 格式"""
-    choices = data.get("choices", [])
-    text = ""
-    if choices:
-        msg = choices[0].get("message", {})
-        text = msg.get("content", "") or ""
-
-    usage = data.get("usage", {})
-
-    return {
-        "id": response_id,
-        "object": "response",
-        "created_at": int(time.time()),
-        "model": data.get("model", ""),
-        "status": "completed",
-        "output": [
-            {
-                "type": "message",
-                "id": f"msg_{response_id}",
-                "status": "completed",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": text}],
-            }
-        ],
-        "usage": {
-            "input_tokens": usage.get("prompt_tokens", 0),
-            "output_tokens": usage.get("completion_tokens", 0),
-            "total_tokens": usage.get("total_tokens", 0),
-        },
-    }
+        if buffer:
+            parsed = _extract_response_completed(buffer)
+            if parsed is not None:
+                completed_response = parsed
+        try:
+            await gen.aclose()
+        finally:
+            if should_store and completed_response is not None:
+                try:
+                    await _save_response_state(request_body, previous_conversation, completed_response)
+                except Exception as e:
+                    logger.warning(f"Failed to save streamed response state: {e}")
 
 
 @router.post("/v1/responses")
 async def post_response(request: Request, authorization: str | None = None):
-    """处理 Responses API 请求"""
     if not check_proxy_authorization(authorization, request.state):
         return unauthorized()
 
@@ -79,22 +174,27 @@ async def post_response(request: Request, authorization: str | None = None):
     except json.JSONDecodeError as e:
         return invalid_request(f"Invalid JSON: {e}")
 
-    model = body.get("model", "")
-    is_stream = body.get("stream", False)
+    try:
+        prepared_body, previous_conversation = await _prepare_body_with_history(body)
+    except ValueError as e:
+        return invalid_request(str(e))
+
+    model = prepared_body.get("model", "")
+    is_stream = prepared_body.get("stream", False)
     query_string = str(request.url.query) if request.url.query else None
     client_headers = dict(request.headers)
-    api_key_id = getattr(request.state, 'api_key_id', None)
+    api_key_id = getattr(request.state, "api_key_id", None)
 
     logger.debug(f"[RESPONSES REQUEST] model={model} stream={is_stream} api_key_id={api_key_id}")
 
     try:
-        result, _channel = await proxy_request(
-            model, body, APIType.OPENAI_RESPONSE, is_stream,
+        result, channel = await proxy_request(
+            model, prepared_body, APIType.OPENAI_RESPONSE, is_stream,
             query_string=query_string, client_headers=client_headers,
             api_key_id=api_key_id,
         )
-        request.state.selected_channel_name = _channel.name
-        logger.debug(f"[RESPONSES SUCCESS] model={model} channel={_channel.name}")
+        request.state.selected_channel_name = channel.name
+        logger.debug(f"[RESPONSES SUCCESS] model={model} channel={channel.name}")
     except ValueError as e:
         logger.error(f"[RESPONSES ERROR] /v1/responses ValueError: {e}")
         return invalid_request(str(e))
@@ -105,9 +205,10 @@ async def post_response(request: Request, authorization: str | None = None):
         logger.error(f"[RESPONSES ERROR] /v1/responses {type(e).__name__}: {e}")
         return response_from_proxy_exception(e)
 
+    should_store = body.get("store", True) is not False
     if is_stream:
         return StreamingResponse(
-            _closeable_stream(result),
+            _stateful_stream(result, body, previous_conversation, should_store),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -116,31 +217,14 @@ async def post_response(request: Request, authorization: str | None = None):
             },
         )
 
-    # 同格式透传：上游已经是 Responses 格式，直接返回
-    if _channel.api_type == APIType.OPENAI_RESPONSE:
-        return JSONResponse(content=result)
+    if should_store and isinstance(result, dict):
+        await _save_response_state(body, previous_conversation, result)
 
-    # 跨格式转换：Chat Completions → Responses
-    response_id = _store.generate_response_id()
-    response_data = _chat_completion_to_response(result, response_id)
-
-    conversation = {
-        "messages": [
-            {"role": "user", "content": body.get("input", "")},
-            {"role": "assistant", "content": response_data["output"][0]["content"][0]["text"] if response_data["output"] else ""},
-        ],
-        "reasoning_history": [],
-        "tool_calls": [],
-    }
-
-    await _store.put(response_id, conversation, response_data)
-
-    return JSONResponse(content=response_data)
+    return JSONResponse(content=result)
 
 
 @router.get("/v1/responses/{response_id}")
 async def get_response(response_id: str):
-    """获取已存储的响应"""
     response = await _store.get_response(response_id)
     if response is None:
         raise HTTPException(status_code=404, detail=f"Response {response_id} not found")
@@ -149,7 +233,6 @@ async def get_response(response_id: str):
 
 @router.delete("/v1/responses/{response_id}")
 async def delete_response(response_id: str):
-    """删除存储的响应"""
     deleted = await _store.delete(response_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Response {response_id} not found")
@@ -157,7 +240,6 @@ async def delete_response(response_id: str):
 
 
 def _response_from_upstream_http_error(exc: httpx.HTTPStatusError) -> Response:
-    """透传上游 HTTP 错误状态码和响应体。"""
     content = exc.response.content
     media_type = exc.response.headers.get("content-type")
     return Response(
