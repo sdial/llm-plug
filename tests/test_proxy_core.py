@@ -357,6 +357,49 @@ class TestDoRequest:
         assert response == upstream_response
 
     @pytest.mark.anyio
+    async def test_same_type_passthrough_skips_capability_filter_even_with_capabilities_set(self):
+        captured = {}
+        upstream_response = {
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+        class FakeClient:
+            async def post(self, url, json, headers):
+                captured["json"] = json
+                request = httpx.Request("POST", url)
+                return httpx.Response(200, json=upstream_response, request=request)
+
+        channel = Channel(
+            id="ch_chat",
+            name="Chat",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://chat.example",
+            api_key="sk-test",
+            models=["gpt-4o"],
+            capabilities={"supports_parallel_tool_calls": False},
+        )
+        request_data = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "hello"}],
+            "parallel_tool_calls": True,
+        }
+
+        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            response = await _do_request(channel, request_data, APIType.OPENAI_CHAT, is_stream=False)
+
+        assert captured["json"] == request_data
+        assert response == upstream_response
+
+    @pytest.mark.anyio
     async def test_non_retryable_upstream_400_is_not_retried(self):
         calls = []
 
