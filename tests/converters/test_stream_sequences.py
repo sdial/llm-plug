@@ -49,6 +49,119 @@ class TestChatToAnthropicStream:
 
 
 class TestChatToResponseStream:
+    def test_non_stream_chat_response_has_standard_response_fields(self):
+        """Chat 非流式响应应转换为标准 Responses 结构。"""
+        converter = ToResponseConverter()
+        result = converter.convert_response(
+            {
+                "id": "chatcmpl_1",
+                "object": "chat.completion",
+                "created": 123,
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Hello"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            },
+            "openai-chat-completions",
+        )
+
+        assert result["id"].startswith("resp_")
+        assert result["_upstream_id"] == "chatcmpl_1"
+        assert result["object"] == "response"
+        assert result["created_at"] == 123
+        assert result["model"] == "gpt-4o"
+        assert result["status"] == "completed"
+        assert result["output_text"] == "Hello"
+        assert result["output"][0]["type"] == "message"
+        assert result["output"][0]["content"][0]["text"] == "Hello"
+        assert result["usage"] == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+
+    def test_non_stream_chat_tool_calls_have_response_function_call_fields(self):
+        """Chat tool_calls 应转换为 Responses function_call 输出项。"""
+        converter = ToResponseConverter()
+        result = converter.convert_response(
+            {
+                "id": "chatcmpl_1",
+                "created": 123,
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {"name": "search", "arguments": "{\"q\":\"x\"}"},
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            },
+            "openai-chat-completions",
+        )
+
+        function_call = result["output"][0]
+        assert function_call["type"] == "function_call"
+        assert function_call["id"].startswith("fc_")
+        assert function_call["call_id"] == "call_1"
+        assert function_call["name"] == "search"
+        assert function_call["arguments"] == "{\"q\":\"x\"}"
+        assert function_call["status"] == "completed"
+        assert result["output_text"] == ""
+
+    def test_non_stream_chat_length_finish_reason_sets_incomplete_details(self):
+        converter = ToResponseConverter()
+        result = converter.convert_response(
+            {
+                "id": "chatcmpl_1",
+                "created": 123,
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "Partial"},
+                        "finish_reason": "length",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            },
+            "openai-chat-completions",
+        )
+
+        assert result["status"] == "incomplete"
+        assert result["incomplete_details"] == {"reason": "max_output_tokens"}
+
+    def test_non_stream_chat_usage_details_are_mapped(self):
+        converter = ToResponseConverter()
+        result = converter.convert_response(
+            {
+                "id": "chatcmpl_1",
+                "created": 123,
+                "model": "gpt-4o",
+                "choices": [{"message": {"role": "assistant", "content": "Hi"}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                    "prompt_tokens_details": {"cached_tokens": 7},
+                    "completion_tokens_details": {"reasoning_tokens": 3},
+                },
+            },
+            "openai-chat-completions",
+        )
+
+        assert result["usage"]["input_tokens_details"]["cached_tokens"] == 7
+        assert result["usage"]["output_tokens_details"]["reasoning_tokens"] == 3
+
     def test_multiple_tool_calls_output_index(self):
         """多个 tool_call 应有递增的 output_index"""
         converter = ToResponseConverter()
@@ -265,6 +378,25 @@ class TestChatToResponseStream:
         event_types = [o.get("type") if isinstance(o, dict) else None for o in outputs]
         assert event_types[0] == "response.created"
         assert "response.output_text.delta" in event_types
+
+    def test_output_text_delta_contains_response_indexes(self):
+        """Responses text delta 应包含 item/content 索引和 sequence_number。"""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hello"}}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                outputs.extend(converter.get_extra_events(result or {}))
+
+        delta = [o for o in outputs if o.get("type") == "response.output_text.delta"][0]
+        assert delta["item_id"].startswith("msg_")
+        assert delta["output_index"] == 0
+        assert delta["content_index"] == 0
+        assert delta["sequence_number"] > 0
 
     def test_output_item_added_before_text_delta(self):
         """response.output_item.added 应在第一个 text delta 之前发送"""

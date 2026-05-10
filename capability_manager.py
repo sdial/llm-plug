@@ -13,6 +13,12 @@ class ProviderCapabilities:
     """提供商能力配置"""
     supports_parallel_tool_calls: bool = True
     supports_tool_choice_auto: bool = True
+    supports_response_format: bool = True
+    supports_reasoning_effort: bool = True
+    supports_file_content: bool = False
+    supports_audio_content: bool = False
+    supports_tool_choice_required: bool = True
+    supports_strict_tools: bool = True
     requires_single_system_message: bool = False
     filter_think_content: bool = False
 
@@ -38,6 +44,12 @@ def infer_capabilities(channel) -> ProviderCapabilities:
         return ProviderCapabilities(
             supports_parallel_tool_calls=caps_dict.get('supports_parallel_tool_calls', True),
             supports_tool_choice_auto=caps_dict.get('supports_tool_choice_auto', True),
+            supports_response_format=caps_dict.get('supports_response_format', True),
+            supports_reasoning_effort=caps_dict.get('supports_reasoning_effort', True),
+            supports_file_content=caps_dict.get('supports_file_content', False),
+            supports_audio_content=caps_dict.get('supports_audio_content', False),
+            supports_tool_choice_required=caps_dict.get('supports_tool_choice_required', True),
+            supports_strict_tools=caps_dict.get('supports_strict_tools', True),
             requires_single_system_message=caps_dict.get('requires_single_system_message', False),
             filter_think_content=caps_dict.get('filter_think_content', False),
         )

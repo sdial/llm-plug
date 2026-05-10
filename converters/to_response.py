@@ -35,11 +35,53 @@ class ToResponseConverter(BaseConverter):
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
+            "sequence_number": 0,
         }
         self._pending_extra_events = []
         self._need_in_progress = False
 
     # --- Chat Completions → Response ---
+
+    def _make_response_id(self, upstream_id: str) -> str:
+        if upstream_id.startswith("resp_"):
+            return upstream_id
+        suffix = upstream_id
+        for prefix in ("chatcmpl_", "chatcmpl-", "cmpl_", "cmpl-"):
+            if suffix.startswith(prefix):
+                suffix = suffix[len(prefix):]
+                break
+        suffix = suffix.replace("-", "_") or secrets.token_hex(12)
+        return f"resp_{suffix}"
+
+    def _make_message_id(self, response_id: str, upstream_id: str = "") -> str:
+        if upstream_id and upstream_id.startswith("msg_"):
+            return upstream_id
+        suffix = response_id.removeprefix("resp_")
+        return f"msg_{suffix}"
+
+    def _make_function_call_id(self, call_id: str) -> str:
+        if call_id.startswith("fc_"):
+            return call_id
+        suffix = call_id.removeprefix("call_") or secrets.token_hex(8)
+        return f"fc_{suffix}"
+
+    def _chat_usage_to_response_usage(self, usage: dict[str, Any]) -> dict[str, Any]:
+        result = {
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+            "total_tokens": usage.get("total_tokens", 0),
+        }
+        prompt_details = usage.get("prompt_tokens_details")
+        if isinstance(prompt_details, dict):
+            result["input_tokens_details"] = {
+                "cached_tokens": prompt_details.get("cached_tokens", 0),
+            }
+        completion_details = usage.get("completion_tokens_details")
+        if isinstance(completion_details, dict):
+            result["output_tokens_details"] = {
+                "reasoning_tokens": completion_details.get("reasoning_tokens", 0),
+            }
+        return result
 
     def _chat_tools_to_response(self, tools: list) -> list:
         response_tools = []
@@ -125,11 +167,13 @@ class ToResponseConverter(BaseConverter):
             reasoning_content = msg.get("reasoning_content")
             finish_reason = choices[0].get("finish_reason", "stop")
 
+        upstream_id = data.get("id", "")
+        response_id = self._make_response_id(upstream_id)
         output = []
         if text:
             output.append({
                 "type": "message",
-                "id": f"msg_{data.get('id', '')}",
+                "id": self._make_message_id(response_id, upstream_id),
                 "status": "completed",
                 "role": "assistant",
                 "content": [{"type": "output_text", "text": text}],
@@ -137,45 +181,55 @@ class ToResponseConverter(BaseConverter):
         if reasoning_content:
             output.append({
                 "type": "reasoning",
-                "id": f"rs_{data.get('id', '')}",
+                "id": f"rs_{response_id.removeprefix('resp_')}",
                 "summary": [],
                 "content": [{"type": "reasoning_text", "text": reasoning_content}],
             })
         if tool_calls:
             for tc in tool_calls:
+                call_id = tc.get("id", "")
                 output.append({
                     "type": "function_call",
-                    "call_id": tc.get("id", ""),
+                    "id": self._make_function_call_id(call_id),
+                    "call_id": call_id,
                     "name": tc.get("function", {}).get("name", ""),
                     "arguments": tc.get("function", {}).get("arguments", "{}"),
+                    "status": "completed",
                 })
 
         status = "completed"
+        incomplete_details = None
         if finish_reason == "length":
             status = "incomplete"
+            incomplete_details = {"reason": "max_output_tokens"}
+        elif finish_reason == "content_filter":
+            status = "incomplete"
+            incomplete_details = {"reason": "content_filter"}
 
         if not output:
             output.append({
                 "type": "message",
-                "id": f"msg_{data.get('id', '')}",
+                "id": self._make_message_id(response_id, upstream_id),
                 "status": "completed",
                 "role": "assistant",
                 "content": [{"type": "output_text", "text": ""}],
             })
 
-        return {
-            "id": data.get("id", ""),
+        result = {
+            "id": response_id,
             "object": "response",
             "created_at": data.get("created", 0),
             "model": data.get("model", ""),
             "status": status,
             "output": output,
-            "usage": {
-                "input_tokens": data.get("usage", {}).get("prompt_tokens", 0),
-                "output_tokens": data.get("usage", {}).get("completion_tokens", 0),
-                "total_tokens": data.get("usage", {}).get("total_tokens", 0),
-            }
+            "output_text": text,
+            "usage": self._chat_usage_to_response_usage(data.get("usage", {})),
         }
+        if upstream_id and upstream_id != response_id:
+            result["_upstream_id"] = upstream_id
+        if incomplete_details:
+            result["incomplete_details"] = incomplete_details
+        return result
 
     # --- Anthropic → Response ---
 
@@ -341,6 +395,17 @@ class ToResponseConverter(BaseConverter):
             self._stream_state["model"] = chunk["model"]
         if chunk.get("created") is not None:
             self._stream_state["created_at"] = chunk.get("created", 0)
+        if self._stream_state["response_id"] and not self._stream_state["response_id"].startswith("resp_"):
+            self._stream_state["response_id"] = self._make_response_id(self._stream_state["response_id"])
+        if self._stream_state["message_id"] and not self._stream_state["message_id"].startswith("msg_"):
+            self._stream_state["message_id"] = self._make_message_id(
+                self._stream_state["response_id"] or "resp_stream",
+                self._stream_state["message_id"],
+            )
+
+        def _next_sequence_number() -> int:
+            self._stream_state["sequence_number"] += 1
+            return self._stream_state["sequence_number"]
 
         # 提取 usage（可能在任何 chunk 中，包括 choices 为空的 usage-only chunk）
         usage = chunk.get("usage")
@@ -398,7 +463,11 @@ class ToResponseConverter(BaseConverter):
             self._stream_state["accumulated_text"] += text
             event = {
                 "type": "response.output_text.delta",
+                "item_id": f"msg_{self._stream_state['message_id'].removeprefix('msg_')}",
+                "output_index": self._stream_state["output_index"],
+                "content_index": 0,
                 "delta": text,
+                "sequence_number": _next_sequence_number(),
             }
             if _ensure_created():
                 self._pending_extra_events = [event]

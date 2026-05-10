@@ -309,6 +309,37 @@ data: [DONE]
 | `previous_response_id` | string | 否 | 关联的上一次 response ID，用于多轮对话状态保持 |
 | `store` | boolean | 否 | 是否存储该 response |
 
+#### Responses → Chat Completions 转换策略
+
+当入口为 Responses API、上游渠道为 Chat Completions API 时，代理按下表处理字段：
+
+| Responses 字段 | Chat Completions 字段 | 策略 |
+|----------------|-----------------------|------|
+| `model` | `model` | 透传 |
+| `input` | `messages` | 字符串转 user message；消息数组按 role/content 转换 |
+| `instructions` | `messages[]` | 转为前置 `system` message |
+| `tools` 中的 `function` | `tools[].function` | 转换并保留 `strict` |
+| 托管工具 | 无 | 返回 HTTP 400，不静默丢弃 |
+| `tool_choice` | `tool_choice` | 字符串透传；`{type:"function", name:"..."}` 转为 Chat 嵌套格式 |
+| `parallel_tool_calls` | `parallel_tool_calls` | 转换后按渠道能力透传或移除 |
+| `max_output_tokens` | `max_tokens` | 转换 |
+| `reasoning.effort` | `reasoning_effort` | 转换 |
+| `text.format` | `response_format` | 支持 `json_object` 和 `json_schema` |
+| `safety_identifier` / `user` | `user` | 映射为 Chat user |
+| `previous_response_id` | `messages` | 路由层从本地状态存储加载历史并展开 |
+| `background`、`conversation`、`context_management` | 无 | 返回 HTTP 400 |
+
+托管工具错误示例：
+
+```json
+{
+  "error": {
+    "message": "请求转换失败: Responses tool 'web_search' is not supported when upstream is Chat Completions",
+    "type": "invalid_request_error"
+  }
+}
+```
+
 #### 函数调用输出（Function Call Output）
 
 当需要回传工具结果时，`input` 中应包含：

@@ -153,6 +153,19 @@ llm-plug/
 - 流式转换通过内部状态机逐 chunk 处理
 - 同格式请求直接透传，不做转换
 
+### Responses → Chat Completions 支持边界
+
+当客户端使用 `openai-response`，但上游渠道是 `openai-chat-completions` 时，代理会把可表达能力转换为 Chat Completions 请求，并把 Chat 响应转换回 Responses 结构。Chat Completions 无法承载的 Responses 托管能力不会被静默忽略。
+
+| 能力 | 支持等级 | 说明 |
+|------|----------|------|
+| 文本输入/输出 | 完整 | `input`、`instructions`、`output_text` 双向转换 |
+| function tools | 完整 | `tools[].function`、`tool_choice`、`function_call`、`function_call_output` 转换 |
+| 图片输入 | 按上游能力 | `input_image` 转为 Chat `image_url` |
+| 文件/音频输入 | 按上游能力 | 转为 Chat 内容块；上游不支持时应拒绝或按渠道能力处理 |
+| 托管工具 | 不支持，显式错误 | `web_search`、`file_search`、`code_interpreter`、`computer_use`、`mcp` 等不会静默丢弃 |
+| 状态历史 | 本地存储展开 | `previous_response_id` 由代理本地加载历史并展开为 Chat `messages` |
+
 ## API 端点
 
 ### 代理接口

@@ -7,6 +7,8 @@
 - https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/responses/response_stream_event.py
 """
 
+import pytest
+
 from converters.to_chat import ToChatCompletionsConverter
 from models.api_types import APIType
 
@@ -118,6 +120,26 @@ class TestResponseRequestToChat:
         assert tool["function"]["description"] == "Get weather info"
         assert tool["function"]["parameters"]["properties"]["location"]["type"] == "string"
 
+    def test_function_tool_strict_passthrough(self):
+        """Responses function tool strict 字段应转换到 Chat function.strict"""
+        request = {
+            "model": "gpt-4o",
+            "input": "Hello",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "parameters": {"type": "object"},
+                    "strict": True,
+                }
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+        assert result["tools"][0]["function"]["strict"] is True
+
     def test_tool_choice_string(self):
         """tool_choice 字符串值直接传递"""
         request = {
@@ -139,14 +161,23 @@ class TestResponseRequestToChat:
         assert result["tool_choice"] == "required"
 
     def test_tool_choice_function_object(self):
-        """tool_choice 为 function 对象时直接传递"""
+        """Responses function tool_choice 应转换为 Chat 嵌套 function 格式"""
         request = {
             "model": "gpt-4o",
             "input": "Hello",
             "tool_choice": {"type": "function", "name": "get_weather"},
         }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
-        assert result["tool_choice"] == {"type": "function", "name": "get_weather"}
+        assert result["tool_choice"] == {"type": "function", "function": {"name": "get_weather"}}
+
+    def test_tool_choice_none_passthrough(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hello",
+            "tool_choice": "none",
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["tool_choice"] == "none"
 
     def test_max_output_tokens_to_max_tokens(self):
         """max_output_tokens 映射为 max_tokens"""
@@ -169,6 +200,70 @@ class TestResponseRequestToChat:
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
         assert result["temperature"] == 0.7
         assert result["top_p"] == 0.9
+
+    def test_stop_passthrough(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hello",
+            "stop": ["END"],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["stop"] == ["END"]
+
+    def test_parallel_tool_calls_passthrough(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hello",
+            "parallel_tool_calls": True,
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["parallel_tool_calls"] is True
+
+    def test_reasoning_effort_to_reasoning_effort(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hello",
+            "reasoning": {"effort": "medium"},
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["reasoning_effort"] == "medium"
+
+    def test_text_json_schema_to_response_format(self):
+        schema = {
+            "name": "answer",
+            "schema": {
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        }
+        request = {
+            "model": "gpt-4o",
+            "input": "Hello",
+            "text": {"format": {"type": "json_schema", **schema}},
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["response_format"] == {"type": "json_schema", "json_schema": schema}
+
+    def test_text_json_object_to_response_format(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Return JSON",
+            "text": {"format": {"type": "json_object"}},
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["response_format"] == {"type": "json_object"}
+
+    def test_safety_identifier_maps_to_user(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hello",
+            "safety_identifier": "safe-user-1",
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["user"] == "safe-user-1"
 
     def test_stream_passthrough(self):
         """stream 字段直接传递"""
@@ -228,6 +323,129 @@ class TestResponseRequestToChat:
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
 
         assert result["messages"] == [{"role": "user", "content": "Hello\nworld"}]
+
+    def test_structured_input_text_and_image_content(self):
+        request = {
+            "model": "gpt-4o",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "Describe this image"},
+                        {"type": "input_image", "image_url": "https://example.com/a.png", "detail": "high"},
+                    ],
+                },
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+        assert result["messages"] == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this image"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/a.png", "detail": "high"}},
+                ],
+            }
+        ]
+
+    def test_input_file_content_block_is_preserved(self):
+        request = {
+            "model": "gpt-4o",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_file", "file_id": "file_123", "filename": "a.pdf"},
+                    ],
+                },
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+        assert result["messages"][0]["content"] == [
+            {"type": "file", "file": {"file_id": "file_123", "filename": "a.pdf"}}
+        ]
+
+    def test_input_audio_content_block_is_preserved(self):
+        request = {
+            "model": "gpt-4o",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_audio", "input_audio": {"data": "AAAA", "format": "wav"}},
+                    ],
+                },
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+        assert result["messages"][0]["content"] == [
+            {"type": "input_audio", "input_audio": {"data": "AAAA", "format": "wav"}}
+        ]
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("background", True),
+            ("conversation", "conv_123"),
+            ("context_management", {"type": "auto"}),
+        ],
+    )
+    def test_rejects_request_fields_that_chat_cannot_express(self, field, value):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hello",
+            field: value,
+        }
+        with pytest.raises(ValueError, match=field):
+            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+    @pytest.mark.parametrize(
+        "tool_type",
+        [
+            "web_search",
+            "web_search_preview",
+            "file_search",
+            "code_interpreter",
+            "computer_use",
+            "image_generation",
+            "mcp",
+        ],
+    )
+    def test_rejects_hosted_response_tools_without_adapter(self, tool_type):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hello",
+            "tools": [{"type": tool_type}],
+        }
+        with pytest.raises(ValueError, match=tool_type):
+            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+    @pytest.mark.parametrize(
+        "item_type",
+        [
+            "web_search_call",
+            "file_search_call",
+            "code_interpreter_call",
+            "computer_call",
+            "image_generation_call",
+        ],
+    )
+    def test_rejects_hosted_response_tool_call_items(self, item_type):
+        request = {
+            "model": "gpt-4o",
+            "input": [
+                {"role": "user", "content": "Hello"},
+                {"type": item_type, "id": "item_1"},
+            ],
+        }
+        with pytest.raises(ValueError, match=item_type):
+            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
 
 
 class TestResponseResponseToChat:

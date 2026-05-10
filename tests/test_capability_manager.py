@@ -24,6 +24,12 @@ class TestInferCapabilities:
         caps = infer_capabilities(channel)
         assert caps.supports_parallel_tool_calls is True
         assert caps.supports_tool_choice_auto is True
+        assert caps.supports_response_format is True
+        assert caps.supports_reasoning_effort is True
+        assert caps.supports_file_content is False
+        assert caps.supports_audio_content is False
+        assert caps.supports_tool_choice_required is True
+        assert caps.supports_strict_tools is True
         assert caps.requires_single_system_message is False
         assert caps.filter_think_content is False
 
@@ -72,11 +78,23 @@ class TestInferCapabilities:
             capabilities={
                 "supports_parallel_tool_calls": True,
                 "filter_think_content": False,
+                "supports_response_format": False,
+                "supports_reasoning_effort": False,
+                "supports_file_content": True,
+                "supports_audio_content": True,
+                "supports_tool_choice_required": False,
+                "supports_strict_tools": False,
             },
         )
         caps = infer_capabilities(channel)
         assert caps.supports_parallel_tool_calls is True
         assert caps.filter_think_content is False
+        assert caps.supports_response_format is False
+        assert caps.supports_reasoning_effort is False
+        assert caps.supports_file_content is True
+        assert caps.supports_audio_content is True
+        assert caps.supports_tool_choice_required is False
+        assert caps.supports_strict_tools is False
 
 
 class TestApplyCapabilityFilter:

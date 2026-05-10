@@ -63,7 +63,7 @@
 - 修改：`docs/api-spec-anthropic-and-openai/openai-api-spec.md`
 - 修改：`tests/converters/test_response_to_chat.py`
 
-- [ ] **步骤 1：列出 Responses 请求字段处理策略**
+- [x] **步骤 1：列出 Responses 请求字段处理策略**
 
 在文档中增加「Responses → Chat Completions 转换策略」表，至少包含：
 
@@ -93,7 +93,7 @@ class TestResponseRequestFieldContract:
     """Responses 请求字段转换契约。"""
 ```
 
-- [ ] **步骤 3：为当前会静默丢失的字段写失败测试**
+- [x] **步骤 3：为当前会静默丢失的字段写失败测试**
 
 至少新增这些测试名：
 
@@ -106,7 +106,7 @@ def test_maps_text_json_schema_to_response_format(self): ...
 def test_maps_safety_identifier_to_user(self): ...
 ```
 
-- [ ] **步骤 4：运行测试确认失败**
+- [x] **步骤 4：运行测试确认失败**
 
 运行：
 
@@ -124,7 +124,7 @@ uv run pytest tests/converters/test_response_to_chat.py -q
 - 修改：`converters/to_chat.py`
 - 修改：`tests/converters/test_response_to_chat.py`
 
-- [ ] **步骤 1：为 `strict` 透传写失败测试**
+- [x] **步骤 1：为 `strict` 透传写失败测试**
 
 输入：
 
@@ -152,7 +152,7 @@ uv run pytest tests/converters/test_response_to_chat.py -q
 }
 ```
 
-- [ ] **步骤 2：为 function `tool_choice` 写失败测试**
+- [x] **步骤 2：为 function `tool_choice` 写失败测试**
 
 输入：
 
@@ -166,11 +166,11 @@ uv run pytest tests/converters/test_response_to_chat.py -q
 {"tool_choice": {"type": "function", "function": {"name": "get_weather"}}}
 ```
 
-- [ ] **步骤 3：实现 `_response_tools_to_chat()` 的 `strict` 透传**
+- [x] **步骤 3：实现 `_response_tools_to_chat()` 的 `strict` 透传**
 
 在 `converters/to_chat.py` 中让 function tool 的 `strict` 字段进入 `function.strict`。
 
-- [ ] **步骤 4：实现 `_response_tool_choice_to_chat()`**
+- [x] **步骤 4：实现 `_response_tool_choice_to_chat()`**
 
 新增私有方法，处理：
 
@@ -182,7 +182,7 @@ uv run pytest tests/converters/test_response_to_chat.py -q
 | `{"type": "function", "name": "x"}` | `{"type": "function", "function": {"name": "x"}}` |
 | 其他对象 | 抛出 `ValueError` |
 
-- [ ] **步骤 5：运行工具转换测试**
+- [x] **步骤 5：运行工具转换测试**
 
 运行：
 
@@ -201,7 +201,7 @@ uv run pytest tests/converters/test_response_to_chat.py::TestResponseRequestToCh
 - 修改：`tests/converters/test_response_to_chat.py`
 - 修改：`routers/proxy_response.py`
 
-- [ ] **步骤 1：定义不可直接转换工具集合**
+- [x] **步骤 1：定义不可直接转换工具集合**
 
 在 `converters/to_chat.py` 中定义：
 
@@ -217,11 +217,11 @@ HOSTED_RESPONSE_TOOL_TYPES = {
 }
 ```
 
-- [ ] **步骤 2：为每类托管工具写参数化失败测试**
+- [x] **步骤 2：为每类托管工具写参数化失败测试**
 
 测试 `tools` 中出现这些类型时，转换器抛出 `ValueError`，错误信息包含工具类型和「Chat Completions upstream does not support hosted Responses tools」。
 
-- [ ] **步骤 3：为 `input` 中的托管工具调用项写失败测试**
+- [x] **步骤 3：为 `input` 中的托管工具调用项写失败测试**
 
 覆盖输入项类型：
 
@@ -235,11 +235,11 @@ image_generation_call
 
 预期：转换器抛出 `ValueError`，不生成残缺 `messages`。
 
-- [ ] **步骤 4：实现工具拒绝逻辑**
+- [x] **步骤 4：实现工具拒绝逻辑**
 
 在 `_response_tools_to_chat()` 和 `_response_request_to_chat()` 中检测不可转换工具，抛出 `ValueError`。
 
-- [ ] **步骤 5：确认路由返回 400**
+- [x] **步骤 5：确认路由返回 400**
 
 在 `tests/test_responses_full_flow.py` 增加集成测试：客户端发送托管工具到 `/v1/responses`，预期 HTTP 400，响应体说明该工具不支持 Chat Completions 上游。
 
@@ -251,7 +251,7 @@ image_generation_call
 - 修改：`converters/to_chat.py`
 - 修改：`tests/converters/test_response_to_chat.py`
 
-- [ ] **步骤 1：覆盖 `input_text` + `input_image` 混合内容**
+- [x] **步骤 1：覆盖 `input_text` + `input_image` 混合内容**
 
 测试输入：
 
@@ -271,7 +271,7 @@ image_generation_call
 ]
 ```
 
-- [ ] **步骤 2：覆盖 `input_file` 转换或拒绝策略**
+- [x] **步骤 2：覆盖 `input_file` 转换或拒绝策略**
 
 如果当前 Chat Completions 上游 schema 支持 `{"type": "file", "file": ...}`，映射：
 
@@ -283,7 +283,7 @@ image_generation_call
 
 如果渠道能力未声明支持 file content，则抛出 `ValueError`。
 
-- [ ] **步骤 3：覆盖 `input_audio` 转换或拒绝策略**
+- [x] **步骤 3：覆盖 `input_audio` 转换或拒绝策略**
 
 如果当前 Chat Completions 上游 schema 支持 `input_audio`，保留 `input_audio` 内容块；否则抛出 `ValueError`。
 
@@ -291,7 +291,7 @@ image_generation_call
 
 Responses 或 Chat 中出现拒绝内容时，转换为 Chat 可表达的 `{"type": "refusal", "refusal": "..."}`，或者在上游不支持时转为文本并记录 debug log。
 
-- [ ] **步骤 5：实现 `_response_content_to_chat_content()` 完整分派**
+- [x] **步骤 5：实现 `_response_content_to_chat_content()` 完整分派**
 
 将当前只处理文本和图片的逻辑扩展为显式分派：
 
@@ -304,7 +304,7 @@ elif part_type == "refusal": ...
 else: raise ValueError(...)
 ```
 
-- [ ] **步骤 6：运行内容块测试**
+- [x] **步骤 6：运行内容块测试**
 
 运行：
 
@@ -322,7 +322,7 @@ uv run pytest tests/converters/test_response_to_chat.py::TestResponseRequestToCh
 - 修改：`converters/to_chat.py`
 - 修改：`tests/converters/test_response_to_chat.py`
 
-- [ ] **步骤 1：为采样和输出控制参数写测试**
+- [x] **步骤 1：为采样和输出控制参数写测试**
 
 覆盖：
 
@@ -335,7 +335,7 @@ stop -> stop
 
 如果项目决定用 `max_completion_tokens` 替代 `max_tokens`，测试必须固定这一策略。
 
-- [ ] **步骤 2：为 `reasoning.effort` 写测试**
+- [x] **步骤 2：为 `reasoning.effort` 写测试**
 
 输入：
 
@@ -349,7 +349,7 @@ stop -> stop
 {"reasoning_effort": "medium"}
 ```
 
-- [ ] **步骤 3：为 `text.format` 写测试**
+- [x] **步骤 3：为 `text.format` 写测试**
 
 覆盖：
 
@@ -370,7 +370,7 @@ stop -> stop
 | `prompt_cache_key` | 若 Chat 上游不支持则不透传，保留在 debug log |
 | `metadata` | 不透传到 Chat 请求，保留在状态响应或 debug log |
 
-- [ ] **步骤 5：为不支持的请求级字段写拒绝测试**
+- [x] **步骤 5：为不支持的请求级字段写拒绝测试**
 
 字段：
 
@@ -382,11 +382,11 @@ context_management
 
 预期：抛出 `ValueError`。
 
-- [ ] **步骤 6：实现 `_validate_response_request_for_chat()`**
+- [x] **步骤 6：实现 `_validate_response_request_for_chat()`**
 
 在转换入口先执行校验，拒绝不可转换字段，并返回明确错误信息。
 
-- [ ] **步骤 7：运行请求参数测试**
+- [x] **步骤 7：运行请求参数测试**
 
 运行：
 
@@ -405,7 +405,7 @@ uv run pytest tests/converters/test_response_to_chat.py -q
 - 修改：`tests/test_responses_full_flow.py`
 - 修改：`tests/test_proxy_core_responses.py`
 
-- [ ] **步骤 1：为历史中的 function call 写集成测试**
+- [x] **步骤 1：为历史中的 function call 写集成测试**
 
 流程：
 
@@ -429,7 +429,7 @@ reasoning
 
 不可回放的输出项必须保存在 response 原文中，不能破坏 `GET /v1/responses/{id}`。
 
-- [ ] **步骤 4：确保 `instructions` 继承规则正确**
+- [x] **步骤 4：确保 `instructions` 继承规则正确**
 
 规则：
 
@@ -437,7 +437,7 @@ reasoning
 - 新请求不带 `instructions` 时继承历史中的 instructions。
 - 不把历史 instructions 重复插入为多条 system message。
 
-- [ ] **步骤 5：运行状态流测试**
+- [x] **步骤 5：运行状态流测试**
 
 运行：
 
@@ -456,7 +456,7 @@ uv run pytest tests/test_responses_full_flow.py tests/test_proxy_core_responses.
 - 修改：`tests/converters/test_stream_sequences.py`
 - 修改：`tests/test_responses_full_flow.py`
 
-- [ ] **步骤 1：为标准 Responses 响应字段写测试**
+- [x] **步骤 1：为标准 Responses 响应字段写测试**
 
 非流式转换结果必须包含：
 
@@ -471,15 +471,15 @@ output_text
 usage
 ```
 
-- [ ] **步骤 2：修正响应 ID 策略**
+- [x] **步骤 2：修正响应 ID 策略**
 
 如果上游返回 `chatcmpl-*`，转换后生成或映射为 `resp_*`。保留原始 ID 到内部字段时只能用扩展字段，例如 `_upstream_id`，不能破坏标准 `id`。
 
-- [ ] **步骤 3：补齐 `output_text` 聚合字段**
+- [x] **步骤 3：补齐 `output_text` 聚合字段**
 
 从所有 `output[].message.content[].output_text.text` 聚合出 `output_text`。
 
-- [ ] **步骤 4：补齐 finish reason 到 status 映射**
+- [x] **步骤 4：补齐 finish reason 到 status 映射**
 
 | Chat `finish_reason` | Responses `status` | `incomplete_details` |
 |----------------------|--------------------|----------------------|
@@ -488,7 +488,7 @@ usage
 | `length` | `incomplete` | `{"reason": "max_output_tokens"}` |
 | `content_filter` | `incomplete` 或 `failed` | 写明策略并测试 |
 
-- [ ] **步骤 5：补齐 tool call 输出项字段**
+- [x] **步骤 5：补齐 tool call 输出项字段**
 
 `choices[].message.tool_calls[]` 转换为：
 
@@ -503,7 +503,7 @@ usage
 }
 ```
 
-- [ ] **步骤 6：补齐 usage details 映射**
+- [x] **步骤 6：补齐 usage details 映射**
 
 映射：
 
@@ -515,7 +515,7 @@ prompt_tokens_details.cached_tokens -> input_tokens_details.cached_tokens
 completion_tokens_details.reasoning_tokens -> output_tokens_details.reasoning_tokens
 ```
 
-- [ ] **步骤 7：运行非流式响应测试**
+- [x] **步骤 7：运行非流式响应测试**
 
 运行：
 
@@ -549,7 +549,7 @@ response.output_item.done
 response.completed
 ```
 
-- [ ] **步骤 2：为每个事件补齐索引字段测试**
+- [x] **步骤 2：为每个事件补齐索引字段测试**
 
 `response.output_text.delta` 必须包含：
 
@@ -599,11 +599,11 @@ def _queue_events(self, events: list[dict[str, Any]]) -> None: ...
 2. arguments 增量生成 `response.function_call_arguments.delta`。
 3. finish 时生成 `response.function_call_arguments.done` 和 `response.output_item.done`。
 
-- [ ] **步骤 7：补齐 usage-only chunk 处理**
+- [x] **步骤 7：补齐 usage-only chunk 处理**
 
 当 Chat chunk `choices == []` 且包含 `usage`，只更新 usage，不输出空事件。
 
-- [ ] **步骤 8：运行流式序列测试**
+- [x] **步骤 8：运行流式序列测试**
 
 运行：
 
@@ -621,7 +621,7 @@ uv run pytest tests/converters/test_stream_sequences.py -q
 - 修改：`proxy_core.py`
 - 修改：`tests/test_proxy_core.py`
 
-- [ ] **步骤 1：为 Responses SSE event 行写测试**
+- [x] **步骤 1：为 Responses SSE event 行写测试**
 
 断言输出块包含：
 
@@ -632,11 +632,11 @@ data: {...}
 
 不能只输出 `data:`。
 
-- [ ] **步骤 2：为 `[DONE]` 策略写测试**
+- [x] **步骤 2：为 `[DONE]` 策略写测试**
 
 Responses SSE 不应依赖 Chat 风格 `data: [DONE]` 作为语义完成；必须以 `response.completed`、`response.failed` 或 `response.incomplete` 结束。
 
-- [ ] **步骤 3：确保转换器 `finalize_stream()` 只执行一次**
+- [x] **步骤 3：确保转换器 `finalize_stream()` 只执行一次**
 
 当上游已通过 finish chunk 生成 `response.completed` 后，`[DONE]` 分支不能重复生成 completed 事件。
 
@@ -652,7 +652,7 @@ event: response.failed
 data: {"type": "response.failed", "response": {...}}
 ```
 
-- [ ] **步骤 5：运行 proxy core 流式测试**
+- [x] **步骤 5：运行 proxy core 流式测试**
 
 运行：
 
@@ -672,7 +672,7 @@ uv run pytest tests/test_proxy_core.py -q
 - 修改：`tests/test_capability_manager.py`
 - 修改：`tests/test_responses_full_flow.py`
 
-- [ ] **步骤 1：扩展 Chat 上游能力字段**
+- [x] **步骤 1：扩展 Chat 上游能力字段**
 
 能力模型至少包含：
 
@@ -698,11 +698,11 @@ supports_strict_tools
 | `input_file` | 400 |
 | `input_audio` | 400 |
 
-- [ ] **步骤 3：实现 Responses 请求转换前能力过滤**
+- [x] **步骤 3：实现 Responses 请求转换前能力过滤**
 
 在 `_do_request()` 中，Responses → Chat 路径必须先转换为 Chat 请求，再按 Chat 能力过滤 Chat 字段，避免在 Responses 原始结构上误判。
 
-- [ ] **步骤 4：禁止语义字段静默丢弃**
+- [x] **步骤 4：禁止语义字段静默丢弃**
 
 任何会改变模型行为的字段，不能被无日志删除。必须：
 
@@ -710,7 +710,7 @@ supports_strict_tools
 2. 明确拒绝；
 3. 或在配置允许时降级并记录 debug log。
 
-- [ ] **步骤 5：运行能力测试**
+- [x] **步骤 5：运行能力测试**
 
 运行：
 
@@ -732,7 +732,7 @@ uv run pytest tests/test_capability_manager.py tests/test_responses_full_flow.py
 
 让 `tests/mock_server.py` 能记录最近一次 `/chat/completions` 请求体，供测试断言转换后的 Chat 请求。
 
-- [ ] **步骤 2：增加单轮文本端到端测试**
+- [x] **步骤 2：增加单轮文本端到端测试**
 
 客户端请求 Responses：
 
@@ -752,23 +752,23 @@ uv run pytest tests/test_capability_manager.py tests/test_responses_full_flow.py
 {"object": "response", "output_text": "..."}
 ```
 
-- [ ] **步骤 3：增加多轮 `previous_response_id` 端到端测试**
+- [x] **步骤 3：增加多轮 `previous_response_id` 端到端测试**
 
 断言第二轮上游 Chat 请求包含第一轮 user、assistant 和第二轮 user。
 
-- [ ] **步骤 4：增加 function tool 端到端测试**
+- [x] **步骤 4：增加 function tool 端到端测试**
 
 断言 Responses function tool 被转换为 Chat `tools[].function`，Chat `tool_calls` 被转换回 Responses `output[].function_call`。
 
-- [ ] **步骤 5：增加流式文本端到端测试**
+- [x] **步骤 5：增加流式文本端到端测试**
 
 断言客户端收到完整 Responses SSE 生命周期事件，并且最终 `response.completed.response.output` 可用于状态保存。
 
-- [ ] **步骤 6：增加不可转换字段端到端测试**
+- [x] **步骤 6：增加不可转换字段端到端测试**
 
 覆盖托管工具、`background`、`conversation`，预期 HTTP 400。
 
-- [ ] **步骤 7：运行完整 Responses flow 测试**
+- [x] **步骤 7：运行完整 Responses flow 测试**
 
 运行：
 
@@ -787,7 +787,7 @@ uv run pytest tests/test_responses_full_flow.py -q
 - 修改：`docs/architecture.md`
 - 修改：`docs/api-spec-anthropic-and-openai/openai-api-spec.md`
 
-- [ ] **步骤 1：更新 README 能力描述**
+- [x] **步骤 1：更新 README 能力描述**
 
 把「三种 API 格式互转」补充为：
 
@@ -795,7 +795,7 @@ uv run pytest tests/test_responses_full_flow.py -q
 对 Chat Completions 无法表达的 Responses 托管能力，代理会显式拒绝或按配置降级，不做静默丢弃。
 ```
 
-- [ ] **步骤 2：更新架构文档转换矩阵**
+- [x] **步骤 2：更新架构文档转换矩阵**
 
 在 `docs/architecture.md` 的 converter 部分增加 Responses → Chat 的支持等级：
 
@@ -808,7 +808,7 @@ uv run pytest tests/test_responses_full_flow.py -q
 | 托管工具 | 不支持，显式错误 |
 | 状态历史 | 本地存储展开 |
 
-- [ ] **步骤 3：更新 API 规范中的错误示例**
+- [x] **步骤 3：更新 API 规范中的错误示例**
 
 新增示例：请求 `web_search` 到 Chat 上游时返回 HTTP 400。
 

@@ -10,6 +10,31 @@ from loguru import logger
 from converters.base import BaseConverter
 
 
+HOSTED_RESPONSE_TOOL_TYPES = {
+    "web_search",
+    "web_search_preview",
+    "file_search",
+    "code_interpreter",
+    "computer_use",
+    "image_generation",
+    "mcp",
+}
+
+HOSTED_RESPONSE_INPUT_ITEM_TYPES = {
+    "web_search_call",
+    "file_search_call",
+    "code_interpreter_call",
+    "computer_call",
+    "image_generation_call",
+}
+
+UNSUPPORTED_RESPONSE_REQUEST_FIELDS = {
+    "background",
+    "conversation",
+    "context_management",
+}
+
+
 class ToChatCompletionsConverter(BaseConverter):
     """任意格式 → OpenAI Chat Completions"""
 
@@ -459,16 +484,60 @@ class ToChatCompletionsConverter(BaseConverter):
     def _response_tools_to_chat(self, tools: list) -> list:
         chat_tools = []
         for tool in tools:
-            if tool.get("type") == "function":
-                chat_tools.append({
-                    "type": "function",
-                    "function": {
-                        "name": tool.get("name", ""),
-                        "description": tool.get("description", ""),
-                        "parameters": tool.get("parameters", {}),
-                    }
-                })
+            tool_type = tool.get("type")
+            if tool_type in HOSTED_RESPONSE_TOOL_TYPES:
+                raise ValueError(
+                    f"Responses tool '{tool_type}' is not supported when upstream is Chat Completions. "
+                    "Chat Completions upstream does not support hosted Responses tools."
+                )
+            if tool_type != "function":
+                raise ValueError(f"Unsupported Responses tool type for Chat Completions upstream: {tool_type}")
+
+            function = {
+                "name": tool.get("name", ""),
+                "description": tool.get("description", ""),
+                "parameters": tool.get("parameters", {}),
+            }
+            if tool.get("strict") is not None:
+                function["strict"] = tool["strict"]
+            chat_tools.append({
+                "type": "function",
+                "function": function,
+            })
         return chat_tools
+
+    def _response_tool_choice_to_chat(self, tool_choice: Any) -> Any:
+        if isinstance(tool_choice, str):
+            if tool_choice in {"auto", "none", "required"}:
+                return tool_choice
+            raise ValueError(f"Unsupported Responses tool_choice for Chat Completions upstream: {tool_choice}")
+        if isinstance(tool_choice, dict):
+            choice_type = tool_choice.get("type")
+            if choice_type == "function":
+                name = tool_choice.get("name") or tool_choice.get("function", {}).get("name")
+                if not name:
+                    raise ValueError("Responses function tool_choice requires a function name")
+                return {"type": "function", "function": {"name": name}}
+            if choice_type in {"auto", "none", "required"}:
+                return choice_type
+        raise ValueError(f"Unsupported Responses tool_choice for Chat Completions upstream: {tool_choice}")
+
+    def _response_text_format_to_chat(self, text_config: Any) -> dict[str, Any] | None:
+        if not isinstance(text_config, dict):
+            return None
+        fmt = text_config.get("format")
+        if not isinstance(fmt, dict):
+            return None
+
+        fmt_type = fmt.get("type")
+        if fmt_type in (None, "text"):
+            return None
+        if fmt_type == "json_object":
+            return {"type": "json_object"}
+        if fmt_type == "json_schema":
+            json_schema = {k: v for k, v in fmt.items() if k != "type"}
+            return {"type": "json_schema", "json_schema": json_schema}
+        raise ValueError(f"Unsupported Responses text.format type for Chat Completions upstream: {fmt_type}")
 
     def _response_content_to_chat_content(self, content: Any) -> Any:
         if isinstance(content, str):
@@ -478,6 +547,12 @@ class ToChatCompletionsConverter(BaseConverter):
 
         chat_parts = []
         text_parts = []
+
+        def _flush_text_parts():
+            if text_parts:
+                chat_parts.append({"type": "text", "text": "\n".join(t for t in text_parts if t)})
+                text_parts.clear()
+
         for part in content:
             if not isinstance(part, dict):
                 text_parts.append(str(part))
@@ -486,20 +561,53 @@ class ToChatCompletionsConverter(BaseConverter):
             if part_type in ("input_text", "output_text", "text"):
                 text_parts.append(part.get("text", ""))
             elif part_type == "input_image":
+                _flush_text_parts()
                 image_url = part.get("image_url") or part.get("url")
                 if image_url:
-                    chat_parts.append({"type": "image_url", "image_url": {"url": image_url}})
+                    image_payload = {"url": image_url}
+                    if part.get("detail") is not None:
+                        image_payload["detail"] = part["detail"]
+                    chat_parts.append({"type": "image_url", "image_url": image_payload})
+            elif part_type == "input_file":
+                _flush_text_parts()
+                file_payload = {}
+                for src, dst in (("file_id", "file_id"), ("filename", "filename"), ("file_data", "file_data")):
+                    if part.get(src) is not None:
+                        file_payload[dst] = part[src]
+                if not file_payload and isinstance(part.get("file"), dict):
+                    file_payload = dict(part["file"])
+                if not file_payload:
+                    raise ValueError("Responses input_file content requires file_id, filename, file_data, or file")
+                chat_parts.append({"type": "file", "file": file_payload})
+            elif part_type == "input_audio":
+                _flush_text_parts()
+                audio = part.get("input_audio") or {k: v for k, v in part.items() if k in ("data", "format")}
+                if not audio:
+                    raise ValueError("Responses input_audio content requires input_audio data")
+                chat_parts.append({"type": "input_audio", "input_audio": audio})
+            elif part_type == "refusal":
+                _flush_text_parts()
+                chat_parts.append({"type": "refusal", "refusal": part.get("refusal", "")})
             elif "text" in part:
                 text_parts.append(part.get("text", ""))
+            else:
+                raise ValueError(f"Unsupported Responses content block type for Chat Completions upstream: {part_type}")
 
         if chat_parts:
-            text = "\n".join(t for t in text_parts if t)
-            if text:
-                chat_parts.insert(0, {"type": "text", "text": text})
+            _flush_text_parts()
             return chat_parts
         return "\n".join(t for t in text_parts if t)
 
+    def _validate_response_request_for_chat(self, data: dict[str, Any]) -> None:
+        for field in UNSUPPORTED_RESPONSE_REQUEST_FIELDS:
+            if field in data:
+                raise ValueError(
+                    f"Responses field '{field}' is not supported when upstream is Chat Completions"
+                )
+
     def _response_request_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:
+        self._validate_response_request_for_chat(data)
+
         messages = []
         instructions = data.get("instructions")
         if instructions:
@@ -515,6 +623,10 @@ class ToChatCompletionsConverter(BaseConverter):
                     messages.append({"role": "user", "content": item})
                 elif isinstance(item, dict):
                     item_type = item.get("type", "")
+                    if item_type in HOSTED_RESPONSE_INPUT_ITEM_TYPES:
+                        raise ValueError(
+                            f"Responses input item '{item_type}' is not supported when upstream is Chat Completions"
+                        )
                     role = item.get("role", "user")
                     if role == "developer":
                         role = "system"
@@ -552,19 +664,24 @@ class ToChatCompletionsConverter(BaseConverter):
             result["temperature"] = data["temperature"]
         if data.get("top_p") is not None:
             result["top_p"] = data["top_p"]
+        if data.get("stop") is not None:
+            result["stop"] = data["stop"]
+        if data.get("parallel_tool_calls") is not None:
+            result["parallel_tool_calls"] = data["parallel_tool_calls"]
+        if data.get("reasoning") is not None:
+            reasoning = data["reasoning"]
+            if isinstance(reasoning, dict) and reasoning.get("effort") is not None:
+                result["reasoning_effort"] = reasoning["effort"]
+        response_format = self._response_text_format_to_chat(data.get("text"))
+        if response_format:
+            result["response_format"] = response_format
+        user = data.get("safety_identifier") or data.get("user")
+        if user:
+            result["user"] = user
         if data.get("tools"):
             result["tools"] = self._response_tools_to_chat(data["tools"])
         if data.get("tool_choice"):
-            tc = data["tool_choice"]
-            if isinstance(tc, str):
-                result["tool_choice"] = tc
-            elif isinstance(tc, dict):
-                if tc.get("type") == "function":
-                    result["tool_choice"] = tc
-                elif tc.get("type") == "auto":
-                    result["tool_choice"] = "auto"
-                elif tc.get("type") == "required":
-                    result["tool_choice"] = "required"
+            result["tool_choice"] = self._response_tool_choice_to_chat(data["tool_choice"])
         return result
 
     def _response_response_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:

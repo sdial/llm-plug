@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.api_types import APIType
+from proxy_core import ConverterError
 
 
 @pytest.fixture
@@ -79,6 +80,52 @@ def test_post_responses_basic_uses_proxy_core_converted_response(client):
             mock_store.put.assert_awaited_once()
 
 
+def test_post_responses_saves_function_call_output_as_history_item(client):
+    with patch("routers.proxy_response._store") as mock_store:
+        mock_store.put = AsyncMock()
+        mock_store.get_conversation = AsyncMock(return_value=None)
+
+        with patch("routers.proxy_response.proxy_request") as mock_proxy:
+            mock_proxy.return_value = (
+                {
+                    "id": "resp_1",
+                    "object": "response",
+                    "created_at": 123,
+                    "model": "gpt-4o",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "id": "fc_weather",
+                            "call_id": "call_weather",
+                            "name": "get_weather",
+                            "arguments": '{"location":"Beijing"}',
+                            "status": "completed",
+                        }
+                    ],
+                    "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+                },
+                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+            )
+
+            resp = client.post("/v1/responses", json={
+                "model": "gpt-4o",
+                "input": "Search weather",
+            })
+
+            assert resp.status_code == 200
+            _, conversation, _ = mock_store.put.await_args.args
+            assert conversation["messages"] == [
+                {"role": "user", "content": "Search weather"},
+                {
+                    "type": "function_call",
+                    "call_id": "call_weather",
+                    "name": "get_weather",
+                    "arguments": '{"location":"Beijing"}',
+                },
+            ]
+
+
 def test_post_responses_with_previous_response_id_expands_history(client):
     with patch("routers.proxy_response._store") as mock_store:
         mock_store.get_conversation = AsyncMock(return_value={
@@ -128,6 +175,66 @@ def test_post_responses_with_previous_response_id_expands_history(client):
             ]
 
 
+def test_previous_response_id_expands_function_call_history(client):
+    with patch("routers.proxy_response._store") as mock_store:
+        mock_store.get_conversation = AsyncMock(return_value={
+            "messages": [
+                {"role": "user", "content": "Search weather"},
+                {
+                    "type": "function_call",
+                    "call_id": "call_weather",
+                    "name": "get_weather",
+                    "arguments": '{"location":"Beijing"}',
+                },
+            ],
+            "instructions": "",
+        })
+        mock_store.put = AsyncMock()
+
+        with patch("routers.proxy_response.proxy_request") as mock_proxy:
+            mock_proxy.return_value = (
+                {
+                    "id": "resp_2",
+                    "object": "response",
+                    "created_at": 123,
+                    "model": "gpt-4o",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "id": "msg_resp_2",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "Sunny"}],
+                        }
+                    ],
+                    "usage": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+                },
+                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+            )
+
+            resp = client.post("/v1/responses", json={
+                "model": "gpt-4o",
+                "input": [
+                    {"type": "function_call_output", "call_id": "call_weather", "output": "Sunny, 25C"}
+                ],
+                "previous_response_id": "resp_1",
+            })
+
+            assert resp.status_code == 200
+            sent_body = mock_proxy.await_args.args[1]
+            assert sent_body["input"] == [
+                {"role": "user", "content": "Search weather"},
+                {
+                    "type": "function_call",
+                    "call_id": "call_weather",
+                    "name": "get_weather",
+                    "arguments": '{"location":"Beijing"}',
+                },
+                {"type": "function_call_output", "call_id": "call_weather", "output": "Sunny, 25C"},
+            ]
+
+
 def test_post_responses_store_false_does_not_save_state(client):
     with patch("routers.proxy_response._store") as mock_store:
         mock_store.put = AsyncMock()
@@ -154,6 +261,52 @@ def test_post_responses_store_false_does_not_save_state(client):
             })
 
             assert resp.status_code == 200
+            mock_store.put.assert_not_awaited()
+
+
+def test_post_responses_returns_400_for_converter_value_error(client):
+    with patch("routers.proxy_response._store") as mock_store:
+        mock_store.get_conversation = AsyncMock(return_value=None)
+        mock_store.put = AsyncMock()
+
+        with patch("routers.proxy_response.proxy_request") as mock_proxy:
+            mock_proxy.side_effect = ValueError(
+                "Responses tool 'web_search' is not supported when upstream is Chat Completions"
+            )
+
+            resp = client.post("/v1/responses", json={
+                "model": "gpt-4o",
+                "input": "Search",
+                "tools": [{"type": "web_search"}],
+            })
+
+            assert resp.status_code == 400
+            data = resp.json()
+            assert data["error"]["type"] == "invalid_request_error"
+            assert "web_search" in data["error"]["message"]
+            mock_store.put.assert_not_awaited()
+
+
+def test_post_responses_returns_400_for_proxy_core_converter_error(client):
+    with patch("routers.proxy_response._store") as mock_store:
+        mock_store.get_conversation = AsyncMock(return_value=None)
+        mock_store.put = AsyncMock()
+
+        with patch("routers.proxy_response.proxy_request") as mock_proxy:
+            mock_proxy.side_effect = ConverterError(
+                "请求转换失败: Responses tool 'web_search' is not supported when upstream is Chat Completions"
+            )
+
+            resp = client.post("/v1/responses", json={
+                "model": "gpt-4o",
+                "input": "Search",
+                "tools": [{"type": "web_search"}],
+            })
+
+            assert resp.status_code == 400
+            data = resp.json()
+            assert data["error"]["type"] == "invalid_request_error"
+            assert "web_search" in data["error"]["message"]
             mock_store.put.assert_not_awaited()
 
 
