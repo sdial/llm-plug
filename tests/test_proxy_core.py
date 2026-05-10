@@ -1276,6 +1276,198 @@ class TestConverterErrorFailover:
         assert result["choices"][0]["message"]["content"] == "ok"
 
 
+class TestResponsesToChatCompletionsFlow:
+    """客户端 Responses 请求经 Chat Completions 上游完成转换。"""
+
+    @pytest.mark.anyio
+    async def test_non_stream_responses_request_converts_to_chat_upstream_and_back(self):
+        captured = {}
+
+        class ChatClient:
+            async def post(self, url, json, headers):
+                captured["url"] = url
+                captured["json"] = json
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "chatcmpl_1",
+                        "object": "chat.completion",
+                        "created": 123,
+                        "model": "gpt-4o",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": "Hello"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                    },
+                    request=request,
+                )
+
+        channel = Channel(
+            id="ch_chat",
+            name="Chat",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://chat.example",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=ChatClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            result = await _do_request(
+                channel=channel,
+                request_data={
+                    "model": "gpt-4o",
+                    "instructions": "Be concise.",
+                    "input": "Hello",
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": "search",
+                            "parameters": {"type": "object"},
+                            "strict": True,
+                        }
+                    ],
+                    "tool_choice": {"type": "function", "name": "search"},
+                    "max_output_tokens": 100,
+                },
+                target_api_type=APIType.OPENAI_RESPONSE,
+                is_stream=False,
+            )
+
+        assert captured["url"] == "https://chat.example/v1/chat/completions"
+        assert captured["json"] == {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": "Be concise."},
+                {"role": "user", "content": "Hello"},
+            ],
+            "stream": False,
+            "max_tokens": 100,
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "search",
+                        "description": "",
+                        "parameters": {"type": "object"},
+                        "strict": True,
+                    },
+                }
+            ],
+            "tool_choice": {"type": "function", "function": {"name": "search"}},
+        }
+        assert result["object"] == "response"
+        assert result["id"].startswith("resp_")
+        assert result["_upstream_id"] == "chatcmpl_1"
+        assert result["output_text"] == "Hello"
+        assert result["usage"] == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+
+    @pytest.mark.anyio
+    async def test_responses_to_chat_applies_capability_filter_after_conversion(self):
+        captured = {}
+
+        class ChatClient:
+            async def post(self, url, json, headers):
+                captured["json"] = json
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "chatcmpl_1",
+                        "object": "chat.completion",
+                        "created": 123,
+                        "model": "gpt-4o",
+                        "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                    },
+                    request=request,
+                )
+
+        channel = Channel(
+            id="ch_chat",
+            name="Chat",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://chat.example",
+            api_key="sk-test",
+            models=["gpt-4o"],
+            capabilities={"supports_parallel_tool_calls": False},
+        )
+
+        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=ChatClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            await _do_request(
+                channel=channel,
+                request_data={
+                    "model": "gpt-4o",
+                    "input": "Hello",
+                    "parallel_tool_calls": True,
+                },
+                target_api_type=APIType.OPENAI_RESPONSE,
+                is_stream=False,
+            )
+
+        assert "parallel_tool_calls" not in captured["json"]
+
+    @pytest.mark.anyio
+    async def test_responses_to_chat_merges_system_messages_after_conversion(self):
+        captured = {}
+
+        class ChatClient:
+            async def post(self, url, json, headers):
+                captured["json"] = json
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "chatcmpl_1",
+                        "object": "chat.completion",
+                        "created": 123,
+                        "model": "gpt-4o",
+                        "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                    },
+                    request=request,
+                )
+
+        channel = Channel(
+            id="ch_minimax",
+            name="MiniMax",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.minimax.chat",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=ChatClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            await _do_request(
+                channel=channel,
+                request_data={
+                    "model": "gpt-4o",
+                    "instructions": "Rule 1.",
+                    "input": [
+                        {"role": "developer", "content": "Rule 2."},
+                        {"role": "user", "content": "Hello"},
+                    ],
+                },
+                target_api_type=APIType.OPENAI_RESPONSE,
+                is_stream=False,
+            )
+
+        assert captured["json"]["messages"] == [
+            {"role": "system", "content": "Rule 1.\n\nRule 2."},
+            {"role": "user", "content": "Hello"},
+        ]
+
+
 class TestEmptyStreamFailover:
     """流式空响应应触发故障转移。"""
 

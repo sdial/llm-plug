@@ -10,7 +10,7 @@ from loguru import logger
 
 from config import DATA_DIR, get_setting
 from models.api_types import APIType
-from proxy_core import proxy_request
+from proxy_core import ConverterError, proxy_request
 from routers.auth import check_proxy_authorization
 from routers.proxy_errors import invalid_request, response_from_proxy_exception, unauthorized
 from state_store import FileStore
@@ -197,6 +197,9 @@ async def post_response(request: Request, authorization: str | None = None):
         logger.debug(f"[RESPONSES SUCCESS] model={model} channel={channel.name}")
     except ValueError as e:
         logger.error(f"[RESPONSES ERROR] /v1/responses ValueError: {e}")
+        return invalid_request(str(e))
+    except ConverterError as e:
+        logger.error(f"[RESPONSES ERROR] /v1/responses ConverterError: {e}")
         return invalid_request(str(e))
     except httpx.HTTPStatusError as e:
         logger.error(f"[RESPONSES ERROR] /v1/responses upstream HTTP {e.response.status_code}: {e}")

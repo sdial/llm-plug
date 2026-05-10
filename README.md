@@ -4,7 +4,7 @@
 
 ## 核心功能
 
-- **三种 API 格式互转**：OpenAI Chat Completions、OpenAI Response、Anthropic Messages
+- **三种 API 格式互转**：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages。对 Chat Completions 无法表达的 Responses 托管能力，代理会显式拒绝或按渠道能力降级，不做静默丢弃。
 - **负载均衡与故障转移**：优先级分组 + 加权轮询 + 自动健康检查
 - **SOCKS5 代理支持**：每个渠道可独立配置代理
 - **Web 管理界面**：可视化配置渠道、API Key、模型组
@@ -47,7 +47,7 @@ uv run python main.py
 | 格式 | 代理端点 |
 |------|----------|
 | OpenAI Chat Completions | `POST /v1/chat/completions` |
-| OpenAI Response | `POST /v1/responses` |
+| OpenAI Responses | `POST /v1/responses` |
 | Anthropic Messages | `POST /v1/messages` |
 
 ## License

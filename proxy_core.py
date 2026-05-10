@@ -780,23 +780,6 @@ async def _do_request(
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
     same_type_passthrough = request_converter is None and response_converter is None
 
-    # === Capability 管理 ===
-    apply_compatibility_filters = not same_type_passthrough or bool(channel.capabilities)
-    caps = infer_capabilities(channel) if apply_compatibility_filters else None
-    if caps is not None:
-        request_data = apply_capability_filter(request_data, caps)
-
-    # MiniMax 特殊处理：合并多条 system 消息
-    if caps is not None and caps.requires_single_system_message:
-        if "messages" in request_data:
-            original_count = len([m for m in request_data["messages"] if m.get("role") == "system"])
-            request_data["messages"] = merge_system_messages(request_data["messages"])
-            new_count = len([m for m in request_data["messages"] if m.get("role") == "system"])
-            if original_count > 1:
-                logger.debug(f"[CAPABILITY] MiniMax: 合并 {original_count} 条 system 消息为 {new_count} 条")
-
-    need_think_filter = bool(caps and caps.filter_think_content)
-
     # 转换请求：客户端格式 → 上游格式
     if request_converter:
         try:
@@ -806,6 +789,24 @@ async def _do_request(
             raise ConverterError(f"请求转换失败: {conv_err}") from conv_err
     else:
         upstream_data = request_data
+
+    # === Capability 管理 ===
+    # 必须在格式转换之后处理，因为能力过滤作用于实际发给上游的格式。
+    apply_compatibility_filters = not same_type_passthrough or bool(channel.capabilities)
+    caps = infer_capabilities(channel) if apply_compatibility_filters else None
+    if caps is not None:
+        upstream_data = apply_capability_filter(upstream_data, caps)
+
+    # MiniMax 特殊处理：合并多条 system 消息
+    if caps is not None and caps.requires_single_system_message:
+        if "messages" in upstream_data:
+            original_count = len([m for m in upstream_data["messages"] if m.get("role") == "system"])
+            upstream_data["messages"] = merge_system_messages(upstream_data["messages"])
+            new_count = len([m for m in upstream_data["messages"] if m.get("role") == "system"])
+            if original_count > 1:
+                logger.debug(f"[CAPABILITY] MiniMax: 合并 {original_count} 条 system 消息为 {new_count} 条")
+
+    need_think_filter = bool(caps and caps.filter_think_content)
 
     url = _get_upstream_url(channel)
     if query_string:
