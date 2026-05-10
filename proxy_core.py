@@ -792,7 +792,7 @@ async def _do_request(
 
     # === Capability 管理 ===
     # 必须在格式转换之后处理，因为能力过滤作用于实际发给上游的格式。
-    apply_compatibility_filters = not same_type_passthrough or bool(channel.capabilities)
+    apply_compatibility_filters = not same_type_passthrough
     caps = infer_capabilities(channel) if apply_compatibility_filters else None
     if caps is not None:
         upstream_data = apply_capability_filter(upstream_data, caps)
