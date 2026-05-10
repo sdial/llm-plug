@@ -398,6 +398,67 @@ class TestChatToResponseStream:
         assert delta["content_index"] == 0
         assert delta["sequence_number"] > 0
 
+    def test_text_stream_includes_content_part_lifecycle(self):
+        """文本流应包含 content_part added/done 生命周期事件。"""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hello"}}]},
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "stop"}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                outputs.extend(converter.get_extra_events(result or {}))
+
+        event_types = [o.get("type") for o in outputs]
+        assert event_types.index("response.output_item.added") < event_types.index("response.content_part.added")
+        assert event_types.index("response.content_part.added") < event_types.index("response.output_text.delta")
+        assert event_types.index("response.output_text.done") < event_types.index("response.content_part.done")
+        assert event_types.index("response.content_part.done") < event_types.index("response.output_item.done")
+
+    def test_tool_stream_includes_arguments_done(self):
+        """工具调用流结束时应输出 function_call_arguments.done。"""
+        converter = ToResponseConverter()
+        events = [
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "id": "call_1", "function": {"name": "search", "arguments": ""}}
+                        ]
+                    }
+                }],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": '{"q":"x"}'}}
+                        ]
+                    }
+                }],
+            },
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                outputs.extend(converter.get_extra_events(result or {}))
+
+        done_events = [o for o in outputs if o.get("type") == "response.function_call_arguments.done"]
+        assert len(done_events) == 1
+        assert done_events[0]["item_id"].startswith("fc_")
+        assert done_events[0]["output_index"] == 0
+        assert done_events[0]["arguments"] == '{"q":"x"}'
+
     def test_output_item_added_before_text_delta(self):
         """response.output_item.added 应在第一个 text delta 之前发送"""
         converter = ToResponseConverter()
