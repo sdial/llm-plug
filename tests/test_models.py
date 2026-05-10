@@ -88,6 +88,16 @@ class TestChannel:
         )
         assert ch.models == ["gpt-4", "gpt-3.5-turbo"]
 
+    def test_capabilities_can_be_configured(self):
+        ch = Channel(
+            name="Test",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            capabilities={"filter_think_content": True},
+        )
+        assert ch.capabilities == {"filter_think_content": True}
+
 
 class TestChannelCreate:
     def test_all_fields_required_except_defaults(self):
@@ -131,6 +141,14 @@ class TestChannelUpdate:
         assert cu.name == "Updated"
         assert cu.enabled is False
         assert cu.base_url is None
+
+    def test_weight_validation(self):
+        with pytest.raises(ValidationError):
+            ChannelUpdate(weight=0)
+
+    def test_priority_validation(self):
+        with pytest.raises(ValidationError):
+            ChannelUpdate(priority=0)
 
 
 class TestApiKey:

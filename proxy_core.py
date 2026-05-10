@@ -169,7 +169,6 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
     role = "assistant"
     content_text = ""
     thinking_text = ""
-    tool_uses: list[dict] = []
     stop_reason = None
     input_tokens = 0
     output_tokens = 0
@@ -545,7 +544,6 @@ def _get_upstream_url(channel: Channel) -> str:
 
 
 _RETRYABLE_EXCEPTIONS = (
-    httpx.HTTPStatusError,
     httpx.TimeoutException,
     httpx.ConnectError,
     httpx.ReadError,
@@ -555,6 +553,13 @@ _RETRYABLE_EXCEPTIONS = (
     httpx.ReadTimeout,
     httpx.WriteTimeout,
 )
+
+
+def _is_retryable_exception(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status_code = exc.response.status_code
+        return status_code == 429 or 500 <= status_code < 600
+    return isinstance(exc, _RETRYABLE_EXCEPTIONS)
 
 
 def _fire_and_forget(coro):
@@ -580,6 +585,34 @@ async def _load_history(previous_response_id: str | None) -> list[dict]:
         raise ValueError(f"Response {previous_response_id} not found")
 
     return conversation.get("messages", [])
+
+
+class _StreamPreflightError(Exception):
+    """流式响应首个输出前失败，允许外层故障转移。"""
+
+    def __init__(self, original: BaseException):
+        super().__init__(str(original))
+        self.original = original
+
+
+async def _prime_stream(gen):
+    """消费首个 chunk，让连接和首包前错误进入故障转移循环。"""
+    try:
+        first_chunk = await anext(gen)
+    except StopAsyncIteration:
+        return gen
+    except _StreamPreflightError as exc:
+        raise exc.original from exc
+
+    async def _replay():
+        try:
+            yield first_chunk
+            async for chunk in gen:
+                yield chunk
+        finally:
+            await gen.aclose()
+
+    return _replay()
 
 
 async def _save_response_state(
@@ -653,12 +686,17 @@ async def _proxy_single_model_request(
             raise ValueError(f"模型 {model} 的所有渠道均不可用")
 
         try:
-            return await _do_request(
+            result = await _do_request(
                 selected, request_data, target_api_type, is_stream,
                 query_string=query_string, client_headers=client_headers,
                 api_key_id=api_key_id,
-            ), selected
-        except _RETRYABLE_EXCEPTIONS as e:
+            )
+            if is_stream:
+                result = await _prime_stream(result)
+            return result, selected
+        except Exception as e:
+            if not _is_retryable_exception(e):
+                raise
             load_balancer.record_failure(selected.id)
             last_error = e
             all_tried.add(selected.id)
@@ -692,12 +730,17 @@ async def _proxy_model_group_request(
             try:
                 # 修改请求中的模型名
                 modified_request = {**request_data, "model": current_model}
-                return await _do_request(
+                result = await _do_request(
                     selected, modified_request, target_api_type, is_stream,
                     query_string=query_string, client_headers=client_headers,
                     api_key_id=api_key_id,
-                ), selected
-            except _RETRYABLE_EXCEPTIONS as e:
+                )
+                if is_stream:
+                    result = await _prime_stream(result)
+                return result, selected
+            except Exception as e:
+                if not _is_retryable_exception(e):
+                    raise
                 load_balancer.record_failure(selected.id)
                 last_error = e
                 tried_channels.add(selected.id)
@@ -718,13 +761,16 @@ async def _do_request(
     api_key_id: str | None = None,
 ):
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
+    same_type_passthrough = request_converter is None and response_converter is None
 
     # === Capability 管理 ===
-    caps = infer_capabilities(channel)
-    request_data = apply_capability_filter(request_data, caps)
+    apply_compatibility_filters = not same_type_passthrough or bool(channel.capabilities)
+    caps = infer_capabilities(channel) if apply_compatibility_filters else None
+    if caps is not None:
+        request_data = apply_capability_filter(request_data, caps)
 
     # MiniMax 特殊处理：合并多条 system 消息
-    if caps.requires_single_system_message:
+    if caps is not None and caps.requires_single_system_message:
         if "messages" in request_data:
             original_count = len([m for m in request_data["messages"] if m.get("role") == "system"])
             request_data["messages"] = merge_system_messages(request_data["messages"])
@@ -732,7 +778,7 @@ async def _do_request(
             if original_count > 1:
                 logger.debug(f"[CAPABILITY] MiniMax: 合并 {original_count} 条 system 消息为 {new_count} 条")
 
-    need_think_filter = caps.filter_think_content
+    need_think_filter = bool(caps and caps.filter_think_content)
 
     # 转换请求：客户端格式 → 上游格式
     if request_converter:
@@ -754,17 +800,12 @@ async def _do_request(
                 headers[key] = val
 
     if is_stream:
-        # OpenAI 流式请求需要注入 stream_options 以获取 usage 信息
-        if source_type != "anthropic" and isinstance(upstream_data, dict):
-            upstream_data = {
-                **upstream_data,
-                "stream_options": {"include_usage": True}
-            }
-        return _do_stream_request(
+        stream = _do_stream_request(
             channel, url, headers, upstream_data, response_converter, source_type, target_api_type,
             api_key_id=api_key_id,
             need_think_filter=need_think_filter,
         )
+        return _raise_preflight_stream_errors(stream)
 
     # 非流式：使用缓存的 httpx 客户端（不可 async with，否则会关闭共享连接）
     model = request_data.get("model", "")
@@ -1049,6 +1090,7 @@ async def _do_stream_request(
 
     stream_success = False
     stream_error = None
+    emitted_output = False
     logger.debug(f"[STREAM START] model={model} url={url} target={target_api_type.value}")
     try:
         async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
@@ -1063,6 +1105,10 @@ async def _do_stream_request(
                 nonlocal first_token_time
                 if first_token_time is None:
                     first_token_time = time.time()
+
+            def _mark_output():
+                nonlocal emitted_output
+                emitted_output = True
 
             def _format_sse(data: dict, event_type: str | None = None) -> str:
                 try:
@@ -1153,6 +1199,7 @@ async def _do_stream_request(
                                     remaining_evt = {"type": "response.output_text.delta", "delta": remaining}
                                     sse = _format_sse(remaining_evt)
                                     _log_stream_event(sse)
+                                    _mark_output()
                                     yield sse
                                 else:
                                     # Chat Completions 格式
@@ -1165,18 +1212,22 @@ async def _do_stream_request(
                                     }
                                     sse = _format_sse(remaining_chunk)
                                     _log_stream_event(sse)
+                                    _mark_output()
                                     yield sse
 
                         if response_converter:
                             final_events = response_converter.finalize_stream(source_type)
                             logger.debug(f"[STREAM FINALIZE] model={model} events={len(final_events)}")
                             for final_event in _format_extra_events(final_events):
+                                _mark_output()
                                 yield final_event
                             extra_events = _yield_extra_events({})
                             logger.debug(f"[STREAM EXTRA] model={model} events={len(extra_events)}")
                             for extra_sse in extra_events:
+                                _mark_output()
                                 yield extra_sse
                         if not output_sse_events:
+                            _mark_output()
                             yield "data: [DONE]\n\n"
                     except Exception as done_err:
                         logger.error(f"[STREAM DONE ERROR] model={model} error={type(done_err).__name__}: {done_err}")
@@ -1190,6 +1241,7 @@ async def _do_stream_request(
                 except json.JSONDecodeError:
                     _record_chunk(line)
                     _mark_first_token()
+                    _mark_output()
                     yield line + "\n\n"
                     continue
 
@@ -1218,10 +1270,9 @@ async def _do_stream_request(
                             if fr:
                                 finish_reason = fr
 
-                if is_upstream_anthropic and upstream_event_type is not None:
-                    chunk["_event_type"] = upstream_event_type
-
                 if response_converter:
+                    if is_upstream_anthropic and upstream_event_type is not None:
+                        chunk = {**chunk, "_event_type": upstream_event_type}
                     converted = response_converter.convert_stream_chunk(chunk, source_type)
                     logger.debug(f"[CONVERT_CHUNK] converted={converted is not None} type={converted.get('type') if converted else None}")
                     if converted is not None:
@@ -1232,8 +1283,10 @@ async def _do_stream_request(
                             evt_type = response_converter.get_stream_event_type(chunk, source_type) if output_anthropic_sse else None
                             sse = _format_sse(converted, evt_type)
                             _log_stream_event(sse)
+                            _mark_output()
                             yield sse
                     for extra_sse in _yield_extra_events(chunk):
+                        _mark_output()
                         yield extra_sse
                 else:
                     if output_anthropic_sse and is_upstream_anthropic:
@@ -1241,6 +1294,7 @@ async def _do_stream_request(
                     else:
                         sse = _format_sse(chunk)
                     _log_stream_event(sse)
+                    _mark_output()
                     yield sse
 
                 if is_upstream_anthropic:
@@ -1265,10 +1319,12 @@ async def _do_stream_request(
                         for evt_type, evt_data in _convert_anthropic_response_to_events(converted):
                             sse = _yield_anthropic_event(evt_type, evt_data)
                             _log_stream_event(sse)
+                            _mark_output()
                             yield sse
                     else:
                         sse = _format_sse(full_response)
                         _log_stream_event(sse)
+                        _mark_output()
                         yield sse
                 elif output_responses_sse:
                     if response_converter:
@@ -1277,16 +1333,20 @@ async def _do_stream_request(
                         )
                         for sse in stream_events:
                             _log_stream_event(sse)
+                            _mark_output()
                             yield sse
                     else:
                         sse = _format_sse(full_response)
                         _log_stream_event(sse)
+                        _mark_output()
                         yield sse
                 else:
                     sse = _format_sse(full_response)
                     _log_stream_event(sse)
+                    _mark_output()
                     yield sse
                 if not output_sse_events:
+                    _mark_output()
                     yield "data: [DONE]\n\n"
                 input_tokens = full_response.get("usage", {}).get("prompt_tokens", full_response.get("usage", {}).get("input_tokens", input_tokens))
                 output_tokens = full_response.get("usage", {}).get("completion_tokens", full_response.get("usage", {}).get("output_tokens", output_tokens))
@@ -1309,7 +1369,6 @@ async def _do_stream_request(
         )
     except Exception as e:
         stream_error = str(e)
-        load_balancer.record_failure(channel.id)
         err_body = ""
         import traceback
         logger.error(f"[STREAM ERROR TRACEBACK] model={model} url={url}")
@@ -1329,13 +1388,20 @@ async def _do_stream_request(
             upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
             response_headers=resp_headers, status_code=resp_status_code, error=str(e),
         )
+        if not emitted_output:
+            if _is_retryable_exception(e):
+                raise _StreamPreflightError(e) from e
+            raise
+        load_balancer.record_failure(channel.id)
         if output_anthropic_sse:
+            emitted_output = True
             yield _yield_anthropic_event("error", {
                 "type": "error",
                 "error": {"type": "api_error", "message": str(e)},
             })
         elif output_responses_sse:
             error_data = {"type": "error", "error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
+            emitted_output = True
             yield _yield_anthropic_event("error", error_data)
             # 发送 response.completed 事件以便客户端正确识别流结束
             completed_data = {
@@ -1349,11 +1415,14 @@ async def _do_stream_request(
                     "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
                 },
             }
+            emitted_output = True
             yield _yield_anthropic_event("response.completed", completed_data)
         else:
             error_data = {"error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
+            emitted_output = True
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
         if not output_sse_events:
+            emitted_output = True
             yield "data: [DONE]\n\n"
     finally:
         try:
@@ -1396,3 +1465,14 @@ async def _do_stream_request(
             await client.aclose()
         except Exception as e:
             logger.warning(f"close stream client error: {e}")
+
+async def _raise_preflight_stream_errors(gen):
+    has_yielded = False
+    try:
+        async for chunk in gen:
+            has_yielded = True
+            yield chunk
+    except Exception as exc:
+        if not has_yielded and _is_retryable_exception(exc):
+            raise _StreamPreflightError(exc) from exc
+        raise

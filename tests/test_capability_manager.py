@@ -1,7 +1,4 @@
-"""
-测试 capability_manager 模块
-"""
-import pytest
+"""测试 capability_manager 模块"""
 
 from capability_manager import (
     ProviderCapabilities,
@@ -25,10 +22,10 @@ class TestInferCapabilities:
             api_key="test-key",
         )
         caps = infer_capabilities(channel)
-        assert caps.supports_parallel_tool_calls == True
-        assert caps.supports_tool_choice_auto == True
-        assert caps.requires_single_system_message == False
-        assert caps.filter_think_content == False
+        assert caps.supports_parallel_tool_calls is True
+        assert caps.supports_tool_choice_auto is True
+        assert caps.requires_single_system_message is False
+        assert caps.filter_think_content is False
 
     def test_deepseek_capabilities(self):
         """DeepSeek 渠道应返回特定的能力限制"""
@@ -39,8 +36,8 @@ class TestInferCapabilities:
             api_key="test-key",
         )
         caps = infer_capabilities(channel)
-        assert caps.supports_parallel_tool_calls == False
-        assert caps.filter_think_content == True
+        assert caps.supports_parallel_tool_calls is False
+        assert caps.filter_think_content is True
 
     def test_minimax_capabilities(self):
         """MiniMax 渠道应返回需要单条 system 消息"""
@@ -51,7 +48,7 @@ class TestInferCapabilities:
             api_key="test-key",
         )
         caps = infer_capabilities(channel)
-        assert caps.requires_single_system_message == True
+        assert caps.requires_single_system_message is True
 
     def test_deepseek_case_insensitive(self):
         """base_url 判断应不区分大小写"""
@@ -62,8 +59,24 @@ class TestInferCapabilities:
             api_key="test-key",
         )
         caps = infer_capabilities(channel)
-        assert caps.supports_parallel_tool_calls == False
-        assert caps.filter_think_content == True
+        assert caps.supports_parallel_tool_calls is False
+        assert caps.filter_think_content is True
+
+    def test_channel_capabilities_override_inferred_defaults(self):
+        """渠道显式能力配置应覆盖 base_url 推断。"""
+        channel = Channel(
+            name="deepseek",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.deepseek.com/v1",
+            api_key="test-key",
+            capabilities={
+                "supports_parallel_tool_calls": True,
+                "filter_think_content": False,
+            },
+        )
+        caps = infer_capabilities(channel)
+        assert caps.supports_parallel_tool_calls is True
+        assert caps.filter_think_content is False
 
 
 class TestApplyCapabilityFilter:
