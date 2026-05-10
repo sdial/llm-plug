@@ -827,7 +827,7 @@ async def _do_request(
     headers["Content-Type"] = "application/json"
 
     # 透传客户端 header（排除 host 和认证相关）
-    _SKIP_HEADERS = {"host", "authorization", "x-api-key", "content-type", "content-length"}
+    _SKIP_HEADERS = {"host", "authorization", "x-api-key", "content-type", "content-length", "anthropic-version", "anthropic-beta"}
     if client_headers:
         for key, val in client_headers.items():
             if key.lower() not in _SKIP_HEADERS:
@@ -1364,10 +1364,13 @@ async def _do_stream_request(
                             _mark_output()
                             yield sse
                     else:
-                        sse = _format_sse(full_response)
-                        _log_stream_event(sse)
-                        _mark_output()
-                        yield sse
+                        # 同类型 Anthropic 直通：非 SSE JSON 也需拆分为
+                        # message_start / content_block_start / ... / message_stop 事件序列
+                        for evt_type, evt_data in _convert_anthropic_response_to_events(full_response):
+                            sse = _yield_anthropic_event(evt_type, evt_data)
+                            _log_stream_event(sse)
+                            _mark_output()
+                            yield sse
                 elif output_responses_sse:
                     if response_converter:
                         stream_events = _convert_non_stream_to_stream_events(
