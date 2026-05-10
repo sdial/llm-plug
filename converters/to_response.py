@@ -40,6 +40,9 @@ class ToResponseConverter(BaseConverter):
             "active_text_item_id": None,
             "active_text_output_index": None,
             "content_part_added_sent": False,
+            "pending_finish_reason": None,
+            "pending_final_events": [],
+            "waiting_for_usage_after_finish": False,
         }
         self._pending_extra_events = []
         self._need_in_progress = False
@@ -426,6 +429,10 @@ class ToResponseConverter(BaseConverter):
 
         choices = chunk.get("choices", [])
         if not choices:
+            if self._stream_state.get("waiting_for_usage_after_finish"):
+                completed_events = self._release_pending_completed_event()
+                if completed_events:
+                    return completed_events[0]
             return None
         delta = choices[0].get("delta", {})
         finish_reason = choices[0].get("finish_reason")
@@ -609,7 +616,7 @@ class ToResponseConverter(BaseConverter):
         if finish_reason is not None:
             logger.debug(f"[CHUNK] finish_reason={finish_reason} response_created_sent={self._stream_state['response_created_sent']}")
             need_created = _ensure_created()
-            done_events = self._build_final_events(finish_reason=finish_reason)
+            done_events = self._queue_final_events_for_finish(finish_reason)
             logger.debug(f"[CHUNK] built {len(done_events)} final events, need_created={need_created}")
 
             if need_created:
@@ -775,6 +782,8 @@ class ToResponseConverter(BaseConverter):
         logger.debug(f"[FINALIZE] source_type={source_type} stream_state={self._stream_state is not None}")
         if source_type != "openai-chat-completions" or self._stream_state is None:
             return []
+        if self._stream_state.get("pending_final_events"):
+            return self._release_pending_completed_event()
         if self._stream_state["completed_sent"]:
             logger.debug("[FINALIZE] already completed, skipping")
             return []
@@ -834,7 +843,7 @@ class ToResponseConverter(BaseConverter):
             })
         return output
 
-    def _build_final_events(self, finish_reason: str) -> list[dict[str, Any]]:
+    def _build_final_events(self, finish_reason: str, mark_completed: bool = True) -> list[dict[str, Any]]:
         if self._stream_state["completed_sent"]:
             return []
 
@@ -894,5 +903,29 @@ class ToResponseConverter(BaseConverter):
                 "arguments": tc_data.get("arguments", ""),
             })
         done_events.append(completed_event)
-        self._stream_state["completed_sent"] = True
+        if mark_completed:
+            self._stream_state["completed_sent"] = True
         return done_events
+
+    def _queue_final_events_for_finish(self, finish_reason: str) -> list[dict[str, Any]]:
+        final_events = self._build_final_events(finish_reason=finish_reason, mark_completed=False)
+        self._stream_state["pending_finish_reason"] = finish_reason
+        self._stream_state["pending_final_events"] = final_events
+        self._stream_state["waiting_for_usage_after_finish"] = True
+        return final_events[:-1]
+
+    def _release_pending_completed_event(self) -> list[dict[str, Any]]:
+        pending = self._stream_state.get("pending_final_events") or []
+        if not pending:
+            return []
+        completed = pending[-1]
+        if completed.get("type") == "response.completed":
+            completed["response"]["usage"] = {
+                "input_tokens": self._stream_state["input_tokens"],
+                "output_tokens": self._stream_state["output_tokens"],
+                "total_tokens": self._stream_state["total_tokens"],
+            }
+        self._stream_state["pending_final_events"] = []
+        self._stream_state["waiting_for_usage_after_finish"] = False
+        self._stream_state["completed_sent"] = True
+        return [completed]
