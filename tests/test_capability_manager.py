@@ -155,6 +155,86 @@ class TestApplyCapabilityFilter:
         assert "parallel_tool_calls" not in result  # False 也应移除
 
 
+class TestCapabilityDegradation:
+    """测试能力降级：当渠道不支持某些功能时，请求应被正确处理。"""
+
+    def test_parallel_tool_calls_removed_when_not_supported(self):
+        """parallel_tool_calls=True 在不支持时应被移除"""
+        caps = ProviderCapabilities(supports_parallel_tool_calls=False)
+        request = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "hello"}],
+            "parallel_tool_calls": True,
+        }
+        result = apply_capability_filter(request, caps)
+        assert "parallel_tool_calls" not in result
+
+    def test_response_format_json_schema_removed_when_not_supported(self):
+        """response_format json_schema 在不支持时应被移除"""
+        caps = ProviderCapabilities(supports_response_format=False)
+        request = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "hello"}],
+            "response_format": {"type": "json_schema", "json_schema": {"name": "a", "schema": {}}},
+        }
+        result = apply_capability_filter(request, caps)
+        assert "response_format" not in result
+
+    def test_reasoning_effort_removed_when_not_supported(self):
+        """reasoning_effort 在不支持时应被移除"""
+        caps = ProviderCapabilities(supports_reasoning_effort=False)
+        request = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "hello"}],
+            "reasoning_effort": "medium",
+        }
+        result = apply_capability_filter(request, caps)
+        assert "reasoning_effort" not in result
+
+    def test_file_content_in_messages_not_supported(self):
+        """file content 在不支持时应在请求中移除"""
+        caps = ProviderCapabilities(supports_file_content=False)
+        request = {
+            "model": "gpt-4",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Describe this"},
+                        {"type": "file", "file": {"file_id": "f1"}},
+                    ],
+                }
+            ],
+        }
+        result = apply_capability_filter(request, caps)
+        # file 块应被移除或降级
+        user_msg = result["messages"][0]
+        if isinstance(user_msg["content"], list):
+            file_parts = [p for p in user_msg["content"] if isinstance(p, dict) and p.get("type") == "file"]
+            assert len(file_parts) == 0
+
+    def test_audio_content_in_messages_not_supported(self):
+        """audio content 在不支持时应在请求中移除"""
+        caps = ProviderCapabilities(supports_audio_content=False)
+        request = {
+            "model": "gpt-4",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Transcribe this"},
+                        {"type": "input_audio", "input_audio": {"data": "AAA", "format": "wav"}},
+                    ],
+                }
+            ],
+        }
+        result = apply_capability_filter(request, caps)
+        user_msg = result["messages"][0]
+        if isinstance(user_msg["content"], list):
+            audio_parts = [p for p in user_msg["content"] if isinstance(p, dict) and p.get("type") == "input_audio"]
+            assert len(audio_parts) == 0
+
+
 class TestMergeSystemMessages:
     """测试 merge_system_messages 函数"""
 

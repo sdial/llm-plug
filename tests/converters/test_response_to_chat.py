@@ -448,6 +448,142 @@ class TestResponseRequestToChat:
             self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
 
 
+class TestResponseRequestFieldContract:
+    """Responses 请求字段转换契约。"""
+
+    def setup_method(self):
+        self.converter = ToChatCompletionsConverter()
+
+    def test_model_passthrough(self):
+        request = {"model": "gpt-4o", "input": "Hi"}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["model"] == "gpt-4o"
+
+    def test_input_string_to_messages(self):
+        request = {"model": "gpt-4o", "input": "Hello"}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["messages"] == [{"role": "user", "content": "Hello"}]
+
+    def test_instructions_to_system_message(self):
+        request = {"model": "gpt-4o", "input": "Hi", "instructions": "Be terse."}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["messages"][0] == {"role": "system", "content": "Be terse."}
+
+    def test_function_tools_conversion(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hi",
+            "tools": [{"type": "function", "name": "f", "parameters": {}}],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["tools"][0]["type"] == "function"
+        assert result["tools"][0]["function"]["name"] == "f"
+
+    def test_hosted_tools_rejected(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hi",
+            "tools": [{"type": "web_search"}],
+        }
+        with pytest.raises(ValueError, match="web_search"):
+            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+    def test_tool_choice_conversion(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hi",
+            "tool_choice": {"type": "function", "name": "f"},
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["tool_choice"] == {"type": "function", "function": {"name": "f"}}
+
+    def test_parallel_tool_calls_passthrough(self):
+        request = {"model": "gpt-4o", "input": "Hi", "parallel_tool_calls": True}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["parallel_tool_calls"] is True
+
+    def test_max_output_tokens_to_max_tokens(self):
+        request = {"model": "gpt-4o", "input": "Hi", "max_output_tokens": 500}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["max_tokens"] == 500
+
+    def test_reasoning_effort_mapping(self):
+        request = {"model": "gpt-4o", "input": "Hi", "reasoning": {"effort": "medium"}}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["reasoning_effort"] == "medium"
+
+    def test_text_format_to_response_format(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hi",
+            "text": {"format": {"type": "json_object"}},
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["response_format"] == {"type": "json_object"}
+
+    def test_previous_response_id_handled_by_router(self):
+        """previous_response_id 在路由层展开，不在 converter 中处理"""
+        request = {"model": "gpt-4o", "input": "Hi", "previous_response_id": "resp_1"}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        # converter 不处理 previous_response_id，直接透传
+        assert "previous_response_id" not in result
+
+    def test_rejects_background(self):
+        request = {"model": "gpt-4o", "input": "Hi", "background": True}
+        with pytest.raises(ValueError, match="background"):
+            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+    def test_rejects_conversation(self):
+        request = {"model": "gpt-4o", "input": "Hi", "conversation": "conv_1"}
+        with pytest.raises(ValueError, match="conversation"):
+            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+    def test_safety_identifier_to_user(self):
+        request = {"model": "gpt-4o", "input": "Hi", "safety_identifier": "user-1"}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["user"] == "user-1"
+
+    def test_user_field_also_maps_to_user(self):
+        request = {"model": "gpt-4o", "input": "Hi", "user": "user-2"}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["user"] == "user-2"
+
+    def test_safety_identifier_takes_precedence_over_user(self):
+        request = {"model": "gpt-4o", "input": "Hi", "safety_identifier": "safe", "user": "usr"}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["user"] == "safe"
+
+    def test_metadata_not_forwarded(self):
+        """metadata 不透传到 Chat 请求"""
+        request = {"model": "gpt-4o", "input": "Hi", "metadata": {"key": "val"}}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert "metadata" not in result
+
+    def test_prompt_cache_key_not_forwarded(self):
+        """prompt_cache_key 不透传到 Chat 请求"""
+        request = {"model": "gpt-4o", "input": "Hi", "prompt_cache_key": "cache-1"}
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert "prompt_cache_key" not in result
+
+    def test_refusal_content_block_converted(self):
+        """refusal 内容块应转换为 Chat 的 refusal 块"""
+        request = {
+            "model": "gpt-4o",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "refusal", "refusal": "I cannot help with that."},
+                    ],
+                }
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["messages"][0]["content"] == [
+            {"type": "refusal", "refusal": "I cannot help with that."}
+        ]
+
+
 class TestResponseResponseToChat:
     """Responses API 响应 → Chat Completions API 响应"""
 

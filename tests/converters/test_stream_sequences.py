@@ -20,6 +20,131 @@ def feed_anthropic_events(converter, events):
     return outputs
 
 
+def feed_response_events(converter, events):
+    """辅助函数：逐 chunk 输入并收集全部输出（Chat→Response 方向）"""
+    outputs = []
+    for evt in events:
+        result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+        if result is not None:
+            outputs.append(result)
+            extra = converter.get_extra_events(result or {})
+            outputs.extend(extra)
+    # finalize
+    outputs.extend(converter.finalize_stream("openai-chat-completions"))
+    return outputs
+
+
+class TestChatToResponseStreamGolden:
+    """Golden test：验证 Chat 流 → Response 流的完整事件顺序。"""
+
+    def test_text_stream_golden_event_order(self):
+        """文本流应产生完整的 Responses SSE 生命周期事件。"""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hello"}}]},
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": " world"}}]},
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "stop"}]},
+        ]
+        outputs = feed_response_events(converter, events)
+        event_types = [o.get("type") for o in outputs if isinstance(o, dict)]
+
+        # 验证完整事件顺序
+        expected_sequence = [
+            "response.created",
+            "response.in_progress",
+            "response.output_item.added",
+            "response.content_part.added",
+            "response.output_text.delta",
+            "response.output_text.delta",
+            "response.output_text.done",
+            "response.content_part.done",
+            "response.output_item.done",
+            "response.completed",
+        ]
+        assert event_types == expected_sequence, f"Got: {event_types}"
+
+    def test_tool_call_stream_golden_event_order(self):
+        """工具调用流应产生完整生命周期事件。"""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "id": "call_1", "function": {"name": "search", "arguments": ""}}
+                        ]
+                    }
+                }],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": '{"q":"x"}'}}
+                        ]
+                    }
+                }],
+            },
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+        ]
+        outputs = feed_response_events(converter, events)
+        event_types = [o.get("type") for o in outputs if isinstance(o, dict)]
+
+        assert "response.created" in event_types
+        assert "response.in_progress" in event_types
+        assert "response.output_item.added" in event_types
+        assert "response.function_call_arguments.delta" in event_types
+        assert "response.function_call_arguments.done" in event_types
+        assert "response.completed" in event_types
+
+    def test_mixed_text_and_tool_stream_golden(self):
+        """文本 + 工具调用流的事件顺序。"""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Let me search"}}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "id": "call_1", "function": {"name": "search", "arguments": ""}}
+                        ]
+                    }
+                }],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": '{"q":"x"}'}}
+                        ]
+                    }
+                }],
+            },
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+        ]
+        outputs = feed_response_events(converter, events)
+        event_types = [o.get("type") for o in outputs if isinstance(o, dict)]
+
+        # 文本项先完成，然后工具调用完成
+        text_done_idx = event_types.index("response.output_text.done")
+        item_done_idx = event_types.index("response.output_item.done")
+        args_done_idx = event_types.index("response.function_call_arguments.done")
+        completed_idx = event_types.index("response.completed")
+        assert text_done_idx < item_done_idx
+        assert args_done_idx < completed_idx
+
+
 class TestChatToAnthropicStream:
     def test_thinking_stream_with_signature_delta(self):
         """OpenAI reasoning_content 流应生成 thinking_delta + signature_delta"""
