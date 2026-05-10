@@ -555,10 +555,17 @@ _RETRYABLE_EXCEPTIONS = (
 )
 
 
+class ConverterError(Exception):
+    """格式转换失败，允许外层故障转移到其他渠道。"""
+    pass
+
+
 def _is_retryable_exception(exc: BaseException) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
         status_code = exc.response.status_code
         return status_code == 429 or 500 <= status_code < 600
+    if isinstance(exc, ConverterError):
+        return True
     return isinstance(exc, _RETRYABLE_EXCEPTIONS)
 
 
@@ -603,11 +610,15 @@ class _StreamPreflightError(Exception):
 
 
 async def _prime_stream(gen):
-    """消费首个 chunk，让连接和首包前错误进入故障转移循环。"""
+    """消费首个 chunk，让连接和首包前错误进入故障转移循环。
+    
+    如果上游连接成功但没有任何 SSE 输出（StopAsyncIteration），
+    视为上游异常，触发故障转移而非返回空流。
+    """
     try:
         first_chunk = await anext(gen)
     except StopAsyncIteration:
-        return gen
+        raise RuntimeError("上游流式响应为空，没有任何 SSE 输出")
     except _StreamPreflightError as exc:
         raise exc.original from exc
 
@@ -707,10 +718,10 @@ async def _proxy_single_model_request(
                 last_error = e
                 all_tried.add(selected.id)
             elif _is_channel_config_error(e):
-                # 渠道配置错误：记录失败但不重试
+                # 渠道配置错误（401/403/404）：记录失败并继续尝试其他渠道
                 load_balancer.record_failure(selected.id)
+                last_error = e
                 all_tried.add(selected.id)
-                raise
             else:
                 raise
 
@@ -757,10 +768,10 @@ async def _proxy_model_group_request(
                     last_error = e
                     tried_channels.add(selected.id)
                 elif _is_channel_config_error(e):
-                    # 渠道配置错误：记录失败但不重试
+                    # 渠道配置错误（401/403/404）：记录失败并继续尝试其他渠道
                     load_balancer.record_failure(selected.id)
+                    last_error = e
                     tried_channels.add(selected.id)
-                    raise
                 else:
                     raise
 
@@ -801,7 +812,11 @@ async def _do_request(
 
     # 转换请求：客户端格式 → 上游格式
     if request_converter:
-        upstream_data = request_converter.convert_request(request_data, target_api_type.value)
+        try:
+            upstream_data = request_converter.convert_request(request_data, target_api_type.value)
+        except Exception as conv_err:
+            logger.warning(f"请求转换失败: {type(conv_err).__name__}: {conv_err}")
+            raise ConverterError(f"请求转换失败: {conv_err}") from conv_err
     else:
         upstream_data = request_data
 
@@ -852,7 +867,11 @@ async def _do_request(
 
         # 转换响应：上游格式 → 客户端格式
         if response_converter:
-            response_data = response_converter.convert_response(response_data, source_type)
+            try:
+                response_data = response_converter.convert_response(response_data, source_type)
+            except Exception as conv_err:
+                logger.warning(f"响应转换失败: {type(conv_err).__name__}: {conv_err}")
+                raise ConverterError(f"响应转换失败: {conv_err}") from conv_err
 
         # 过滤 💭 内容
         if need_think_filter:
@@ -1292,7 +1311,11 @@ async def _do_stream_request(
                 if response_converter:
                     if is_upstream_anthropic and upstream_event_type is not None:
                         chunk = {**chunk, "_event_type": upstream_event_type}
-                    converted = response_converter.convert_stream_chunk(chunk, source_type)
+                    try:
+                        converted = response_converter.convert_stream_chunk(chunk, source_type)
+                    except Exception as conv_err:
+                        logger.warning(f"流式 chunk 转换失败: {type(conv_err).__name__}: {conv_err}")
+                        raise ConverterError(f"流式 chunk 转换失败: {conv_err}") from conv_err
                     logger.debug(f"[CONVERT_CHUNK] converted={converted is not None} type={converted.get('type') if converted else None}")
                     if converted is not None:
                         # 应用 ThinkFilter 过滤思考内容
@@ -1408,7 +1431,7 @@ async def _do_stream_request(
             response_headers=resp_headers, status_code=resp_status_code, error=str(e),
         )
         if not emitted_output:
-            if _is_retryable_exception(e):
+            if _is_retryable_exception(e) or _is_channel_config_error(e):
                 raise _StreamPreflightError(e) from e
             raise
         load_balancer.record_failure(channel.id)
@@ -1492,6 +1515,6 @@ async def _raise_preflight_stream_errors(gen):
             has_yielded = True
             yield chunk
     except Exception as exc:
-        if not has_yielded and _is_retryable_exception(exc):
+        if not has_yielded and (_is_retryable_exception(exc) or _is_channel_config_error(exc)):
             raise _StreamPreflightError(exc) from exc
         raise
