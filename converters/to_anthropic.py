@@ -182,10 +182,11 @@ class ToAnthropicConverter(BaseConverter):
                                     "source": {"type": "base64", "media_type": downloaded["media_type"], "data": downloaded["data"]},
                                 })
                             else:
-                                # 下载失败，跳过并已记录警告
-                                pass
+                                # 下载失败，保留可见文本提示
+                                result.append({"type": "text", "text": f"[Image download failed: {url[:100]}]"})
                         else:
                             logger.warning("Unsupported image_url format: %s...", url[:50])
+                            result.append({"type": "text", "text": f"[Unsupported image_url format: {url[:100]}]"})
 
                     elif item.get("type") == "input_text":
                         # OpenAI Response API input_text -> text
@@ -197,11 +198,32 @@ class ToAnthropicConverter(BaseConverter):
                         if refusal_text:
                             result.append({"type": "text", "text": f"[REFUSAL] {refusal_text}"})
 
+                    elif item.get("type") == "input_audio":
+                        # Anthropic 暂不支持音频输入，保留文本提示
+                        result.append({"type": "text", "text": "[Audio input not supported]"})
+
+                    elif item.get("type") == "file":
+                        file_info = item.get("file", {})
+                        file_data = file_info.get("file_data", "")
+                        filename = file_info.get("filename", "")
+                        if file_data.startswith("data:"):
+                            # data URI -> base64 document
+                            parts = file_data.split(",", 1)
+                            media_type = parts[0].split(";")[0].split(":")[1] if parts else "application/pdf"
+                            data = parts[1] if len(parts) > 1 else ""
+                            result.append({
+                                "type": "document",
+                                "source": {"type": "base64", "media_type": media_type, "data": data},
+                            })
+                        else:
+                            result.append({"type": "text", "text": f"[File input not supported: {filename or 'unknown'}]"})
+
                     elif isinstance(item, str):
                         result.append({"type": "text", "text": item})
                     else:
-                        logger.warning("Unsupported content item type '%s', converting to text", item.get("type", "unknown") if isinstance(item, dict) else type(item).__name__)
-                        result.append({"type": "text", "text": json.dumps(item, ensure_ascii=False) if isinstance(item, dict) else str(item)})
+                        item_type = item.get("type", "unknown")
+                        logger.warning("Unsupported content item type '%s', converting to text", item_type)
+                        result.append({"type": "text", "text": f"[Unsupported content type: {item_type}]"})
             return result
         return content
 
@@ -210,7 +232,7 @@ class ToAnthropicConverter(BaseConverter):
         messages = []
         for msg in data.get("messages", []):
             role = msg.get("role", "user")
-            if role == "system":
+            if role in ("system", "developer"):
                 if system is None:
                     system = []
                 content = msg.get("content", "")
@@ -274,11 +296,18 @@ class ToAnthropicConverter(BaseConverter):
                 content = self._convert_content(content)
                 messages.append({"role": role, "content": content})
 
+        if data.get("max_tokens") is not None:
+            max_tokens = data["max_tokens"]
+        elif data.get("max_completion_tokens") is not None:
+            max_tokens = data["max_completion_tokens"]
+        else:
+            max_tokens = 16384
+
         result = {
             "model": data.get("model", ""),
             "messages": messages,
             "stream": data.get("stream", False),
-            "max_tokens": data.get("max_tokens", 16384),
+            "max_tokens": max_tokens,
         }
         if system:
             result["system"] = system
@@ -298,7 +327,13 @@ class ToAnthropicConverter(BaseConverter):
                 elif tc.get("type") == "required":
                     result["tool_choice"] = {"type": "any"}
                 elif tc.get("type") == "function":
-                    result["tool_choice"] = {"type": "tool", "name": tc.get("function", {}).get("name", "")}
+                    # 兼容官方嵌套形态 {"type":"function","function":{"name":"..."}}
+                    # 和扁平形态 {"type":"function","name":"..."}
+                    func_info = tc.get("function")
+                    name = func_info.get("name", "") if isinstance(func_info, dict) else ""
+                    if not name:
+                        name = tc.get("name", "")
+                    result["tool_choice"] = {"type": "tool", "name": name}
                 # disable_parallel_tool_use OpenAI 无对应
                 if tc.get("disable_parallel_tool_use"):
                     logger.debug("OpenAI tool_choice.disable_parallel_tool_use not supported, ignored")

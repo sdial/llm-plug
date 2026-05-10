@@ -74,8 +74,8 @@ class TestChatToAnthropic:
         assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
         assert assistant_msg["content"][0]["input"] == {}
 
-    def test_non_data_image_url_raises(self):
-        """非 data: URL 的 image_url 应报 ValueError"""
+    def test_non_data_image_url_fallback_text(self):
+        """HTTP URL 图片下载失败时应保留可见文本提示"""
         request = {
             "model": "gpt-4o",
             "messages": [{
@@ -86,9 +86,7 @@ class TestChatToAnthropic:
                 ],
             }],
         }
-        # HTTP URL 图片应被跳过而非抛出异常
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
-        # 应只包含 text 部分，image_url 被跳过（下载失败时）
         user_msg = result["messages"][0]
         assert user_msg["role"] == "user"
         has_image = any(
@@ -96,6 +94,12 @@ class TestChatToAnthropic:
             for c in (user_msg.get("content") if isinstance(user_msg.get("content"), list) else [])
         )
         assert not has_image
+        # 应包含下载失败的文本提示
+        has_fallback = any(
+            isinstance(c, dict) and c.get("type") == "text" and "download failed" in c.get("text", "")
+            for c in (user_msg.get("content") if isinstance(user_msg.get("content"), list) else [])
+        )
+        assert has_fallback
 
     def test_user_to_metadata_user_id(self):
         """OpenAI user 参数应转为 Anthropic metadata.user_id"""
@@ -169,3 +173,130 @@ class TestChatToAnthropic:
                 for c in content
             )
             assert has_refusal
+
+    def test_developer_role_to_system(self):
+        """developer 角色应合并到顶层 system"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": "You are helpful"},
+                {"role": "developer", "content": "Use concise language"},
+                {"role": "user", "content": "Hello"},
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assert isinstance(result["system"], list)
+        assert len(result["system"]) == 2
+        assert result["system"][0]["text"] == "You are helpful"
+        assert result["system"][1]["text"] == "Use concise language"
+        # developer 不应出现在 messages 中
+        assert all(m["role"] != "developer" for m in result["messages"])
+
+    def test_max_completion_tokens_used_when_max_tokens_missing(self):
+        """max_completion_tokens 应在 max_tokens 缺失时被使用"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_completion_tokens": 2048,
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assert result["max_tokens"] == 2048
+
+    def test_max_tokens_takes_priority_over_max_completion_tokens(self):
+        """max_tokens 应优先于 max_completion_tokens"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 512,
+            "max_completion_tokens": 2048,
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assert result["max_tokens"] == 512
+
+    def test_tool_choice_function_flat(self):
+        """tool_choice 扁平形态 {type:function, name:...} 应正确转换"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "tool_choice": {"type": "function", "name": "get_weather"},
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assert result["tool_choice"]["type"] == "tool"
+        assert result["tool_choice"]["name"] == "get_weather"
+
+    def test_tool_choice_function_nested(self):
+        """tool_choice 嵌套形态仍应正确转换"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "tool_choice": {"type": "function", "function": {"name": "get_weather"}},
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assert result["tool_choice"]["type"] == "tool"
+        assert result["tool_choice"]["name"] == "get_weather"
+
+    def test_input_audio_not_supported(self):
+        """input_audio 应转为文本提示而非静默丢失"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "input_audio", "input_audio": {"data": "abc", "format": "mp3"}},
+                ],
+            }],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        user_msg = result["messages"][0]
+        content = user_msg.get("content")
+        if isinstance(content, list):
+            assert any(
+                c.get("type") == "text" and "Audio input not supported" in c.get("text", "")
+                for c in content
+            )
+
+    def test_file_data_uri_to_document(self):
+        """file data URI 应转为 document"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "file",
+                        "file": {
+                            "filename": "report.pdf",
+                            "file_data": "data:application/pdf;base64,dGVzdA==",
+                        },
+                    },
+                ],
+            }],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        user_msg = result["messages"][0]
+        content = user_msg.get("content")
+        if isinstance(content, list):
+            assert any(
+                c.get("type") == "document"
+                for c in content
+            )
+
+    def test_file_without_data_uri_fallback(self):
+        """file 无 data URI 时应保留文本提示"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "file", "file": {"filename": "report.txt"}},
+                ],
+            }],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        user_msg = result["messages"][0]
+        content = user_msg.get("content")
+        if isinstance(content, list):
+            assert any(
+                c.get("type") == "text" and "File input not supported" in c.get("text", "")
+                for c in content
+            )
