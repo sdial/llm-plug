@@ -3,7 +3,7 @@ Provider Capability 管理模块
 
 根据渠道配置推断上游提供商的能力，并在请求转发前过滤不支持的参数。
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from loguru import logger
 
@@ -91,16 +91,71 @@ def apply_capability_filter(request_data: dict, caps: ProviderCapabilities) -> d
     if not caps.supports_parallel_tool_calls:
         if "parallel_tool_calls" in result:
             del result["parallel_tool_calls"]
-            logger.warning(f"[CAPABILITY] 降级: parallel_tool_calls 被移除（渠道不支持）")
+            logger.warning("[CAPABILITY] 降级: parallel_tool_calls 被移除（渠道不支持）")
 
     # 过滤 tool_choice
     if not caps.supports_tool_choice_auto:
         tc = result.get("tool_choice")
         if tc == "auto":
             result["tool_choice"] = "none"
-            logger.warning(f"[CAPABILITY] 降级: tool_choice auto → none（渠道不支持）")
+            logger.warning("[CAPABILITY] 降级: tool_choice auto → none（渠道不支持）")
+
+    # 过滤 tool_choice=required
+    if not caps.supports_tool_choice_required:
+        tc = result.get("tool_choice")
+        if tc == "required":
+            del result["tool_choice"]
+            logger.warning("[CAPABILITY] 降级: tool_choice required 被移除（渠道不支持）")
+
+    # 过滤 response_format
+    if not caps.supports_response_format:
+        if "response_format" in result:
+            del result["response_format"]
+            logger.warning("[CAPABILITY] 降级: response_format 被移除（渠道不支持）")
+
+    # 过滤 reasoning_effort
+    if not caps.supports_reasoning_effort:
+        if "reasoning_effort" in result:
+            del result["reasoning_effort"]
+            logger.warning("[CAPABILITY] 降级: reasoning_effort 被移除（渠道不支持）")
+
+    # 过滤 strict tools
+    if not caps.supports_strict_tools:
+        tools = result.get("tools")
+        if isinstance(tools, list):
+            for tool in tools:
+                if isinstance(tool, dict) and "function" in tool:
+                    func = tool["function"]
+                    if isinstance(func, dict) and "strict" in func:
+                        del func["strict"]
+                        logger.warning("[CAPABILITY] 降级: function strict 被移除（渠道不支持）")
+
+    # 过滤 file content in messages
+    if not caps.supports_file_content:
+        messages = result.get("messages")
+        if isinstance(messages, list):
+            _filter_content_type(messages, "file")
+
+    # 过滤 audio content in messages
+    if not caps.supports_audio_content:
+        messages = result.get("messages")
+        if isinstance(messages, list):
+            _filter_content_type(messages, "input_audio")
 
     return result
+
+
+def _filter_content_type(messages: list, content_type: str) -> None:
+    """从消息列表中移除指定类型的内容块。"""
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, list):
+            filtered = [p for p in content if not (isinstance(p, dict) and p.get("type") == content_type)]
+            if len(filtered) < len(content):
+                msg["content"] = filtered
+                logger.warning(f"[CAPABILITY] 降级: {content_type} 内容块被移除（渠道不支持）")
 
 
 def merge_system_messages(messages: list[dict]) -> list[dict]:

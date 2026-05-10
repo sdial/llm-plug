@@ -5,6 +5,20 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 app = FastAPI()
 
+# 请求捕获：保存最近一次请求
+_last_chat_request = None
+
+
+def get_last_chat_request():
+    """获取最近一次 /chat/completions 请求体。"""
+    return _last_chat_request
+
+
+def reset_last_chat_request():
+    """重置请求捕获。"""
+    global _last_chat_request
+    _last_chat_request = None
+
 ANTHROPIC_STREAM_DATA = [
     b'event: message_start\ndata: {"type": "message_start", "message": {"id": "msg_001", "type": "message", "role": "assistant"}}\n\n',
     b'event: content_block_start\ndata: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}\n\n',
@@ -47,7 +61,9 @@ async def anthropic_messages(request: Request):
 
 @app.post("/openai/v1/chat/completions")
 async def openai_chat(request: Request):
+    global _last_chat_request
     body = await request.json()
+    _last_chat_request = body
     stream = body.get("stream", False)
     
     if stream:

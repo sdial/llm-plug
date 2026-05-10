@@ -175,6 +175,56 @@ def test_post_responses_with_previous_response_id_expands_history(client):
             ]
 
 
+def test_post_responses_saves_reasoning_item_in_history(client):
+    """reasoning 输出项应保存在历史消息中"""
+    with patch("routers.proxy_response._store") as mock_store:
+        mock_store.put = AsyncMock()
+        mock_store.get_conversation = AsyncMock(return_value=None)
+
+        with patch("routers.proxy_response.proxy_request") as mock_proxy:
+            mock_proxy.return_value = (
+                {
+                    "id": "resp_reasoning",
+                    "object": "response",
+                    "created_at": 123,
+                    "model": "gpt-4o",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "reasoning",
+                            "id": "rs_abc",
+                            "summary": [{"type": "summary_text", "text": "Thinking..."}],
+                        },
+                        {
+                            "type": "message",
+                            "id": "msg_resp_reasoning",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "The answer is 42"}],
+                        },
+                    ],
+                    "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+                },
+                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+            )
+
+            resp = client.post("/v1/responses", json={
+                "model": "gpt-4o",
+                "input": "What is the answer?",
+            })
+
+            assert resp.status_code == 200
+            _, conversation, _ = mock_store.put.await_args.args
+            # reasoning 项应出现在历史中
+            reasoning_items = [m for m in conversation["messages"] if isinstance(m, dict) and m.get("type") == "reasoning"]
+            assert len(reasoning_items) == 1
+            assert reasoning_items[0]["id"] == "rs_abc"
+            # message 项也应出现
+            assistant_items = [m for m in conversation["messages"] if isinstance(m, dict) and m.get("role") == "assistant"]
+            assert len(assistant_items) == 1
+            assert assistant_items[0]["content"] == "The answer is 42"
+
+
 def test_previous_response_id_expands_function_call_history(client):
     with patch("routers.proxy_response._store") as mock_store:
         mock_store.get_conversation = AsyncMock(return_value={

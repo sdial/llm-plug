@@ -26,17 +26,19 @@ class ToResponseConverter(BaseConverter):
             "message_id": "",
             "output_index": 0,
             "response_created_sent": False,
-            "output_item_added_sent": False,
             "completed_sent": False,
             "accumulated_text": "",
-            "tool_calls": {},  # call_id -> {name, arguments}
+            "tool_calls": {},  # call_id -> {name, arguments, output_index}
             "tool_call_index_to_id": {},
             "reasoning_content": "",
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
             "sequence_number": 0,
-            "text_output_index": None,
+            # 按输出项维护状态
+            "output_items": [],  # list of dicts: {type, output_index, item_id}
+            "active_text_item_id": None,
+            "active_text_output_index": None,
             "content_part_added_sent": False,
         }
         self._pending_extra_events = []
@@ -383,6 +385,16 @@ class ToResponseConverter(BaseConverter):
 
     # --- Chat Completions 流式 → Response 流式 ---
 
+    def _next_sequence_number(self) -> int:
+        self._stream_state["sequence_number"] += 1
+        return self._stream_state["sequence_number"]
+
+    def _make_response_event(self, event_type: str, **payload) -> dict[str, Any]:
+        return {"type": event_type, **payload}
+
+    def _queue_events(self, events: list[dict[str, Any]]) -> None:
+        self._pending_extra_events.extend(events)
+
     def _chat_stream_chunk_to_response(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
         from loguru import logger
         if self._stream_state is None:
@@ -405,10 +417,6 @@ class ToResponseConverter(BaseConverter):
                 self._stream_state["message_id"],
             )
 
-        def _next_sequence_number() -> int:
-            self._stream_state["sequence_number"] += 1
-            return self._stream_state["sequence_number"]
-
         # 提取 usage（可能在任何 chunk 中，包括 choices 为空的 usage-only chunk）
         usage = chunk.get("usage")
         if usage:
@@ -424,19 +432,18 @@ class ToResponseConverter(BaseConverter):
 
         def _make_created_event() -> dict[str, Any]:
             self._need_in_progress = True
-            return {
-                "type": "response.created",
-                "response": {
+            return self._make_response_event(
+                "response.created",
+                response={
                     "id": self._stream_state["response_id"],
                     "object": "response",
                     "status": "in_progress",
                     "model": self._stream_state["model"],
                     "output": [],
                 },
-            }
+            )
 
         def _ensure_created() -> bool:
-            """确保 response.created 已发送，返回是否需要发送"""
             if not self._stream_state["response_created_sent"]:
                 self._stream_state["response_created_sent"] = True
                 if not self._stream_state["message_id"]:
@@ -444,16 +451,23 @@ class ToResponseConverter(BaseConverter):
                 return True
             return False
 
-        def _ensure_output_item_added() -> bool:
-            """确保 response.output_item.added 已发送，返回是否需要发送"""
-            if not self._stream_state["output_item_added_sent"]:
-                self._stream_state["output_item_added_sent"] = True
-                if self._stream_state["text_output_index"] is None:
-                    idx = self._stream_state["output_index"]
-                    self._stream_state["text_output_index"] = idx
-                    self._stream_state["output_index"] = idx + 1
-                return True
-            return False
+        def _ensure_text_output_item_added() -> bool:
+            """确保文本消息的 output_item.added 已发送。返回 True 表示需要发送。"""
+            if self._stream_state["active_text_item_id"] is not None:
+                return False
+            idx = self._stream_state["output_index"]
+            self._stream_state["output_index"] = idx + 1
+            item_id = self._stream_state["message_id"]
+            if not item_id.startswith("msg_"):
+                item_id = self._make_message_id(self._stream_state["response_id"] or "resp_stream", item_id)
+            self._stream_state["active_text_item_id"] = item_id
+            self._stream_state["active_text_output_index"] = idx
+            self._stream_state["output_items"].append({
+                "type": "message",
+                "output_index": idx,
+                "item_id": item_id,
+            })
+            return True
 
         # 处理第一个 chunk 带 role 的情况
         if delta.get("role") == "assistant":
@@ -465,49 +479,44 @@ class ToResponseConverter(BaseConverter):
         if delta.get("content") is not None:
             text = delta["content"]
             self._stream_state["accumulated_text"] += text
-            if self._stream_state["text_output_index"] is None:
-                self._stream_state["text_output_index"] = self._stream_state["output_index"]
-            text_output_index = self._stream_state["text_output_index"]
             item_id = self._stream_state["message_id"]
             if not item_id.startswith("msg_"):
                 item_id = self._make_message_id(self._stream_state["response_id"] or "resp_stream", item_id)
-            event = {
-                "type": "response.output_text.delta",
-                "item_id": item_id,
-                "output_index": text_output_index,
-                "content_index": 0,
-                "delta": text,
-                "sequence_number": _next_sequence_number(),
-            }
-            pending_before_delta = []
-            if _ensure_output_item_added():
-                pending_before_delta.append({
-                    "type": "response.output_item.added",
-                    "output_index": text_output_index,
-                    "item": {
-                        "type": "message",
-                        "id": item_id,
-                        "role": "assistant",
-                        "content": [],
-                    },
-                })
+            text_output_index = self._stream_state["active_text_output_index"]
+
+            pending = []
+            if _ensure_text_output_item_added():
+                text_output_index = self._stream_state["active_text_output_index"]
+                pending.append(self._make_response_event(
+                    "response.output_item.added",
+                    output_index=text_output_index,
+                    item={"type": "message", "id": item_id, "role": "assistant", "content": []},
+                ))
             if not self._stream_state["content_part_added_sent"]:
                 self._stream_state["content_part_added_sent"] = True
-                pending_before_delta.append({
-                    "type": "response.content_part.added",
-                    "item_id": item_id,
-                    "output_index": text_output_index,
-                    "content_index": 0,
-                    "part": {"type": "output_text", "text": ""},
-                })
-            pending_before_delta.append(event)
+                pending.append(self._make_response_event(
+                    "response.content_part.added",
+                    item_id=item_id,
+                    output_index=text_output_index,
+                    content_index=0,
+                    part={"type": "output_text", "text": ""},
+                ))
+            pending.append(self._make_response_event(
+                "response.output_text.delta",
+                item_id=item_id,
+                output_index=text_output_index,
+                content_index=0,
+                delta=text,
+                sequence_number=self._next_sequence_number(),
+            ))
+
             if _ensure_created():
-                self._pending_extra_events = pending_before_delta
+                self._pending_extra_events = pending
                 return _make_created_event()
-            if len(pending_before_delta) > 1:
-                self._pending_extra_events = pending_before_delta[1:]
-                return pending_before_delta[0]
-            return event
+            if len(pending) > 1:
+                self._pending_extra_events = pending[1:]
+                return pending[0]
+            return pending[0]
 
         # 处理工具调用
         if delta.get("tool_calls"):
@@ -524,29 +533,28 @@ class ToResponseConverter(BaseConverter):
                         call_id = f"call_{tc_index}" if tc_index is not None else f"call_{len(self._stream_state['tool_calls'])}"
                     if tc_index is not None:
                         self._stream_state["tool_call_index_to_id"][tc_index] = call_id
-                    self._stream_state["tool_calls"][call_id] = {"name": name, "arguments": "", "output_index": idx}
                     idx = self._stream_state["output_index"]
                     self._stream_state["output_index"] = idx + 1
-                    self._stream_state["tool_calls"][call_id]["output_index"] = idx
-                    events.append({
-                        "type": "response.output_item.added",
+                    self._stream_state["tool_calls"][call_id] = {"name": name, "arguments": "", "output_index": idx}
+                    self._stream_state["output_items"].append({
+                        "type": "function_call",
                         "output_index": idx,
-                        "item": {
-                            "type": "function_call",
-                            "call_id": call_id,
-                            "name": name,
-                            "arguments": "",
-                        },
+                        "call_id": call_id,
                     })
+                    events.append(self._make_response_event(
+                        "response.output_item.added",
+                        output_index=idx,
+                        item={"type": "function_call", "call_id": call_id, "name": name, "arguments": ""},
+                    ))
                 elif function.get("arguments") is not None:
                     args = function.get("arguments", "")
                     if args:
                         if call_id in self._stream_state["tool_calls"]:
                             self._stream_state["tool_calls"][call_id]["arguments"] += args
-                        event = {
-                            "type": "response.function_call_arguments.delta",
-                            "delta": args,
-                        }
+                        event = self._make_response_event(
+                            "response.function_call_arguments.delta",
+                            delta=args,
+                        )
                         if tc_index is not None:
                             event["output_index"] = self._stream_state["tool_calls"].get(call_id, {}).get("output_index", tc_index)
                         events.append(event)
@@ -569,28 +577,29 @@ class ToResponseConverter(BaseConverter):
                 self._stream_state["reasoning_id"] = f"rs_{chunk.get('id', '')}"
                 idx = self._stream_state["output_index"]
                 self._stream_state["output_index"] = idx + 1
-                added_event = {
-                    "type": "response.output_item.added",
+                self._stream_state["output_items"].append({
+                    "type": "reasoning",
                     "output_index": idx,
-                    "item": {
-                        "type": "reasoning",
-                        "id": self._stream_state["reasoning_id"],
-                        "summary": [],
-                    },
-                }
-                delta_event = {
-                    "type": "response.reasoning_summary_text.delta",
-                    "delta": rc,
-                }
+                    "id": self._stream_state["reasoning_id"],
+                })
+                added_event = self._make_response_event(
+                    "response.output_item.added",
+                    output_index=idx,
+                    item={"type": "reasoning", "id": self._stream_state["reasoning_id"], "summary": []},
+                )
+                delta_event = self._make_response_event(
+                    "response.reasoning_summary_text.delta",
+                    delta=rc,
+                )
                 if _ensure_created():
                     self._pending_extra_events = [added_event, delta_event]
                     return _make_created_event()
                 self._pending_extra_events = [delta_event]
                 return added_event
-            event = {
-                "type": "response.reasoning_summary_text.delta",
-                "delta": rc,
-            }
+            event = self._make_response_event(
+                "response.reasoning_summary_text.delta",
+                delta=rc,
+            )
             if _ensure_created():
                 self._pending_extra_events = [event]
                 return _make_created_event()
@@ -786,7 +795,7 @@ class ToResponseConverter(BaseConverter):
     def _build_output_items(self) -> list[dict[str, Any]]:
         output = []
         if self._stream_state["accumulated_text"]:
-            item_id = self._stream_state["message_id"]
+            item_id = self._stream_state["active_text_item_id"] or self._stream_state["message_id"]
             if not item_id.startswith("msg_"):
                 item_id = self._make_message_id(self._stream_state["response_id"] or "resp_stream", item_id)
             output.append({
@@ -850,11 +859,10 @@ class ToResponseConverter(BaseConverter):
         }
 
         done_events = []
-        if self._stream_state["output_item_added_sent"]:
-            item_id = self._stream_state["message_id"]
-            if not item_id.startswith("msg_"):
-                item_id = self._make_message_id(self._stream_state["response_id"] or "resp_stream", item_id)
-            text_output_index = self._stream_state["text_output_index"]
+        # 文本项的完成事件
+        if self._stream_state["active_text_item_id"] is not None:
+            item_id = self._stream_state["active_text_item_id"]
+            text_output_index = self._stream_state["active_text_output_index"]
             if text_output_index is None:
                 text_output_index = 0
             if self._stream_state["accumulated_text"]:
@@ -877,6 +885,7 @@ class ToResponseConverter(BaseConverter):
                 "output_index": text_output_index,
                 "item": output[0] if output else {},
             })
+        # 工具调用项的完成事件
         for call_id, tc_data in self._stream_state["tool_calls"].items():
             done_events.append({
                 "type": "response.function_call_arguments.done",

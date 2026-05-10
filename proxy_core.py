@@ -1437,9 +1437,9 @@ async def _do_stream_request(
             error_data = {"type": "error", "error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
             emitted_output = True
             yield _yield_anthropic_event("error", error_data)
-            # 发送 response.completed 事件以便客户端正确识别流结束
-            completed_data = {
-                "type": "response.completed",
+            # 发送 response.failed 事件以便客户端正确识别流结束
+            failed_data = {
+                "type": "response.failed",
                 "response": {
                     "id": "",
                     "object": "response",
@@ -1450,7 +1450,7 @@ async def _do_stream_request(
                 },
             }
             emitted_output = True
-            yield _yield_anthropic_event("response.completed", completed_data)
+            yield _yield_anthropic_event("response.failed", failed_data)
         else:
             error_data = {"error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
             emitted_output = True

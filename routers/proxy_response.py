@@ -69,6 +69,14 @@ def _response_output_to_items(response: dict[str, Any]) -> list[dict[str, Any]]:
                 "name": item.get("name", ""),
                 "arguments": item.get("arguments", "{}"),
             })
+        elif item_type == "reasoning":
+            # reasoning 项保留在历史中，供 debug 和未来回放使用
+            # Chat 上游不支持 reasoning 回放，但保存原样
+            items.append({
+                "type": "reasoning",
+                "id": item.get("id", ""),
+                "summary": item.get("summary", []),
+            })
     return items
 
 
