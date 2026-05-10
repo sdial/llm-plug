@@ -515,6 +515,68 @@ class TestDoStreamRequest:
         assert captured["json"] == request_data
 
     @pytest.mark.anyio
+    async def test_openai_responses_sse_event_lines_are_preserved(self):
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: response.created"
+                yield 'data: {"type":"response.created","response":{"id":"resp_1","object":"response","status":"in_progress"}}'
+                yield ""
+                yield "event: response.output_text.delta"
+                yield 'data: {"type":"response.output_text.delta","delta":"Hello"}'
+                yield ""
+                yield "event: response.completed"
+                yield 'data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed"}}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_response",
+            name="Responses",
+            api_type=APIType.OPENAI_RESPONSE,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.openai.com/v1/responses",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "gpt-4o", "stream": True},
+                response_converter=None,
+                source_type="openai-response",
+                target_api_type=APIType.OPENAI_RESPONSE,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        joined = "".join(outputs)
+        assert "event: response.created" in joined
+        assert "event: response.output_text.delta" in joined
+        assert "event: response.completed" in joined
+        assert '"delta": "Hello"' in joined
+
+    @pytest.mark.anyio
     async def test_stream_retries_next_channel_when_first_channel_fails_before_output(self):
         class FailingStreamResponse:
             async def __aenter__(self):
@@ -933,7 +995,6 @@ class TestAnthropicHeaderPriority:
         joined = "".join(outputs)
         assert "event: response.completed" in joined
         assert '"text": "Hello"' in joined
-
 
 class TestFailoverOn401:
     """401/403/404 应触发故障转移到其他渠道。"""
