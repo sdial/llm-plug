@@ -562,6 +562,13 @@ def _is_retryable_exception(exc: BaseException) -> bool:
     return isinstance(exc, _RETRYABLE_EXCEPTIONS)
 
 
+def _is_channel_config_error(exc: BaseException) -> bool:
+    """检查是否为渠道配置错误（如认证失败、路径错误等）"""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (401, 403, 404)
+    return False
+
+
 def _fire_and_forget(coro):
     def _on_done(t: asyncio.Task) -> None:
         if t.cancelled():
@@ -695,11 +702,17 @@ async def _proxy_single_model_request(
                 result = await _prime_stream(result)
             return result, selected
         except Exception as e:
-            if not _is_retryable_exception(e):
+            if _is_retryable_exception(e):
+                load_balancer.record_failure(selected.id)
+                last_error = e
+                all_tried.add(selected.id)
+            elif _is_channel_config_error(e):
+                # 渠道配置错误：记录失败但不重试
+                load_balancer.record_failure(selected.id)
+                all_tried.add(selected.id)
                 raise
-            load_balancer.record_failure(selected.id)
-            last_error = e
-            all_tried.add(selected.id)
+            else:
+                raise
 
 
 async def _proxy_model_group_request(
@@ -739,11 +752,17 @@ async def _proxy_model_group_request(
                     result = await _prime_stream(result)
                 return result, selected
             except Exception as e:
-                if not _is_retryable_exception(e):
+                if _is_retryable_exception(e):
+                    load_balancer.record_failure(selected.id)
+                    last_error = e
+                    tried_channels.add(selected.id)
+                elif _is_channel_config_error(e):
+                    # 渠道配置错误：记录失败但不重试
+                    load_balancer.record_failure(selected.id)
+                    tried_channels.add(selected.id)
                     raise
-                load_balancer.record_failure(selected.id)
-                last_error = e
-                tried_channels.add(selected.id)
+                else:
+                    raise
 
     # 所有模型的所有渠道都失败了
     if last_error is not None:
