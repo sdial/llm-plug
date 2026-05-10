@@ -5,6 +5,8 @@ import json
 import time
 from typing import Any
 
+from loguru import logger
+
 from converters.base import BaseConverter
 
 
@@ -55,13 +57,22 @@ class ToChatCompletionsConverter(BaseConverter):
                 for part in content:
                     if part.get("type") == "text":
                         text_parts.append(part["text"])
-                    elif part.get("type") == "image" and part.get("source", {}).get("type") == "base64":
-                        image_parts.append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{part['source'].get('media_type', 'image/png')};base64,{part['source']['data']}"
-                            }
-                        })
+                    elif part.get("type") == "image":
+                        source = part.get("source", {})
+                        if source.get("type") == "base64":
+                            image_parts.append({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{source.get('media_type', 'image/png')};base64,{source['data']}"
+                                }
+                            })
+                        elif source.get("type") == "url":
+                            image_parts.append({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": source.get("url", "")
+                                }
+                            })
                     elif part.get("type") == "document":
                         # Anthropic document -> 转为文本标记
                         doc_source = part.get("source", {})
@@ -204,8 +215,27 @@ class ToChatCompletionsConverter(BaseConverter):
         unsupported_params = []
         if data.get("top_k") is not None and data["top_k"] != 0:
             unsupported_params.append("top_k")
-        if data.get("cache_control"):
+
+        # 递归检查 cache_control（可能在 system、messages、content blocks 上）
+        has_cache_control = data.get("cache_control") is not None
+        if not has_cache_control:
+            for part in (system if isinstance(system, list) else []):
+                if isinstance(part, dict) and part.get("cache_control"):
+                    has_cache_control = True
+                    break
+        if not has_cache_control:
+            for msg in data.get("messages", []):
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("cache_control"):
+                            has_cache_control = True
+                            break
+                if has_cache_control:
+                    break
+        if has_cache_control:
             unsupported_params.append("cache_control")
+
         if unsupported_params:
             logger.debug(
                 "Anthropic parameters not supported by OpenAI, will be ignored: %s",
@@ -282,7 +312,7 @@ class ToChatCompletionsConverter(BaseConverter):
                 else:
                     logger.debug("Unknown Anthropic response content block type: %s", part.get("type"))
 
-        message = {"role": "assistant", "content": message_content}
+        message = {"role": "assistant", "content": message_content or None}
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
         if tool_calls:
@@ -392,6 +422,12 @@ class ToChatCompletionsConverter(BaseConverter):
                     "model": self._stream_state["model"],
                     "choices": [{"index": 0, "delta": {"tool_calls": [{"index": tc_idx, "function": {"arguments": delta.get("partial_json", "")}}]}, "finish_reason": None}],
                 }
+            elif delta.get("type") == "signature_delta":
+                # Anthropic signature_delta 无 OpenAI Chat 对应字段，显式忽略
+                return None
+            elif delta.get("type") == "citations_delta":
+                # Anthropic citations_delta 无 OpenAI Chat 对应字段，显式忽略
+                return None
 
         elif event_type == "content_block_stop":
             return None
