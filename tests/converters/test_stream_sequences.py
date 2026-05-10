@@ -355,6 +355,7 @@ class TestChatToResponseStream:
             if result is not None:
                 outputs.append(result)
                 outputs.extend(converter.get_extra_events(result or {}))
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
 
         completed = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"][0]
         tool_call = [item for item in completed["response"]["output"] if item["type"] == "function_call"][0]
@@ -398,6 +399,7 @@ class TestChatToResponseStream:
                 outputs.append(result)
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
         completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
         resp = completed_events[0]["response"]
@@ -428,6 +430,7 @@ class TestChatToResponseStream:
                 outputs.append(result)
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
         # 验证 response.completed 被发送
         completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
@@ -447,6 +450,7 @@ class TestChatToResponseStream:
                 outputs.append(result)
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
         completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
         assert completed_events[0]["response"]["status"] == "incomplete"
@@ -479,6 +483,7 @@ class TestChatToResponseStream:
                 outputs.append(result)
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
         # 应有 response.created
         created_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.created"]
         assert len(created_events) == 1
@@ -624,6 +629,7 @@ class TestChatToResponseStream:
                 outputs.append(result)
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
         event_types = [o.get("type") if isinstance(o, dict) else None for o in outputs]
         assert "response.output_text.done" in event_types
         assert "response.output_item.done" in event_types
@@ -648,12 +654,65 @@ class TestChatToResponseStream:
                 outputs.append(result)
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
         completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
         usage = completed_events[0]["response"]["usage"]
         assert usage["input_tokens"] == 100
         assert usage["output_tokens"] == 50
         assert usage["total_tokens"] == 150
+
+    def test_usage_only_chunk_after_finish_updates_response_completed_usage(self):
+        """finish_reason 后的 usage-only chunk 应进入 response.completed.usage。"""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hi"}}]},
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "stop"}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 2, "total_tokens": 9},
+            },
+        ]
+
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                outputs.extend(converter.get_extra_events(result or {}))
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
+
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        assert len(completed_events) == 1
+        assert completed_events[0]["response"]["usage"] == {
+            "input_tokens": 7,
+            "output_tokens": 2,
+            "total_tokens": 9,
+        }
+
+    def test_finish_without_usage_only_chunk_finalizes_completed_on_done(self):
+        """没有 finish 后 usage-only chunk 时，finalize_stream 应释放 response.completed。"""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hi"}}]},
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "stop"}]},
+        ]
+
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                outputs.extend(converter.get_extra_events(result or {}))
+        assert not [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
+
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        assert len(completed_events) == 1
+        assert completed_events[0]["response"]["output"][0]["content"][0]["text"] == "Hi"
 
     def test_finalize_stream_emits_response_completed_without_finish_reason(self):
         """上游只返回内容和 [DONE] 时，收尾仍应补出 response.completed"""
