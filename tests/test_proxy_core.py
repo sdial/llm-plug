@@ -647,3 +647,370 @@ class TestDoStreamRequest:
         joined = "".join(outputs)
         assert "event: response.completed" in joined
         assert '"text": "Hello"' in joined
+
+
+class TestFailoverOn401:
+    """401/403/404 应触发故障转移到其他渠道。"""
+
+    @pytest.mark.anyio
+    async def test_401_fails_over_to_next_channel(self):
+        calls = []
+
+        class UnauthorizedClient:
+            async def post(self, url, json, headers):
+                calls.append(url)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    401,
+                    json={"error": {"message": "invalid api key"}},
+                    request=request,
+                )
+
+        class WorkingClient:
+            async def post(self, url, json, headers):
+                calls.append(url)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "chatcmpl_1",
+                        "object": "chat.completion",
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                    },
+                    request=request,
+                )
+
+        primary = Channel(
+            id="ch_primary", name="Primary", api_type=APIType.OPENAI_CHAT,
+            base_url="https://primary.example", api_key="sk-bad", models=["gpt-4o"], priority=1,
+        )
+        fallback = Channel(
+            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example", api_key="sk-good", models=["gpt-4o"], priority=2,
+        )
+
+        def fake_create_client(ch):
+            return UnauthorizedClient() if ch.id == "ch_primary" else WorkingClient()
+
+        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
+                patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+            result, selected = await _proxy_single_model_request(
+                model="gpt-4o",
+                request_data={"model": "gpt-4o", "messages": []},
+                target_api_type=APIType.OPENAI_CHAT,
+                is_stream=False,
+                query_string=None,
+                client_headers=None,
+                api_key_id=None,
+            )
+
+        assert selected.id == "ch_fallback"
+        assert len(calls) == 2
+        assert result["choices"][0]["message"]["content"] == "ok"
+
+    @pytest.mark.anyio
+    async def test_403_fails_over_to_next_channel(self):
+        calls = []
+
+        class ForbiddenClient:
+            async def post(self, url, json, headers):
+                calls.append(url)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    403,
+                    json={"error": {"message": "forbidden"}},
+                    request=request,
+                )
+
+        class WorkingClient:
+            async def post(self, url, json, headers):
+                calls.append(url)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "chatcmpl_1",
+                        "object": "chat.completion",
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                    },
+                    request=request,
+                )
+
+        primary = Channel(
+            id="ch_primary", name="Primary", api_type=APIType.OPENAI_CHAT,
+            base_url="https://primary.example", api_key="sk-bad", models=["gpt-4o"], priority=1,
+        )
+        fallback = Channel(
+            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example", api_key="sk-good", models=["gpt-4o"], priority=2,
+        )
+
+        def fake_create_client(ch):
+            return ForbiddenClient() if ch.id == "ch_primary" else WorkingClient()
+
+        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
+                patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+            result, selected = await _proxy_single_model_request(
+                model="gpt-4o",
+                request_data={"model": "gpt-4o", "messages": []},
+                target_api_type=APIType.OPENAI_CHAT,
+                is_stream=False,
+                query_string=None,
+                client_headers=None,
+                api_key_id=None,
+            )
+
+        assert selected.id == "ch_fallback"
+        assert len(calls) == 2
+
+    @pytest.mark.anyio
+    async def test_404_fails_over_to_next_channel(self):
+        calls = []
+
+        class NotFoundClient:
+            async def post(self, url, json, headers):
+                calls.append(url)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    404,
+                    json={"error": {"message": "not found"}},
+                    request=request,
+                )
+
+        class WorkingClient:
+            async def post(self, url, json, headers):
+                calls.append(url)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "chatcmpl_1",
+                        "object": "chat.completion",
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                    },
+                    request=request,
+                )
+
+        primary = Channel(
+            id="ch_primary", name="Primary", api_type=APIType.OPENAI_CHAT,
+            base_url="https://primary.example", api_key="sk-bad", models=["gpt-4o"], priority=1,
+        )
+        fallback = Channel(
+            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example", api_key="sk-good", models=["gpt-4o"], priority=2,
+        )
+
+        def fake_create_client(ch):
+            return NotFoundClient() if ch.id == "ch_primary" else WorkingClient()
+
+        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
+                patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+            result, selected = await _proxy_single_model_request(
+                model="gpt-4o",
+                request_data={"model": "gpt-4o", "messages": []},
+                target_api_type=APIType.OPENAI_CHAT,
+                is_stream=False,
+                query_string=None,
+                client_headers=None,
+                api_key_id=None,
+            )
+
+        assert selected.id == "ch_fallback"
+        assert len(calls) == 2
+
+    @pytest.mark.anyio
+    async def test_all_channels_401_raises_last_error(self):
+        """所有渠道都返回 401 时，应抛出最后一个错误。"""
+
+        class UnauthorizedClient:
+            async def post(self, url, json, headers):
+                request = httpx.Request("POST", url)
+                return httpx.Response(401, json={"error": {"message": "invalid"}}, request=request)
+
+        primary = Channel(
+            id="ch_primary", name="Primary", api_type=APIType.OPENAI_CHAT,
+            base_url="https://primary.example", api_key="sk-bad", models=["gpt-4o"], priority=1,
+        )
+        fallback = Channel(
+            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example", api_key="sk-bad2", models=["gpt-4o"], priority=2,
+        )
+
+        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
+                patch("proxy_core.create_client", new_callable=AsyncMock, return_value=UnauthorizedClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+            with pytest.raises(httpx.HTTPStatusError) as exc_info:
+                await _proxy_single_model_request(
+                    model="gpt-4o",
+                    request_data={"model": "gpt-4o", "messages": []},
+                    target_api_type=APIType.OPENAI_CHAT,
+                    is_stream=False,
+                    query_string=None,
+                    client_headers=None,
+                    api_key_id=None,
+                )
+
+        assert exc_info.value.response.status_code == 401
+
+
+class TestConverterErrorFailover:
+    """转换异常应允许故障转移到其他渠道。"""
+
+    @pytest.mark.anyio
+    async def test_response_conversion_error_fails_over(self):
+        """非流式响应转换失败时，应故障转移到其他渠道。"""
+        calls = []
+
+        class BrokenResponseClient:
+            """返回一个结构异常的响应，导致 converter 抛错。"""
+            async def post(self, url, json, headers):
+                calls.append(url)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={"unexpected": "format"},
+                    request=request,
+                )
+
+        class WorkingClient:
+            async def post(self, url, json, headers):
+                calls.append(url)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "chatcmpl_1",
+                        "object": "chat.completion",
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                    },
+                    request=request,
+                )
+
+        # anthropic 上游 → openai-chat-completions 客户端，需要转换
+        primary = Channel(
+            id="ch_primary", name="Primary", api_type=APIType.ANTHROPIC,
+            base_url="https://primary.example", api_key="ak-test", models=["claude-3"], priority=1,
+        )
+        # 同类型，直通
+        fallback = Channel(
+            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example", api_key="sk-good", models=["claude-3"], priority=2,
+        )
+
+        def fake_create_client(ch):
+            return BrokenResponseClient() if ch.id == "ch_primary" else WorkingClient()
+
+        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
+                patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+            result, selected = await _proxy_single_model_request(
+                model="claude-3",
+                request_data={"model": "claude-3", "messages": [{"role": "user", "content": "hi"}]},
+                target_api_type=APIType.OPENAI_CHAT,
+                is_stream=False,
+                query_string=None,
+                client_headers=None,
+                api_key_id=None,
+            )
+
+        assert selected.id == "ch_fallback"
+        assert result["choices"][0]["message"]["content"] == "ok"
+
+
+class TestEmptyStreamFailover:
+    """流式空响应应触发故障转移。"""
+
+    @pytest.mark.anyio
+    async def test_empty_stream_triggers_failover(self):
+        """上游流式连接成功但无任何 SSE 输出时，应故障转移。"""
+
+        class EmptyStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                # 不产出任何行
+                return
+                yield  # 使其成为 async generator
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class WorkingStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"id":"chatcmpl_2","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"fallback"},"finish_reason":null}]}'
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class EmptyClient:
+            def stream(self, *args, **kwargs):
+                return EmptyStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        class WorkingClient:
+            def stream(self, *args, **kwargs):
+                return WorkingStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        primary = Channel(
+            id="ch_primary", name="Primary", api_type=APIType.OPENAI_CHAT,
+            base_url="https://primary.example", api_key="sk-primary", models=["gpt-4o"], priority=1,
+        )
+        fallback = Channel(
+            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example", api_key="sk-fallback", models=["gpt-4o"], priority=2,
+        )
+
+        def fake_stream_client(ch):
+            return EmptyClient() if ch.id == "ch_primary" else WorkingClient()
+
+        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
+                patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request", new_callable=AsyncMock):
+            stream, selected = await _proxy_single_model_request(
+                model="gpt-4o",
+                request_data={"model": "gpt-4o", "stream": True, "messages": []},
+                target_api_type=APIType.OPENAI_CHAT,
+                is_stream=True,
+                query_string=None,
+                client_headers=None,
+                api_key_id=None,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        assert selected.id == "ch_fallback"
+        assert "fallback" in "".join(outputs)
