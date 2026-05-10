@@ -197,6 +197,38 @@ class TestResponseRequestToChat:
         assert result["messages"][1]["role"] == "assistant"
         assert result["messages"][2]["role"] == "user"
 
+    def test_developer_role_maps_to_system(self):
+        request = {
+            "model": "gpt-4o",
+            "input": [
+                {"role": "developer", "content": "Use concise answers."},
+                {"role": "user", "content": "Hello"},
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+        assert result["messages"][0] == {"role": "system", "content": "Use concise answers."}
+        assert result["messages"][1] == {"role": "user", "content": "Hello"}
+
+    def test_structured_input_text_content_is_preserved(self):
+        request = {
+            "model": "gpt-4o",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "Hello"},
+                        {"type": "input_text", "text": "world"},
+                    ],
+                },
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+        assert result["messages"] == [{"role": "user", "content": "Hello\nworld"}]
+
 
 class TestResponseResponseToChat:
     """Responses API 响应 → Chat Completions API 响应"""
