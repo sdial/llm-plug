@@ -18,47 +18,16 @@
             "output": [
               "text"
             ]
-          },
-          "options": {
-            "thinking": {
-              "type": "enabled",
-              "budgetTokens": 32000
-            }
-          },
-          "limit": {
-            "context": 198000,
-            "output": 131072
-          }
-        },
-        "moonshotai/kimi-k2.6": {
-          "name": "moonshotai/kimi-k2.6",
-          "modalities": {
-            "input": [
-              "text"
-            ],
-            "output": [
-              "text"
-            ]
-          },
-          "options": {
-            "thinking": {
-              "type": "enabled",
-              "budgetTokens": 32000
-            }
-          },
-          "limit": {
-            "context": 256000,
-            "output": 65536
           }
         }
-      }
+        }
     },
     "mimo": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "MiMo",
       "options": {
         "baseURL": "https://token-plan-cn.xiaomimimo.com/v1",
-        "apiKey": "tp-c640dqwfis5rj35f6kx9xj5jchzib4aqbi5eg7kt332yb8jj"
+        "apiKey": "tp-celvlbwalvbtdd56bg8ubejca3h9zplnku7sk6da3d3mg7y9"
       },
       "models": {
         "mimo-v2.5-pro": {
@@ -78,5 +47,5 @@
         }
       }
     }
-  }
+}
 }
