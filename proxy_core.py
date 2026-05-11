@@ -600,6 +600,48 @@ async def _load_history(previous_response_id: str | None) -> list[dict]:
     return conversation.get("messages", [])
 
 
+def _response_input_to_items(input_data: Any) -> list[dict[str, Any]]:
+    if input_data is None:
+        return []
+    if isinstance(input_data, str):
+        return [{"role": "user", "content": input_data}]
+    if isinstance(input_data, list):
+        items: list[dict[str, Any]] = []
+        for item in input_data:
+            if isinstance(item, str):
+                items.append({"role": "user", "content": item})
+            elif isinstance(item, dict):
+                items.append(dict(item))
+        return items
+    return [{"role": "user", "content": str(input_data)}]
+
+
+async def _prepare_openai_response_request_for_upstream(
+    request_data: dict[str, Any],
+    source_type: str,
+    target_api_type: APIType,
+) -> dict[str, Any]:
+    """展开 Responses 本地历史，仅用于不支持 Responses 状态的上游。"""
+    previous_response_id = request_data.get("previous_response_id")
+    if (
+        target_api_type != APIType.OPENAI_RESPONSE
+        or source_type == APIType.OPENAI_RESPONSE.value
+        or not previous_response_id
+    ):
+        return request_data
+
+    conversation = await _responses_store.get_conversation(previous_response_id)
+    if conversation is None:
+        raise ValueError(f"Response {previous_response_id} not found")
+
+    prepared = dict(request_data)
+    prepared["input"] = list(conversation.get("messages", [])) + _response_input_to_items(request_data.get("input"))
+    if not prepared.get("instructions") and conversation.get("instructions"):
+        prepared["instructions"] = conversation["instructions"]
+    prepared.pop("previous_response_id", None)
+    return prepared
+
+
 class _StreamPreflightError(Exception):
     """流式响应首个输出前失败，允许外层故障转移。"""
 
@@ -798,6 +840,11 @@ async def _do_request(
 ):
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
     same_type_passthrough = request_converter is None and response_converter is None
+    request_data = await _prepare_openai_response_request_for_upstream(
+        request_data,
+        source_type,
+        target_api_type,
+    )
 
     # 转换请求：客户端格式 → 上游格式
     if request_converter:

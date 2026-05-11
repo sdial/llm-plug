@@ -265,6 +265,34 @@ class TestChatToResponseStream:
         assert result["status"] == "incomplete"
         assert result["incomplete_details"] == {"reason": "max_output_tokens"}
 
+    def test_non_stream_chat_refusal_maps_to_response_refusal_content(self):
+        converter = ToResponseConverter()
+        result = converter.convert_response(
+            {
+                "id": "chatcmpl_1",
+                "created": 123,
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "refusal": "I cannot help with that.",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            },
+            "openai-chat-completions",
+        )
+
+        assert result["output_text"] == ""
+        assert result["output"][0]["type"] == "message"
+        assert result["output"][0]["content"] == [
+            {"type": "refusal", "refusal": "I cannot help with that."}
+        ]
+
     def test_non_stream_chat_usage_details_are_mapped(self):
         converter = ToResponseConverter()
         result = converter.convert_response(
@@ -412,6 +440,7 @@ class TestChatToResponseStream:
         assert "usage" in resp
         assert "input_tokens" in resp["usage"]
         assert "output_tokens" in resp["usage"]
+        assert resp["output_text"] == "Hello"
 
     def test_response_completed_with_empty_choices(self):
         """choices 为空但有 finish_reason 时仍应发送 response.completed"""
@@ -454,6 +483,37 @@ class TestChatToResponseStream:
         completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
         assert completed_events[0]["response"]["status"] == "incomplete"
+        assert completed_events[0]["response"]["incomplete_details"] == {"reason": "max_output_tokens"}
+
+    def test_output_item_added_marks_message_and_function_call_in_progress(self):
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hello"}}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "id": "call_1", "function": {"name": "search", "arguments": ""}}
+                        ]
+                    }
+                }],
+            },
+        ]
+
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                outputs.extend(converter.get_extra_events(result or {}))
+
+        added_items = [o["item"] for o in outputs if o.get("type") == "response.output_item.added"]
+        message = [item for item in added_items if item["type"] == "message"][0]
+        function_call = [item for item in added_items if item["type"] == "function_call"][0]
+        assert message["status"] == "in_progress"
+        assert function_call["status"] == "in_progress"
 
     def test_usage_chunk_with_empty_choices_is_ignored(self):
         """usage chunk（choices 为空数组）应被忽略，不产生事件，但 usage 数据被累积"""

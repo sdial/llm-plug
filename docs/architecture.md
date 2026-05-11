@@ -164,7 +164,7 @@ llm-plug/
 | 图片输入 | 按上游能力 | `input_image` 转为 Chat `image_url` |
 | 文件/音频输入 | 按上游能力 | 转为 Chat 内容块；上游不支持时应拒绝或按渠道能力处理 |
 | 托管工具 | 不支持，显式错误 | `web_search`、`file_search`、`code_interpreter`、`computer_use`、`mcp` 等不会静默丢弃 |
-| 状态历史 | 本地存储展开 | `previous_response_id` 由代理本地加载历史并展开为 Chat `messages` |
+| 状态历史 | 按上游能力处理 | 同格式 `openai-response` 上游透明透传 `previous_response_id`；Chat/Anthropic 等无原生 Responses 状态能力的上游由代理本地加载历史并展开 |
 
 ## API 端点
 
@@ -177,6 +177,8 @@ llm-plug/
 | POST | `/v1/messages` | Anthropic Messages 格式代理 |
 | GET | `/v1/models` | OpenAI 风格模型列表 |
 | GET | `/v1/anthropic/models` | Anthropic 风格模型列表 |
+
+`GET /v1/responses/{response_id}` 和 `DELETE /v1/responses/{response_id}` 是本地状态接口：它们只访问代理在 `data/responses_session/` 中保存的 response，不会按官方 Responses retrieve/delete 语义转发到上游。
 
 ### 管理接口
 

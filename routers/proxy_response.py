@@ -80,22 +80,6 @@ def _response_output_to_items(response: dict[str, Any]) -> list[dict[str, Any]]:
     return items
 
 
-async def _prepare_body_with_history(body: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    previous_response_id = body.get("previous_response_id")
-    if not previous_response_id:
-        return dict(body), None
-
-    conversation = await _store.get_conversation(previous_response_id)
-    if conversation is None:
-        raise ValueError(f"Response {previous_response_id} not found")
-
-    prepared = dict(body)
-    prepared["input"] = list(conversation.get("messages", [])) + _input_to_items(body.get("input"))
-    if not prepared.get("instructions") and conversation.get("instructions"):
-        prepared["instructions"] = conversation["instructions"]
-    return prepared, conversation
-
-
 async def _save_response_state(
     request_body: dict[str, Any],
     previous_conversation: dict[str, Any] | None,
@@ -182,13 +166,8 @@ async def post_response(request: Request, authorization: str | None = None):
     except json.JSONDecodeError as e:
         return invalid_request(f"Invalid JSON: {e}")
 
-    try:
-        prepared_body, previous_conversation = await _prepare_body_with_history(body)
-    except ValueError as e:
-        return invalid_request(str(e))
-
-    model = prepared_body.get("model", "")
-    is_stream = prepared_body.get("stream", False)
+    model = body.get("model", "")
+    is_stream = body.get("stream", False)
     query_string = str(request.url.query) if request.url.query else None
     client_headers = dict(request.headers)
     api_key_id = getattr(request.state, "api_key_id", None)
@@ -197,7 +176,7 @@ async def post_response(request: Request, authorization: str | None = None):
 
     try:
         result, channel = await proxy_request(
-            model, prepared_body, APIType.OPENAI_RESPONSE, is_stream,
+            model, body, APIType.OPENAI_RESPONSE, is_stream,
             query_string=query_string, client_headers=client_headers,
             api_key_id=api_key_id,
         )
@@ -217,6 +196,9 @@ async def post_response(request: Request, authorization: str | None = None):
         return response_from_proxy_exception(e)
 
     should_store = body.get("store", True) is not False
+    previous_conversation = None
+    if should_store and body.get("previous_response_id"):
+        previous_conversation = await _store.get_conversation(body["previous_response_id"])
     if is_stream:
         return StreamingResponse(
             _stateful_stream(result, body, previous_conversation, should_store),

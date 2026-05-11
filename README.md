@@ -50,6 +50,8 @@ uv run python main.py
 | OpenAI Responses | `POST /v1/responses` |
 | Anthropic Messages | `POST /v1/messages` |
 
+`GET /v1/responses/{id}` 和 `DELETE /v1/responses/{id}` 只读取或删除代理本地保存的 Responses 状态，不会转发到上游官方 Responses API。
+
 ## License
 
 MIT
