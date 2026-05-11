@@ -943,6 +943,60 @@ class TestAnthropicHeaderPriority:
         assert captured_headers["x-custom"] == "should-pass"
 
     @pytest.mark.anyio
+    async def test_client_headers_can_override_when_channel_policy_allows(self):
+        captured_headers = {}
+
+        class FakeClient:
+            async def post(self, url, json, headers):
+                captured_headers.update(headers)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "msg_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "ok"}],
+                        "model": "claude-3",
+                        "stop_reason": "end_turn",
+                        "usage": {"input_tokens": 1, "output_tokens": 1},
+                    },
+                    request=request,
+                )
+
+        channel = Channel(
+            id="ch_1",
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3"],
+            anthropic_version="2024-10-22",
+            anthropic_version_policy="client",
+            anthropic_beta="prompt-caching-2024-07-31",
+            anthropic_beta_policy="merge",
+        )
+
+        client_headers = {
+            "anthropic-version": "2025-01-01",
+            "anthropic-beta": "prompt-caching-2024-07-31,search-results-2025-01-15",
+        }
+
+        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            await _do_request(
+                channel, {"model": "claude-3", "messages": []},
+                APIType.ANTHROPIC, is_stream=False,
+                client_headers=client_headers,
+            )
+
+        assert captured_headers["anthropic-version"] == "2025-01-01"
+        assert captured_headers["anthropic-beta"] == (
+            "prompt-caching-2024-07-31,search-results-2025-01-15"
+        )
+
+    @pytest.mark.anyio
     async def test_emits_response_completed_before_done_when_finish_reason_missing(self):
         class FakeStreamResponse:
             status_code = 200

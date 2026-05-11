@@ -64,3 +64,25 @@ async def test_update_channel_revalidates_priority(channels_file):
         response = await client.put("/admin/channels/ch_test", json={"priority": 0})
 
     assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_update_channel_accepts_anthropic_header_policy_fields(channels_file):
+    payload = {
+        "api_type": "anthropic",
+        "anthropic_version": "2024-10-22",
+        "anthropic_version_policy": "channel_if_missing",
+        "anthropic_beta": "prompt-caching-2024-07-31",
+        "anthropic_beta_policy": "merge",
+    }
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.put("/admin/channels/ch_test", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["api_type"] == "anthropic"
+    assert body["anthropic_version"] == "2024-10-22"
+    assert body["anthropic_version_policy"] == "channel_if_missing"
+    assert body["anthropic_beta"] == "prompt-caching-2024-07-31"
+    assert body["anthropic_beta_policy"] == "merge"
