@@ -210,6 +210,16 @@ class TestGetUpstreamUrl:
 
         assert _get_upstream_url(ch) == "https://api.anthropic.com/v1/messages"
 
+    def test_openai_chat_base_url_ending_v1(self):
+        ch = Channel(
+            name="OpenAI",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com/v1",
+            api_key="sk-test",
+        )
+
+        assert _get_upstream_url(ch) == "https://api.openai.com/v1/chat/completions"
+
     def test_trailing_slash_removed(self):
         ch = Channel(
             id="ch_1",

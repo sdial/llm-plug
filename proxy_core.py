@@ -511,17 +511,10 @@ def _get_upstream_url(channel: Channel) -> str:
     base = channel.base_url.rstrip("/")
     actual_type = channel.api_type.value
 
-    # 检查 base_url 是否已经包含完整的 API 路径
-    # 如果已包含，则不再拼接
     if actual_type == "openai-chat-completions":
-        # 检查是否已包含 chat/completions 或类似路径
-        if base.endswith("/chat/completions") or base.endswith("/chat/completion"):
-            return base
-        return f"{base}/v1/chat/completions"
+        return _append_api_path(base, "/chat/completions")
     elif actual_type == "openai-response":
-        if base.endswith("/responses"):
-            return base
-        return f"{base}/v1/responses"
+        return _append_api_path(base, "/responses")
     elif actual_type == "anthropic":
         return _append_api_path(base, "/messages")
     return base
@@ -530,6 +523,9 @@ def _get_upstream_url(channel: Channel) -> str:
 def _append_api_path(base: str, path: str) -> str:
     base = base.rstrip("/")
     if base.endswith(path):
+        return base
+    # 检查单复数形式: /chat/completion vs /chat/completions
+    if path.endswith("s") and base.endswith(path[:-1]):
         return base
     if base.endswith("/v1"):
         return f"{base}{path}"
@@ -543,7 +539,12 @@ def _build_upstream_headers(
     client_headers: dict[str, str] | None,
 ) -> dict:
     forwarded_headers = {}
-    skip_headers = {"host", "authorization", "x-api-key", "content-type", "content-length"}
+    skip_headers = {
+        "host", "authorization", "x-api-key", "content-type", "content-length",
+        # hop-by-hop headers (RFC 2616 Section 13.5.1)
+        "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+        "te", "trailer", "transfer-encoding", "upgrade",
+    }
     for key, val in (client_headers or {}).items():
         if key.lower() not in skip_headers:
             forwarded_headers[key] = val
@@ -1312,6 +1313,15 @@ async def _do_stream_request(
                     data_str = "\n".join(data_lines)
                 else:
                     if not _first_line_checked:
+                        # 检查是否为 SSE 注释/心跳行（以 : 开头）
+                        has_sse_comments = any(line.strip().startswith(":") for line in passthrough_lines)
+                        if has_sse_comments:
+                            # SSE 注释/心跳行，直接透传并继续读取
+                            passthrough = "\n".join(passthrough_lines) + "\n\n"
+                            _mark_output()
+                            yield passthrough
+                            continue
+                        # 非 SSE 内容（如原始 JSON），设置为 nonlocal_stream_body 用于后续处理
                         nonlocal_stream_body = "\n".join(passthrough_lines)
                         break
                     if response_converter:
