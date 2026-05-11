@@ -651,6 +651,35 @@
                         <label class="block text-sm font-medium text-ink-900 mb-1">SOCKS5代理 <span class="text-ink-400 font-normal">(可选)</span></label>
                         <input type="text" id="f_socks5_proxy" placeholder="socks5://user:pass@127.0.0.1:1080" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
+                    <div id="anthropicConfigSection" class="hidden space-y-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+                        <div>
+                            <label class="block text-sm font-medium text-ink-900 mb-1">Anthropic Version <span class="text-ink-400 font-normal">(可选)</span></label>
+                            <input type="text" id="f_anthropic_version" placeholder="留空则使用默认 2023-06-01" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-ink-900 mb-1">Version 策略</label>
+                                <select id="f_anthropic_version_policy" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                                    <option value="channel">channel</option>
+                                    <option value="client">client</option>
+                                    <option value="channel_if_missing">channel_if_missing</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-ink-900 mb-1">Beta 策略</label>
+                                <select id="f_anthropic_beta_policy" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                                    <option value="channel">channel</option>
+                                    <option value="client">client</option>
+                                    <option value="merge">merge</option>
+                                    <option value="channel_if_missing">channel_if_missing</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-ink-900 mb-1">Anthropic Beta <span class="text-ink-400 font-normal">(可选，逗号分隔)</span></label>
+                            <input type="text" id="f_anthropic_beta" placeholder="prompt-caching-2024-07-31, token-efficient-tools-2025-02-19" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                        </div>
+                    </div>
                     <div class="flex items-center justify-between pt-4 border-t border-surface-100">
                         <div class="flex items-center gap-4">
                             <div class="flex items-center gap-2">
@@ -1082,7 +1111,12 @@
             document.getElementById('f_weight').value = channel ? channel.weight : 1;
             document.getElementById('f_priority').value = channel ? channel.priority : 1;
             document.getElementById('f_socks5_proxy').value = channel ? (channel.socks5_proxy || '') : '';
+            document.getElementById('f_anthropic_version').value = channel ? (channel.anthropic_version || '') : '';
+            document.getElementById('f_anthropic_version_policy').value = channel ? (channel.anthropic_version_policy || 'channel') : 'channel';
+            document.getElementById('f_anthropic_beta').value = channel ? (channel.anthropic_beta || '') : '';
+            document.getElementById('f_anthropic_beta_policy').value = channel ? (channel.anthropic_beta_policy || 'channel') : 'channel';
             document.getElementById('f_enabled').checked = channel ? channel.enabled : true;
+            updateAnthropicConfigVisibility();
             // 编辑模式显示删除按钮，添加模式隐藏
             document.getElementById('deleteChannelBtn').classList.toggle('hidden', !channel);
             document.getElementById('channelModal').classList.remove('hidden');
@@ -1110,6 +1144,11 @@
             if (ch) openModal(ch);
         }
 
+        function updateAnthropicConfigVisibility() {
+            const apiType = document.getElementById('f_api_type').value;
+            document.getElementById('anthropicConfigSection').classList.toggle('hidden', apiType !== 'anthropic');
+        }
+
         async function saveChannel(e) {
             e.preventDefault();
             const id = document.getElementById('editId').value;
@@ -1124,6 +1163,12 @@
                 socks5_proxy: document.getElementById('f_socks5_proxy').value || null,
                 enabled: document.getElementById('f_enabled').checked,
             };
+            if (data.api_type === 'anthropic') {
+                data.anthropic_version = document.getElementById('f_anthropic_version').value.trim() || null;
+                data.anthropic_version_policy = document.getElementById('f_anthropic_version_policy').value;
+                data.anthropic_beta = document.getElementById('f_anthropic_beta').value.trim() || null;
+                data.anthropic_beta_policy = document.getElementById('f_anthropic_beta_policy').value;
+            }
             const apiKey = document.getElementById('f_api_key').value.trim();
             if (apiKey) {
                 data.api_key = apiKey;
@@ -1142,6 +1187,8 @@
             closeModal();
             loadChannels();
         }
+
+        document.getElementById('f_api_type').addEventListener('change', updateAnthropicConfigVisibility);
 
         // ========== API Key 管理 ==========
         async function loadApiKeys() {

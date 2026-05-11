@@ -1,10 +1,24 @@
 import uuid
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
 from models.api_types import APIType
+
+
+class AnthropicVersionPolicy(str, Enum):
+    CHANNEL = "channel"
+    CLIENT = "client"
+    CHANNEL_IF_MISSING = "channel_if_missing"
+
+
+class AnthropicBetaPolicy(str, Enum):
+    CHANNEL = "channel"
+    CLIENT = "client"
+    MERGE = "merge"
+    CHANNEL_IF_MISSING = "channel_if_missing"
 
 
 class Channel(BaseModel):
@@ -20,7 +34,9 @@ class Channel(BaseModel):
     socks5_proxy: Optional[str] = None
     capabilities: Optional[dict[str, Any]] = None
     anthropic_version: Optional[str] = None
+    anthropic_version_policy: AnthropicVersionPolicy = AnthropicVersionPolicy.CHANNEL
     anthropic_beta: Optional[str] = None
+    anthropic_beta_policy: AnthropicBetaPolicy = AnthropicBetaPolicy.CHANNEL
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -38,7 +54,9 @@ class ChannelCreate(BaseModel):
     socks5_proxy: Optional[str] = None
     capabilities: Optional[dict[str, Any]] = None
     anthropic_version: Optional[str] = None
+    anthropic_version_policy: AnthropicVersionPolicy = AnthropicVersionPolicy.CHANNEL
     anthropic_beta: Optional[str] = None
+    anthropic_beta_policy: AnthropicBetaPolicy = AnthropicBetaPolicy.CHANNEL
 
 
 class ChannelUpdate(BaseModel):
@@ -53,4 +71,6 @@ class ChannelUpdate(BaseModel):
     socks5_proxy: Optional[str] = None
     capabilities: Optional[dict[str, Any]] = None
     anthropic_version: Optional[str] = None
+    anthropic_version_policy: Optional[AnthropicVersionPolicy] = None
     anthropic_beta: Optional[str] = None
+    anthropic_beta_policy: Optional[AnthropicBetaPolicy] = None
