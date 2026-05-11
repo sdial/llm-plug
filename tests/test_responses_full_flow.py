@@ -167,12 +167,57 @@ def test_post_responses_with_previous_response_id_expands_history(client):
 
             assert resp.status_code == 200
             sent_body = mock_proxy.await_args.args[1]
-            assert sent_body["instructions"] == "Be terse."
-            assert sent_body["input"] == [
+            assert sent_body["input"] == "How are you?"
+            assert sent_body["previous_response_id"] == "resp_1"
+            _, conversation, _ = mock_store.put.await_args.args
+            assert conversation["instructions"] == "Be terse."
+            assert conversation["messages"] == [
                 {"role": "user", "content": "Hello"},
                 {"role": "assistant", "content": "Hi there"},
                 {"role": "user", "content": "How are you?"},
+                {"role": "assistant", "content": "Fine"},
             ]
+
+
+def test_post_responses_same_type_previous_response_id_passthrough_when_local_state_missing(client):
+    with patch("routers.proxy_response._store") as mock_store:
+        mock_store.get_conversation = AsyncMock(return_value=None)
+        mock_store.put = AsyncMock()
+
+        with patch("routers.proxy_response.proxy_request") as mock_proxy:
+            mock_proxy.return_value = (
+                {
+                    "id": "resp_remote_2",
+                    "object": "response",
+                    "created_at": 123,
+                    "model": "gpt-4o",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "id": "msg_resp_remote_2",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "Remote state worked"}],
+                        }
+                    ],
+                    "output_text": "Remote state worked",
+                    "usage": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+                },
+                MagicMock(id="ch_resp", name="Responses", api_type=APIType.OPENAI_RESPONSE),
+            )
+
+            resp = client.post("/v1/responses", json={
+                "model": "gpt-4o",
+                "input": "Continue",
+                "previous_response_id": "resp_remote_1",
+            })
+
+            assert resp.status_code == 200
+            sent_body = mock_proxy.await_args.args[1]
+            assert sent_body["input"] == "Continue"
+            assert sent_body["previous_response_id"] == "resp_remote_1"
+            mock_store.get_conversation.assert_awaited_once_with("resp_remote_1")
 
 
 def test_post_responses_saves_reasoning_item_in_history(client):
@@ -274,6 +319,11 @@ def test_previous_response_id_expands_function_call_history(client):
             assert resp.status_code == 200
             sent_body = mock_proxy.await_args.args[1]
             assert sent_body["input"] == [
+                {"type": "function_call_output", "call_id": "call_weather", "output": "Sunny, 25C"}
+            ]
+            assert sent_body["previous_response_id"] == "resp_1"
+            _, conversation, _ = mock_store.put.await_args.args
+            assert conversation["messages"] == [
                 {"role": "user", "content": "Search weather"},
                 {
                     "type": "function_call",
@@ -282,6 +332,7 @@ def test_previous_response_id_expands_function_call_history(client):
                     "arguments": '{"location":"Beijing"}',
                 },
                 {"type": "function_call_output", "call_id": "call_weather", "output": "Sunny, 25C"},
+                {"role": "assistant", "content": "Sunny"},
             ]
 
 

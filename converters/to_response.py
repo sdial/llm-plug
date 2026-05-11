@@ -170,20 +170,28 @@ class ToResponseConverter(BaseConverter):
         if choices:
             msg = choices[0].get("message", {})
             text = msg.get("content", "") or ""
+            refusal = msg.get("refusal")
             tool_calls = msg.get("tool_calls")
             reasoning_content = msg.get("reasoning_content")
             finish_reason = choices[0].get("finish_reason", "stop")
+        else:
+            refusal = None
 
         upstream_id = data.get("id", "")
         response_id = self._make_response_id(upstream_id)
         output = []
-        if text:
+        if text or refusal:
+            content = []
+            if text:
+                content.append({"type": "output_text", "text": text})
+            if refusal:
+                content.append({"type": "refusal", "refusal": refusal})
             output.append({
                 "type": "message",
                 "id": self._make_message_id(response_id, upstream_id),
                 "status": "completed",
                 "role": "assistant",
-                "content": [{"type": "output_text", "text": text}],
+                "content": content,
             })
         if reasoning_content:
             output.append({
@@ -497,7 +505,13 @@ class ToResponseConverter(BaseConverter):
                 pending.append(self._make_response_event(
                     "response.output_item.added",
                     output_index=text_output_index,
-                    item={"type": "message", "id": item_id, "role": "assistant", "content": []},
+                    item={
+                        "type": "message",
+                        "id": item_id,
+                        "status": "in_progress",
+                        "role": "assistant",
+                        "content": [],
+                    },
                 ))
             if not self._stream_state["content_part_added_sent"]:
                 self._stream_state["content_part_added_sent"] = True
@@ -551,7 +565,13 @@ class ToResponseConverter(BaseConverter):
                     events.append(self._make_response_event(
                         "response.output_item.added",
                         output_index=idx,
-                        item={"type": "function_call", "call_id": call_id, "name": name, "arguments": ""},
+                        item={
+                            "type": "function_call",
+                            "call_id": call_id,
+                            "name": name,
+                            "arguments": "",
+                            "status": "in_progress",
+                        },
                     ))
                 elif function.get("arguments") is not None:
                     args = function.get("arguments", "")
@@ -863,9 +883,12 @@ class ToResponseConverter(BaseConverter):
                 "model": self._stream_state["model"],
                 "status": status,
                 "output": output,
+                "output_text": self._stream_state["accumulated_text"],
                 "usage": usage_data,
             },
         }
+        if finish_reason == "length":
+            completed_event["response"]["incomplete_details"] = {"reason": "max_output_tokens"}
 
         done_events = []
         # 文本项的完成事件
