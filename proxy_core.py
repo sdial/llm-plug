@@ -167,14 +167,11 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
     """构建 Anthropic 格式的流式响应体。"""
     message_id = None
     role = "assistant"
-    content_text = ""
-    thinking_text = ""
     stop_reason = None
-    input_tokens = 0
-    output_tokens = 0
-
-    # 用于拼接 tool_use 的 arguments
-    tool_use_buffers: dict[int, dict] = {}  # index -> {id, name, arguments}
+    stop_sequence = None
+    usage: dict[str, Any] = {"input_tokens": 0, "output_tokens": 0}
+    blocks: dict[int, dict[str, Any]] = {}
+    tool_json_buffers: dict[int, str] = {}
 
     for chunk in chunks:
         if not isinstance(chunk, dict):
@@ -186,38 +183,49 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
             msg = chunk.get("message", {})
             message_id = msg.get("id")
             role = msg.get("role", "assistant")
-            usage = msg.get("usage", {})
-            input_tokens = usage.get("input_tokens", 0)
+            if isinstance(msg.get("usage"), dict):
+                usage.update(msg["usage"])
 
         elif chunk_type == "content_block_start":
             content_block = chunk.get("content_block", {})
-            cb_type = content_block.get("type")
             block_idx = chunk.get("index", 0)
-            if cb_type == "tool_use":
-                tool_use_buffers[block_idx] = {
-                    "id": content_block.get("id", ""),
-                    "name": content_block.get("name", ""),
-                    "arguments": "",
-                }
+            if isinstance(block_idx, int) and isinstance(content_block, dict):
+                blocks[block_idx] = dict(content_block)
+                if content_block.get("type") == "tool_use":
+                    tool_json_buffers[block_idx] = ""
 
         elif chunk_type == "content_block_delta":
             delta = chunk.get("delta", {})
             block_idx = chunk.get("index", 0)
             delta_type = delta.get("type")
+            block = blocks.setdefault(block_idx, {"type": "text", "text": ""})
             if delta_type == "text_delta":
-                content_text += delta.get("text", "")
+                block["type"] = block.get("type") or "text"
+                block["text"] = block.get("text", "") + delta.get("text", "")
             elif delta_type == "thinking_delta":
-                thinking_text += delta.get("thinking", "")
+                block["type"] = block.get("type") or "thinking"
+                block["thinking"] = block.get("thinking", "") + delta.get("thinking", "")
+            elif delta_type == "signature_delta":
+                block["signature"] = delta.get("signature", "")
             elif delta_type == "input_json_delta":
-                # tool_use 的 arguments 拼接
-                if block_idx in tool_use_buffers:
-                    tool_use_buffers[block_idx]["arguments"] += delta.get("partial_json", "")
+                tool_json_buffers[block_idx] = tool_json_buffers.get(block_idx, "") + delta.get("partial_json", "")
+
+        elif chunk_type == "content_block_stop":
+            block_idx = chunk.get("index", 0)
+            if block_idx in tool_json_buffers and block_idx in blocks:
+                buffer = tool_json_buffers[block_idx]
+                try:
+                    blocks[block_idx]["input"] = json.loads(buffer) if buffer else {}
+                except json.JSONDecodeError:
+                    blocks[block_idx]["input"] = {}
+                    blocks[block_idx]["_partial_json"] = buffer
 
         elif chunk_type == "message_delta":
             delta = chunk.get("delta", {})
             stop_reason = delta.get("stop_reason")
-            usage = chunk.get("usage", {})
-            output_tokens = usage.get("output_tokens", output_tokens)
+            stop_sequence = delta.get("stop_sequence")
+            if isinstance(chunk.get("usage"), dict):
+                usage.update(chunk["usage"])
 
     if not message_id:
         # 尝试从其他 chunk 中获取 id
@@ -229,27 +237,7 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
     if not message_id:
         return None
 
-    # 构建内容块列表
-    content_blocks: list[dict] = []
-    # thinking block 在 text block 之前
-    if thinking_text:
-        content_blocks.append({"type": "thinking", "thinking": thinking_text, "signature": ""})
-    if content_text:
-        content_blocks.append({"type": "text", "text": content_text})
-    # 添加 tool_use blocks
-    for idx in sorted(tool_use_buffers.keys()):
-        tb = tool_use_buffers[idx]
-        args = tb.get("arguments", "{}")
-        try:
-            args_json = json.loads(args) if args else {}
-        except json.JSONDecodeError:
-            args_json = {}
-        content_blocks.append({
-            "type": "tool_use",
-            "id": tb.get("id", ""),
-            "name": tb.get("name", ""),
-            "input": args_json,
-        })
+    content_blocks = [blocks[idx] for idx in sorted(blocks)]
 
     if not content_blocks:
         content_blocks.append({"type": "text", "text": ""})
@@ -261,10 +249,8 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
         "content": content_blocks,
         "model": model,
         "stop_reason": stop_reason,
-        "usage": {
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-        },
+        "stop_sequence": stop_sequence,
+        "usage": usage,
     }
 
 
@@ -537,10 +523,54 @@ def _get_upstream_url(channel: Channel) -> str:
             return base
         return f"{base}/v1/responses"
     elif actual_type == "anthropic":
-        if base.endswith("/messages"):
-            return base
-        return f"{base}/v1/messages"
+        return _append_api_path(base, "/messages")
     return base
+
+
+def _append_api_path(base: str, path: str) -> str:
+    base = base.rstrip("/")
+    if base.endswith(path):
+        return base
+    if base.endswith("/v1"):
+        return f"{base}{path}"
+    return f"{base}/v1{path}"
+
+
+def _build_upstream_headers(
+    channel: Channel,
+    target_api_type: APIType,
+    same_type_passthrough: bool,
+    client_headers: dict[str, str] | None,
+) -> dict:
+    headers = get_upstream_headers(channel)
+    headers["Content-Type"] = "application/json"
+
+    incoming = {k.lower(): v for k, v in (client_headers or {}).items()}
+
+    if channel.api_type == APIType.ANTHROPIC:
+        configured_version = getattr(channel, "anthropic_version", None)
+        if configured_version:
+            headers["anthropic-version"] = configured_version
+        elif same_type_passthrough and incoming.get("anthropic-version"):
+            headers["anthropic-version"] = incoming["anthropic-version"]
+
+        if not channel.anthropic_beta and same_type_passthrough and incoming.get("anthropic-beta"):
+            headers["anthropic-beta"] = incoming["anthropic-beta"]
+
+    skip_headers = {
+        "host",
+        "authorization",
+        "x-api-key",
+        "content-type",
+        "content-length",
+        "anthropic-version",
+        "anthropic-beta",
+    }
+    for key, val in (client_headers or {}).items():
+        if key.lower() not in skip_headers:
+            headers[key] = val
+
+    return headers
 
 
 _RETRYABLE_EXCEPTIONS = (
@@ -561,6 +591,8 @@ class ConverterError(Exception):
 
 
 def _is_retryable_exception(exc: BaseException) -> bool:
+    if isinstance(exc, _UpstreamStreamErrorEvent):
+        return True
     if isinstance(exc, httpx.HTTPStatusError):
         status_code = exc.response.status_code
         return status_code == 429 or 500 <= status_code < 600
@@ -594,6 +626,13 @@ class _StreamPreflightError(Exception):
     def __init__(self, original: BaseException):
         super().__init__(str(original))
         self.original = original
+
+
+class _UpstreamStreamErrorEvent(Exception):
+    def __init__(self, event: dict[str, Any]):
+        self.event = event
+        error = event.get("error", {})
+        super().__init__(error.get("message") or "upstream stream error")
 
 
 async def _prime_stream(gen):
@@ -792,7 +831,7 @@ async def _do_request(
 
     # === Capability 管理 ===
     # 必须在格式转换之后处理，因为能力过滤作用于实际发给上游的格式。
-    apply_compatibility_filters = not same_type_passthrough or bool(channel.capabilities)
+    apply_compatibility_filters = not same_type_passthrough
     caps = infer_capabilities(channel) if apply_compatibility_filters else None
     if caps is not None:
         upstream_data = apply_capability_filter(upstream_data, caps)
@@ -1026,6 +1065,54 @@ def _format_sse_for_list(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+async def _iter_sse_blocks(lines, coalesce_data_lines: bool = True):
+    event_type = None
+    data_lines = []
+    passthrough_lines = []
+
+    async for line in lines:
+        if not line.strip():
+            if event_type or data_lines or passthrough_lines:
+                yield event_type, data_lines, passthrough_lines
+            event_type = None
+            data_lines = []
+            passthrough_lines = []
+            continue
+
+        if line.startswith("event:") and (event_type or data_lines or passthrough_lines):
+            yield event_type, data_lines, passthrough_lines
+            event_type = None
+            data_lines = []
+            passthrough_lines = []
+
+        if not coalesce_data_lines and line.startswith("data:") and data_lines:
+            yield event_type, data_lines, passthrough_lines
+            event_type = None
+            data_lines = []
+            passthrough_lines = []
+
+        if line.startswith(":"):
+            passthrough_lines.append(line)
+        elif line.startswith("event:"):
+            event_type = line[6:].strip()
+        elif line.startswith("data:"):
+            data_lines.append(line[5:].lstrip(" "))
+        else:
+            passthrough_lines.append(line)
+
+    if event_type or data_lines or passthrough_lines:
+        yield event_type, data_lines, passthrough_lines
+
+
+def _format_raw_sse(event_type: str | None, data: str) -> str:
+    lines = []
+    if event_type:
+        lines.append(f"event: {event_type}")
+    for data_line in data.splitlines() or [""]:
+        lines.append(f"data: {data_line}")
+    return "\n".join(lines) + "\n\n"
+
+
 async def _do_stream_request(
     channel: Channel, url: str, headers: dict, upstream_data: dict, response_converter, source_type: str,
     target_api_type: APIType = APIType.OPENAI_CHAT, api_key_id: str | None = None,
@@ -1119,6 +1206,7 @@ async def _do_stream_request(
     stream_success = False
     stream_error = None
     emitted_output = False
+    failure_recorded = False
     logger.debug(f"[STREAM START] model={model} url={url} target={target_api_type.value}")
     try:
         async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
@@ -1187,30 +1275,23 @@ async def _do_stream_request(
             _line_count = 0
             _done_received = False
 
-            async for line in resp.aiter_lines():
-                _line_count += 1
-                if not line.strip():
-                    continue
-                if is_upstream_event_sse and line.startswith("event:"):
-                    raw_type = line[5:].strip()
-                    if raw_type.startswith(":"):
-                        raw_type = raw_type[1:].strip()
-                    upstream_event_type = raw_type
-                    continue
-                if line.startswith("data: "):
+            async for upstream_event_type, data_lines, passthrough_lines in _iter_sse_blocks(
+                resp.aiter_lines(),
+                coalesce_data_lines=is_upstream_event_sse,
+            ):
+                _line_count += len(data_lines) + len(passthrough_lines) + (1 if upstream_event_type else 0)
+                if data_lines:
                     _first_line_checked = True
-                    data_str = line[6:]
-                elif line.startswith("data:"):
-                    _first_line_checked = True
-                    data_str = line[5:]
+                    data_str = "\n".join(data_lines)
                 else:
                     if not _first_line_checked:
-                        nonlocal_stream_body = line
-                        async for remaining in resp.aiter_lines():
-                            if remaining.strip():
-                                nonlocal_stream_body += "\n" + remaining
+                        nonlocal_stream_body = "\n".join(passthrough_lines)
                         break
-                    _record_chunk(line)
+                    if response_converter:
+                        continue
+                    passthrough = "\n".join(passthrough_lines) + "\n\n"
+                    _mark_output()
+                    yield passthrough
                     continue
 
                 if data_str.strip() == "[DONE]":
@@ -1267,14 +1348,26 @@ async def _do_stream_request(
                 try:
                     chunk = json.loads(data_str)
                 except json.JSONDecodeError:
-                    _record_chunk(line)
+                    _record_chunk(data_str)
                     _mark_first_token()
+                    if response_converter:
+                        raise ConverterError(f"流式 chunk 不是有效 JSON: {data_str[:120]}")
+                    sse = _format_raw_sse(upstream_event_type, data_str)
+                    _log_stream_event(sse)
                     _mark_output()
-                    yield line + "\n\n"
+                    yield sse
                     continue
 
                 _record_chunk(chunk)
                 _mark_first_token()
+
+                if isinstance(chunk, dict) and is_upstream_anthropic and (
+                    upstream_event_type == "error" or chunk.get("type") == "error"
+                ):
+                    upstream_error = _UpstreamStreamErrorEvent(chunk)
+                    if not emitted_output:
+                        raise _StreamPreflightError(upstream_error)
+                    stream_error = str(upstream_error)
 
                 # 增量提取 token 用量和 finish_reason，避免 finally 中二次遍历
                 if isinstance(chunk, dict):
@@ -1325,12 +1418,11 @@ async def _do_stream_request(
                         sse = _format_sse(chunk, upstream_event_type or "ping")
                     else:
                         sse = _format_sse(chunk)
+                    if passthrough_lines:
+                        sse = "\n".join(passthrough_lines) + "\n" + sse
                     _log_stream_event(sse)
                     _mark_output()
                     yield sse
-
-                if is_upstream_event_sse:
-                    upstream_event_type = None
 
         logger.debug(f"[STREAM LOOP END] model={model} lines={_line_count} done={_done_received}")
         logger.debug(f"[STREAM ASYNC WITH EXIT] model={model}")
@@ -1395,7 +1487,8 @@ async def _do_stream_request(
                     finish_reason = stop_reason
 
         logger.debug(f"[STREAM FINISH] model={model} done_received={_done_received} nonlocal_body={'yes' if nonlocal_stream_body else 'no'} chunks={len(stream_chunks)}")
-        stream_success = True
+        if stream_error is None:
+            stream_success = True
         logger.debug(f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} output_tokens={output_tokens} finish_reason={finish_reason}")
         await _log_debug(
             channel=channel, upstream_url=url, upstream_data=upstream_data,
@@ -1428,6 +1521,7 @@ async def _do_stream_request(
                 raise _StreamPreflightError(e) from e
             raise
         load_balancer.record_failure(channel.id)
+        failure_recorded = True
         if output_anthropic_sse:
             emitted_output = True
             yield _yield_anthropic_event("error", {
@@ -1493,6 +1587,8 @@ async def _do_stream_request(
                 load_balancer.record_success(channel.id)
                 logger.debug(f"[STREAM RECORDED SUCCESS] channel={channel.name}")
             else:
+                if stream_error and emitted_output and not failure_recorded:
+                    load_balancer.record_failure(channel.id)
                 logger.warning(f"[STREAM RECORDED FAILURE] channel={channel.name} error={stream_error}")
         except Exception as finally_err:
             logger.warning(f"stream finally error: {finally_err}")
