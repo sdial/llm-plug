@@ -5,7 +5,13 @@ from pydantic import ValidationError
 
 from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.api_types import APIType
-from models.channel import Channel, ChannelCreate, ChannelUpdate
+from models.channel import (
+    AnthropicBetaPolicy,
+    AnthropicVersionPolicy,
+    Channel,
+    ChannelCreate,
+    ChannelUpdate,
+)
 
 
 class TestAPIType:
@@ -98,6 +104,18 @@ class TestChannel:
         )
         assert ch.capabilities == {"filter_think_content": True}
 
+    def test_anthropic_header_policies_have_defaults(self):
+        ch = Channel(
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+        )
+        assert ch.anthropic_version is None
+        assert ch.anthropic_version_policy == AnthropicVersionPolicy.CHANNEL
+        assert ch.anthropic_beta is None
+        assert ch.anthropic_beta_policy == AnthropicBetaPolicy.CHANNEL
+
 
 class TestChannelCreate:
     def test_all_fields_required_except_defaults(self):
@@ -122,6 +140,21 @@ class TestChannelCreate:
                 weight=0,
             )
 
+    def test_anthropic_policy_fields(self):
+        cc = ChannelCreate(
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            anthropic_version="2024-10-22",
+            anthropic_version_policy="client",
+            anthropic_beta="prompt-caching-2024-07-31",
+            anthropic_beta_policy="merge",
+        )
+        assert cc.anthropic_version == "2024-10-22"
+        assert cc.anthropic_version_policy == AnthropicVersionPolicy.CLIENT
+        assert cc.anthropic_beta_policy == AnthropicBetaPolicy.MERGE
+
 
 class TestChannelUpdate:
     def test_all_fields_optional(self):
@@ -141,6 +174,16 @@ class TestChannelUpdate:
         assert cu.name == "Updated"
         assert cu.enabled is False
         assert cu.base_url is None
+
+    def test_policy_update_fields(self):
+        cu = ChannelUpdate(
+            anthropic_version="2024-10-22",
+            anthropic_version_policy="channel_if_missing",
+            anthropic_beta_policy="client",
+        )
+        assert cu.anthropic_version == "2024-10-22"
+        assert cu.anthropic_version_policy == AnthropicVersionPolicy.CHANNEL_IF_MISSING
+        assert cu.anthropic_beta_policy == AnthropicBetaPolicy.CLIENT
 
     def test_weight_validation(self):
         with pytest.raises(ValidationError):

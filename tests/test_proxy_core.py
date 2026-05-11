@@ -1205,15 +1205,15 @@ class TestAnthropicHeaderPriority:
                 client_headers=client_headers,
             )
 
-        # 未显式配置渠道级 version 时，同类型 Anthropic 直通应透传客户端 version
-        assert captured_headers["anthropic-version"] == "2024-01-01"
+        # 默认 channel 策略下，未配置时回退为默认版本
+        assert captured_headers["anthropic-version"] == "2023-06-01"
         # 渠道配置的 anthropic_beta 应保留
         assert captured_headers["anthropic-beta"] == "max-tokens-3-5-sonnet-2024-07-15"
         # 客户端自定义头应透传
         assert captured_headers["x-custom"] == "should-pass"
 
     @pytest.mark.anyio
-    async def test_same_type_anthropic_passes_client_version_and_beta_when_channel_not_configured(self):
+    async def test_client_headers_can_override_when_channel_policy_allows(self):
         captured_headers = {}
 
         class FakeClient:
@@ -1239,30 +1239,31 @@ class TestAnthropicHeaderPriority:
             name="Anthropic",
             api_type=APIType.ANTHROPIC,
             base_url="https://api.anthropic.com",
-            api_key="ak-channel",
+            api_key="ak-test",
             models=["claude-3"],
+            anthropic_version="2024-10-22",
+            anthropic_version_policy="client",
+            anthropic_beta="prompt-caching-2024-07-31",
+            anthropic_beta_policy="merge",
         )
 
+        client_headers = {
+            "anthropic-version": "2025-01-01",
+            "anthropic-beta": "prompt-caching-2024-07-31,search-results-2025-01-15",
+        }
         with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
                 patch("proxy_core.stats.record_request"):
             await _do_request(
-                channel,
-                {"model": "claude-3", "messages": []},
-                APIType.ANTHROPIC,
-                is_stream=False,
-                client_headers={
-                    "x-api-key": "client-proxy-key",
-                    "authorization": "Bearer client-proxy-key",
-                    "anthropic-version": "2024-01-01",
-                    "anthropic-beta": "client-beta",
-                },
+                channel, {"model": "claude-3", "messages": []},
+                APIType.ANTHROPIC, is_stream=False,
+                client_headers=client_headers,
             )
 
-        assert captured_headers["x-api-key"] == "ak-channel"
-        assert "authorization" not in {k.lower(): v for k, v in captured_headers.items()}
-        assert captured_headers["anthropic-version"] == "2024-01-01"
-        assert captured_headers["anthropic-beta"] == "client-beta"
+        assert captured_headers["anthropic-version"] == "2025-01-01"
+        assert captured_headers["anthropic-beta"] == (
+            "prompt-caching-2024-07-31,search-results-2025-01-15"
+        )
 
     @pytest.mark.anyio
     async def test_emits_response_completed_before_done_when_finish_reason_missing(self):

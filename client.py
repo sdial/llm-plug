@@ -17,6 +17,8 @@ _DEFAULT_LIMITS = httpx.Limits(
     keepalive_expiry=60.0,
 )
 
+_DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
+
 
 def _cache_key(channel: Channel) -> str:
     return f"{channel.base_url}|{channel.socks5_proxy or ''}"
@@ -115,11 +117,49 @@ def get_upstream_headers(channel: Channel, extra_headers: dict | None = None) ->
     headers = {}
     if channel.api_type == APIType.ANTHROPIC:
         headers["x-api-key"] = channel.api_key
-        headers["anthropic-version"] = channel.anthropic_version or "2023-06-01"
-        if channel.anthropic_beta:
-            headers["anthropic-beta"] = channel.anthropic_beta
+        extra_headers = extra_headers or {}
+        _apply_anthropic_headers(headers, channel, extra_headers)
     else:
         headers["Authorization"] = f"Bearer {channel.api_key}"
     if extra_headers:
         headers.update(extra_headers)
     return headers
+
+
+def _apply_anthropic_headers(headers: dict, channel: Channel, extra_headers: dict) -> None:
+    client_version = extra_headers.pop("anthropic-version", None)
+    client_beta = extra_headers.pop("anthropic-beta", None)
+
+    channel_version = channel.anthropic_version or _DEFAULT_ANTHROPIC_VERSION
+    version_policy = getattr(channel.anthropic_version_policy, "value", channel.anthropic_version_policy)
+    if version_policy == "client" and client_version:
+        headers["anthropic-version"] = client_version
+    elif version_policy == "channel_if_missing" and client_version:
+        headers["anthropic-version"] = client_version
+    else:
+        headers["anthropic-version"] = channel_version
+
+    beta_policy = getattr(channel.anthropic_beta_policy, "value", channel.anthropic_beta_policy)
+    if beta_policy == "client":
+        beta_value = client_beta or channel.anthropic_beta
+    elif beta_policy == "channel_if_missing":
+        beta_value = client_beta or channel.anthropic_beta
+    elif beta_policy == "merge":
+        beta_value = _merge_anthropic_beta(channel.anthropic_beta, client_beta)
+    else:
+        beta_value = channel.anthropic_beta
+
+    if beta_value:
+        headers["anthropic-beta"] = beta_value
+
+
+def _merge_anthropic_beta(channel_beta: str | None, client_beta: str | None) -> str | None:
+    values: list[str] = []
+    for raw in (channel_beta, client_beta):
+        if not raw:
+            continue
+        for item in raw.split(","):
+            beta = item.strip()
+            if beta and beta not in values:
+                values.append(beta)
+    return ",".join(values) if values else None
