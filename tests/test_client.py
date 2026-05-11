@@ -235,6 +235,11 @@ class TestGetUpstreamHeaders:
         headers = client.get_upstream_headers(anthropic_channel)
         assert headers["anthropic-beta"] == "prompt-caching-2024-07-31"
 
+    def test_anthropic_version_can_be_channel_configured(self, anthropic_channel):
+        anthropic_channel.anthropic_version = "2024-01-01"
+        headers = client.get_upstream_headers(anthropic_channel)
+        assert headers["anthropic-version"] == "2024-01-01"
+
     def test_merges_extra_headers(self, sample_channel):
         extra = {"X-Custom": "value"}
         headers = client.get_upstream_headers(sample_channel, extra)

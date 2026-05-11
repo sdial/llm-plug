@@ -9,6 +9,7 @@ from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
 from proxy_core import (
+    _build_anthropic_stream_response,
     _do_request,
     _do_stream_request,
     _get_channels_for_model,
@@ -17,7 +18,6 @@ from proxy_core import (
     _proxy_single_model_request,
     _yield_anthropic_event,
     _yield_anthropic_events,
-    _convert_anthropic_response_to_events,
     CONVERTER_MAP,
     _model_channels_cache,
 )
@@ -200,6 +200,16 @@ class TestGetUpstreamUrl:
         )
         assert _get_upstream_url(ch) == "https://api.anthropic.com/v1/messages"
 
+    def test_anthropic_base_url_ending_v1(self):
+        ch = Channel(
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com/v1",
+            api_key="ak-test",
+        )
+
+        assert _get_upstream_url(ch) == "https://api.anthropic.com/v1/messages"
+
     def test_trailing_slash_removed(self):
         ch = Channel(
             id="ch_1",
@@ -299,6 +309,59 @@ class TestYieldAnthropicEvents:
         assert len(lines) == 2
         assert lines[0] == 'event: message_start\ndata: {"id": "msg_1"}'
         assert lines[1] == 'data: {"type": "message_stop"}'
+
+
+class TestBuildAnthropicStreamResponse:
+    def test_preserves_block_order_and_signature(self):
+        chunks = [
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "claude-3",
+                    "usage": {
+                        "input_tokens": 10,
+                        "cache_read_input_tokens": 3,
+                    },
+                },
+            },
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "plan"}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "sig_1"}},
+            {"type": "content_block_stop", "index": 0},
+            {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}},
+            {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "hello"}},
+            {"type": "content_block_stop", "index": 1},
+            {
+                "type": "content_block_start",
+                "index": 2,
+                "content_block": {"type": "tool_use", "id": "toolu_1", "name": "calc", "input": {}},
+            },
+            {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": '{"x":'}},
+            {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "1}"}},
+            {"type": "content_block_stop", "index": 2},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "tool_use", "stop_sequence": None},
+                "usage": {"output_tokens": 7},
+            },
+        ]
+
+        response = _build_anthropic_stream_response(chunks, "claude-3")
+
+        assert response["content"] == [
+            {"type": "thinking", "thinking": "plan", "signature": "sig_1"},
+            {"type": "text", "text": "hello"},
+            {"type": "tool_use", "id": "toolu_1", "name": "calc", "input": {"x": 1}},
+        ]
+        assert response["stop_reason"] == "tool_use"
+        assert response["stop_sequence"] is None
+        assert response["usage"]["input_tokens"] == 10
+        assert response["usage"]["output_tokens"] == 7
+        assert response["usage"]["cache_read_input_tokens"] == 3
 
 
 class TestConverterMap:
@@ -506,6 +569,63 @@ class TestDoStreamRequest:
         assert "_event_type" not in joined
 
     @pytest.mark.anyio
+    async def test_same_type_anthropic_stream_preserves_event_type_for_multiline_data(self):
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: ping"
+                yield 'data: {"type":"ping",'
+                yield 'data: "extra":true}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_1",
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3"],
+        )
+
+        with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "claude-3", "stream": True},
+                response_converter=None,
+                source_type="anthropic",
+                target_api_type=APIType.ANTHROPIC,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        joined = "".join(outputs)
+        assert "event: ping" in joined
+        assert '"extra": true' in joined
+        for block in joined.strip().split("\n\n"):
+            assert block.startswith("event: ")
+
+    @pytest.mark.anyio
     async def test_same_type_openai_stream_does_not_inject_stream_options(self):
         captured = {}
 
@@ -701,7 +821,7 @@ class TestDoStreamRequest:
         assert "fallback" in "".join(outputs)
 
 
-class TestAnthropicNonSseJsonFallback:
+class TestAnthropicNonSseJsonFallbackEarly:
     """Anthropic 同类型流式请求收到非 SSE JSON 时，应输出完整的 Anthropic SSE 事件序列。"""
 
     @pytest.mark.anyio
@@ -775,7 +895,7 @@ class TestAnthropicNonSseJsonFallback:
                 assert block.startswith("event: "), f"Unexpected SSE block without event line: {block[:80]}"
 
 
-class TestAnthropicSameTypeFailover:
+class TestAnthropicSameTypeFailoverEarly:
     """Anthropic -> Anthropic 多上游故障转移测试。"""
 
     @pytest.mark.anyio
@@ -926,6 +1046,113 @@ class TestAnthropicSameTypeFailover:
         assert "event: message_start" in joined
         assert "ok" in joined
 
+    @pytest.mark.anyio
+    async def test_anthropic_stream_error_event_before_output_fails_over(self):
+        class ErrorStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: error"
+                yield 'data: {"type":"error","error":{"type":"overloaded_error","message":"overloaded"}}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class WorkingStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: message_start"
+                yield 'data: {"type":"message_start","message":{"id":"msg_fb","type":"message","role":"assistant","content":[],"model":"claude-3","usage":{"input_tokens":1,"output_tokens":0}}}'
+                yield ""
+                yield "event: content_block_start"
+                yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
+                yield ""
+                yield "event: content_block_delta"
+                yield 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}'
+                yield ""
+                yield "event: content_block_stop"
+                yield 'data: {"type":"content_block_stop","index":0}'
+                yield ""
+                yield "event: message_delta"
+                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}'
+                yield ""
+                yield "event: message_stop"
+                yield 'data: {"type":"message_stop"}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class ErrorClient:
+            def stream(self, *args, **kwargs):
+                return ErrorStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        class WorkingClient:
+            def stream(self, *args, **kwargs):
+                return WorkingStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        primary = Channel(
+            id="ch_primary",
+            name="Primary",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://primary.example",
+            api_key="ak-primary",
+            models=["claude-3"],
+            priority=1,
+        )
+        fallback = Channel(
+            id="ch_fallback",
+            name="Fallback",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://fallback.example",
+            api_key="ak-fallback",
+            models=["claude-3"],
+            priority=2,
+        )
+
+        def fake_stream_client(ch):
+            return ErrorClient() if ch.id == "ch_primary" else WorkingClient()
+
+        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
+                patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            stream, selected = await _proxy_single_model_request(
+                model="claude-3",
+                request_data={"model": "claude-3", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+                target_api_type=APIType.ANTHROPIC,
+                is_stream=True,
+                query_string=None,
+                client_headers=None,
+                api_key_id=None,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        assert selected.id == "ch_fallback"
+        assert "ok" in "".join(outputs)
+
 
 class TestAnthropicHeaderPriority:
     """渠道级 anthropic-version / anthropic-beta 不应被客户端请求头覆盖。"""
@@ -978,12 +1205,64 @@ class TestAnthropicHeaderPriority:
                 client_headers=client_headers,
             )
 
-        # 渠道配置的 anthropic-version 应保留（默认值 2023-06-01）
-        assert captured_headers["anthropic-version"] == "2023-06-01"
+        # 未显式配置渠道级 version 时，同类型 Anthropic 直通应透传客户端 version
+        assert captured_headers["anthropic-version"] == "2024-01-01"
         # 渠道配置的 anthropic_beta 应保留
         assert captured_headers["anthropic-beta"] == "max-tokens-3-5-sonnet-2024-07-15"
         # 客户端自定义头应透传
         assert captured_headers["x-custom"] == "should-pass"
+
+    @pytest.mark.anyio
+    async def test_same_type_anthropic_passes_client_version_and_beta_when_channel_not_configured(self):
+        captured_headers = {}
+
+        class FakeClient:
+            async def post(self, url, json, headers):
+                captured_headers.update(headers)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "msg_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "ok"}],
+                        "model": "claude-3",
+                        "stop_reason": "end_turn",
+                        "usage": {"input_tokens": 1, "output_tokens": 1},
+                    },
+                    request=request,
+                )
+
+        channel = Channel(
+            id="ch_1",
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-channel",
+            models=["claude-3"],
+        )
+
+        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            await _do_request(
+                channel,
+                {"model": "claude-3", "messages": []},
+                APIType.ANTHROPIC,
+                is_stream=False,
+                client_headers={
+                    "x-api-key": "client-proxy-key",
+                    "authorization": "Bearer client-proxy-key",
+                    "anthropic-version": "2024-01-01",
+                    "anthropic-beta": "client-beta",
+                },
+            )
+
+        assert captured_headers["x-api-key"] == "ak-channel"
+        assert "authorization" not in {k.lower(): v for k, v in captured_headers.items()}
+        assert captured_headers["anthropic-version"] == "2024-01-01"
+        assert captured_headers["anthropic-beta"] == "client-beta"
 
     @pytest.mark.anyio
     async def test_emits_response_completed_before_done_when_finish_reason_missing(self):
@@ -1823,8 +2102,115 @@ class TestAnthropicSameTypeFailover:
         assert "event: message_start" in joined
         assert "ok" in joined
 
+    @pytest.mark.anyio
+    async def test_anthropic_stream_error_event_before_output_fails_over(self):
+        class ErrorStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
 
-class TestAnthropicHeaderPriority:
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: error"
+                yield 'data: {"type":"error","error":{"type":"overloaded_error","message":"overloaded"}}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class WorkingStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: message_start"
+                yield 'data: {"type":"message_start","message":{"id":"msg_fb","type":"message","role":"assistant","content":[],"model":"claude-3","usage":{"input_tokens":1,"output_tokens":0}}}'
+                yield ""
+                yield "event: content_block_start"
+                yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
+                yield ""
+                yield "event: content_block_delta"
+                yield 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}'
+                yield ""
+                yield "event: content_block_stop"
+                yield 'data: {"type":"content_block_stop","index":0}'
+                yield ""
+                yield "event: message_delta"
+                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}'
+                yield ""
+                yield "event: message_stop"
+                yield 'data: {"type":"message_stop"}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class ErrorClient:
+            def stream(self, *args, **kwargs):
+                return ErrorStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        class WorkingClient:
+            def stream(self, *args, **kwargs):
+                return WorkingStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        primary = Channel(
+            id="ch_primary",
+            name="Primary",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://primary.example",
+            api_key="ak-primary",
+            models=["claude-3"],
+            priority=1,
+        )
+        fallback = Channel(
+            id="ch_fallback",
+            name="Fallback",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://fallback.example",
+            api_key="ak-fallback",
+            models=["claude-3"],
+            priority=2,
+        )
+
+        def fake_stream_client(ch):
+            return ErrorClient() if ch.id == "ch_primary" else WorkingClient()
+
+        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
+                patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            stream, selected = await _proxy_single_model_request(
+                model="claude-3",
+                request_data={"model": "claude-3", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+                target_api_type=APIType.ANTHROPIC,
+                is_stream=True,
+                query_string=None,
+                client_headers=None,
+                api_key_id=None,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        assert selected.id == "ch_fallback"
+        assert "ok" in "".join(outputs)
+
+
+class TestAnthropicHeaderPriorityEarly:
     """渠道级 anthropic-version / anthropic-beta 不应被客户端请求头覆盖。"""
 
     @pytest.mark.anyio
@@ -1875,9 +2261,106 @@ class TestAnthropicHeaderPriority:
                 client_headers=client_headers,
             )
 
-        # 渠道配置的 anthropic-version 应保留（默认值 2023-06-01）
-        assert captured_headers["anthropic-version"] == "2023-06-01"
+        # 未显式配置渠道级 version 时，同类型 Anthropic 直通应透传客户端 version
+        assert captured_headers["anthropic-version"] == "2024-01-01"
         # 渠道配置的 anthropic_beta 应保留
         assert captured_headers["anthropic-beta"] == "max-tokens-3-5-sonnet-2024-07-15"
         # 客户端自定义头应透传
         assert captured_headers["x-custom"] == "should-pass"
+
+    @pytest.mark.anyio
+    async def test_same_type_anthropic_passes_client_version_and_beta_when_channel_not_configured(self):
+        captured_headers = {}
+
+        class FakeClient:
+            async def post(self, url, json, headers):
+                captured_headers.update(headers)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "msg_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "ok"}],
+                        "model": "claude-3",
+                        "stop_reason": "end_turn",
+                        "usage": {"input_tokens": 1, "output_tokens": 1},
+                    },
+                    request=request,
+                )
+
+        channel = Channel(
+            id="ch_1",
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-channel",
+            models=["claude-3"],
+        )
+
+        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            await _do_request(
+                channel,
+                {"model": "claude-3", "messages": []},
+                APIType.ANTHROPIC,
+                is_stream=False,
+                client_headers={
+                    "x-api-key": "client-proxy-key",
+                    "authorization": "Bearer client-proxy-key",
+                    "anthropic-version": "2024-01-01",
+                    "anthropic-beta": "client-beta",
+                },
+            )
+
+        assert captured_headers["x-api-key"] == "ak-channel"
+        assert "authorization" not in {k.lower(): v for k, v in captured_headers.items()}
+        assert captured_headers["anthropic-version"] == "2024-01-01"
+        assert captured_headers["anthropic-beta"] == "client-beta"
+
+    @pytest.mark.anyio
+    async def test_anthropic_channel_version_overrides_client_version(self):
+        captured_headers = {}
+
+        class FakeClient:
+            async def post(self, url, json, headers):
+                captured_headers.update(headers)
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "msg_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "ok"}],
+                        "model": "claude-3",
+                        "stop_reason": "end_turn",
+                        "usage": {"input_tokens": 1, "output_tokens": 1},
+                    },
+                    request=request,
+                )
+
+        channel = Channel(
+            id="ch_1",
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3"],
+            anthropic_version="2023-06-01",
+        )
+
+        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
+                patch("proxy_core._log_debug", new_callable=AsyncMock), \
+                patch("proxy_core.stats.record_request"):
+            await _do_request(
+                channel,
+                {"model": "claude-3", "messages": []},
+                APIType.ANTHROPIC,
+                is_stream=False,
+                client_headers={"anthropic-version": "2024-01-01"},
+            )
+
+        assert captured_headers["anthropic-version"] == "2023-06-01"
