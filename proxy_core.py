@@ -811,15 +811,16 @@ async def _do_request(
     url = _get_upstream_url(channel)
     if query_string:
         url = f"{url}?{query_string}"
-    headers = get_upstream_headers(channel)
-    headers["Content-Type"] = "application/json"
-
-    # 透传客户端 header（排除 host 和认证相关）
-    _SKIP_HEADERS = {"host", "authorization", "x-api-key", "content-type", "content-length", "anthropic-version", "anthropic-beta"}
+    # 透传客户端 header（排除 host 和认证相关），Anthropic 头交给 get_upstream_headers 按渠道策略处理
+    forwarded_headers = {}
+    _SKIP_HEADERS = {"host", "authorization", "x-api-key", "content-type", "content-length"}
     if client_headers:
         for key, val in client_headers.items():
             if key.lower() not in _SKIP_HEADERS:
-                headers[key] = val
+                forwarded_headers[key] = val
+
+    headers = get_upstream_headers(channel, forwarded_headers)
+    headers["Content-Type"] = "application/json"
 
     if is_stream:
         stream = _do_stream_request(
