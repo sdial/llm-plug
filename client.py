@@ -117,9 +117,8 @@ def get_upstream_headers(channel: Channel, extra_headers: dict | None = None) ->
     headers = {}
     if channel.api_type == APIType.ANTHROPIC:
         headers["x-api-key"] = channel.api_key
-        headers["anthropic-version"] = channel.anthropic_version or "2023-06-01"
-        if channel.anthropic_beta:
-            headers["anthropic-beta"] = channel.anthropic_beta
+        extra_headers = extra_headers or {}
+        _apply_anthropic_headers(headers, channel, extra_headers)
     else:
         headers["Authorization"] = f"Bearer {channel.api_key}"
     if extra_headers:

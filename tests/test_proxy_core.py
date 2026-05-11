@@ -1205,14 +1205,15 @@ class TestAnthropicHeaderPriority:
                 client_headers=client_headers,
             )
 
-        # 未显式配置渠道级 version 时，同类型 Anthropic 直通应透传客户端 version
-        assert captured_headers["anthropic-version"] == "2024-01-01"
+        # 默认 channel 策略下，未配置时回退为默认版本
+        assert captured_headers["anthropic-version"] == "2023-06-01"
         # 渠道配置的 anthropic_beta 应保留
         assert captured_headers["anthropic-beta"] == "max-tokens-3-5-sonnet-2024-07-15"
         # 客户端自定义头应透传
         assert captured_headers["x-custom"] == "should-pass"
 
     @pytest.mark.anyio
+    async def test_client_headers_can_override_when_channel_policy_allows(self):
     async def test_client_headers_can_override_when_channel_policy_allows(self):
         captured_headers = {}
 
@@ -1240,6 +1241,7 @@ class TestAnthropicHeaderPriority:
             api_type=APIType.ANTHROPIC,
             base_url="https://api.anthropic.com",
             api_key="ak-test",
+            api_key="ak-test",
             models=["claude-3"],
             anthropic_version="2024-10-22",
             anthropic_version_policy="client",
@@ -1256,6 +1258,15 @@ class TestAnthropicHeaderPriority:
                 patch("proxy_core._log_debug", new_callable=AsyncMock), \
                 patch("proxy_core.stats.record_request"):
             await _do_request(
+                channel, {"model": "claude-3", "messages": []},
+                APIType.ANTHROPIC, is_stream=False,
+                client_headers=client_headers,
+            )
+
+        assert captured_headers["anthropic-version"] == "2025-01-01"
+        assert captured_headers["anthropic-beta"] == (
+            "prompt-caching-2024-07-31,search-results-2025-01-15"
+        )
                 channel, {"model": "claude-3", "messages": []},
                 APIType.ANTHROPIC, is_stream=False,
                 client_headers=client_headers,

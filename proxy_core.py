@@ -542,34 +542,14 @@ def _build_upstream_headers(
     same_type_passthrough: bool,
     client_headers: dict[str, str] | None,
 ) -> dict:
-    headers = get_upstream_headers(channel)
-    headers["Content-Type"] = "application/json"
-
-    incoming = {k.lower(): v for k, v in (client_headers or {}).items()}
-
-    if channel.api_type == APIType.ANTHROPIC:
-        configured_version = getattr(channel, "anthropic_version", None)
-        if configured_version:
-            headers["anthropic-version"] = configured_version
-        elif same_type_passthrough and incoming.get("anthropic-version"):
-            headers["anthropic-version"] = incoming["anthropic-version"]
-
-        if not channel.anthropic_beta and same_type_passthrough and incoming.get("anthropic-beta"):
-            headers["anthropic-beta"] = incoming["anthropic-beta"]
-
-    skip_headers = {
-        "host",
-        "authorization",
-        "x-api-key",
-        "content-type",
-        "content-length",
-        "anthropic-version",
-        "anthropic-beta",
-    }
+    forwarded_headers = {}
+    skip_headers = {"host", "authorization", "x-api-key", "content-type", "content-length"}
     for key, val in (client_headers or {}).items():
         if key.lower() not in skip_headers:
-            headers[key] = val
+            forwarded_headers[key] = val
 
+    headers = get_upstream_headers(channel, forwarded_headers)
+    headers["Content-Type"] = "application/json"
     return headers
 
 
