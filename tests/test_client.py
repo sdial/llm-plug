@@ -311,6 +311,28 @@ class TestGetUpstreamHeaders:
             {"anthropic-beta": "search-results-2025-01-15"},
         )
         assert headers["anthropic-beta"] == "search-results-2025-01-15"
+        assert headers["anthropic-beta"] == "prompt-caching-2024-07-31"
+
+    def test_anthropic_beta_merge_combines_channel_and_client(self, anthropic_channel):
+        anthropic_channel.anthropic_beta = "prompt-caching-2024-07-31,token-efficient-tools-2025-02-19"
+        anthropic_channel.anthropic_beta_policy = "merge"
+        headers = client.get_upstream_headers(
+            anthropic_channel,
+            {"anthropic-beta": "token-efficient-tools-2025-02-19,search-results-2025-01-15"},
+        )
+        assert headers["anthropic-beta"] == (
+            "prompt-caching-2024-07-31,"
+            "token-efficient-tools-2025-02-19,"
+            "search-results-2025-01-15"
+        )
+
+    def test_anthropic_beta_merge_with_client_only(self, anthropic_channel):
+        anthropic_channel.anthropic_beta_policy = "merge"
+        headers = client.get_upstream_headers(
+            anthropic_channel,
+            {"anthropic-beta": "search-results-2025-01-15"},
+        )
+        assert headers["anthropic-beta"] == "search-results-2025-01-15"
 
     def test_merges_extra_headers(self, sample_channel):
         extra = {"X-Custom": "value"}
