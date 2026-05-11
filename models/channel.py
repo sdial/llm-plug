@@ -19,6 +19,7 @@ class Channel(BaseModel):
     priority: int = Field(default=1, ge=1)
     socks5_proxy: Optional[str] = None
     capabilities: Optional[dict[str, Any]] = None
+    anthropic_version: Optional[str] = None
     anthropic_beta: Optional[str] = None
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
@@ -36,6 +37,7 @@ class ChannelCreate(BaseModel):
     priority: int = Field(default=1, ge=1)
     socks5_proxy: Optional[str] = None
     capabilities: Optional[dict[str, Any]] = None
+    anthropic_version: Optional[str] = None
     anthropic_beta: Optional[str] = None
 
 
@@ -50,4 +52,5 @@ class ChannelUpdate(BaseModel):
     priority: Optional[int] = Field(default=None, ge=1)
     socks5_proxy: Optional[str] = None
     capabilities: Optional[dict[str, Any]] = None
+    anthropic_version: Optional[str] = None
     anthropic_beta: Optional[str] = None
