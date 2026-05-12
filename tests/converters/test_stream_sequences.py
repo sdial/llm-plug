@@ -198,8 +198,8 @@ class TestChatToResponseStreamGolden:
 
 
 class TestChatToAnthropicStream:
-    def test_thinking_stream_with_signature_delta(self):
-        """OpenAI reasoning_content 流应生成 thinking_delta + signature_delta"""
+    def test_reasoning_content_stream_is_not_unsigned_thinking(self):
+        """OpenAI reasoning_content 流不能伪造成无签名 Anthropic thinking"""
         converter = ToAnthropicConverter()
         events = [
             {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
@@ -209,8 +209,14 @@ class TestChatToAnthropicStream:
         ]
         outputs = feed_anthropic_events(converter, events)
         delta_types = [d.get("delta", {}).get("type") for _, d in outputs]
-        assert "thinking_delta" in delta_types
-        assert "signature_delta" in delta_types
+        assert "thinking_delta" not in delta_types
+        assert "signature_delta" not in delta_types
+        text_deltas = [
+            d.get("delta", {}).get("text")
+            for _, d in outputs
+            if d.get("delta", {}).get("type") == "text_delta"
+        ]
+        assert text_deltas == ["The answer is 42"]
 
     def test_message_start_with_usage(self):
         """message_start 应包含 input_tokens"""

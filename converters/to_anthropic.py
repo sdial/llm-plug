@@ -1,112 +1,12 @@
 """
 将其他格式转换为 Anthropic Messages 格式
 """
-import base64
 import json
-import time
 from typing import Any
-from urllib.parse import urlparse
-
-import httpx
 
 from loguru import logger
 
 from converters.base import BaseConverter
-
-# 图像下载缓存（URL -> {base64_data, media_type, timestamp})
-_IMAGE_CACHE: dict[str, dict[str, Any]] = {}
-_IMAGE_CACHE_TTL = 3600  # 1小时缓存
-_IMAGE_DOWNLOAD_TIMEOUT = 30.0  # 下载超时
-_IMAGE_MAX_SIZE = 10 * 1024 * 1024  # 10MB 最大尺寸
-_ENABLE_IMAGE_DOWNLOAD = True  # 是否启用 HTTP URL 图像下载
-
-
-def _get_media_type_from_url(url: str) -> str:
-    """从 URL 推断图像 MIME 类型"""
-    path = urlparse(url).path.lower()
-    if path.endswith(".jpg") or path.endswith(".jpeg"):
-        return "image/jpeg"
-    elif path.endswith(".png"):
-        return "image/png"
-    elif path.endswith(".gif"):
-        return "image/gif"
-    elif path.endswith(".webp"):
-        return "image/webp"
-    return "image/jpeg"  # 默认
-
-
-def _download_image_as_base64(url: str) -> dict[str, Any] | None:
-    """
-    同步下载 HTTP URL 图像并转换为 base64。
-
-    Args:
-        url: HTTP/HTTPS 图像 URL
-
-    Returns:
-        {"media_type": str, "data": str} 或 None（下载失败时）
-    """
-    global _IMAGE_CACHE
-
-    if not _ENABLE_IMAGE_DOWNLOAD:
-        logger.warning("Image download disabled, skipping HTTP URL: %s...", url[:50])
-        return None
-
-    # 检查缓存
-    now = time.time()
-    cached = _IMAGE_CACHE.get(url)
-    if cached and now - cached.get("timestamp", 0) < _IMAGE_CACHE_TTL:
-        return {"media_type": cached["media_type"], "data": cached["data"]}
-
-    # 清理过期缓存
-    expired_keys = [k for k, v in _IMAGE_CACHE.items() if now - v.get("timestamp", 0) > _IMAGE_CACHE_TTL]
-    for k in expired_keys:
-        del _IMAGE_CACHE[k]
-
-    try:
-        with httpx.Client(timeout=_IMAGE_DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
-            response = client.get(url)
-            response.raise_for_status()
-
-            # 检查大小
-            content_length = response.headers.get("content-length")
-            if content_length and int(content_length) > _IMAGE_MAX_SIZE:
-                logger.warning("Image too large (%s bytes), skipping: %s...", content_length, url[:50])
-                return None
-
-            content = response.content
-            if len(content) > _IMAGE_MAX_SIZE:
-                logger.warning("Image too large (%d bytes), skipping: %s...", len(content), url[:50])
-                return None
-
-            # 推断 MIME 类型
-            content_type = response.headers.get("content-type", "")
-            if content_type.startswith("image/"):
-                media_type = content_type.split(";")[0].strip()
-            else:
-                media_type = _get_media_type_from_url(url)
-
-            # 转换为 base64
-            data = base64.b64encode(content).decode("utf-8")
-
-            # 缓存结果
-            _IMAGE_CACHE[url] = {
-                "media_type": media_type,
-                "data": data,
-                "timestamp": now,
-            }
-
-            logger.debug("Downloaded image %d bytes, media_type=%s", len(content), media_type)
-            return {"media_type": media_type, "data": data}
-
-    except httpx.TimeoutException:
-        logger.warning("Image download timeout: %s...", url[:50])
-        return None
-    except httpx.HTTPStatusError as e:
-        logger.warning("Image download HTTP error %d: %s...", e.response.status_code, url[:50])
-        return None
-    except Exception as e:
-        logger.warning("Image download failed: %s: %s...", type(e).__name__, url[:50])
-        return None
 
 
 class ToAnthropicConverter(BaseConverter):
@@ -174,16 +74,10 @@ class ToAnthropicConverter(BaseConverter):
                                 "source": {"type": "base64", "media_type": media_type, "data": data},
                             })
                         elif url.startswith("http://") or url.startswith("https://"):
-                            # HTTP URL -> 下载并转为 base64
-                            downloaded = _download_image_as_base64(url)
-                            if downloaded:
-                                result.append({
-                                    "type": "image",
-                                    "source": {"type": "base64", "media_type": downloaded["media_type"], "data": downloaded["data"]},
-                                })
-                            else:
-                                # 下载失败，保留可见文本提示
-                                result.append({"type": "text", "text": f"[Image download failed: {url[:100]}]"})
+                            result.append({
+                                "type": "image",
+                                "source": {"type": "url", "url": url},
+                            })
                         else:
                             logger.warning("Unsupported image_url format: %s...", url[:50])
                             result.append({"type": "text", "text": f"[Unsupported image_url format: {url[:100]}]"})
@@ -248,7 +142,10 @@ class ToAnthropicConverter(BaseConverter):
                 content_parts = []
                 reasoning_content = msg.get("reasoning_content")
                 if reasoning_content:
-                    content_parts.append({"type": "thinking", "thinking": reasoning_content, "signature": ""})
+                    logger.warning(
+                        "Dropping OpenAI reasoning_content in Chat->Anthropic request: "
+                        "Anthropic thinking signatures cannot be synthesized"
+                    )
                 text_content = msg.get("content")
                 if text_content:
                     if isinstance(text_content, str):
@@ -344,18 +241,17 @@ class ToAnthropicConverter(BaseConverter):
             elif tc == "none":
                 result["tool_choice"] = {"type": "none"}
 
+        reasoning_effort = data.get("reasoning_effort")
         if data.get("thinking") is not None:
             result["thinking"] = data["thinking"]
-        elif data.get("enable_thinking"):
-            result["thinking"] = {"type": "enabled", "budget_tokens": 4096}
-
-        reasoning_effort = data.get("reasoning_effort")
-        if reasoning_effort is not None:
+        elif reasoning_effort is not None:
             if isinstance(reasoning_effort, int) or (isinstance(reasoning_effort, str) and reasoning_effort.isdigit()):
                 budget = int(reasoning_effort)
             else:
                 budget = {"low": 1024, "medium": 4096, "high": 16384}.get(reasoning_effort, 4096)
             result["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        elif data.get("enable_thinking"):
+            result["thinking"] = {"type": "enabled", "budget_tokens": 4096}
 
         if data.get("metadata"):
             result["metadata"] = data["metadata"]
@@ -419,9 +315,11 @@ class ToAnthropicConverter(BaseConverter):
             tool_calls = msg.get("tool_calls")
 
         content = []
-        # thinking block 必须在 text block 之前
         if reasoning_content:
-            content.append({"type": "thinking", "thinking": reasoning_content, "signature": ""})
+            logger.warning(
+                "Dropping OpenAI reasoning_content in Chat->Anthropic response: "
+                "Anthropic thinking signatures cannot be synthesized"
+            )
         if text:
             content.append({"type": "text", "text": text})
         if tool_calls:
@@ -483,14 +381,6 @@ class ToAnthropicConverter(BaseConverter):
             usage = chunk.get("usage")
             if usage and self._stream_state["started"]:
                 if self._stream_state["content_block_started"]:
-                    if self._stream_state["current_content_type"] == "thinking":
-                        events.append(
-                            ("content_block_delta", {
-                                "type": "content_block_delta",
-                                "index": self._stream_state["content_block_index"],
-                                "delta": {"type": "signature_delta", "signature": ""},
-                            })
-                        )
                     events.append(
                         ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                     )
@@ -517,32 +407,10 @@ class ToAnthropicConverter(BaseConverter):
         if delta.get("role") == "assistant":
             self._ensure_message_started(chunk, events)
 
-        # 先处理 reasoning_content，因为 thinking block 应该在 text block 之前
         if delta.get("reasoning_content") is not None:
-            self._ensure_message_started(chunk, events)
-            if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "thinking":
-                events.append(
-                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
-                )
-                self._stream_state["content_block_started"] = False
-                self._stream_state["content_block_index"] += 1
-
-            if not self._stream_state["content_block_started"]:
-                self._stream_state["content_block_started"] = True
-                self._stream_state["current_content_type"] = "thinking"
-                events.append(
-                    ("content_block_start", {
-                        "type": "content_block_start",
-                        "index": self._stream_state["content_block_index"],
-                        "content_block": {"type": "thinking", "thinking": "", "signature": ""},
-                    })
-                )
-            events.append(
-                ("content_block_delta", {
-                    "type": "content_block_delta",
-                    "index": self._stream_state["content_block_index"],
-                    "delta": {"type": "thinking_delta", "thinking": delta["reasoning_content"]},
-                })
+            logger.warning(
+                "Dropping OpenAI reasoning_content in Chat->Anthropic stream: "
+                "Anthropic thinking signatures cannot be synthesized"
             )
 
         # 处理 content（忽略空字符串，避免创建空的 text block）
@@ -550,14 +418,6 @@ class ToAnthropicConverter(BaseConverter):
         if content_text is not None and content_text != "":
             self._ensure_message_started(chunk, events)
             if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "text":
-                if self._stream_state["current_content_type"] == "thinking":
-                    events.append(
-                        ("content_block_delta", {
-                            "type": "content_block_delta",
-                            "index": self._stream_state["content_block_index"],
-                            "delta": {"type": "signature_delta", "signature": ""},
-                        })
-                    )
                 events.append(
                     ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                 )
@@ -588,14 +448,6 @@ class ToAnthropicConverter(BaseConverter):
                 tc_index = tc.get("index", 0)
                 if tc_index not in self._stream_state["tool_call_indices"]:
                     if self._stream_state["content_block_started"]:
-                        if self._stream_state["current_content_type"] == "thinking":
-                            events.append(
-                                ("content_block_delta", {
-                                    "type": "content_block_delta",
-                                    "index": self._stream_state["content_block_index"],
-                                    "delta": {"type": "signature_delta", "signature": ""},
-                                })
-                            )
                         events.append(
                             ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                         )
@@ -653,14 +505,6 @@ class ToAnthropicConverter(BaseConverter):
         if finish_reason is not None:
             self._ensure_message_started(chunk, events)
             if self._stream_state["content_block_started"]:
-                if self._stream_state["current_content_type"] == "thinking":
-                    events.append(
-                        ("content_block_delta", {
-                            "type": "content_block_delta",
-                            "index": self._stream_state["content_block_index"],
-                            "delta": {"type": "signature_delta", "signature": ""},
-                        })
-                    )
                 events.append(
                     ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                 )
@@ -973,7 +817,7 @@ class ToAnthropicConverter(BaseConverter):
         self._last_event_type = events[0][0]
         result = dict(events[0][1])  # 复制一份，避免修改原始数据
         if len(events) > 1:
-            # 额外事件存储在实例变量中，而不是添加到 result 字典
+            # proxy_core 每个请求创建新的 converter 实例；额外事件不能跨请求复用。
             self._pending_extra_events = events[1:]
         else:
             self._pending_extra_events = []

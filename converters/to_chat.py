@@ -50,6 +50,41 @@ class ToChatCompletionsConverter(BaseConverter):
             "output_index_to_tc_index": {},   # Response output_index → OpenAI tool_call index
         }
 
+    @staticmethod
+    def _serialize_tool_arguments(value: Any) -> str:
+        if value is None:
+            value = {}
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return str(value)
+
+    @staticmethod
+    def _tool_result_to_chat_message(part: dict[str, Any]) -> dict[str, Any]:
+        tool_result_content = part.get("content", "")
+        if isinstance(tool_result_content, list):
+            text_parts = []
+            for item in tool_result_content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+                    elif "text" in item:
+                        text_parts.append(item.get("text", ""))
+                elif isinstance(item, str):
+                    text_parts.append(item)
+            result_text = "\n".join(text_parts)
+        else:
+            result_text = str(tool_result_content) if tool_result_content else ""
+
+        if part.get("is_error", False):
+            result_text = f"[ERROR] {result_text}"
+
+        return {
+            "role": "tool",
+            "tool_call_id": part.get("tool_use_id") or part.get("tool_call_id", ""),
+            "content": result_text,
+        }
+
     # --- Anthropic → Chat Completions ---
 
     def _anthropic_request_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -130,7 +165,7 @@ class ToChatCompletionsConverter(BaseConverter):
                             "type": "function",
                             "function": {
                                 "name": part.get("name", ""),
-                                "arguments": json.dumps(part.get("input", {})) if isinstance(part.get("input"), dict) else (part.get("input", "") or ""),
+                                "arguments": self._serialize_tool_arguments(part.get("input", {})),
                             }
                         })
                     elif part.get("type") == "tool_result":
@@ -145,9 +180,13 @@ class ToChatCompletionsConverter(BaseConverter):
                             logger.debug("Unknown Anthropic content block type: %s", part.get("type"))
 
                 if role == "assistant":
-                    assistant_msg = {"role": "assistant", "content": None}
+                    assistant_msg = {"role": "assistant"}
                     if text_parts:
                         assistant_msg["content"] = "\n".join(text_parts)
+                    elif reasoning_parts and not tool_calls:
+                        assistant_msg["content"] = ""
+                    else:
+                        assistant_msg["content"] = None
                     if reasoning_parts:
                         assistant_msg["reasoning_content"] = "\n".join(reasoning_parts)
                     if tool_calls:
@@ -155,21 +194,7 @@ class ToChatCompletionsConverter(BaseConverter):
                     messages.append(assistant_msg)
                 elif role == "user":
                     for tr in tool_result_parts:
-                        tool_result_content = tr.get("content", "")
-                        if isinstance(tool_result_content, list):
-                            result_text = "\n".join(
-                                c.get("text", "") for c in tool_result_content if c.get("type") == "text"
-                            )
-                        else:
-                            result_text = str(tool_result_content) if tool_result_content else ""
-                        is_error = tr.get("is_error", False)
-                        if is_error:
-                            result_text = f"[ERROR] {result_text}"
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tr.get("tool_use_id", ""),
-                            "content": result_text,
-                        })
+                        messages.append(self._tool_result_to_chat_message(tr))
                     user_parts = []
                     for t in text_parts:
                         user_parts.append({"type": "text", "text": t})
@@ -179,6 +204,9 @@ class ToChatCompletionsConverter(BaseConverter):
                             messages.append({"role": "user", "content": user_parts[0]["text"]})
                         else:
                             messages.append({"role": "user", "content": user_parts})
+                elif role == "tool" and tool_result_parts:
+                    for tr in tool_result_parts:
+                        messages.append(self._tool_result_to_chat_message(tr))
                 else:
                     fallback_content = " ".join(text_parts) if text_parts else ""
                     messages.append({"role": role, "content": fallback_content})
@@ -309,7 +337,7 @@ class ToChatCompletionsConverter(BaseConverter):
                     "type": "function",
                     "function": {
                         "name": part.get("name", ""),
-                        "arguments": part.get("input", {}),
+                        "arguments": self._serialize_tool_arguments(part.get("input", {})),
                     }
                 })
             elif part.get("type") == "document":
@@ -341,9 +369,6 @@ class ToChatCompletionsConverter(BaseConverter):
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
         if tool_calls:
-            for tc in tool_calls:
-                if isinstance(tc["function"]["arguments"], dict):
-                    tc["function"]["arguments"] = json.dumps(tc["function"]["arguments"])
             message["tool_calls"] = tool_calls
 
         result = {
@@ -373,6 +398,8 @@ class ToChatCompletionsConverter(BaseConverter):
             "max_tokens": "length",
             "stop_sequence": "stop",
             "tool_use": "tool_calls",
+            "pause_turn": "stop",
+            "refusal": "content_filter",
         }
         return mapping.get(reason, "stop")
 
