@@ -47,9 +47,6 @@ class LoadBalancer:
         self._max_fail_count = max_fail_count
         self._cooldown_seconds = float(cooldown_seconds)
 
-    def get_health(self, channel_id: str) -> ChannelHealth:
-        return self._health[channel_id]
-
     def record_success(self, channel_id: str):
         self._health[channel_id].record_success()
 

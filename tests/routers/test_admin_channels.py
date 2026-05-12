@@ -99,3 +99,28 @@ async def test_update_channel_accepts_anthropic_header_policy_fields(channels_fi
     assert body["anthropic_version_policy"] == "channel_if_missing"
     assert body["anthropic_beta"] == "prompt-caching-2024-07-31"
     assert body["anthropic_beta_policy"] == "merge"
+
+
+@pytest.mark.anyio
+async def test_create_model_group_uses_storage_helper(channels_file, monkeypatch):
+    import routers.admin
+
+    calls = []
+
+    async def fake_add_model_group(group):
+        calls.append(group)
+        return group
+
+    monkeypatch.setattr(routers.admin, "add_model_group", fake_add_model_group)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/admin/model-groups",
+            json={"name": "fallback", "models": ["gpt-4o"]},
+        )
+
+    assert response.status_code == 200
+    assert len(calls) == 1
+    assert calls[0].name == "fallback"

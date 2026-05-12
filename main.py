@@ -201,6 +201,8 @@ class CombinedMiddleware:
                 self._log_request(ts_start, method, path, query, model, stream, "", 403, start)
                 return
 
+        scope["state"]["proxy_auth_checked"] = True
+
         # Create a new receive that returns the buffered body
         body_received = False
 

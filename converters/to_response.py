@@ -403,9 +403,6 @@ class ToResponseConverter(BaseConverter):
     def _make_response_event(self, event_type: str, **payload) -> dict[str, Any]:
         return {"type": event_type, **payload}
 
-    def _queue_events(self, events: list[dict[str, Any]]) -> None:
-        self._pending_extra_events.extend(events)
-
     def _chat_stream_chunk_to_response(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
         from loguru import logger
         if self._stream_state is None:
