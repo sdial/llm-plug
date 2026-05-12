@@ -26,8 +26,11 @@ from proxy_core import (
 @pytest.fixture(autouse=True)
 def reset_model_cache():
     """每个测试前清理模型渠道缓存。"""
-    _model_channels_cache.cache_clear() if hasattr(_model_channels_cache, 'cache_clear') else None
+    _model_channels_cache.cache_clear() if hasattr(
+        _model_channels_cache, "cache_clear"
+    ) else None
     import proxy_core
+
     proxy_core._model_channels_cache = None
     yield
 
@@ -73,7 +76,10 @@ class TestGetChannelsForModel:
             ]
         }
         import storage
-        with patch.object(storage, 'load_data', new_callable=AsyncMock, return_value=mock_data):
+
+        with patch.object(
+            storage, "load_data", new_callable=AsyncMock, return_value=mock_data
+        ):
             channels = await _get_channels_for_model("gpt-4")
             assert len(channels) == 2
             assert {ch.id for ch in channels} == {"ch_1", "ch_2"}
@@ -81,7 +87,10 @@ class TestGetChannelsForModel:
     @pytest.mark.anyio
     async def test_returns_empty_when_no_match(self):
         import storage
-        with patch.object(storage, 'load_data', new_callable=AsyncMock, return_value={"channels": []}):
+
+        with patch.object(
+            storage, "load_data", new_callable=AsyncMock, return_value={"channels": []}
+        ):
             channels = await _get_channels_for_model("gpt-4")
             assert channels == []
 
@@ -103,7 +112,10 @@ class TestGetChannelsForModel:
             ]
         }
         import storage
-        with patch.object(storage, 'load_data', new_callable=AsyncMock, return_value=mock_data):
+
+        with patch.object(
+            storage, "load_data", new_callable=AsyncMock, return_value=mock_data
+        ):
             channels = await _get_channels_for_model("gpt-4")
             assert channels == []
 
@@ -118,7 +130,9 @@ class TestGetConverterAndUpstreamType:
             api_key="sk-test",
             models=["gpt-4"],
         )
-        req_conv, resp_conv, source = _get_converter_and_upstream_type(ch, APIType.OPENAI_CHAT)
+        req_conv, resp_conv, source = _get_converter_and_upstream_type(
+            ch, APIType.OPENAI_CHAT
+        )
         assert req_conv is None
         assert resp_conv is None
         assert source == "openai-chat-completions"
@@ -132,7 +146,9 @@ class TestGetConverterAndUpstreamType:
             api_key="ak-test",
             models=["claude-opus-4-7"],
         )
-        req_conv, resp_conv, source = _get_converter_and_upstream_type(ch, APIType.OPENAI_CHAT)
+        req_conv, resp_conv, source = _get_converter_and_upstream_type(
+            ch, APIType.OPENAI_CHAT
+        )
         assert isinstance(req_conv, ToAnthropicConverter)
         assert isinstance(resp_conv, ToChatCompletionsConverter)
         assert source == "anthropic"
@@ -146,7 +162,9 @@ class TestGetConverterAndUpstreamType:
             api_key="sk-test",
             models=["gpt-4"],
         )
-        req_conv, resp_conv, source = _get_converter_and_upstream_type(ch, APIType.ANTHROPIC)
+        req_conv, resp_conv, source = _get_converter_and_upstream_type(
+            ch, APIType.ANTHROPIC
+        )
         assert isinstance(req_conv, ToChatCompletionsConverter)
         assert isinstance(resp_conv, ToAnthropicConverter)
         assert source == "openai-chat-completions"
@@ -160,7 +178,9 @@ class TestGetConverterAndUpstreamType:
             api_key="sk-test",
             models=["gpt-4"],
         )
-        req_conv, resp_conv, source = _get_converter_and_upstream_type(ch, APIType.OPENAI_CHAT)
+        req_conv, resp_conv, source = _get_converter_and_upstream_type(
+            ch, APIType.OPENAI_CHAT
+        )
         assert isinstance(req_conv, ToResponseConverter)
         assert isinstance(resp_conv, ToChatCompletionsConverter)
         assert source == "openai-response"
@@ -241,7 +261,10 @@ class TestGetUpstreamUrl:
             api_key="sk-test",
             models=["ernie-4.0"],
         )
-        assert _get_upstream_url(ch) == "https://qianfan.baidubce.com/v2/coding/chat/completions"
+        assert (
+            _get_upstream_url(ch)
+            == "https://qianfan.baidubce.com/v2/coding/chat/completions"
+        )
 
     def test_full_path_chat_completion_singular(self):
         """支持 /chat/completion (无 s) 结尾的路径"""
@@ -253,7 +276,10 @@ class TestGetUpstreamUrl:
             api_key="sk-test",
             models=["ernie-4.0"],
         )
-        assert _get_upstream_url(ch) == "https://qianfan.baidubce.com/v2/coding/chat/completion"
+        assert (
+            _get_upstream_url(ch)
+            == "https://qianfan.baidubce.com/v2/coding/chat/completion"
+        )
 
     def test_full_path_responses(self):
         """base_url 已包含 /responses 时不再拼接"""
@@ -287,7 +313,7 @@ class TestYieldAnthropicEvent:
 
     def test_empty_data(self):
         result = _yield_anthropic_event("ping", {})
-        assert result == 'event: ping\ndata: {}\n\n'
+        assert result == "event: ping\ndata: {}\n\n"
 
 
 class TestYieldAnthropicEvents:
@@ -300,7 +326,9 @@ class TestYieldAnthropicEvents:
         lines = result.strip().split("\n\n")
         assert len(lines) == 2
         assert lines[0] == 'event: message_start\ndata: {"message": {"id": "msg_1"}}'
-        assert lines[1] == 'event: content_block_delta\ndata: {"delta": {"text": "hello"}}'
+        assert (
+            lines[1] == 'event: content_block_delta\ndata: {"delta": {"text": "hello"}}'
+        )
 
     def test_dict_events(self):
         events = [
@@ -338,20 +366,53 @@ class TestBuildAnthropicStreamResponse:
                     },
                 },
             },
-            {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "plan"}},
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "sig_1"}},
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "plan"},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "signature_delta", "signature": "sig_1"},
+            },
             {"type": "content_block_stop", "index": 0},
-            {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}},
-            {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "hello"}},
+            {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "text", "text": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "text_delta", "text": "hello"},
+            },
             {"type": "content_block_stop", "index": 1},
             {
                 "type": "content_block_start",
                 "index": 2,
-                "content_block": {"type": "tool_use", "id": "toolu_1", "name": "calc", "input": {}},
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "calc",
+                    "input": {},
+                },
             },
-            {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": '{"x":'}},
-            {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "1}"}},
+            {
+                "type": "content_block_delta",
+                "index": 2,
+                "delta": {"type": "input_json_delta", "partial_json": '{"x":'},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 2,
+                "delta": {"type": "input_json_delta", "partial_json": "1}"},
+            },
             {"type": "content_block_stop", "index": 2},
             {
                 "type": "message_delta",
@@ -388,16 +449,20 @@ class TestConverterMap:
 
 class TestDoRequest:
     @pytest.mark.anyio
-    async def test_same_type_non_stream_skips_capability_filter_and_response_think_filter(self):
+    async def test_same_type_non_stream_skips_capability_filter_and_response_think_filter(
+        self,
+    ):
         captured = {}
         upstream_response = {
             "id": "chatcmpl_1",
             "object": "chat.completion",
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "💭internal💭 visible"},
-                "finish_reason": "stop",
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "💭internal💭 visible"},
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
 
@@ -421,25 +486,36 @@ class TestDoRequest:
             "parallel_tool_calls": True,
         }
 
-        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
-            response = await _do_request(channel, request_data, APIType.OPENAI_CHAT, is_stream=False)
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
+            response = await _do_request(
+                channel, request_data, APIType.OPENAI_CHAT, is_stream=False
+            )
 
         assert captured["json"] == request_data
         assert response == upstream_response
 
     @pytest.mark.anyio
-    async def test_same_type_passthrough_skips_capability_filter_even_with_capabilities_set(self):
+    async def test_same_type_passthrough_skips_capability_filter_even_with_capabilities_set(
+        self,
+    ):
         captured = {}
         upstream_response = {
             "id": "chatcmpl_1",
             "object": "chat.completion",
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "ok"},
-                "finish_reason": "stop",
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
 
@@ -464,16 +540,25 @@ class TestDoRequest:
             "parallel_tool_calls": True,
         }
 
-        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
-            response = await _do_request(channel, request_data, APIType.OPENAI_CHAT, is_stream=False)
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
+            response = await _do_request(
+                channel, request_data, APIType.OPENAI_CHAT, is_stream=False
+            )
 
         assert captured["json"] == request_data
         assert response == upstream_response
 
     @pytest.mark.anyio
-    async def test_same_type_openai_response_non_stream_forwards_body_and_response_unchanged(self):
+    async def test_same_type_openai_response_non_stream_forwards_body_and_response_unchanged(
+        self,
+    ):
         captured = {}
         upstream_response = {
             "id": "resp_remote_2",
@@ -516,13 +601,20 @@ class TestDoRequest:
             "store": True,
         }
 
-        with patch("proxy_core._responses_store") as mock_store, \
-                patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch("proxy_core._responses_store") as mock_store,
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             mock_store.get_conversation = AsyncMock(return_value=None)
 
-            response = await _do_request(channel, request_data, APIType.OPENAI_RESPONSE, is_stream=False)
+            response = await _do_request(
+                channel, request_data, APIType.OPENAI_RESPONSE, is_stream=False
+            )
 
         assert captured["url"] == "https://api.openai.com/v1/responses"
         assert captured["json"] == request_data
@@ -530,18 +622,22 @@ class TestDoRequest:
         mock_store.get_conversation.assert_not_awaited()
 
     @pytest.mark.anyio
-    async def test_openai_response_previous_response_id_expands_history_for_chat_upstream(self):
+    async def test_openai_response_previous_response_id_expands_history_for_chat_upstream(
+        self,
+    ):
         captured = {}
         upstream_response = {
             "id": "chatcmpl_1",
             "object": "chat.completion",
             "created": 123,
             "model": "gpt-4o",
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "ok"},
-                "finish_reason": "stop",
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
 
@@ -565,19 +661,28 @@ class TestDoRequest:
             "previous_response_id": "resp_1",
         }
 
-        with patch("proxy_core._responses_store") as mock_store, \
-                patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
-            mock_store.get_conversation = AsyncMock(return_value={
-                "messages": [
-                    {"role": "user", "content": "Hello"},
-                    {"role": "assistant", "content": "Hi there"},
-                ],
-                "instructions": "Be terse.",
-            })
+        with (
+            patch("proxy_core._responses_store") as mock_store,
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
+            mock_store.get_conversation = AsyncMock(
+                return_value={
+                    "messages": [
+                        {"role": "user", "content": "Hello"},
+                        {"role": "assistant", "content": "Hi there"},
+                    ],
+                    "instructions": "Be terse.",
+                }
+            )
 
-            await _do_request(channel, request_data, APIType.OPENAI_RESPONSE, is_stream=False)
+            await _do_request(
+                channel, request_data, APIType.OPENAI_RESPONSE, is_stream=False
+            )
 
         assert captured["json"]["messages"] == [
             {"role": "system", "content": "Be terse."},
@@ -620,10 +725,19 @@ class TestDoRequest:
             priority=2,
         )
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_client", new_callable=AsyncMock, return_value=BadRequestClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=BadRequestClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             with pytest.raises(httpx.HTTPStatusError) as exc_info:
                 await _proxy_single_model_request(
                     model="gpt-4o",
@@ -675,9 +789,10 @@ class TestDoStreamRequest:
             models=["claude-3-5-sonnet-20241022"],
         )
 
-        with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.anthropic.com/v1/messages",
@@ -694,7 +809,9 @@ class TestDoStreamRequest:
         assert "_event_type" not in joined
 
     @pytest.mark.anyio
-    async def test_same_type_anthropic_stream_preserves_event_type_for_multiline_data(self):
+    async def test_same_type_anthropic_stream_preserves_event_type_for_multiline_data(
+        self,
+    ):
         class FakeStreamResponse:
             status_code = 200
             headers = {"content-type": "text/event-stream"}
@@ -730,9 +847,10 @@ class TestDoStreamRequest:
             models=["claude-3"],
         )
 
-        with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.anthropic.com/v1/messages",
@@ -793,10 +911,13 @@ class TestDoStreamRequest:
             "messages": [{"role": "user", "content": "hello"}],
         }
 
-        with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
-            stream = await _do_request(channel, request_data, APIType.OPENAI_CHAT, is_stream=True)
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = await _do_request(
+                channel, request_data, APIType.OPENAI_CHAT, is_stream=True
+            )
             outputs = [chunk async for chunk in stream]
 
         assert outputs
@@ -844,9 +965,10 @@ class TestDoStreamRequest:
             models=["gpt-4o"],
         )
 
-        with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.openai.com/v1/responses",
@@ -865,10 +987,14 @@ class TestDoStreamRequest:
         assert '"delta": "Hello"' in joined
 
     @pytest.mark.anyio
-    async def test_stream_retries_next_channel_when_first_channel_fails_before_output(self):
+    async def test_stream_retries_next_channel_when_first_channel_fails_before_output(
+        self,
+    ):
         class FailingStreamResponse:
             async def __aenter__(self):
-                request = httpx.Request("POST", "https://primary.example/v1/chat/completions")
+                request = httpx.Request(
+                    "POST", "https://primary.example/v1/chat/completions"
+                )
                 raise httpx.ConnectError("connect failed", request=request)
 
             async def __aexit__(self, exc_type, exc, tb):
@@ -927,10 +1053,15 @@ class TestDoStreamRequest:
         def fake_stream_client(channel):
             return FailingClient() if channel.id == "ch_primary" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch("proxy_core.create_stream_client", side_effect=fake_stream_client),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream, selected = await _proxy_single_model_request(
                 model="gpt-4o",
                 request_data={"model": "gpt-4o", "stream": True, "messages": []},
@@ -991,9 +1122,10 @@ class TestAnthropicNonSseJsonFallbackEarly:
             models=["claude-3"],
         )
 
-        with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.anthropic.com/v1/messages",
@@ -1017,7 +1149,9 @@ class TestAnthropicNonSseJsonFallbackEarly:
         # 每个事件块应以 event: 开头
         for block in joined.strip().split("\n\n"):
             if block.strip():
-                assert block.startswith("event: "), f"Unexpected SSE block without event line: {block[:80]}"
+                assert block.startswith("event: "), (
+                    f"Unexpected SSE block without event line: {block[:80]}"
+                )
 
 
 class TestAnthropicSameTypeFailoverEarly:
@@ -1050,28 +1184,46 @@ class TestAnthropicSameTypeFailoverEarly:
                 )
 
         primary = Channel(
-            id="ch_anthropic_1", name="Anthropic Primary",
+            id="ch_anthropic_1",
+            name="Anthropic Primary",
             api_type=APIType.ANTHROPIC,
-            base_url="https://primary-anthropic.example", api_key="ak-1",
-            models=["claude-3"], priority=1,
+            base_url="https://primary-anthropic.example",
+            api_key="ak-1",
+            models=["claude-3"],
+            priority=1,
         )
         fallback = Channel(
-            id="ch_anthropic_2", name="Anthropic Fallback",
+            id="ch_anthropic_2",
+            name="Anthropic Fallback",
             api_type=APIType.ANTHROPIC,
-            base_url="https://fallback-anthropic.example", api_key="ak-2",
-            models=["claude-3"], priority=2,
+            base_url="https://fallback-anthropic.example",
+            api_key="ak-2",
+            models=["claude-3"],
+            priority=2,
         )
 
         def fake_create_client(ch):
             return FailingClient() if ch.id == "ch_anthropic_1" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                side_effect=fake_create_client,
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             result, selected = await _proxy_single_model_request(
                 model="claude-3",
-                request_data={"model": "claude-3", "messages": [{"role": "user", "content": "hi"}]},
+                request_data={
+                    "model": "claude-3",
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 target_api_type=APIType.ANTHROPIC,
                 is_stream=False,
                 query_string=None,
@@ -1088,7 +1240,9 @@ class TestAnthropicSameTypeFailoverEarly:
 
         class FailingStreamResponse:
             async def __aenter__(self):
-                request = httpx.Request("POST", "https://primary-anthropic.example/v1/messages")
+                request = httpx.Request(
+                    "POST", "https://primary-anthropic.example/v1/messages"
+                )
                 raise httpx.ConnectError("connection refused", request=request)
 
             async def __aexit__(self, exc_type, exc, tb):
@@ -1136,28 +1290,43 @@ class TestAnthropicSameTypeFailoverEarly:
                 return None
 
         primary = Channel(
-            id="ch_anthropic_1", name="Anthropic Primary",
+            id="ch_anthropic_1",
+            name="Anthropic Primary",
             api_type=APIType.ANTHROPIC,
-            base_url="https://primary-anthropic.example", api_key="ak-1",
-            models=["claude-3"], priority=1,
+            base_url="https://primary-anthropic.example",
+            api_key="ak-1",
+            models=["claude-3"],
+            priority=1,
         )
         fallback = Channel(
-            id="ch_anthropic_2", name="Anthropic Fallback",
+            id="ch_anthropic_2",
+            name="Anthropic Fallback",
             api_type=APIType.ANTHROPIC,
-            base_url="https://fallback-anthropic.example", api_key="ak-2",
-            models=["claude-3"], priority=2,
+            base_url="https://fallback-anthropic.example",
+            api_key="ak-2",
+            models=["claude-3"],
+            priority=2,
         )
 
         def fake_stream_client(ch):
             return FailingClient() if ch.id == "ch_anthropic_1" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch("proxy_core.create_stream_client", side_effect=fake_stream_client),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream, selected = await _proxy_single_model_request(
                 model="claude-3",
-                request_data={"model": "claude-3", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+                request_data={
+                    "model": "claude-3",
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 target_api_type=APIType.ANTHROPIC,
                 is_stream=True,
                 query_string=None,
@@ -1260,13 +1429,22 @@ class TestAnthropicSameTypeFailoverEarly:
         def fake_stream_client(ch):
             return ErrorClient() if ch.id == "ch_primary" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch("proxy_core.create_stream_client", side_effect=fake_stream_client),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream, selected = await _proxy_single_model_request(
                 model="claude-3",
-                request_data={"model": "claude-3", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+                request_data={
+                    "model": "claude-3",
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 target_api_type=APIType.ANTHROPIC,
                 is_stream=True,
                 query_string=None,
@@ -1321,12 +1499,19 @@ class TestAnthropicHeaderPriority:
             "x-custom": "should-pass",  # 自定义头应透传
         }
 
-        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             await _do_request(
-                channel, {"model": "claude-3", "messages": []},
-                APIType.ANTHROPIC, is_stream=False,
+                channel,
+                {"model": "claude-3", "messages": []},
+                APIType.ANTHROPIC,
+                is_stream=False,
                 client_headers=client_headers,
             )
 
@@ -1377,12 +1562,19 @@ class TestAnthropicHeaderPriority:
             "anthropic-beta": "prompt-caching-2024-07-31,search-results-2025-01-15",
         }
 
-        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             await _do_request(
-                channel, {"model": "claude-3", "messages": []},
-                APIType.ANTHROPIC, is_stream=False,
+                channel,
+                {"model": "claude-3", "messages": []},
+                APIType.ANTHROPIC,
+                is_stream=False,
                 client_headers=client_headers,
             )
 
@@ -1392,7 +1584,9 @@ class TestAnthropicHeaderPriority:
         )
 
     @pytest.mark.anyio
-    async def test_emits_response_completed_before_done_when_finish_reason_missing(self):
+    async def test_emits_response_completed_before_done_when_finish_reason_missing(
+        self,
+    ):
         class FakeStreamResponse:
             status_code = 200
             headers = {"content-type": "text/event-stream"}
@@ -1427,9 +1621,10 @@ class TestAnthropicHeaderPriority:
             models=["glm-5"],
         )
 
-        with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.openai.com/v1/chat/completions",
@@ -1444,6 +1639,7 @@ class TestAnthropicHeaderPriority:
         joined = "".join(outputs)
         assert "event: response.completed" in joined
         assert '"text": "Hello"' in joined
+
 
 class TestFailoverOn401:
     """401/403/404 应触发故障转移到其他渠道。"""
@@ -1471,28 +1667,57 @@ class TestFailoverOn401:
                     json={
                         "id": "chatcmpl_1",
                         "object": "chat.completion",
-                        "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": "ok"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 1,
+                            "completion_tokens": 1,
+                            "total_tokens": 2,
+                        },
                     },
                     request=request,
                 )
 
         primary = Channel(
-            id="ch_primary", name="Primary", api_type=APIType.OPENAI_CHAT,
-            base_url="https://primary.example", api_key="sk-bad", models=["gpt-4o"], priority=1,
+            id="ch_primary",
+            name="Primary",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://primary.example",
+            api_key="sk-bad",
+            models=["gpt-4o"],
+            priority=1,
         )
         fallback = Channel(
-            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
-            base_url="https://fallback.example", api_key="sk-good", models=["gpt-4o"], priority=2,
+            id="ch_fallback",
+            name="Fallback",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example",
+            api_key="sk-good",
+            models=["gpt-4o"],
+            priority=2,
         )
 
         def fake_create_client(ch):
             return UnauthorizedClient() if ch.id == "ch_primary" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                side_effect=fake_create_client,
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             result, selected = await _proxy_single_model_request(
                 model="gpt-4o",
                 request_data={"model": "gpt-4o", "messages": []},
@@ -1530,28 +1755,57 @@ class TestFailoverOn401:
                     json={
                         "id": "chatcmpl_1",
                         "object": "chat.completion",
-                        "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": "ok"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 1,
+                            "completion_tokens": 1,
+                            "total_tokens": 2,
+                        },
                     },
                     request=request,
                 )
 
         primary = Channel(
-            id="ch_primary", name="Primary", api_type=APIType.OPENAI_CHAT,
-            base_url="https://primary.example", api_key="sk-bad", models=["gpt-4o"], priority=1,
+            id="ch_primary",
+            name="Primary",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://primary.example",
+            api_key="sk-bad",
+            models=["gpt-4o"],
+            priority=1,
         )
         fallback = Channel(
-            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
-            base_url="https://fallback.example", api_key="sk-good", models=["gpt-4o"], priority=2,
+            id="ch_fallback",
+            name="Fallback",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example",
+            api_key="sk-good",
+            models=["gpt-4o"],
+            priority=2,
         )
 
         def fake_create_client(ch):
             return ForbiddenClient() if ch.id == "ch_primary" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                side_effect=fake_create_client,
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             result, selected = await _proxy_single_model_request(
                 model="gpt-4o",
                 request_data={"model": "gpt-4o", "messages": []},
@@ -1588,28 +1842,57 @@ class TestFailoverOn401:
                     json={
                         "id": "chatcmpl_1",
                         "object": "chat.completion",
-                        "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": "ok"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 1,
+                            "completion_tokens": 1,
+                            "total_tokens": 2,
+                        },
                     },
                     request=request,
                 )
 
         primary = Channel(
-            id="ch_primary", name="Primary", api_type=APIType.OPENAI_CHAT,
-            base_url="https://primary.example", api_key="sk-bad", models=["gpt-4o"], priority=1,
+            id="ch_primary",
+            name="Primary",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://primary.example",
+            api_key="sk-bad",
+            models=["gpt-4o"],
+            priority=1,
         )
         fallback = Channel(
-            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
-            base_url="https://fallback.example", api_key="sk-good", models=["gpt-4o"], priority=2,
+            id="ch_fallback",
+            name="Fallback",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example",
+            api_key="sk-good",
+            models=["gpt-4o"],
+            priority=2,
         )
 
         def fake_create_client(ch):
             return NotFoundClient() if ch.id == "ch_primary" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                side_effect=fake_create_client,
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             result, selected = await _proxy_single_model_request(
                 model="gpt-4o",
                 request_data={"model": "gpt-4o", "messages": []},
@@ -1630,21 +1913,42 @@ class TestFailoverOn401:
         class UnauthorizedClient:
             async def post(self, url, json, headers):
                 request = httpx.Request("POST", url)
-                return httpx.Response(401, json={"error": {"message": "invalid"}}, request=request)
+                return httpx.Response(
+                    401, json={"error": {"message": "invalid"}}, request=request
+                )
 
         primary = Channel(
-            id="ch_primary", name="Primary", api_type=APIType.OPENAI_CHAT,
-            base_url="https://primary.example", api_key="sk-bad", models=["gpt-4o"], priority=1,
+            id="ch_primary",
+            name="Primary",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://primary.example",
+            api_key="sk-bad",
+            models=["gpt-4o"],
+            priority=1,
         )
         fallback = Channel(
-            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
-            base_url="https://fallback.example", api_key="sk-bad2", models=["gpt-4o"], priority=2,
+            id="ch_fallback",
+            name="Fallback",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example",
+            api_key="sk-bad2",
+            models=["gpt-4o"],
+            priority=2,
         )
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_client", new_callable=AsyncMock, return_value=UnauthorizedClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=UnauthorizedClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             with pytest.raises(httpx.HTTPStatusError) as exc_info:
                 await _proxy_single_model_request(
                     model="gpt-4o",
@@ -1669,6 +1973,7 @@ class TestConverterErrorFailover:
 
         class BrokenResponseClient:
             """返回一个结构异常的响应，导致 converter 抛错。"""
+
             async def post(self, url, json, headers):
                 calls.append(url)
                 request = httpx.Request("POST", url)
@@ -1687,33 +1992,65 @@ class TestConverterErrorFailover:
                     json={
                         "id": "chatcmpl_1",
                         "object": "chat.completion",
-                        "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": "ok"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 1,
+                            "completion_tokens": 1,
+                            "total_tokens": 2,
+                        },
                     },
                     request=request,
                 )
 
         # anthropic 上游 → openai-chat-completions 客户端，需要转换
         primary = Channel(
-            id="ch_primary", name="Primary", api_type=APIType.ANTHROPIC,
-            base_url="https://primary.example", api_key="ak-test", models=["claude-3"], priority=1,
+            id="ch_primary",
+            name="Primary",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://primary.example",
+            api_key="ak-test",
+            models=["claude-3"],
+            priority=1,
         )
         # 同类型，直通
         fallback = Channel(
-            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
-            base_url="https://fallback.example", api_key="sk-good", models=["claude-3"], priority=2,
+            id="ch_fallback",
+            name="Fallback",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example",
+            api_key="sk-good",
+            models=["claude-3"],
+            priority=2,
         )
 
         def fake_create_client(ch):
             return BrokenResponseClient() if ch.id == "ch_primary" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                side_effect=fake_create_client,
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             result, selected = await _proxy_single_model_request(
                 model="claude-3",
-                request_data={"model": "claude-3", "messages": [{"role": "user", "content": "hi"}]},
+                request_data={
+                    "model": "claude-3",
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 target_api_type=APIType.OPENAI_CHAT,
                 is_stream=False,
                 query_string=None,
@@ -1729,7 +2066,9 @@ class TestResponsesToChatCompletionsFlow:
     """客户端 Responses 请求经 Chat Completions 上游完成转换。"""
 
     @pytest.mark.anyio
-    async def test_non_stream_responses_request_converts_to_chat_upstream_and_back(self):
+    async def test_non_stream_responses_request_converts_to_chat_upstream_and_back(
+        self,
+    ):
         captured = {}
 
         class ChatClient:
@@ -1751,7 +2090,11 @@ class TestResponsesToChatCompletionsFlow:
                                 "finish_reason": "stop",
                             }
                         ],
-                        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                        "usage": {
+                            "prompt_tokens": 10,
+                            "completion_tokens": 5,
+                            "total_tokens": 15,
+                        },
                     },
                     request=request,
                 )
@@ -1765,9 +2108,14 @@ class TestResponsesToChatCompletionsFlow:
             models=["gpt-4o"],
         )
 
-        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=ChatClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=ChatClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             result = await _do_request(
                 channel=channel,
                 request_data={
@@ -1815,7 +2163,11 @@ class TestResponsesToChatCompletionsFlow:
         assert result["id"].startswith("resp_")
         assert result["_upstream_id"] == "chatcmpl_1"
         assert result["output_text"] == "Hello"
-        assert result["usage"] == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+        assert result["usage"] == {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "total_tokens": 15,
+        }
 
     @pytest.mark.anyio
     async def test_responses_to_chat_applies_capability_filter_after_conversion(self):
@@ -1832,8 +2184,17 @@ class TestResponsesToChatCompletionsFlow:
                         "object": "chat.completion",
                         "created": 123,
                         "model": "gpt-4o",
-                        "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                        "choices": [
+                            {
+                                "message": {"role": "assistant", "content": "ok"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 1,
+                            "completion_tokens": 1,
+                            "total_tokens": 2,
+                        },
                     },
                     request=request,
                 )
@@ -1848,9 +2209,14 @@ class TestResponsesToChatCompletionsFlow:
             capabilities={"supports_parallel_tool_calls": False},
         )
 
-        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=ChatClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=ChatClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             await _do_request(
                 channel=channel,
                 request_data={
@@ -1879,8 +2245,17 @@ class TestResponsesToChatCompletionsFlow:
                         "object": "chat.completion",
                         "created": 123,
                         "model": "gpt-4o",
-                        "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                        "choices": [
+                            {
+                                "message": {"role": "assistant", "content": "ok"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 1,
+                            "completion_tokens": 1,
+                            "total_tokens": 2,
+                        },
                     },
                     request=request,
                 )
@@ -1894,9 +2269,14 @@ class TestResponsesToChatCompletionsFlow:
             models=["gpt-4o"],
         )
 
-        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=ChatClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=ChatClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             await _do_request(
                 channel=channel,
                 request_data={
@@ -1974,21 +2354,36 @@ class TestEmptyStreamFailover:
                 return None
 
         primary = Channel(
-            id="ch_primary", name="Primary", api_type=APIType.OPENAI_CHAT,
-            base_url="https://primary.example", api_key="sk-primary", models=["gpt-4o"], priority=1,
+            id="ch_primary",
+            name="Primary",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://primary.example",
+            api_key="sk-primary",
+            models=["gpt-4o"],
+            priority=1,
         )
         fallback = Channel(
-            id="ch_fallback", name="Fallback", api_type=APIType.OPENAI_CHAT,
-            base_url="https://fallback.example", api_key="sk-fallback", models=["gpt-4o"], priority=2,
+            id="ch_fallback",
+            name="Fallback",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://fallback.example",
+            api_key="sk-fallback",
+            models=["gpt-4o"],
+            priority=2,
         )
 
         def fake_stream_client(ch):
             return EmptyClient() if ch.id == "ch_primary" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch("proxy_core.create_stream_client", side_effect=fake_stream_client),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream, selected = await _proxy_single_model_request(
                 model="gpt-4o",
                 request_data={"model": "gpt-4o", "stream": True, "messages": []},
@@ -2049,9 +2444,10 @@ class TestAnthropicNonSseJsonFallback:
             models=["claude-3"],
         )
 
-        with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream = _do_stream_request(
                 channel=channel,
                 url="https://api.anthropic.com/v1/messages",
@@ -2075,7 +2471,9 @@ class TestAnthropicNonSseJsonFallback:
         # 每个事件块应以 event: 开头
         for block in joined.strip().split("\n\n"):
             if block.strip():
-                assert block.startswith("event: "), f"Unexpected SSE block without event line: {block[:80]}"
+                assert block.startswith("event: "), (
+                    f"Unexpected SSE block without event line: {block[:80]}"
+                )
 
 
 class TestAnthropicSameTypeFailover:
@@ -2108,28 +2506,46 @@ class TestAnthropicSameTypeFailover:
                 )
 
         primary = Channel(
-            id="ch_anthropic_1", name="Anthropic Primary",
+            id="ch_anthropic_1",
+            name="Anthropic Primary",
             api_type=APIType.ANTHROPIC,
-            base_url="https://primary-anthropic.example", api_key="ak-1",
-            models=["claude-3"], priority=1,
+            base_url="https://primary-anthropic.example",
+            api_key="ak-1",
+            models=["claude-3"],
+            priority=1,
         )
         fallback = Channel(
-            id="ch_anthropic_2", name="Anthropic Fallback",
+            id="ch_anthropic_2",
+            name="Anthropic Fallback",
             api_type=APIType.ANTHROPIC,
-            base_url="https://fallback-anthropic.example", api_key="ak-2",
-            models=["claude-3"], priority=2,
+            base_url="https://fallback-anthropic.example",
+            api_key="ak-2",
+            models=["claude-3"],
+            priority=2,
         )
 
         def fake_create_client(ch):
             return FailingClient() if ch.id == "ch_anthropic_1" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_client", new_callable=AsyncMock, side_effect=fake_create_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                side_effect=fake_create_client,
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             result, selected = await _proxy_single_model_request(
                 model="claude-3",
-                request_data={"model": "claude-3", "messages": [{"role": "user", "content": "hi"}]},
+                request_data={
+                    "model": "claude-3",
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 target_api_type=APIType.ANTHROPIC,
                 is_stream=False,
                 query_string=None,
@@ -2146,7 +2562,9 @@ class TestAnthropicSameTypeFailover:
 
         class FailingStreamResponse:
             async def __aenter__(self):
-                request = httpx.Request("POST", "https://primary-anthropic.example/v1/messages")
+                request = httpx.Request(
+                    "POST", "https://primary-anthropic.example/v1/messages"
+                )
                 raise httpx.ConnectError("connection refused", request=request)
 
             async def __aexit__(self, exc_type, exc, tb):
@@ -2194,28 +2612,43 @@ class TestAnthropicSameTypeFailover:
                 return None
 
         primary = Channel(
-            id="ch_anthropic_1", name="Anthropic Primary",
+            id="ch_anthropic_1",
+            name="Anthropic Primary",
             api_type=APIType.ANTHROPIC,
-            base_url="https://primary-anthropic.example", api_key="ak-1",
-            models=["claude-3"], priority=1,
+            base_url="https://primary-anthropic.example",
+            api_key="ak-1",
+            models=["claude-3"],
+            priority=1,
         )
         fallback = Channel(
-            id="ch_anthropic_2", name="Anthropic Fallback",
+            id="ch_anthropic_2",
+            name="Anthropic Fallback",
             api_type=APIType.ANTHROPIC,
-            base_url="https://fallback-anthropic.example", api_key="ak-2",
-            models=["claude-3"], priority=2,
+            base_url="https://fallback-anthropic.example",
+            api_key="ak-2",
+            models=["claude-3"],
+            priority=2,
         )
 
         def fake_stream_client(ch):
             return FailingClient() if ch.id == "ch_anthropic_1" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch("proxy_core.create_stream_client", side_effect=fake_stream_client),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream, selected = await _proxy_single_model_request(
                 model="claude-3",
-                request_data={"model": "claude-3", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+                request_data={
+                    "model": "claude-3",
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 target_api_type=APIType.ANTHROPIC,
                 is_stream=True,
                 query_string=None,
@@ -2318,13 +2751,22 @@ class TestAnthropicSameTypeFailover:
         def fake_stream_client(ch):
             return ErrorClient() if ch.id == "ch_primary" else WorkingClient()
 
-        with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
-                patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[primary, fallback],
+            ),
+            patch("proxy_core.create_stream_client", side_effect=fake_stream_client),
+            patch("proxy_core.stats.record_request"),
+        ):
             stream, selected = await _proxy_single_model_request(
                 model="claude-3",
-                request_data={"model": "claude-3", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+                request_data={
+                    "model": "claude-3",
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 target_api_type=APIType.ANTHROPIC,
                 is_stream=True,
                 query_string=None,
@@ -2379,12 +2821,19 @@ class TestAnthropicHeaderPriorityEarly:
             "x-custom": "should-pass",  # 自定义头应透传
         }
 
-        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             await _do_request(
-                channel, {"model": "claude-3", "messages": []},
-                APIType.ANTHROPIC, is_stream=False,
+                channel,
+                {"model": "claude-3", "messages": []},
+                APIType.ANTHROPIC,
+                is_stream=False,
                 client_headers=client_headers,
             )
 
@@ -2396,7 +2845,9 @@ class TestAnthropicHeaderPriorityEarly:
         assert captured_headers["x-custom"] == "should-pass"
 
     @pytest.mark.anyio
-    async def test_same_type_anthropic_uses_channel_policy_when_channel_not_configured(self):
+    async def test_same_type_anthropic_uses_channel_policy_when_channel_not_configured(
+        self,
+    ):
         captured_headers = {}
 
         class FakeClient:
@@ -2426,9 +2877,14 @@ class TestAnthropicHeaderPriorityEarly:
             models=["claude-3"],
         )
 
-        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             await _do_request(
                 channel,
                 {"model": "claude-3", "messages": []},
@@ -2443,7 +2899,9 @@ class TestAnthropicHeaderPriorityEarly:
             )
 
         assert captured_headers["x-api-key"] == "ak-channel"
-        assert "authorization" not in {k.lower(): v for k, v in captured_headers.items()}
+        assert "authorization" not in {
+            k.lower(): v for k, v in captured_headers.items()
+        }
         assert captured_headers["anthropic-version"] == "2023-06-01"
         assert "anthropic-beta" not in captured_headers
 
@@ -2479,9 +2937,14 @@ class TestAnthropicHeaderPriorityEarly:
             anthropic_version="2023-06-01",
         )
 
-        with patch("proxy_core.create_client", new_callable=AsyncMock, return_value=FakeClient()), \
-                patch("proxy_core._log_debug", new_callable=AsyncMock), \
-                patch("proxy_core.stats.record_request"):
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
             await _do_request(
                 channel,
                 {"model": "claude-3", "messages": []},

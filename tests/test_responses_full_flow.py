@@ -27,11 +27,14 @@ def test_post_responses_streaming(client):
             MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
         )
 
-        resp = client.post("/v1/responses", json={
-            "model": "gpt-4o",
-            "input": "Hello",
-            "stream": True,
-        })
+        resp = client.post(
+            "/v1/responses",
+            json={
+                "model": "gpt-4o",
+                "input": "Hello",
+                "stream": True,
+            },
+        )
 
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers.get("content-type", "")
@@ -60,16 +63,23 @@ def test_post_responses_basic_uses_proxy_core_converted_response(client):
                             "content": [{"type": "output_text", "text": "Hello!"}],
                         }
                     ],
-                    "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "total_tokens": 15,
+                    },
                 },
                 MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
             )
 
-            resp = client.post("/v1/responses", json={
-                "model": "gpt-4o",
-                "input": "Hello",
-                "stream": False,
-            })
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": "Hello",
+                    "stream": False,
+                },
+            )
 
             assert resp.status_code == 200
             data = resp.json()
@@ -103,15 +113,22 @@ def test_post_responses_saves_function_call_output_as_history_item(client):
                             "status": "completed",
                         }
                     ],
-                    "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "total_tokens": 15,
+                    },
                 },
                 MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
             )
 
-            resp = client.post("/v1/responses", json={
-                "model": "gpt-4o",
-                "input": "Search weather",
-            })
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": "Search weather",
+                },
+            )
 
             assert resp.status_code == 200
             _, conversation, _ = mock_store.put.await_args.args
@@ -128,13 +145,15 @@ def test_post_responses_saves_function_call_output_as_history_item(client):
 
 def test_post_responses_with_previous_response_id_expands_history(client):
     with patch("routers.proxy_response._store") as mock_store:
-        mock_store.get_conversation = AsyncMock(return_value={
-            "messages": [
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": "Hi there"},
-            ],
-            "instructions": "Be terse.",
-        })
+        mock_store.get_conversation = AsyncMock(
+            return_value={
+                "messages": [
+                    {"role": "user", "content": "Hello"},
+                    {"role": "assistant", "content": "Hi there"},
+                ],
+                "instructions": "Be terse.",
+            }
+        )
         mock_store.put = AsyncMock()
 
         with patch("routers.proxy_response.proxy_request") as mock_proxy:
@@ -154,16 +173,23 @@ def test_post_responses_with_previous_response_id_expands_history(client):
                             "content": [{"type": "output_text", "text": "Fine"}],
                         }
                     ],
-                    "usage": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+                    "usage": {
+                        "input_tokens": 12,
+                        "output_tokens": 3,
+                        "total_tokens": 15,
+                    },
                 },
                 MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
             )
 
-            resp = client.post("/v1/responses", json={
-                "model": "gpt-4o",
-                "input": "How are you?",
-                "previous_response_id": "resp_1",
-            })
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": "How are you?",
+                    "previous_response_id": "resp_1",
+                },
+            )
 
             assert resp.status_code == 200
             sent_body = mock_proxy.await_args.args[1]
@@ -179,7 +205,9 @@ def test_post_responses_with_previous_response_id_expands_history(client):
             ]
 
 
-def test_post_responses_same_type_previous_response_id_passthrough_when_local_state_missing(client):
+def test_post_responses_same_type_previous_response_id_passthrough_when_local_state_missing(
+    client,
+):
     with patch("routers.proxy_response._store") as mock_store:
         mock_store.get_conversation = AsyncMock(return_value=None)
         mock_store.put = AsyncMock()
@@ -198,20 +226,31 @@ def test_post_responses_same_type_previous_response_id_passthrough_when_local_st
                             "id": "msg_resp_remote_2",
                             "status": "completed",
                             "role": "assistant",
-                            "content": [{"type": "output_text", "text": "Remote state worked"}],
+                            "content": [
+                                {"type": "output_text", "text": "Remote state worked"}
+                            ],
                         }
                     ],
                     "output_text": "Remote state worked",
-                    "usage": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+                    "usage": {
+                        "input_tokens": 12,
+                        "output_tokens": 3,
+                        "total_tokens": 15,
+                    },
                 },
-                MagicMock(id="ch_resp", name="Responses", api_type=APIType.OPENAI_RESPONSE),
+                MagicMock(
+                    id="ch_resp", name="Responses", api_type=APIType.OPENAI_RESPONSE
+                ),
             )
 
-            resp = client.post("/v1/responses", json={
-                "model": "gpt-4o",
-                "input": "Continue",
-                "previous_response_id": "resp_remote_1",
-            })
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": "Continue",
+                    "previous_response_id": "resp_remote_1",
+                },
+            )
 
             assert resp.status_code == 200
             sent_body = mock_proxy.await_args.args[1]
@@ -238,52 +277,73 @@ def test_post_responses_saves_reasoning_item_in_history(client):
                         {
                             "type": "reasoning",
                             "id": "rs_abc",
-                            "summary": [{"type": "summary_text", "text": "Thinking..."}],
+                            "summary": [
+                                {"type": "summary_text", "text": "Thinking..."}
+                            ],
                         },
                         {
                             "type": "message",
                             "id": "msg_resp_reasoning",
                             "status": "completed",
                             "role": "assistant",
-                            "content": [{"type": "output_text", "text": "The answer is 42"}],
+                            "content": [
+                                {"type": "output_text", "text": "The answer is 42"}
+                            ],
                         },
                     ],
-                    "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "total_tokens": 15,
+                    },
                 },
                 MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
             )
 
-            resp = client.post("/v1/responses", json={
-                "model": "gpt-4o",
-                "input": "What is the answer?",
-            })
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": "What is the answer?",
+                },
+            )
 
             assert resp.status_code == 200
             _, conversation, _ = mock_store.put.await_args.args
             # reasoning 项应出现在历史中
-            reasoning_items = [m for m in conversation["messages"] if isinstance(m, dict) and m.get("type") == "reasoning"]
+            reasoning_items = [
+                m
+                for m in conversation["messages"]
+                if isinstance(m, dict) and m.get("type") == "reasoning"
+            ]
             assert len(reasoning_items) == 1
             assert reasoning_items[0]["id"] == "rs_abc"
             # message 项也应出现
-            assistant_items = [m for m in conversation["messages"] if isinstance(m, dict) and m.get("role") == "assistant"]
+            assistant_items = [
+                m
+                for m in conversation["messages"]
+                if isinstance(m, dict) and m.get("role") == "assistant"
+            ]
             assert len(assistant_items) == 1
             assert assistant_items[0]["content"] == "The answer is 42"
 
 
 def test_previous_response_id_expands_function_call_history(client):
     with patch("routers.proxy_response._store") as mock_store:
-        mock_store.get_conversation = AsyncMock(return_value={
-            "messages": [
-                {"role": "user", "content": "Search weather"},
-                {
-                    "type": "function_call",
-                    "call_id": "call_weather",
-                    "name": "get_weather",
-                    "arguments": '{"location":"Beijing"}',
-                },
-            ],
-            "instructions": "",
-        })
+        mock_store.get_conversation = AsyncMock(
+            return_value={
+                "messages": [
+                    {"role": "user", "content": "Search weather"},
+                    {
+                        "type": "function_call",
+                        "call_id": "call_weather",
+                        "name": "get_weather",
+                        "arguments": '{"location":"Beijing"}',
+                    },
+                ],
+                "instructions": "",
+            }
+        )
         mock_store.put = AsyncMock()
 
         with patch("routers.proxy_response.proxy_request") as mock_proxy:
@@ -303,23 +363,38 @@ def test_previous_response_id_expands_function_call_history(client):
                             "content": [{"type": "output_text", "text": "Sunny"}],
                         }
                     ],
-                    "usage": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+                    "usage": {
+                        "input_tokens": 12,
+                        "output_tokens": 3,
+                        "total_tokens": 15,
+                    },
                 },
                 MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
             )
 
-            resp = client.post("/v1/responses", json={
-                "model": "gpt-4o",
-                "input": [
-                    {"type": "function_call_output", "call_id": "call_weather", "output": "Sunny, 25C"}
-                ],
-                "previous_response_id": "resp_1",
-            })
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": [
+                        {
+                            "type": "function_call_output",
+                            "call_id": "call_weather",
+                            "output": "Sunny, 25C",
+                        }
+                    ],
+                    "previous_response_id": "resp_1",
+                },
+            )
 
             assert resp.status_code == 200
             sent_body = mock_proxy.await_args.args[1]
             assert sent_body["input"] == [
-                {"type": "function_call_output", "call_id": "call_weather", "output": "Sunny, 25C"}
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_weather",
+                    "output": "Sunny, 25C",
+                }
             ]
             assert sent_body["previous_response_id"] == "resp_1"
             _, conversation, _ = mock_store.put.await_args.args
@@ -331,7 +406,11 @@ def test_previous_response_id_expands_function_call_history(client):
                     "name": "get_weather",
                     "arguments": '{"location":"Beijing"}',
                 },
-                {"type": "function_call_output", "call_id": "call_weather", "output": "Sunny, 25C"},
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_weather",
+                    "output": "Sunny, 25C",
+                },
                 {"role": "assistant", "content": "Sunny"},
             ]
 
@@ -355,11 +434,14 @@ def test_post_responses_store_false_does_not_save_state(client):
                 MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
             )
 
-            resp = client.post("/v1/responses", json={
-                "model": "gpt-4o",
-                "input": "Hello",
-                "store": False,
-            })
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": "Hello",
+                    "store": False,
+                },
+            )
 
             assert resp.status_code == 200
             mock_store.put.assert_not_awaited()
@@ -375,11 +457,14 @@ def test_post_responses_returns_400_for_converter_value_error(client):
                 "Responses tool 'web_search' is not supported when upstream is Chat Completions"
             )
 
-            resp = client.post("/v1/responses", json={
-                "model": "gpt-4o",
-                "input": "Search",
-                "tools": [{"type": "web_search"}],
-            })
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": "Search",
+                    "tools": [{"type": "web_search"}],
+                },
+            )
 
             assert resp.status_code == 400
             data = resp.json()
@@ -398,11 +483,14 @@ def test_post_responses_returns_400_for_proxy_core_converter_error(client):
                 "请求转换失败: Responses tool 'web_search' is not supported when upstream is Chat Completions"
             )
 
-            resp = client.post("/v1/responses", json={
-                "model": "gpt-4o",
-                "input": "Search",
-                "tools": [{"type": "web_search"}],
-            })
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": "Search",
+                    "tools": [{"type": "web_search"}],
+                },
+            )
 
             assert resp.status_code == 400
             data = resp.json()
@@ -414,11 +502,11 @@ def test_post_responses_returns_400_for_proxy_core_converter_error(client):
 def test_post_responses_streaming_saves_completed_response(client):
     async def mock_stream():
         yield (
-            'event: response.created\n'
+            "event: response.created\n"
             'data: {"type":"response.created","response":{"id":"resp_stream","object":"response","status":"in_progress","model":"gpt-4o","output":[]}}\n\n'
         )
         yield (
-            'event: response.completed\n'
+            "event: response.completed\n"
             'data: {"type":"response.completed","response":{"id":"resp_stream","object":"response","created_at":123,"model":"gpt-4o","status":"completed","output":[{"type":"message","id":"msg_resp_stream","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Hello stream"}]}],"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}}\n\n'
         )
 
@@ -432,11 +520,14 @@ def test_post_responses_streaming_saves_completed_response(client):
                 MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
             )
 
-            resp = client.post("/v1/responses", json={
-                "model": "gpt-4o",
-                "input": "Hello",
-                "stream": True,
-            })
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": "Hello",
+                    "stream": True,
+                },
+            )
 
             assert resp.status_code == 200
             assert "event: response.completed" in resp.text

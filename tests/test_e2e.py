@@ -12,12 +12,15 @@ class TestClaudeCodeToAnthropic:
     """场景1: Claude Code → Anthropic渠道 (直接透传)"""
 
     def test_non_stream(self, e2e_client):
-        resp = e2e_client.post("/v1/messages", json={
-            "model": "claude-sonnet-4-20250514",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "max_tokens": 100,
-            "stream": False,
-        })
+        resp = e2e_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 100,
+                "stream": False,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["type"] == "message"
@@ -25,12 +28,16 @@ class TestClaudeCodeToAnthropic:
         assert data["content"][0]["text"] == "Hello world"
 
     def test_stream(self, e2e_client):
-        with e2e_client.stream("POST", "/v1/messages", json={
-            "model": "claude-sonnet-4-20250514",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "max_tokens": 100,
-            "stream": True,
-        }) as resp:
+        with e2e_client.stream(
+            "POST",
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 100,
+                "stream": True,
+            },
+        ) as resp:
             assert resp.status_code == 200
             events = []
             for line in resp.iter_lines():
@@ -44,12 +51,15 @@ class TestClaudeCodeToOpenAI:
     """场景2: Claude Code → OpenAI渠道 (需转换)"""
 
     def test_non_stream(self, e2e_client):
-        resp = e2e_client.post("/v1/messages", json={
-            "model": "gpt-4o",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "max_tokens": 100,
-            "stream": False,
-        })
+        resp = e2e_client.post(
+            "/v1/messages",
+            json={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 100,
+                "stream": False,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["type"] == "message"
@@ -60,23 +70,30 @@ class TestOpenCodeToOpenAI:
     """场景3: OpenCode → OpenAI渠道 (直接透传)"""
 
     def test_non_stream(self, e2e_client):
-        resp = e2e_client.post("/v1/chat/completions", json={
-            "model": "gpt-4o",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "max_tokens": 100,
-        })
+        resp = e2e_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 100,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["object"] == "chat.completion"
         assert data["choices"][0]["message"]["content"] == "Hello world"
 
     def test_stream(self, e2e_client):
-        with e2e_client.stream("POST", "/v1/chat/completions", json={
-            "model": "gpt-4o",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "max_tokens": 100,
-            "stream": True,
-        }) as resp:
+        with e2e_client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 100,
+                "stream": True,
+            },
+        ) as resp:
             assert resp.status_code == 200
             chunks = []
             for line in resp.iter_lines():
@@ -90,11 +107,14 @@ class TestOpenCodeToAnthropic:
     """场景4: OpenCode → Anthropic渠道 (需转换)"""
 
     def test_non_stream(self, e2e_client):
-        resp = e2e_client.post("/v1/chat/completions", json={
-            "model": "claude-sonnet-4-20250514",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "max_tokens": 100,
-        })
+        resp = e2e_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 100,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["object"] == "chat.completion"

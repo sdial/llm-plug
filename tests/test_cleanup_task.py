@@ -6,8 +6,10 @@ def test_cleanup_loop_calls_cleanup():
     """清理循环调用 _cleanup_if_needed"""
     from main import _session_cleanup_loop
 
-    with patch("main._responses_store") as mock_store, \
-         patch("main.get_setting", return_value=0.001):
+    with (
+        patch("main._responses_store") as mock_store,
+        patch("main.get_setting", return_value=0.001),
+    ):
         mock_store._cleanup_if_needed = AsyncMock()
 
         async def run_cleanup():

@@ -1,4 +1,5 @@
 """Tests for startup lifespan behavior (cache pre-warming and diagnostic log)."""
+
 import json
 
 import pytest
@@ -47,9 +48,7 @@ def setup_data(tmp_path, monkeypatch):
         ]
     }
     api_keys_data = {
-        "api_keys": [
-            {"id": "key_1", "name": "test-key", "key": "sk-test"}
-        ]
+        "api_keys": [{"id": "key_1", "name": "test-key", "key": "sk-test"}]
     }
     with open(channels_file, "w") as f:
         json.dump(channels_data, f)
@@ -82,10 +81,11 @@ class TestLifespanPreWarming:
         import asyncio
         from main import app
 
-        with patch("main.load_data") as mock_load_data, \
-             patch("main.load_api_keys") as mock_load_api_keys, \
-             patch("main.close_all_clients") as mock_close:
-
+        with (
+            patch("main.load_data") as mock_load_data,
+            patch("main.load_api_keys") as mock_load_api_keys,
+            patch("main.close_all_clients") as mock_close,
+        ):
             mock_load_data.return_value = {"channels": []}
             mock_load_api_keys.return_value = {"api_keys": []}
 

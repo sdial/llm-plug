@@ -6,7 +6,9 @@ from responses_handler import build_input_messages, generate_response_id
 
 @pytest.fixture
 def store(tmp_path):
-    return FileStore(data_dir=str(tmp_path / "sessions"), max_entries=100, ttl_minutes=60)
+    return FileStore(
+        data_dir=str(tmp_path / "sessions"), max_entries=100, ttl_minutes=60
+    )
 
 
 def test_multi_turn_conversation_flow(store):
@@ -18,8 +20,20 @@ def test_multi_turn_conversation_flow(store):
         {"role": "user", "content": "Hello"},
         {"role": "assistant", "content": "Hi there!"},
     ]
-    response1 = {"id": rid1, "model": "gpt-4o", "status": "completed", "output": [], "output_text": "Hi there!"}
-    asyncio.run(store.put(rid1, {"messages": messages1, "reasoning_history": [], "tool_calls": []}, response1))
+    response1 = {
+        "id": rid1,
+        "model": "gpt-4o",
+        "status": "completed",
+        "output": [],
+        "output_text": "Hi there!",
+    }
+    asyncio.run(
+        store.put(
+            rid1,
+            {"messages": messages1, "reasoning_history": [], "tool_calls": []},
+            response1,
+        )
+    )
 
     # 第二轮引用第一轮
     conv = asyncio.run(store.get_conversation(rid1))
@@ -34,8 +48,20 @@ def test_multi_turn_conversation_flow(store):
 
     # 保存第二轮
     rid2 = generate_response_id()
-    response2 = {"id": rid2, "model": "gpt-4o", "status": "completed", "output": [], "output_text": "I'm good!"}
-    asyncio.run(store.put(rid2, {"messages": all_messages, "reasoning_history": [], "tool_calls": []}, response2))
+    response2 = {
+        "id": rid2,
+        "model": "gpt-4o",
+        "status": "completed",
+        "output": [],
+        "output_text": "I'm good!",
+    }
+    asyncio.run(
+        store.put(
+            rid2,
+            {"messages": all_messages, "reasoning_history": [], "tool_calls": []},
+            response2,
+        )
+    )
 
     # 验证两轮都存在
     assert asyncio.run(store.get_response(rid1)) is not None

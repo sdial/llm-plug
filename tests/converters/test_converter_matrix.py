@@ -1,4 +1,5 @@
 """转换器矩阵测试 - 验证 Claude Code / OpenCode 兼容性"""
+
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
@@ -6,6 +7,7 @@ from models.api_types import APIType
 
 
 # ─── OpenAI Chat → Anthropic (OpenCode → Anthropic渠道) ───
+
 
 class TestChatToAnthropic:
     """测试 OpenAI Chat Completions → Anthropic 转换"""
@@ -52,7 +54,10 @@ class TestChatToAnthropic:
                     "function": {
                         "name": "calculate",
                         "description": "A calculator",
-                        "parameters": {"type": "object", "properties": {"expr": {"type": "string"}}},
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"expr": {"type": "string"}},
+                        },
                     },
                 }
             ],
@@ -66,7 +71,16 @@ class TestChatToAnthropic:
         request = {
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": "Hello"}],
-            "tools": [{"type": "function", "function": {"name": "calc", "description": "calc", "parameters": {}}}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "calc",
+                        "description": "calc",
+                        "parameters": {},
+                    },
+                }
+            ],
             "tool_choice": "auto",
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
@@ -74,6 +88,7 @@ class TestChatToAnthropic:
 
 
 # ─── Anthropic → OpenAI Chat (Claude Code → OpenAI渠道) ───
+
 
 class TestAnthropicToChat:
     """测试 Anthropic → OpenAI Chat Completions 转换"""
@@ -122,13 +137,28 @@ class TestAnthropicToChat:
             "model": "claude-sonnet-4-20250514",
             "messages": [
                 {"role": "user", "content": "Use calc"},
-                {"role": "assistant", "content": [
-                    {"type": "text", "text": "Let me calculate"},
-                    {"type": "tool_use", "id": "toolu_123", "name": "calculate", "input": {"expr": "1+1"}},
-                ]},
-                {"role": "user", "content": [
-                    {"type": "tool_result", "tool_use_id": "toolu_123", "content": "2"},
-                ]},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Let me calculate"},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_123",
+                            "name": "calculate",
+                            "input": {"expr": "1+1"},
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_123",
+                            "content": "2",
+                        },
+                    ],
+                },
             ],
             "max_tokens": 100,
         }
@@ -158,6 +188,7 @@ class TestAnthropicToChat:
 
 # ─── OpenAI Chat → OpenAI Response ───
 
+
 class TestChatToResponse:
     """测试 OpenAI Chat Completions → OpenAI Response 转换"""
 
@@ -175,6 +206,7 @@ class TestChatToResponse:
 
 
 # ─── 透传测试 ───
+
 
 class TestPassthrough:
     """测试同格式请求直接透传"""
@@ -206,6 +238,7 @@ class TestPassthrough:
 
 # ─── 边界情况 ───
 
+
 class TestEdgeCases:
     """测试边界情况"""
 
@@ -221,13 +254,18 @@ class TestEdgeCases:
         converter = ToAnthropicConverter()
         request = {
             "model": "gpt-4o",
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "What is in this image?"},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
-                ],
-            }],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What is in this image?"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="},
+                        },
+                    ],
+                }
+            ],
             "max_tokens": 100,
         }
         result = converter.convert_request(request, APIType.OPENAI_CHAT)
@@ -245,7 +283,12 @@ class TestEdgeCases:
             "role": "assistant",
             "content": [
                 {"type": "text", "text": "Let me check"},
-                {"type": "tool_use", "id": "toolu_001", "name": "search", "input": {"q": "test"}},
+                {
+                    "type": "tool_use",
+                    "id": "toolu_001",
+                    "name": "search",
+                    "input": {"q": "test"},
+                },
             ],
             "model": "claude-sonnet-4-20250514",
             "stop_reason": "tool_use",

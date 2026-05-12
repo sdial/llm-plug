@@ -1,4 +1,3 @@
-
 from converters.to_anthropic import ToAnthropicConverter
 from models.api_types import APIType
 
@@ -60,15 +59,19 @@ class TestChatToAnthropic:
         """无效 JSON 参数应回退为空 dict 但不崩溃"""
         request = {
             "model": "gpt-4o",
-            "messages": [{
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [{
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {"name": "test", "arguments": "not valid json"},
-                }],
-            }],
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "test", "arguments": "not valid json"},
+                        }
+                    ],
+                }
+            ],
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
@@ -78,26 +81,41 @@ class TestChatToAnthropic:
         """HTTP URL 图片下载失败时应保留可见文本提示"""
         request = {
             "model": "gpt-4o",
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "What is this?"},
-                    {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}},
-                ],
-            }],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What is this?"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "https://example.com/image.png"},
+                        },
+                    ],
+                }
+            ],
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         user_msg = result["messages"][0]
         assert user_msg["role"] == "user"
         has_image = any(
             isinstance(c, dict) and c.get("type") == "image"
-            for c in (user_msg.get("content") if isinstance(user_msg.get("content"), list) else [])
+            for c in (
+                user_msg.get("content")
+                if isinstance(user_msg.get("content"), list)
+                else []
+            )
         )
         assert not has_image
         # 应包含下载失败的文本提示
         has_fallback = any(
-            isinstance(c, dict) and c.get("type") == "text" and "download failed" in c.get("text", "")
-            for c in (user_msg.get("content") if isinstance(user_msg.get("content"), list) else [])
+            isinstance(c, dict)
+            and c.get("type") == "text"
+            and "download failed" in c.get("text", "")
+            for c in (
+                user_msg.get("content")
+                if isinstance(user_msg.get("content"), list)
+                else []
+            )
         )
         assert has_fallback
 
@@ -136,12 +154,14 @@ class TestChatToAnthropic:
         """OpenAI Response input_text 应转为 text"""
         request = {
             "model": "gpt-4o",
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": "Hello from Response API"},
-                ],
-            }],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "Hello from Response API"},
+                    ],
+                }
+            ],
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         user_msg = result["messages"][0]
@@ -157,12 +177,14 @@ class TestChatToAnthropic:
         """OpenAI refusal 应转为带标记的 text"""
         request = {
             "model": "gpt-4o",
-            "messages": [{
-                "role": "assistant",
-                "content": [
-                    {"type": "refusal", "refusal": "I cannot answer this"},
-                ],
-            }],
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "refusal", "refusal": "I cannot answer this"},
+                    ],
+                }
+            ],
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
@@ -239,19 +261,25 @@ class TestChatToAnthropic:
         """input_audio 应转为文本提示而非静默丢失"""
         request = {
             "model": "gpt-4o",
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "input_audio", "input_audio": {"data": "abc", "format": "mp3"}},
-                ],
-            }],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_audio",
+                            "input_audio": {"data": "abc", "format": "mp3"},
+                        },
+                    ],
+                }
+            ],
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         user_msg = result["messages"][0]
         content = user_msg.get("content")
         if isinstance(content, list):
             assert any(
-                c.get("type") == "text" and "Audio input not supported" in c.get("text", "")
+                c.get("type") == "text"
+                and "Audio input not supported" in c.get("text", "")
                 for c in content
             )
 
@@ -259,44 +287,46 @@ class TestChatToAnthropic:
         """file data URI 应转为 document"""
         request = {
             "model": "gpt-4o",
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "file",
-                        "file": {
-                            "filename": "report.pdf",
-                            "file_data": "data:application/pdf;base64,dGVzdA==",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "file",
+                            "file": {
+                                "filename": "report.pdf",
+                                "file_data": "data:application/pdf;base64,dGVzdA==",
+                            },
                         },
-                    },
-                ],
-            }],
+                    ],
+                }
+            ],
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         user_msg = result["messages"][0]
         content = user_msg.get("content")
         if isinstance(content, list):
-            assert any(
-                c.get("type") == "document"
-                for c in content
-            )
+            assert any(c.get("type") == "document" for c in content)
 
     def test_file_without_data_uri_fallback(self):
         """file 无 data URI 时应保留文本提示"""
         request = {
             "model": "gpt-4o",
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "file", "file": {"filename": "report.txt"}},
-                ],
-            }],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "file", "file": {"filename": "report.txt"}},
+                    ],
+                }
+            ],
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         user_msg = result["messages"][0]
         content = user_msg.get("content")
         if isinstance(content, list):
             assert any(
-                c.get("type") == "text" and "File input not supported" in c.get("text", "")
+                c.get("type") == "text"
+                and "File input not supported" in c.get("text", "")
                 for c in content
             )

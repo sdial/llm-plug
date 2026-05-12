@@ -96,6 +96,7 @@ def _setup_e2e_channels():
 
     import config
     import storage
+
     config.DATA_DIR = _E2E_DATA_DIR
     config.CHANNELS_FILE = _E2E_CHANNELS_FILE
     config.API_KEYS_FILE = api_keys_file
@@ -110,6 +111,7 @@ def _setup_e2e_channels():
 def _run_mock_server():
     import uvicorn
     from tests.mock_server import app
+
     uvicorn.run(app, host="127.0.0.1", port=19999, log_level="error", loop="auto")
 
 
@@ -139,6 +141,7 @@ def e2e_client(e2e_mock_server):
     """创建 E2E 测试客户端（每次清除 storage 缓存和 proxy_core 渠道缓存）"""
     import storage
     import proxy_core
+
     storage._cache = None
     storage._cache_ts = 0
     storage._keys_cache = None
@@ -148,5 +151,6 @@ def e2e_client(e2e_mock_server):
     proxy_core._model_channels_cache = None
     from main import app
     from fastapi.testclient import TestClient
+
     with TestClient(app) as c:
         yield c

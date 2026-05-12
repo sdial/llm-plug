@@ -35,7 +35,9 @@ def test_get_response_endpoint_exists():
     # 验证 GET 路由存在
     get_routes = [r for r in router.routes if "GET" in getattr(r, "methods", set())]
     assert len(get_routes) > 0, "GET route should exist"
-    assert any("response_id" in str(r.path) for r in get_routes), "Route should have response_id parameter"
+    assert any("response_id" in str(r.path) for r in get_routes), (
+        "Route should have response_id parameter"
+    )
 
 
 def test_delete_response_endpoint_exists():
@@ -43,6 +45,10 @@ def test_delete_response_endpoint_exists():
     from routers.proxy_response import router
 
     # 验证 DELETE 路由存在
-    delete_routes = [r for r in router.routes if "DELETE" in getattr(r, "methods", set())]
+    delete_routes = [
+        r for r in router.routes if "DELETE" in getattr(r, "methods", set())
+    ]
     assert len(delete_routes) > 0, "DELETE route should exist"
-    assert any("response_id" in str(r.path) for r in delete_routes), "Route should have response_id parameter"
+    assert any("response_id" in str(r.path) for r in delete_routes), (
+        "Route should have response_id parameter"
+    )

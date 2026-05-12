@@ -18,10 +18,7 @@ async def _create_pool():
     pool = await asyncpg.create_pool(TEST_DB_URL)
     async with pool.acquire() as conn:
         await conn.set_type_codec(
-            'jsonb',
-            encoder=json.dumps,
-            decoder=json.loads,
-            schema='pg_catalog'
+            "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
         )
     return pool
 
@@ -83,9 +80,14 @@ class TestRecordRequest:
 
     async def test_headers_case_insensitive(self):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5,
-            latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
             request_headers={"x-app-name": "LowerCaseApp"},
         )
         pool = await _create_pool()
@@ -93,7 +95,6 @@ class TestRecordRequest:
             row = await conn.fetchrow("SELECT request_headers FROM requests")
             assert row["request_headers"]["x-app-name"] == "LowerCaseApp"
         await pool.close()
-
 
 
 class TestListRequests:
@@ -108,8 +109,14 @@ class TestListRequests:
         for i in range(15):
             await asyncio.sleep(0.01)
             await stats.record_request(
-                channel_id=f"ch_{i}", channel_name=f"Channel {i}", model="gpt-4",
-                is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+                channel_id=f"ch_{i}",
+                channel_name=f"Channel {i}",
+                model="gpt-4",
+                is_stream=False,
+                input_tokens=10,
+                output_tokens=5,
+                latency_ms=100,
+                success=True,
             )
         result = await stats.list_requests(page=1, page_size=10)
         assert len(result["items"]) == 10
@@ -124,12 +131,24 @@ class TestListRequests:
 
     async def test_filter_by_model(self):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-3.5",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-3.5",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         result = await stats.list_requests(model="gpt-4")
         assert result["total"] == 1
@@ -137,12 +156,24 @@ class TestListRequests:
 
     async def test_filter_by_success(self):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=False,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=False,
         )
         result = await stats.list_requests(success=True)
         assert result["total"] == 1
@@ -154,12 +185,24 @@ class TestListRequests:
 
     async def test_filter_by_channel(self):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Alpha", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Alpha",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         await stats.record_request(
-            channel_id="ch_2", channel_name="Beta", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_2",
+            channel_name="Beta",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         result = await stats.list_requests(channel="Alpha")
         assert result["total"] == 1
@@ -167,12 +210,24 @@ class TestListRequests:
 
     async def test_filter_by_is_stream(self):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=True, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=True,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         result = await stats.list_requests(is_stream=True)
         assert result["total"] == 1
@@ -180,12 +235,24 @@ class TestListRequests:
 
     async def test_combined_filters(self):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-3.5",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-3.5",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         result = await stats.list_requests(model="gpt-4", success=True)
         assert result["total"] == 1
@@ -228,13 +295,25 @@ class TestListRequests:
 
     async def test_filter_by_api_key_id(self):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
             api_key_id="key_alpha",
         )
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
             api_key_id="key_beta",
         )
         result = await stats.list_requests(api_key_id="key_alpha")
@@ -244,8 +323,14 @@ class TestListRequests:
     async def test_list_requests_no_jsonb_fields(self):
         """list_requests 不应返回 request_headers, response_headers, request_body, response_body"""
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
             request_headers={"X-App": "Test"},
             request_body={"messages": []},
             response_headers={"X-Resp": "Test"},
@@ -265,8 +350,14 @@ class TestListRequests:
 class TestGetRequestField:
     async def test_get_request_headers(self):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
             request_headers={"X-App-Name": "TestApp"},
         )
         all_reqs = await stats.list_requests(page=1, page_size=1)
@@ -276,8 +367,14 @@ class TestGetRequestField:
 
     async def test_get_request_body(self):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
             request_body={"messages": [{"role": "user", "content": "hi"}]},
         )
         all_reqs = await stats.list_requests(page=1, page_size=1)
@@ -287,8 +384,14 @@ class TestGetRequestField:
 
     async def test_get_null_field(self):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         all_reqs = await stats.list_requests(page=1, page_size=1)
         req_id = all_reqs["items"][0]["id"]
@@ -328,7 +431,9 @@ class TestTimezoneOffset:
 
         raw_daily = await stats.get_daily_stats(days=1)
         assert len(raw_daily) >= 1
-        day_data = next((d for d in raw_daily if str(d.get("date")) == "2026-05-02"), None)
+        day_data = next(
+            (d for d in raw_daily if str(d.get("date")) == "2026-05-02"), None
+        )
         assert day_data is not None
         assert day_data["request_count"] == 2
 
@@ -352,7 +457,9 @@ class TestTimezoneOffset:
         assert result["updated_rows"] >= 1
 
         raw_daily = await stats.get_daily_stats(days=2)
-        may3_data = next((d for d in raw_daily if str(d.get("date")) == "2026-05-03"), None)
+        may3_data = next(
+            (d for d in raw_daily if str(d.get("date")) == "2026-05-03"), None
+        )
         assert may3_data is not None
         assert may3_data["request_count"] == 1
 

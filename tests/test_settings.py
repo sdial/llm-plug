@@ -10,10 +10,12 @@ def tmp_settings_file(tmp_path):
 def test_init_settings_from_file(tmp_settings_file):
     """从 settings.json 加载配置"""
     import json
+
     data = {"request_timeout": 600, "max_fail_count": 10, "cooldown_seconds": 60}
     with open(tmp_settings_file, "w") as f:
         json.dump(data, f)
     import config
+
     original = config._SETTINGS_FILE
     try:
         config._SETTINGS_FILE = tmp_settings_file
@@ -29,10 +31,12 @@ def test_init_settings_from_file(tmp_settings_file):
 def test_init_settings_env_fallback(tmp_settings_file, monkeypatch):
     """settings.json 无对应项时回退到环境变量"""
     import json
+
     with open(tmp_settings_file, "w") as f:
         json.dump({}, f)
     monkeypatch.setenv("REQUEST_TIMEOUT", "500")
     import config
+
     original = config._SETTINGS_FILE
     try:
         config._SETTINGS_FILE = tmp_settings_file
@@ -46,6 +50,7 @@ def test_init_settings_env_fallback(tmp_settings_file, monkeypatch):
 def test_init_settings_defaults(tmp_settings_file):
     """settings.json 不存在时使用默认值"""
     import config
+
     original = config._SETTINGS_FILE
     try:
         config._SETTINGS_FILE = tmp_settings_file
@@ -60,6 +65,7 @@ def test_init_settings_defaults(tmp_settings_file):
 def test_get_setting():
     """get_setting 返回内存缓存中的值"""
     import config
+
     config._settings = {"request_timeout": 600}
     assert config.get_setting("request_timeout") == 600
 
@@ -67,6 +73,7 @@ def test_get_setting():
 def test_get_setting_default():
     """get_setting 对不存在的键返回默认值"""
     import config
+
     config._settings = {}
     assert config.get_setting("max_fail_count") == 5
 
@@ -74,7 +81,12 @@ def test_get_setting_default():
 def test_get_settings_masks_db_url():
     """get_settings 脱敏 database_url"""
     import config
-    config._settings = {"database_url": "postgres://user:secret@host:5432/db", "host": "0.0.0.0", "port": 55555}
+
+    config._settings = {
+        "database_url": "postgres://user:secret@host:5432/db",
+        "host": "0.0.0.0",
+        "port": 55555,
+    }
     all_settings = config.get_settings()
     assert "secret" not in all_settings["database_url"]
     assert "***" in all_settings["database_url"]
@@ -123,17 +135,19 @@ def test_config_readonly():
 def test_migrate_lb_config(tmp_path):
     """lb_config 自动迁移到 settings.json"""
     import json
+
     channels_file = str(tmp_path / "channels.json")
     settings_file = str(tmp_path / "settings.json")
 
     channels_data = {
         "channels": [],
-        "lb_config": {"max_fail_count": 8, "cooldown_seconds": 120}
+        "lb_config": {"max_fail_count": 8, "cooldown_seconds": 120},
     }
     with open(channels_file, "w") as f:
         json.dump(channels_data, f)
 
     import config
+
     orig_settings = config._SETTINGS_FILE
     config._SETTINGS_FILE = settings_file
     config._settings = {"max_fail_count": 5, "cooldown_seconds": 60}

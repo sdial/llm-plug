@@ -14,7 +14,7 @@ import httpx
 
 from balancer.load_balancer import load_balancer
 from client import create_client, create_stream_client, get_upstream_headers
-from config import DEBUG, DEBUG_LOG_DIR, LOG_LEVEL, DATA_DIR, get_setting
+from config import LOG_LEVEL, DATA_DIR, get_setting
 import storage
 from state_store import FileStore
 from converters.to_anthropic import ToAnthropicConverter
@@ -362,69 +362,6 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
     }
 
 
-def _write_log_line(log_file: str, line: str) -> None:
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(line)
-
-
-async def _log_debug(
-    channel: Channel,
-    upstream_url: str,
-    upstream_data: dict,
-    upstream_headers: dict,
-    response_data: Any = None,
-    is_stream: bool = False,
-    stream_content: Any = None,
-    response_headers: dict | None = None,
-    status_code: int | None = None,
-    error: str | None = None,
-):
-    """记录 debug 日志（包含完整 request + response）"""
-    if not DEBUG:
-        return
-    try:
-        os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
-
-        today = datetime.now().strftime("%Y-%m-%d")
-        log_file = os.path.join(DEBUG_LOG_DIR, f"debug_{today}.jsonl")
-
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "channel": {
-                "id": channel.id,
-                "name": channel.name,
-                "api_type": channel.api_type.value,
-                "base_url": channel.base_url,
-            },
-            "request": {
-                "url": upstream_url,
-                "headers": {k: v for k, v in upstream_headers.items() if k.lower() != "authorization"},
-                "body": upstream_data,
-            },
-            "response": {
-                "is_stream": is_stream,
-                "status_code": status_code,
-                "headers": {k: v for k, v in (response_headers or {}).items() if k.lower() not in ("authorization", "set-cookie")},
-            },
-        }
-
-        if is_stream:
-            if stream_content:
-                if isinstance(stream_content, list) and len(stream_content) > 100:
-                    log_entry["response"]["stream_chunks_count"] = len(stream_content)
-                    log_entry["response"]["stream_content_sample"] = stream_content[:10] + stream_content[-10:]
-                else:
-                    log_entry["response"]["stream_content"] = stream_content
-        else:
-            log_entry["response"]["data"] = response_data
-
-        if error:
-            log_entry["error"] = error
-
-        line = json.dumps(log_entry, ensure_ascii=False) + "\n"
-        await asyncio.to_thread(_write_log_line, log_file, line)
-    except Exception as log_err:
-        logger.warning(f"Failed to write debug log: {log_err}")
 
 
 _model_channels_cache: dict[str, list[Channel]] | None = None
@@ -909,18 +846,6 @@ async def _do_request(
         response_data = resp.json()
         latency_ms = int((time.time() - upstream_start) * 1000)
 
-        # 记录 debug 日志（包含完整响应和响应头）
-        await _log_debug(
-            channel=channel,
-            upstream_url=url,
-            upstream_data=upstream_data,
-            upstream_headers=headers,
-            response_data=response_data,
-            is_stream=False,
-            response_headers=dict(resp.headers),
-            status_code=resp.status_code,
-        )
-
         # 转换响应：上游格式 → 客户端格式
         if response_converter:
             try:
@@ -1013,13 +938,6 @@ async def _do_request(
         else:
             logger.error(f"upstream {type(e).__name__}: {e}")
 
-        await _log_debug(
-            channel=channel,
-            upstream_url=url,
-            upstream_data=upstream_data,
-            upstream_headers=headers,
-            error=str(e),
-        )
         raise
 
 
@@ -1527,11 +1445,6 @@ async def _do_stream_request(
         if stream_error is None:
             stream_success = True
         logger.debug(f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} output_tokens={output_tokens} finish_reason={finish_reason}")
-        await _log_debug(
-            channel=channel, upstream_url=url, upstream_data=upstream_data,
-            upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
-            response_headers=resp_headers, status_code=resp_status_code,
-        )
     except Exception as e:
         stream_error = str(e)
         err_body = ""
@@ -1548,11 +1461,6 @@ async def _do_stream_request(
         else:
             logger.error(f"[STREAM ERROR] {type(e).__name__}: {e} model={model} url={url}")
 
-        await _log_debug(
-            channel=channel, upstream_url=url, upstream_data=upstream_data,
-            upstream_headers=headers, is_stream=True, stream_content=stream_chunks,
-            response_headers=resp_headers, status_code=resp_status_code, error=str(e),
-        )
         if not emitted_output:
             if _is_retryable_exception(e) or _is_channel_config_error(e):
                 raise _StreamPreflightError(e) from e

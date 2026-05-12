@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -13,9 +12,12 @@ from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send, Message
 
 from client import close_all_clients, cleanup_stale_clients
-from config import DEBUG, HOST, PORT, MAX_BODY_SIZE
+from config import HOST, PORT, MAX_BODY_SIZE
 from config import init_settings, get_setting, DATA_DIR
+from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
 from state_store import FileStore
+from stats import init_db as init_stats_db, close_pool as close_stats_pool, start_stats_workers, stop_stats_workers
+from storage import load_data, load_api_keys
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
@@ -41,9 +43,6 @@ logger.add(
     filter=lambda r: r["level"].name == "CRITICAL",
     encoding="utf-8"
 )
-from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
-from stats import init_db as init_stats_db, close_pool as close_stats_pool, start_stats_workers, stop_stats_workers
-from storage import load_data, load_api_keys
 
 
 _session_dir = os.path.join(DATA_DIR, "responses_session")
@@ -253,11 +252,6 @@ class CombinedMiddleware:
 
 
 app = FastAPI(title="LLM API 转换器", version="0.1.0", lifespan=lifespan)
-
-# uvicorn --debug 会设置 sys.flags.debug
-_debug_enabled = DEBUG or getattr(sys.flags, "debug", False)
-
-    # 日志级别（由 --log-level 参数控制，默认 info）
 
 # Add pure ASGI middleware
 app.add_middleware(CombinedMiddleware)
