@@ -447,14 +447,31 @@ def test_post_responses_store_false_does_not_save_state(client):
             mock_store.put.assert_not_awaited()
 
 
-def test_post_responses_returns_400_for_converter_value_error(client):
+def test_post_responses_hosted_tools_are_degraded_instead_of_400(client):
     with patch("routers.proxy_response._store") as mock_store:
         mock_store.get_conversation = AsyncMock(return_value=None)
         mock_store.put = AsyncMock()
 
         with patch("routers.proxy_response.proxy_request") as mock_proxy:
-            mock_proxy.side_effect = ValueError(
-                "Responses tool 'web_search' is not supported when upstream is Chat Completions"
+            mock_proxy.return_value = (
+                {
+                    "id": "resp_compat_1",
+                    "object": "response",
+                    "created_at": 123,
+                    "model": "gpt-4o",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "id": "msg_resp_compat_1",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "Search fallback answer"}],
+                        }
+                    ],
+                    "usage": {"input_tokens": 3, "output_tokens": 4, "total_tokens": 7},
+                },
+                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
             )
 
             resp = client.post(
@@ -466,11 +483,10 @@ def test_post_responses_returns_400_for_converter_value_error(client):
                 },
             )
 
-            assert resp.status_code == 400
+            assert resp.status_code == 200
             data = resp.json()
-            assert data["error"]["type"] == "invalid_request_error"
-            assert "web_search" in data["error"]["message"]
-            mock_store.put.assert_not_awaited()
+            assert data["output"][0]["content"][0]["text"] == "Search fallback answer"
+            mock_store.put.assert_awaited_once()
 
 
 def test_post_responses_returns_400_for_proxy_core_converter_error(client):
@@ -497,6 +513,53 @@ def test_post_responses_returns_400_for_proxy_core_converter_error(client):
             assert data["error"]["type"] == "invalid_request_error"
             assert "web_search" in data["error"]["message"]
             mock_store.put.assert_not_awaited()
+
+
+def test_post_responses_chat_upstream_compatible_response_is_saved_after_degrade(client):
+    with patch("routers.proxy_response._store") as mock_store:
+        mock_store.put = AsyncMock()
+        mock_store.get_conversation = AsyncMock(return_value=None)
+
+        with patch("routers.proxy_response.proxy_request") as mock_proxy:
+            mock_proxy.return_value = (
+                {
+                    "id": "resp_saved_after_degrade",
+                    "object": "response",
+                    "created_at": 123,
+                    "model": "gpt-4o",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "id": "msg_resp_saved_after_degrade",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "Fallback completed"}],
+                        }
+                    ],
+                    "usage": {"input_tokens": 9, "output_tokens": 5, "total_tokens": 14},
+                },
+                MagicMock(id="ch1", name="chat-upstream", api_type=APIType.OPENAI_CHAT),
+            )
+
+            resp = client.post(
+                "/v1/responses",
+                json={
+                    "model": "gpt-4o",
+                    "input": "Hello",
+                    "background": True,
+                    "tools": [{"type": "web_search"}],
+                },
+            )
+
+            assert resp.status_code == 200
+            response_id, conversation, response = mock_store.put.await_args.args
+            assert response_id == "resp_saved_after_degrade"
+            assert conversation["messages"] == [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Fallback completed"},
+            ]
+            assert response["id"] == "resp_saved_after_degrade"
 
 
 def test_post_responses_streaming_saves_completed_response(client):

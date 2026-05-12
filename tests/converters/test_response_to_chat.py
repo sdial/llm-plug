@@ -444,14 +444,15 @@ class TestResponseRequestToChat:
             ("context_management", {"type": "auto"}),
         ],
     )
-    def test_rejects_request_fields_that_chat_cannot_express(self, field, value):
+    def test_drops_request_fields_that_chat_cannot_express(self, field, value):
         request = {
             "model": "gpt-4o",
             "input": "Hello",
             field: value,
         }
-        with pytest.raises(ValueError, match=field):
-            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert field not in result
+        assert result["messages"] == [{"role": "user", "content": "Hello"}]
 
     @pytest.mark.parametrize(
         "tool_type",
@@ -465,14 +466,14 @@ class TestResponseRequestToChat:
             "mcp",
         ],
     )
-    def test_rejects_hosted_response_tools_without_adapter(self, tool_type):
+    def test_drops_hosted_response_tools_without_adapter(self, tool_type):
         request = {
             "model": "gpt-4o",
             "input": "Hello",
             "tools": [{"type": tool_type}],
         }
-        with pytest.raises(ValueError, match=tool_type):
-            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert "tools" not in result
 
     @pytest.mark.parametrize(
         "item_type",
@@ -484,7 +485,7 @@ class TestResponseRequestToChat:
             "image_generation_call",
         ],
     )
-    def test_rejects_hosted_response_tool_call_items(self, item_type):
+    def test_drops_hosted_response_tool_call_items(self, item_type):
         request = {
             "model": "gpt-4o",
             "input": [
@@ -492,8 +493,8 @@ class TestResponseRequestToChat:
                 {"type": item_type, "id": "item_1"},
             ],
         }
-        with pytest.raises(ValueError, match=item_type):
-            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["messages"] == [{"role": "user", "content": "Hello"}]
 
 
 class TestResponseRequestFieldContract:
@@ -527,14 +528,14 @@ class TestResponseRequestFieldContract:
         assert result["tools"][0]["type"] == "function"
         assert result["tools"][0]["function"]["name"] == "f"
 
-    def test_hosted_tools_rejected(self):
+    def test_hosted_tools_dropped(self):
         request = {
             "model": "gpt-4o",
             "input": "Hi",
             "tools": [{"type": "web_search"}],
         }
-        with pytest.raises(ValueError, match="web_search"):
-            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert "tools" not in result
 
     def test_tool_choice_conversion(self):
         request = {
@@ -576,15 +577,30 @@ class TestResponseRequestFieldContract:
         # converter 不处理 previous_response_id，直接透传
         assert "previous_response_id" not in result
 
-    def test_rejects_background(self):
+    def test_drops_background(self):
         request = {"model": "gpt-4o", "input": "Hi", "background": True}
-        with pytest.raises(ValueError, match="background"):
-            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert "background" not in result
 
-    def test_rejects_conversation(self):
+    def test_drops_conversation(self):
         request = {"model": "gpt-4o", "input": "Hi", "conversation": "conv_1"}
-        with pytest.raises(ValueError, match="conversation"):
-            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert "conversation" not in result
+
+    def test_hosted_tools_are_dropped_but_function_tools_remain(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hi",
+            "tools": [
+                {"type": "web_search"},
+                {"type": "function", "name": "lookup", "parameters": {"type": "object"}},
+            ],
+            "tool_choice": {"type": "function", "name": "lookup"},
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert len(result["tools"]) == 1
+        assert result["tools"][0]["function"]["name"] == "lookup"
+        assert result["tool_choice"] == {"type": "function", "function": {"name": "lookup"}}
 
     def test_safety_identifier_to_user(self):
         request = {"model": "gpt-4o", "input": "Hi", "safety_identifier": "user-1"}
