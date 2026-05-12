@@ -197,3 +197,77 @@ class TestAnthropicToChat:
         }
         result = self.converter.convert_response(response, APIType.ANTHROPIC)
         assert "Found relevant info" in result["choices"][0]["message"]["content"]
+
+    def test_tool_role_tool_result_converts_to_tool_message(self):
+        """非常规 tool role 中的 tool_result 不应被 fallback 分支吞掉"""
+        request = {
+            "model": "claude-opus-4-7",
+            "messages": [
+                {
+                    "role": "tool",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_001",
+                            "content": [{"type": "text", "text": "42"}],
+                        }
+                    ],
+                }
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.ANTHROPIC)
+        assert result["messages"] == [
+            {"role": "tool", "tool_call_id": "toolu_001", "content": "42"}
+        ]
+
+    def test_tool_use_input_list_is_json_serialized(self):
+        """非 dict tool_use input 也应输出为 JSON 字符串"""
+        request = {
+            "model": "claude-opus-4-7",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_001",
+                            "name": "search",
+                            "input": ["weather", "today"],
+                        }
+                    ],
+                }
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.ANTHROPIC)
+        tool_call = result["messages"][0]["tool_calls"][0]
+        arguments = tool_call["function"]["arguments"]
+        assert isinstance(arguments, str)
+        assert json.loads(arguments) == ["weather", "today"]
+
+    def test_assistant_thinking_only_uses_empty_string_content(self):
+        """thinking-only assistant 消息不应输出 content: None"""
+        request = {
+            "model": "claude-opus-4-7",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "thinking", "thinking": "plan"}],
+                }
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.ANTHROPIC)
+        assert result["messages"][0]["content"] == ""
+
+    def test_refusal_stop_reason_maps_to_content_filter(self):
+        """预留 Anthropic refusal stop_reason 的 OpenAI 映射"""
+        response = {
+            "id": "msg_001",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "I can't help with that."}],
+            "model": "claude-opus-4-7",
+            "stop_reason": "refusal",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        result = self.converter.convert_response(response, APIType.ANTHROPIC)
+        assert result["choices"][0]["finish_reason"] == "content_filter"

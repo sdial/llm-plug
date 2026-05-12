@@ -78,7 +78,7 @@ class TestChatToAnthropic:
         assert assistant_msg["content"][0]["input"] == {}
 
     def test_non_data_image_url_fallback_text(self):
-        """HTTP URL 图片下载失败时应保留可见文本提示"""
+        """HTTP URL 图片应直接转为 Anthropic URL source，避免同步下载阻塞"""
         request = {
             "model": "gpt-4o",
             "messages": [
@@ -97,27 +97,14 @@ class TestChatToAnthropic:
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         user_msg = result["messages"][0]
         assert user_msg["role"] == "user"
-        has_image = any(
-            isinstance(c, dict) and c.get("type") == "image"
-            for c in (
-                user_msg.get("content")
-                if isinstance(user_msg.get("content"), list)
-                else []
-            )
-        )
-        assert not has_image
-        # 应包含下载失败的文本提示
-        has_fallback = any(
-            isinstance(c, dict)
-            and c.get("type") == "text"
-            and "download failed" in c.get("text", "")
-            for c in (
-                user_msg.get("content")
-                if isinstance(user_msg.get("content"), list)
-                else []
-            )
-        )
-        assert has_fallback
+        image = [
+            c for c in user_msg["content"]
+            if isinstance(c, dict) and c.get("type") == "image"
+        ][0]
+        assert image["source"] == {
+            "type": "url",
+            "url": "https://example.com/image.png",
+        }
 
     def test_user_to_metadata_user_id(self):
         """OpenAI user 参数应转为 Anthropic metadata.user_id"""
@@ -330,3 +317,71 @@ class TestChatToAnthropic:
                 and "File input not supported" in c.get("text", "")
                 for c in content
             )
+
+    def test_assistant_reasoning_content_is_not_unsigned_thinking(self):
+        """OpenAI reasoning_content 不能伪造成无签名 Anthropic thinking"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "user", "content": "Question"},
+                {
+                    "role": "assistant",
+                    "reasoning_content": "private chain",
+                    "content": "Visible answer",
+                },
+            ],
+            "max_tokens": 100,
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assistant_msg = result["messages"][1]
+        assert assistant_msg["content"] == [
+            {"type": "text", "text": "Visible answer"}
+        ]
+        assert all(
+            part.get("type") != "thinking"
+            for part in assistant_msg["content"]
+            if isinstance(part, dict)
+        )
+
+    def test_chat_response_reasoning_content_is_not_unsigned_thinking(self):
+        """Chat 响应转 Anthropic 时也不能生成空 signature thinking"""
+        response = {
+            "id": "chatcmpl-1",
+            "model": "gpt-4o",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "reasoning_content": "private chain",
+                        "content": "Visible answer",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }
+        result = self.converter.convert_response(response, APIType.OPENAI_CHAT)
+        assert result["content"] == [{"type": "text", "text": "Visible answer"}]
+
+    def test_explicit_thinking_takes_priority_over_reasoning_effort(self):
+        """显式 thinking 不应被 reasoning_effort 静默覆盖"""
+        explicit_thinking = {"type": "enabled", "budget_tokens": 1234}
+        request = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "thinking": explicit_thinking,
+            "reasoning_effort": "high",
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assert result["thinking"] == explicit_thinking
+
+    def test_reasoning_effort_overrides_enable_thinking_default(self):
+        """enable_thinking 的默认预算可被 reasoning_effort 调整"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "enable_thinking": True,
+            "reasoning_effort": "low",
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assert result["thinking"] == {"type": "enabled", "budget_tokens": 1024}
