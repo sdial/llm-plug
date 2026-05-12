@@ -481,15 +481,26 @@ class ToChatCompletionsConverter(BaseConverter):
 
     # --- OpenAI Response → Chat Completions ---
 
-    def _response_tools_to_chat(self, tools: list) -> list:
+    def _drop_unsupported_response_fields(self, data: dict[str, Any]) -> dict[str, Any]:
+        sanitized = dict(data)
+        dropped_fields = [field for field in UNSUPPORTED_RESPONSE_REQUEST_FIELDS if field in sanitized]
+        for field in dropped_fields:
+            sanitized.pop(field, None)
+        if dropped_fields:
+            logger.warning(
+                "[RESPONSES->CHAT] 降级: unsupported request fields dropped: %s",
+                ", ".join(sorted(dropped_fields)),
+            )
+        return sanitized
+
+    def _drop_hosted_response_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         chat_tools = []
+        dropped_types = []
         for tool in tools:
             tool_type = tool.get("type")
             if tool_type in HOSTED_RESPONSE_TOOL_TYPES:
-                raise ValueError(
-                    f"Responses tool '{tool_type}' is not supported when upstream is Chat Completions. "
-                    "Chat Completions upstream does not support hosted Responses tools."
-                )
+                dropped_types.append(tool_type)
+                continue
             if tool_type != "function":
                 raise ValueError(f"Unsupported Responses tool type for Chat Completions upstream: {tool_type}")
 
@@ -504,7 +515,35 @@ class ToChatCompletionsConverter(BaseConverter):
                 "type": "function",
                 "function": function,
             })
+
+        if dropped_types:
+            logger.warning(
+                "[RESPONSES->CHAT] 降级: hosted tools dropped for Chat Completions upstream: %s",
+                ", ".join(dropped_types),
+            )
         return chat_tools
+
+    def _sanitize_response_input_items(self, input_data: Any) -> Any:
+        if not isinstance(input_data, list):
+            return input_data
+
+        sanitized = []
+        dropped_types = []
+        for item in input_data:
+            if isinstance(item, dict) and item.get("type") in HOSTED_RESPONSE_INPUT_ITEM_TYPES:
+                dropped_types.append(item.get("type", ""))
+                continue
+            sanitized.append(item)
+
+        if dropped_types:
+            logger.warning(
+                "[RESPONSES->CHAT] 降级: hosted input items dropped for Chat Completions upstream: %s",
+                ", ".join(dropped_types),
+            )
+        return sanitized
+
+    def _response_tools_to_chat(self, tools: list) -> list:
+        return self._drop_hosted_response_tools(tools)
 
     def _response_tool_choice_to_chat(self, tool_choice: Any) -> Any:
         if isinstance(tool_choice, str):
@@ -598,22 +637,15 @@ class ToChatCompletionsConverter(BaseConverter):
             return chat_parts
         return "\n".join(t for t in text_parts if t)
 
-    def _validate_response_request_for_chat(self, data: dict[str, Any]) -> None:
-        for field in UNSUPPORTED_RESPONSE_REQUEST_FIELDS:
-            if field in data:
-                raise ValueError(
-                    f"Responses field '{field}' is not supported when upstream is Chat Completions"
-                )
-
     def _response_request_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:
-        self._validate_response_request_for_chat(data)
+        data = self._drop_unsupported_response_fields(data)
 
         messages = []
         instructions = data.get("instructions")
         if instructions:
             messages.append({"role": "system", "content": instructions})
 
-        input_data = data.get("input", [])
+        input_data = self._sanitize_response_input_items(data.get("input", []))
         # input 可以是字符串或列表，需要先判断类型
         if isinstance(input_data, str):
             messages.append({"role": "user", "content": input_data})
@@ -623,10 +655,6 @@ class ToChatCompletionsConverter(BaseConverter):
                     messages.append({"role": "user", "content": item})
                 elif isinstance(item, dict):
                     item_type = item.get("type", "")
-                    if item_type in HOSTED_RESPONSE_INPUT_ITEM_TYPES:
-                        raise ValueError(
-                            f"Responses input item '{item_type}' is not supported when upstream is Chat Completions"
-                        )
                     role = item.get("role", "user")
                     if role == "developer":
                         role = "system"
@@ -678,9 +706,18 @@ class ToChatCompletionsConverter(BaseConverter):
         user = data.get("safety_identifier") or data.get("user")
         if user:
             result["user"] = user
+        had_tools = bool(data.get("tools"))
+        compatible_tools_remaining = False
         if data.get("tools"):
-            result["tools"] = self._response_tools_to_chat(data["tools"])
-        if data.get("tool_choice"):
+            chat_tools = self._response_tools_to_chat(data["tools"])
+            if chat_tools:
+                result["tools"] = chat_tools
+                compatible_tools_remaining = True
+            elif data.get("tool_choice") is not None:
+                logger.warning(
+                    "[RESPONSES->CHAT] 降级: tool_choice dropped because no compatible tools remain"
+                )
+        if data.get("tool_choice") and (not had_tools or compatible_tools_remaining):
             result["tool_choice"] = self._response_tool_choice_to_chat(data["tool_choice"])
         return result
 
