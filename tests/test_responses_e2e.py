@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 from state_store import FileStore
-from responses_handler import build_input_messages, generate_response_id
+from routers.proxy_response import _input_to_items
 
 
 @pytest.fixture
@@ -14,7 +14,7 @@ def store(tmp_path):
 def test_multi_turn_conversation_flow(store):
     """测试多轮对话流程"""
     # 第一轮
-    rid1 = generate_response_id()
+    rid1 = store.generate_response_id()
     messages1 = [
         {"role": "system", "content": "You are helpful."},
         {"role": "user", "content": "Hello"},
@@ -41,13 +41,13 @@ def test_multi_turn_conversation_flow(store):
     assert len(conv["messages"]) == 3
 
     # 构建新消息
-    new_messages = build_input_messages("How are you?")
+    new_messages = _input_to_items("How are you?")
     all_messages = conv["messages"] + new_messages
     assert len(all_messages) == 4
     assert all_messages[-1]["content"] == "How are you?"
 
     # 保存第二轮
-    rid2 = generate_response_id()
+    rid2 = store.generate_response_id()
     response2 = {
         "id": rid2,
         "model": "gpt-4o",
