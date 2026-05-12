@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 
@@ -96,11 +98,11 @@ def test_config_defaults():
     """验证配置项默认值"""
     from config import _CONFIG_SCHEMA
 
+    assert "debug" not in _CONFIG_SCHEMA
     assert _CONFIG_SCHEMA["host"]["default"] == "0.0.0.0"
     assert _CONFIG_SCHEMA["port"]["default"] == 55555
     assert _CONFIG_SCHEMA["request_timeout"]["default"] == 300
     assert _CONFIG_SCHEMA["max_body_size"]["default"] == 10485760
-    assert _CONFIG_SCHEMA["debug"]["default"] is False
     assert _CONFIG_SCHEMA["log_level"]["default"] == "info"
     assert _CONFIG_SCHEMA["database_url"]["default"] == ""
     assert _CONFIG_SCHEMA["max_fail_count"]["default"] == 5
@@ -114,7 +116,7 @@ def test_config_requires_restart():
     restart_keys = [k for k, v in _CONFIG_SCHEMA.items() if v.get("requires_restart")]
     assert "host" in restart_keys
     assert "port" in restart_keys
-    assert "debug" in restart_keys
+    assert "debug" not in restart_keys
     assert "log_level" in restart_keys
     assert "database_url" in restart_keys
     # 热更新项不在列表中
@@ -130,6 +132,18 @@ def test_config_readonly():
     readonly_keys = [k for k, v in _CONFIG_SCHEMA.items() if v.get("readonly")]
     assert "host" in readonly_keys
     assert "port" in readonly_keys
+
+
+def test_settings_page_has_no_debug_mode_controls():
+    """Settings page must not submit the removed debug config."""
+    html = Path("static/index.html").read_text(encoding="utf-8")
+
+    assert "set_debug" not in html
+    assert "settings_debug" not in html
+    assert "switchSettingsSection('debug')" not in html
+    assert 'data-section="debug"' not in html
+    assert "data.debug" not in html
+    assert "orig.debug" not in html
 
 
 def test_migrate_lb_config(tmp_path):

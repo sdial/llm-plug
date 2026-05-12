@@ -438,9 +438,9 @@
             </button>
           </li>
           <li>
-            <button onclick="switchSettingsSection('debug')" data-section="debug" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+            <button onclick="switchSettingsSection('logs')" data-section="logs" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
               <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
-              <span>调试与日志</span>
+              <span>日志</span>
               <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
             </button>
           </li>
@@ -520,32 +520,19 @@
           </div>
         </div>
 
-        <!-- 调试与日志 -->
-        <div id="settings_debug" class="settings-section hidden">
+        <!-- 日志 -->
+        <div id="settings_logs" class="settings-section hidden">
           <div class="mb-5">
-            <h2 class="text-base font-semibold text-ink-900">调试与日志</h2>
-            <p class="text-sm text-ink-400 mt-0.5">调试模式将记录详细请求日志，修改后需重启服务生效</p>
+            <h2 class="text-base font-semibold text-ink-900">日志</h2>
+            <p class="text-sm text-ink-400 mt-0.5">控制服务日志输出级别，修改后需重启服务生效</p>
           </div>
-          <div class="card p-5 space-y-5">
-            <div class="flex items-center justify-between">
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-medium text-ink-900">调试模式</span>
-                  <span class="pill pill-warning">需重启</span>
-                </div>
-                <p class="text-xs text-ink-400 mt-0.5">开启后会记录请求和响应的详细日志到磁盘</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
-                <input type="checkbox" id="set_debug" data-section="debug" class="settings-input sr-only peer">
-                <div class="w-11 h-6 bg-surface-200 peer-focus:ring-2 peer-focus:ring-brand-500/30 rounded-full peer peer-checked:bg-brand-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full shadow-inner"></div>
-              </label>
-            </div>
-            <div class="border-t border-surface-100 pt-5">
+          <div class="card p-5">
+            <div>
               <div class="flex items-center gap-2 mb-1.5">
                 <span class="text-sm font-medium text-ink-900">日志级别</span>
                 <span class="pill pill-warning">需重启</span>
               </div>
-              <select id="set_log_level" data-section="debug" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+              <select id="set_log_level" data-section="logs" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
                 <option value="DEBUG">DEBUG</option>
                 <option value="INFO">INFO</option>
                 <option value="WARNING">WARNING</option>
@@ -1868,9 +1855,8 @@ function _detectSettingsDirty() {
   if (maxFail !== (orig.max_fail_count ?? 5)) _settingsDirtySections.add('lb');
   const cooldown = parseInt(document.getElementById('set_cooldown_seconds').value) || 60;
   if (cooldown !== (orig.cooldown_seconds ?? 60)) _settingsDirtySections.add('lb');
-  if (document.getElementById('set_debug').checked !== !!orig.debug) _settingsDirtySections.add('debug');
   const newLevel = document.getElementById('set_log_level').value;
-  if (newLevel !== (orig.log_level || 'INFO').toUpperCase()) _settingsDirtySections.add('debug');
+  if (newLevel !== (orig.log_level || 'INFO').toUpperCase()) _settingsDirtySections.add('logs');
   const dbUrl = document.getElementById('set_database_url').value;
   if (dbUrl && dbUrl !== (orig.database_url_masked || '')) _settingsDirtySections.add('database');
   _updateSettingsDirtyIndicators();
@@ -1909,7 +1895,6 @@ async function loadSettings() {
     document.getElementById('set_port').value = data.port || 55555;
     document.getElementById('set_request_timeout').value = data.request_timeout ?? 300;
     document.getElementById('set_max_body_size').value = data.max_body_size_mb ?? 10;
-    document.getElementById('set_debug').checked = !!data.debug;
     document.getElementById('set_log_level').value = (data.log_level || 'INFO').toUpperCase();
     document.getElementById('set_database_url').value = data.database_url_masked || '';
     document.getElementById('set_max_fail_count').value = data.max_fail_count ?? 5;
@@ -1920,9 +1905,6 @@ async function loadSettings() {
   }
 }
 
-document.getElementById('set_debug').addEventListener('change', function() {
-  _detectSettingsDirty();
-});
 document.querySelectorAll('.settings-input').forEach(el => {
   el.addEventListener('input', () => _detectSettingsDirty());
   el.addEventListener('change', () => _detectSettingsDirty());
@@ -1936,7 +1918,6 @@ async function saveSettings() {
   const maxBodyMB = parseInt(document.getElementById('set_max_body_size').value) || 10;
   const origMaxBodyMB = orig.max_body_size_mb ?? 10;
   if (maxBodyMB !== origMaxBodyMB) data.max_body_size = maxBodyMB * 1024 * 1024;
-  if (document.getElementById('set_debug').checked !== !!orig.debug) data.debug = document.getElementById('set_debug').checked;
   const newLogLevel = document.getElementById('set_log_level').value;
   if (newLogLevel !== (orig.log_level || 'INFO').toUpperCase()) data.log_level = newLogLevel;
   const dbUrl = document.getElementById('set_database_url').value;
