@@ -17,7 +17,6 @@ from proxy_core import (
     _get_upstream_url,
     _proxy_single_model_request,
     _yield_anthropic_event,
-    _yield_anthropic_events,
     CONVERTER_MAP,
     _model_channels_cache,
 )
@@ -316,39 +315,6 @@ class TestYieldAnthropicEvent:
         assert result == "event: ping\ndata: {}\n\n"
 
 
-class TestYieldAnthropicEvents:
-    def test_tuple_events(self):
-        events = [
-            ("message_start", {"message": {"id": "msg_1"}}),
-            ("content_block_delta", {"delta": {"text": "hello"}}),
-        ]
-        result = _yield_anthropic_events(events)
-        lines = result.strip().split("\n\n")
-        assert len(lines) == 2
-        assert lines[0] == 'event: message_start\ndata: {"message": {"id": "msg_1"}}'
-        assert (
-            lines[1] == 'event: content_block_delta\ndata: {"delta": {"text": "hello"}}'
-        )
-
-    def test_dict_events(self):
-        events = [
-            {"type": "message_stop"},
-        ]
-        result = _yield_anthropic_events(events)
-        assert result == 'data: {"type": "message_stop"}\n\n'
-
-    def test_mixed_events(self):
-        events = [
-            ("message_start", {"id": "msg_1"}),
-            {"type": "message_stop"},
-        ]
-        result = _yield_anthropic_events(events)
-        lines = result.strip().split("\n\n")
-        assert len(lines) == 2
-        assert lines[0] == 'event: message_start\ndata: {"id": "msg_1"}'
-        assert lines[1] == 'data: {"type": "message_stop"}'
-
-
 class TestBuildAnthropicStreamResponse:
     def test_preserves_block_order_and_signature(self):
         chunks = [
@@ -554,6 +520,65 @@ class TestDoRequest:
 
         assert captured["json"] == request_data
         assert response == upstream_response
+
+    @pytest.mark.anyio
+    async def test_client_hop_by_hop_headers_are_not_forwarded(self):
+        captured = {}
+        upstream_response = {
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+        class FakeClient:
+            async def post(self, url, json, headers):
+                captured["headers"] = headers
+                request = httpx.Request("POST", url)
+                return httpx.Response(200, json=upstream_response, request=request)
+
+        channel = Channel(
+            id="ch_chat",
+            name="Chat",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+        ):
+            await _do_request(
+                channel,
+                {"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]},
+                APIType.OPENAI_CHAT,
+                is_stream=False,
+                client_headers={
+                    "Connection": "keep-alive",
+                    "Keep-Alive": "timeout=5",
+                    "Transfer-Encoding": "chunked",
+                    "X-Request-Id": "req_123",
+                },
+            )
+
+        lowered = {key.lower(): value for key, value in captured["headers"].items()}
+        assert "connection" not in lowered
+        assert "keep-alive" not in lowered
+        assert "transfer-encoding" not in lowered
+        assert lowered["x-request-id"] == "req_123"
+        assert lowered["authorization"] == "Bearer sk-test"
 
     @pytest.mark.anyio
     async def test_same_type_openai_response_non_stream_forwards_body_and_response_unchanged(

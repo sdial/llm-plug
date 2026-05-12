@@ -17,6 +17,7 @@ _pool_lock = asyncio.Lock()
 
 # 统计写入队列与 worker 配置
 _STATS_QUEUE: asyncio.Queue | None = None
+_STATS_QUEUE_LOOP: asyncio.AbstractEventLoop | None = None
 _STATS_WORKERS: list[asyncio.Task] = []
 _STATS_QUEUE_MAX_SIZE = 1000
 _STATS_WORKER_COUNT = 4
@@ -26,21 +27,6 @@ _STATS_WRITE_TIMEOUT = 60  # seconds
 def utc8_now() -> datetime:
     """返回当前东8区时间（硬编码 UTC+8）"""
     return datetime.utcnow() + timedelta(hours=8)
-
-
-def safe_parse_json(body: str | bytes | dict | None) -> dict | None:
-    """安全解析 JSON，失败时返回 {"parse_error": true}"""
-    if body is None:
-        return None
-    # 如果已经是 dict，直接返回
-    if isinstance(body, dict):
-        return body
-    try:
-        if isinstance(body, bytes):
-            return json.loads(body.decode('utf-8'))
-        return json.loads(body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return {"parse_error": True, "raw_type": type(body).__name__}
 
 
 async def init_pool() -> asyncpg.Pool | None:
@@ -166,9 +152,11 @@ async def init_db():
 
 def start_stats_workers():
     """启动统计写入后台 worker"""
-    global _STATS_QUEUE
-    if _STATS_QUEUE is None:
+    global _STATS_QUEUE, _STATS_QUEUE_LOOP
+    current_loop = asyncio.get_running_loop()
+    if _STATS_QUEUE is None or _STATS_QUEUE_LOOP is not current_loop:
         _STATS_QUEUE = asyncio.Queue(maxsize=_STATS_QUEUE_MAX_SIZE)
+        _STATS_QUEUE_LOOP = current_loop
     for _ in range(_STATS_WORKER_COUNT):
         task = asyncio.create_task(_stats_worker())
         _STATS_WORKERS.append(task)
@@ -177,6 +165,7 @@ def start_stats_workers():
 
 async def stop_stats_workers():
     """停止统计写入后台 worker"""
+    global _STATS_QUEUE, _STATS_QUEUE_LOOP
     for task in _STATS_WORKERS:
         task.cancel()
     for task in _STATS_WORKERS:
@@ -185,6 +174,8 @@ async def stop_stats_workers():
         except asyncio.CancelledError:
             pass
     _STATS_WORKERS.clear()
+    _STATS_QUEUE = None
+    _STATS_QUEUE_LOOP = None
     logger.info("Stats workers stopped")
 
 

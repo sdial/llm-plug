@@ -526,18 +526,6 @@ def _is_channel_config_error(exc: BaseException) -> bool:
     return False
 
 
-async def _load_history(previous_response_id: str | None) -> list[dict]:
-    """加载历史消息"""
-    if previous_response_id is None:
-        return []
-
-    conversation = await _responses_store.get_conversation(previous_response_id)
-    if conversation is None:
-        raise ValueError(f"Response {previous_response_id} not found")
-
-    return conversation.get("messages", [])
-
-
 def _response_input_to_items(input_data: Any) -> list[dict[str, Any]]:
     if input_data is None:
         return []
@@ -617,20 +605,6 @@ async def _prime_stream(gen):
             await gen.aclose()
 
     return _replay()
-
-
-async def _save_response_state(
-    response_id: str,
-    messages: list[dict],
-    response: dict,
-) -> None:
-    """保存响应状态"""
-    conversation = {
-        "messages": messages,
-        "reasoning_history": [],
-        "tool_calls": [],
-    }
-    await _responses_store.put(response_id, conversation, response)
 
 
 async def proxy_request(
@@ -815,16 +789,12 @@ async def _do_request(
     url = _get_upstream_url(channel)
     if query_string:
         url = f"{url}?{query_string}"
-    # 透传客户端 header（排除 host 和认证相关），Anthropic 头交给 get_upstream_headers 按渠道策略处理
-    forwarded_headers = {}
-    _SKIP_HEADERS = {"host", "authorization", "x-api-key", "content-type", "content-length"}
-    if client_headers:
-        for key, val in client_headers.items():
-            if key.lower() not in _SKIP_HEADERS:
-                forwarded_headers[key] = val
-
-    headers = get_upstream_headers(channel, forwarded_headers)
-    headers["Content-Type"] = "application/json"
+    headers = _build_upstream_headers(
+        channel,
+        target_api_type,
+        same_type_passthrough,
+        client_headers,
+    )
 
     if is_stream:
         stream = _do_stream_request(
@@ -943,17 +913,6 @@ async def _do_request(
 
 def _yield_anthropic_event(event_type: str, data: dict[str, Any]) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-def _yield_anthropic_events(events: list[tuple[str, dict[str, Any]] | dict[str, Any]]) -> str:
-    parts = []
-    for evt in events:
-        if isinstance(evt, tuple) and len(evt) == 2:
-            et, d = evt
-            parts.append(f"event: {et}\ndata: {json.dumps(d, ensure_ascii=False)}\n\n")
-        elif isinstance(evt, dict):
-            parts.append(f"data: {json.dumps(evt, ensure_ascii=False)}\n\n")
-    return "".join(parts)
 
 
 def _convert_anthropic_response_to_events(converted: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:

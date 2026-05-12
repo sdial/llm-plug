@@ -23,7 +23,7 @@ from stats import (
 )
 from storage import (
     load_api_keys, load_data, save_api_keys, save_data, invalidate_keys_cache,
-    load_model_groups,
+    load_model_groups, add_model_group, update_model_group, delete_model_group,
     get_lb_config, save_lb_config,
 )
 
@@ -510,10 +510,7 @@ async def create_model_group(body: ModelGroupCreate):
     if any(g.name == body.name for g in groups):
         raise HTTPException(status_code=400, detail="模型组名称已存在")
     group = ModelGroup(**body.model_dump())
-    groups.append(group)
-    from storage import save_model_groups
-    await save_model_groups(groups)
-    return group
+    return await add_model_group(group)
 
 
 @router.put("/model-groups/{group_id}", response_model=ModelGroup)
@@ -526,10 +523,9 @@ async def update_model_group_endpoint(group_id: str, body: ModelGroupUpdate):
             if "name" in update_data:
                 if any(other.id != group_id and other.name == update_data["name"] for other in groups):
                     raise HTTPException(status_code=400, detail="模型组名称已存在")
-            updated = g.model_copy(update=update_data)
-            groups[i] = updated
-            from storage import save_model_groups
-            await save_model_groups(groups)
+            updated = await update_model_group(group_id, update_data)
+            if updated is None:
+                break
             return updated
     raise HTTPException(status_code=404, detail="模型组不存在")
 
@@ -537,12 +533,9 @@ async def update_model_group_endpoint(group_id: str, body: ModelGroupUpdate):
 @router.delete("/model-groups/{group_id}")
 async def delete_model_group_endpoint(group_id: str):
     """删除模型组"""
-    groups = await load_model_groups()
-    new_groups = [g for g in groups if g.id != group_id]
-    if len(new_groups) == len(groups):
+    deleted = await delete_model_group(group_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="模型组不存在")
-    from storage import save_model_groups
-    await save_model_groups(new_groups)
     return {"message": "删除成功"}
 
 
@@ -552,10 +545,9 @@ async def toggle_model_group(group_id: str):
     groups = await load_model_groups()
     for i, g in enumerate(groups):
         if g.id == group_id:
-            updated = g.model_copy(update={"enabled": not g.enabled})
-            groups[i] = updated
-            from storage import save_model_groups
-            await save_model_groups(groups)
+            updated = await update_model_group(group_id, {"enabled": not g.enabled})
+            if updated is None:
+                break
             return updated
     raise HTTPException(status_code=404, detail="模型组不存在")
 
