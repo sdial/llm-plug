@@ -17,7 +17,6 @@ _CONFIG_SCHEMA = {
     "port": {"type": "int", "default": 55555, "requires_restart": True, "readonly": True, "env": "PORT"},
     "request_timeout": {"type": "int", "default": 300, "requires_restart": False, "env": "REQUEST_TIMEOUT"},
     "max_body_size": {"type": "int", "default": 10 * 1024 * 1024, "requires_restart": False, "env": "MAX_BODY_SIZE"},
-    "debug": {"type": "bool", "default": False, "requires_restart": True, "env": "DEBUG"},
     "log_level": {"type": "str", "default": "info", "requires_restart": True, "env": "LOG_LEVEL"},
     "database_url": {"type": "str", "default": "", "requires_restart": True, "env": "DATABASE_URL"},
     "max_fail_count": {"type": "int", "default": 5, "requires_restart": False, "env": "MAX_FAIL_COUNT"},
@@ -50,9 +49,6 @@ API_KEYS_FILE = os.getenv("API_KEYS_FILE", os.path.join(DATA_DIR, "api_keys.json
 
 REQUEST_TIMEOUT = _int_env("REQUEST_TIMEOUT", 300)
 MAX_BODY_SIZE = _int_env("MAX_BODY_SIZE", 10 * 1024 * 1024)
-
-DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
-DEBUG_LOG_DIR = os.getenv("DEBUG_LOG_DIR", os.path.join(os.path.dirname(__file__), "logs"))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
 
@@ -95,10 +91,9 @@ def _init_settings_sync():
 
 
 def _sync_module_vars():
-    global HOST, PORT, DEBUG, LOG_LEVEL, REQUEST_TIMEOUT, MAX_BODY_SIZE
+    global HOST, PORT, LOG_LEVEL, REQUEST_TIMEOUT, MAX_BODY_SIZE
     HOST = _settings.get("host", "0.0.0.0")
     PORT = _settings.get("port", 55555)
-    DEBUG = _settings.get("debug", False)
     LOG_LEVEL = _settings.get("log_level", "info")
     REQUEST_TIMEOUT = _settings.get("request_timeout", 300)
     MAX_BODY_SIZE = _settings.get("max_body_size", 10 * 1024 * 1024)

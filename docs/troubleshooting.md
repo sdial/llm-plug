@@ -70,7 +70,7 @@
 **解决方法**：
 1. 检查上游 API 是否支持流式
 2. 如使用 Nginx，确保配置 `proxy_buffering off`
-3. 开启 DEBUG 日志定位问题
+3. 检查请求/响应日志定位问题
 
 ### PostgreSQL 连接失败
 
@@ -104,44 +104,18 @@
 
 ## 日志分析
 
-### 开启调试日志
-
-```bash
-export DEBUG=true
-uv run python main.py
-```
-
-日志文件位于 `logs/debug_YYYY-MM-DD.jsonl`。
-
 ### 日志格式
 
-每行一个 JSON 对象：
-
-```json
-{
-  "timestamp": "2024-01-01T12:00:00Z",
-  "model": "gpt-4",
-  "channel": "OpenAI 官方",
-  "request": {...},
-  "response": {...},
-  "latency_ms": 1234
-}
-```
+日志输出到 `logs/warning.log`，包含 WARNING 及以上级别的日志。
 
 ### 常用日志查询
 
 ```bash
 # 查看错误日志
-cat logs/debug_*.jsonl | jq 'select(.error)'
+cat logs/warning.log
 
-# 统计各渠道请求量
-cat logs/debug_*.jsonl | jq -r '.channel' | sort | uniq -c
-
-# 查看慢请求（>5s）
-cat logs/debug_*.jsonl | jq 'select(.latency_ms > 5000)'
-
-# 查看特定模型
-cat logs/debug_*.jsonl | jq 'select(.model == "gpt-4")'
+# 实时查看日志
+tail -f logs/warning.log
 ```
 
 ## 性能问题排查
@@ -149,7 +123,7 @@ cat logs/debug_*.jsonl | jq 'select(.model == "gpt-4")'
 ### 响应慢
 
 **诊断步骤**：
-1. 开启 DEBUG 日志，检查 `latency_ms` 字段
+1. 检查日志中的 latency 信息
 2. 区分是上游慢还是代理慢
 3. 检查网络延迟
 
@@ -161,12 +135,10 @@ cat logs/debug_*.jsonl | jq 'select(.model == "gpt-4")'
 ### 内存占用高
 
 **原因**：
-- DEBUG 日志文件过大
 - 客户端连接池过多
 
 **解决方法**：
-1. 定期清理日志文件
-2. 减少渠道数量或合并相同 base_url 的渠道
+1. 减少渠道数量或合并相同 base_url 的渠道
 3. 调整 `cleanup_stale_clients` 参数
 
 ### CPU 占用高
@@ -222,5 +194,5 @@ cp data/channels.json.backup data/channels.json
 ## 获取帮助
 
 1. 查看本文档和相关模块文档
-2. 开启 DEBUG 日志分析问题
+2. 检查日志分析问题
 3. 提交 Issue 附带日志和配置信息

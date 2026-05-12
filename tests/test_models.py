@@ -51,8 +51,18 @@ class TestChannel:
         assert re.match(r"ch_[a-f0-9]{8}", ch.id)
 
     def test_id_is_unique(self):
-        ch1 = Channel(name="A", api_type=APIType.OPENAI_CHAT, base_url="https://a.com", api_key="k1")
-        ch2 = Channel(name="B", api_type=APIType.OPENAI_CHAT, base_url="https://b.com", api_key="k2")
+        ch1 = Channel(
+            name="A",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://a.com",
+            api_key="k1",
+        )
+        ch2 = Channel(
+            name="B",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://b.com",
+            api_key="k2",
+        )
         assert ch1.id != ch2.id
 
     def test_weight_must_be_positive(self):

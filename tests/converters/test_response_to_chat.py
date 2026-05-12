@@ -29,7 +29,10 @@ class TestResponseRequestToChat:
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
 
         assert result["model"] == "gpt-4o"
-        assert result["messages"][0] == {"role": "system", "content": "You are a helpful assistant."}
+        assert result["messages"][0] == {
+            "role": "system",
+            "content": "You are a helpful assistant.",
+        }
         assert result["messages"][1] == {"role": "user", "content": "Hello"}
 
     def test_request_without_instructions(self):
@@ -51,7 +54,9 @@ class TestResponseRequestToChat:
         }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
 
-        assert result["messages"] == [{"role": "user", "content": "What is the weather?"}]
+        assert result["messages"] == [
+            {"role": "user", "content": "What is the weather?"}
+        ]
 
     def test_function_call_input_to_assistant_tool_calls(self):
         """function_call 类型输入转换为 assistant message 的 tool_calls"""
@@ -69,7 +74,10 @@ class TestResponseRequestToChat:
         }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
 
-        assert result["messages"][0] == {"role": "user", "content": "Search for weather"}
+        assert result["messages"][0] == {
+            "role": "user",
+            "content": "Search for weather",
+        }
         assert result["messages"][1]["role"] == "assistant"
         assert result["messages"][1]["content"] is None
         assert len(result["messages"][1]["tool_calls"]) == 1
@@ -85,8 +93,17 @@ class TestResponseRequestToChat:
             "model": "gpt-4o",
             "input": [
                 {"role": "user", "content": "Search for weather"},
-                {"type": "function_call", "call_id": "call_abc123", "name": "search", "arguments": "{}"},
-                {"type": "function_call_output", "call_id": "call_abc123", "output": "Sunny, 25°C"},
+                {
+                    "type": "function_call",
+                    "call_id": "call_abc123",
+                    "name": "search",
+                    "arguments": "{}",
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_abc123",
+                    "output": "Sunny, 25°C",
+                },
             ],
         }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
@@ -106,7 +123,10 @@ class TestResponseRequestToChat:
                     "type": "function",
                     "name": "get_weather",
                     "description": "Get weather info",
-                    "parameters": {"type": "object", "properties": {"location": {"type": "string"}}},
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"location": {"type": "string"}},
+                    },
                 }
             ],
         }
@@ -118,7 +138,9 @@ class TestResponseRequestToChat:
         assert tool["type"] == "function"
         assert tool["function"]["name"] == "get_weather"
         assert tool["function"]["description"] == "Get weather info"
-        assert tool["function"]["parameters"]["properties"]["location"]["type"] == "string"
+        assert (
+            tool["function"]["parameters"]["properties"]["location"]["type"] == "string"
+        )
 
     def test_function_tool_strict_passthrough(self):
         """Responses function tool strict 字段应转换到 Chat function.strict"""
@@ -168,7 +190,10 @@ class TestResponseRequestToChat:
             "tool_choice": {"type": "function", "name": "get_weather"},
         }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
-        assert result["tool_choice"] == {"type": "function", "function": {"name": "get_weather"}}
+        assert result["tool_choice"] == {
+            "type": "function",
+            "function": {"name": "get_weather"},
+        }
 
     def test_tool_choice_none_passthrough(self):
         request = {
@@ -245,7 +270,10 @@ class TestResponseRequestToChat:
             "text": {"format": {"type": "json_schema", **schema}},
         }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
-        assert result["response_format"] == {"type": "json_schema", "json_schema": schema}
+        assert result["response_format"] == {
+            "type": "json_schema",
+            "json_schema": schema,
+        }
 
     def test_text_json_object_to_response_format(self):
         request = {
@@ -303,7 +331,10 @@ class TestResponseRequestToChat:
 
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
 
-        assert result["messages"][0] == {"role": "system", "content": "Use concise answers."}
+        assert result["messages"][0] == {
+            "role": "system",
+            "content": "Use concise answers.",
+        }
         assert result["messages"][1] == {"role": "user", "content": "Hello"}
 
     def test_structured_input_text_content_is_preserved(self):
@@ -332,7 +363,11 @@ class TestResponseRequestToChat:
                     "role": "user",
                     "content": [
                         {"type": "input_text", "text": "Describe this image"},
-                        {"type": "input_image", "image_url": "https://example.com/a.png", "detail": "high"},
+                        {
+                            "type": "input_image",
+                            "image_url": "https://example.com/a.png",
+                            "detail": "high",
+                        },
                     ],
                 },
             ],
@@ -345,7 +380,13 @@ class TestResponseRequestToChat:
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "Describe this image"},
-                    {"type": "image_url", "image_url": {"url": "https://example.com/a.png", "detail": "high"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "https://example.com/a.png",
+                            "detail": "high",
+                        },
+                    },
                 ],
             }
         ]
@@ -357,7 +398,11 @@ class TestResponseRequestToChat:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "input_file", "file_id": "file_123", "filename": "a.pdf"},
+                        {
+                            "type": "input_file",
+                            "file_id": "file_123",
+                            "filename": "a.pdf",
+                        },
                     ],
                 },
             ],
@@ -376,7 +421,10 @@ class TestResponseRequestToChat:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "input_audio", "input_audio": {"data": "AAAA", "format": "wav"}},
+                        {
+                            "type": "input_audio",
+                            "input_audio": {"data": "AAAA", "format": "wav"},
+                        },
                     ],
                 },
             ],
@@ -549,7 +597,12 @@ class TestResponseRequestFieldContract:
         assert result["user"] == "user-2"
 
     def test_safety_identifier_takes_precedence_over_user(self):
-        request = {"model": "gpt-4o", "input": "Hi", "safety_identifier": "safe", "user": "usr"}
+        request = {
+            "model": "gpt-4o",
+            "input": "Hi",
+            "safety_identifier": "safe",
+            "user": "usr",
+        }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
         assert result["user"] == "safe"
 
@@ -604,7 +657,9 @@ class TestResponseResponseToChat:
                     "id": "msg_xyz",
                     "status": "completed",
                     "role": "assistant",
-                    "content": [{"type": "output_text", "text": "Hello, I am an AI assistant."}],
+                    "content": [
+                        {"type": "output_text", "text": "Hello, I am an AI assistant."}
+                    ],
                 }
             ],
             "usage": {"input_tokens": 10, "output_tokens": 20},
@@ -666,7 +721,9 @@ class TestResponseResponseToChat:
                     "type": "message",
                     "id": "msg_xyz",
                     "role": "assistant",
-                    "content": [{"type": "output_text", "text": "Let me check the weather."}],
+                    "content": [
+                        {"type": "output_text", "text": "Let me check the weather."}
+                    ],
                 },
                 {
                     "type": "function_call",
@@ -809,8 +866,14 @@ class TestResponseStreamToChat:
         assert result["choices"][0]["delta"]["tool_calls"][0]["index"] == 0
         assert result["choices"][0]["delta"]["tool_calls"][0]["id"] == "call_xyz"
         assert result["choices"][0]["delta"]["tool_calls"][0]["type"] == "function"
-        assert result["choices"][0]["delta"]["tool_calls"][0]["function"]["name"] == "search"
-        assert result["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"] == ""
+        assert (
+            result["choices"][0]["delta"]["tool_calls"][0]["function"]["name"]
+            == "search"
+        )
+        assert (
+            result["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"]
+            == ""
+        )
 
     def test_function_call_arguments_delta(self):
         """response.function_call_arguments.delta 转换为参数增量"""
@@ -861,7 +924,12 @@ class TestResponseStreamToChat:
                 "id": "resp_abc123",
                 "status": "completed",
                 "output": [
-                    {"type": "function_call", "call_id": "call_xyz", "name": "search", "arguments": "{}"},
+                    {
+                        "type": "function_call",
+                        "call_id": "call_xyz",
+                        "name": "search",
+                        "arguments": "{}",
+                    },
                 ],
             },
         }
@@ -896,7 +964,12 @@ class TestResponseStreamToChat:
         chunk1 = {
             "type": "response.output_item.added",
             "output_index": 0,
-            "item": {"type": "function_call", "call_id": "call_1", "name": "func_a", "arguments": ""},
+            "item": {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "func_a",
+                "arguments": "",
+            },
         }
         result1 = self.converter.convert_stream_chunk(chunk1, APIType.OPENAI_RESPONSE)
         assert result1["choices"][0]["delta"]["tool_calls"][0]["index"] == 0
@@ -905,7 +978,12 @@ class TestResponseStreamToChat:
         chunk2 = {
             "type": "response.output_item.added",
             "output_index": 1,
-            "item": {"type": "function_call", "call_id": "call_2", "name": "func_b", "arguments": ""},
+            "item": {
+                "type": "function_call",
+                "call_id": "call_2",
+                "name": "func_b",
+                "arguments": "",
+            },
         }
         result2 = self.converter.convert_stream_chunk(chunk2, APIType.OPENAI_RESPONSE)
         assert result2["choices"][0]["delta"]["tool_calls"][0]["index"] == 1

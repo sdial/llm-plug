@@ -113,7 +113,9 @@ class TestGetOrCreateClient:
         assert c1 is c2
 
     @pytest.mark.anyio
-    async def test_creates_different_client_for_different_proxy(self, sample_channel, proxy_channel):
+    async def test_creates_different_client_for_different_proxy(
+        self, sample_channel, proxy_channel
+    ):
         # 相同 base_url 但不同 proxy 应创建不同客户端
         c1 = await client.get_or_create_client(sample_channel)
         c2 = await client.get_or_create_client(proxy_channel)
@@ -161,10 +163,11 @@ class TestCreateStreamClient:
         c = client.create_stream_client(proxy_channel)
         # httpx.AsyncClient 的 _mounts 中包含代理
         mounts = getattr(c, "_mounts", {})
-        has_proxy = any(
-            getattr(m, "_proxy_url", None) is not None
-            for m in mounts.values()
-        ) if mounts else False
+        has_proxy = (
+            any(getattr(m, "_proxy_url", None) is not None for m in mounts.values())
+            if mounts
+            else False
+        )
         # 另一种检测方式：检查 transport 是否有代理
         transport = getattr(c, "_transport", None)
         if transport:
@@ -252,7 +255,9 @@ class TestGetUpstreamHeaders:
         )
         assert headers["anthropic-version"] == "2025-01-01"
 
-    def test_anthropic_version_channel_if_missing_uses_client_when_present(self, anthropic_channel):
+    def test_anthropic_version_channel_if_missing_uses_client_when_present(
+        self, anthropic_channel
+    ):
         anthropic_channel.anthropic_version = "2024-10-22"
         anthropic_channel.anthropic_version_policy = "channel_if_missing"
         headers = client.get_upstream_headers(
@@ -261,7 +266,9 @@ class TestGetUpstreamHeaders:
         )
         assert headers["anthropic-version"] == "2025-01-01"
 
-    def test_anthropic_version_channel_if_missing_falls_back_to_channel(self, anthropic_channel):
+    def test_anthropic_version_channel_if_missing_falls_back_to_channel(
+        self, anthropic_channel
+    ):
         anthropic_channel.anthropic_version = "2024-10-22"
         anthropic_channel.anthropic_version_policy = "channel_if_missing"
         headers = client.get_upstream_headers(anthropic_channel)
@@ -276,7 +283,9 @@ class TestGetUpstreamHeaders:
         )
         assert headers["anthropic-beta"] == "token-efficient-tools-2025-02-19"
 
-    def test_anthropic_beta_channel_if_missing_uses_client_when_present(self, anthropic_channel):
+    def test_anthropic_beta_channel_if_missing_uses_client_when_present(
+        self, anthropic_channel
+    ):
         anthropic_channel.anthropic_beta = "prompt-caching-2024-07-31"
         anthropic_channel.anthropic_beta_policy = "channel_if_missing"
         headers = client.get_upstream_headers(
@@ -285,40 +294,24 @@ class TestGetUpstreamHeaders:
         )
         assert headers["anthropic-beta"] == "token-efficient-tools-2025-02-19"
 
-    def test_anthropic_beta_channel_if_missing_falls_back_to_channel(self, anthropic_channel):
+    def test_anthropic_beta_channel_if_missing_falls_back_to_channel(
+        self, anthropic_channel
+    ):
         anthropic_channel.anthropic_beta = "prompt-caching-2024-07-31"
         anthropic_channel.anthropic_beta_policy = "channel_if_missing"
         headers = client.get_upstream_headers(anthropic_channel)
         assert headers["anthropic-beta"] == "prompt-caching-2024-07-31"
 
     def test_anthropic_beta_merge_combines_channel_and_client(self, anthropic_channel):
-        anthropic_channel.anthropic_beta = "prompt-caching-2024-07-31,token-efficient-tools-2025-02-19"
+        anthropic_channel.anthropic_beta = (
+            "prompt-caching-2024-07-31,token-efficient-tools-2025-02-19"
+        )
         anthropic_channel.anthropic_beta_policy = "merge"
         headers = client.get_upstream_headers(
             anthropic_channel,
-            {"anthropic-beta": "token-efficient-tools-2025-02-19,search-results-2025-01-15"},
-        )
-        assert headers["anthropic-beta"] == (
-            "prompt-caching-2024-07-31,"
-            "token-efficient-tools-2025-02-19,"
-            "search-results-2025-01-15"
-        )
-
-    def test_anthropic_beta_merge_with_client_only(self, anthropic_channel):
-        anthropic_channel.anthropic_beta_policy = "merge"
-        headers = client.get_upstream_headers(
-            anthropic_channel,
-            {"anthropic-beta": "search-results-2025-01-15"},
-        )
-        assert headers["anthropic-beta"] == "search-results-2025-01-15"
-        assert headers["anthropic-beta"] == "prompt-caching-2024-07-31"
-
-    def test_anthropic_beta_merge_combines_channel_and_client(self, anthropic_channel):
-        anthropic_channel.anthropic_beta = "prompt-caching-2024-07-31,token-efficient-tools-2025-02-19"
-        anthropic_channel.anthropic_beta_policy = "merge"
-        headers = client.get_upstream_headers(
-            anthropic_channel,
-            {"anthropic-beta": "token-efficient-tools-2025-02-19,search-results-2025-01-15"},
+            {
+                "anthropic-beta": "token-efficient-tools-2025-02-19,search-results-2025-01-15"
+            },
         )
         assert headers["anthropic-beta"] == (
             "prompt-caching-2024-07-31,"

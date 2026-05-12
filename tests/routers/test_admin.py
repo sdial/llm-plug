@@ -33,7 +33,9 @@ async def setup_test_db(monkeypatch):
 
 @pytest_asyncio.fixture
 async def client():
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as c:
         yield c
 
 
@@ -48,8 +50,14 @@ class TestListRequestsEndpoint:
     async def test_pagination(self, client):
         for i in range(15):
             await stats.record_request(
-                channel_id=f"ch_{i}", channel_name=f"Channel {i}", model="gpt-4",
-                is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+                channel_id=f"ch_{i}",
+                channel_name=f"Channel {i}",
+                model="gpt-4",
+                is_stream=False,
+                input_tokens=10,
+                output_tokens=5,
+                latency_ms=100,
+                success=True,
             )
         resp = await client.get("/admin/requests?page=1&page_size=10")
         assert resp.status_code == 200
@@ -63,12 +71,24 @@ class TestListRequestsEndpoint:
 
     async def test_filter_by_model(self, client):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-3.5",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-3.5",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         resp = await client.get("/admin/requests?model=gpt-4")
         assert resp.status_code == 200
@@ -80,8 +100,14 @@ class TestListRequestsEndpoint:
 class TestRequestFieldEndpoints:
     async def test_get_request_headers(self, client):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
             request_headers={"X-App-Name": "TestApp"},
         )
         all_reqs = await stats.list_requests(page=1, page_size=1)
@@ -93,8 +119,14 @@ class TestRequestFieldEndpoints:
 
     async def test_get_request_body(self, client):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
             request_body={"messages": [{"role": "user", "content": "hi"}]},
         )
         all_reqs = await stats.list_requests(page=1, page_size=1)
@@ -106,8 +138,14 @@ class TestRequestFieldEndpoints:
 
     async def test_get_response_headers(self, client):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
             response_headers={"X-RateLimit": "100"},
         )
         all_reqs = await stats.list_requests(page=1, page_size=1)
@@ -119,8 +157,14 @@ class TestRequestFieldEndpoints:
 
     async def test_get_response_body(self, client):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
             response_body={"choices": [{"message": {"content": "hello"}}]},
         )
         all_reqs = await stats.list_requests(page=1, page_size=1)
@@ -140,8 +184,14 @@ class TestRequestFieldEndpoints:
 
     async def test_null_field_returns_null_data(self, client):
         await stats.record_request(
-            channel_id="ch_1", channel_name="Test", model="gpt-4",
-            is_stream=False, input_tokens=10, output_tokens=5, latency_ms=100, success=True,
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
         )
         all_reqs = await stats.list_requests(page=1, page_size=1)
         req_id = all_reqs["items"][0]["id"]

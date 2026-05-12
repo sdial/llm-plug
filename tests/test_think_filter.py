@@ -1,7 +1,6 @@
 """
 测试 think_filter 模块
 """
-import pytest
 
 from think_filter import filter_think_content_static, ThinkFilter
 
@@ -116,4 +115,4 @@ class TestThinkFilter:
         filter.feed("<think>partial")
         filter.reset()
         assert filter.buffer == ""
-        assert filter.in_think == False
+        assert filter.in_think is False

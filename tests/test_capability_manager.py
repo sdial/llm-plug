@@ -175,7 +175,10 @@ class TestCapabilityDegradation:
         request = {
             "model": "gpt-4",
             "messages": [{"role": "user", "content": "hello"}],
-            "response_format": {"type": "json_schema", "json_schema": {"name": "a", "schema": {}}},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "a", "schema": {}},
+            },
         }
         result = apply_capability_filter(request, caps)
         assert "response_format" not in result
@@ -210,7 +213,11 @@ class TestCapabilityDegradation:
         # file 块应被移除或降级
         user_msg = result["messages"][0]
         if isinstance(user_msg["content"], list):
-            file_parts = [p for p in user_msg["content"] if isinstance(p, dict) and p.get("type") == "file"]
+            file_parts = [
+                p
+                for p in user_msg["content"]
+                if isinstance(p, dict) and p.get("type") == "file"
+            ]
             assert len(file_parts) == 0
 
     def test_audio_content_in_messages_not_supported(self):
@@ -223,7 +230,10 @@ class TestCapabilityDegradation:
                     "role": "user",
                     "content": [
                         {"type": "text", "text": "Transcribe this"},
-                        {"type": "input_audio", "input_audio": {"data": "AAA", "format": "wav"}},
+                        {
+                            "type": "input_audio",
+                            "input_audio": {"data": "AAA", "format": "wav"},
+                        },
                     ],
                 }
             ],
@@ -231,7 +241,11 @@ class TestCapabilityDegradation:
         result = apply_capability_filter(request, caps)
         user_msg = result["messages"][0]
         if isinstance(user_msg["content"], list):
-            audio_parts = [p for p in user_msg["content"] if isinstance(p, dict) and p.get("type") == "input_audio"]
+            audio_parts = [
+                p
+                for p in user_msg["content"]
+                if isinstance(p, dict) and p.get("type") == "input_audio"
+            ]
             assert len(audio_parts) == 0
 
 

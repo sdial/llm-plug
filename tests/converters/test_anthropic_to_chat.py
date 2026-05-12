@@ -73,7 +73,9 @@ class TestAnthropicToChat:
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
         result = self.converter.convert_response(response, APIType.ANTHROPIC)
-        assert result["choices"][0]["message"]["reasoning_content"] == "Let me analyze..."
+        assert (
+            result["choices"][0]["message"]["reasoning_content"] == "Let me analyze..."
+        )
         assert result["choices"][0]["message"]["content"] == "The answer is 42"
 
     def test_tool_use_response(self):
@@ -83,7 +85,12 @@ class TestAnthropicToChat:
             "type": "message",
             "role": "assistant",
             "content": [
-                {"type": "tool_use", "id": "toolu_001", "name": "search", "input": {"q": "test"}},
+                {
+                    "type": "tool_use",
+                    "id": "toolu_001",
+                    "name": "search",
+                    "input": {"q": "test"},
+                },
             ],
             "model": "claude-opus-4-7",
             "stop_reason": "tool_use",
@@ -131,7 +138,13 @@ class TestAnthropicToChat:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "document", "source": {"type": "content", "content": "PDF content here"}},
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "content",
+                                "content": "PDF content here",
+                            },
+                        },
                     ],
                 }
             ],
@@ -142,7 +155,11 @@ class TestAnthropicToChat:
         # document content 应被转为文本
         content = user_msg.get("content")
         if isinstance(content, list):
-            assert any("PDF content here" in c.get("text", "") for c in content if c.get("type") == "text")
+            assert any(
+                "PDF content here" in c.get("text", "")
+                for c in content
+                if c.get("type") == "text"
+            )
         else:
             assert "PDF content here" in content
 

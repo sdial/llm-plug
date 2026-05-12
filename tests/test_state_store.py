@@ -35,7 +35,13 @@ def test_put_and_get(store):
         "id": rid,
         "model": "gpt-4o",
         "status": "completed",
-        "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Hi there!"}]}],
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Hi there!"}],
+            }
+        ],
         "output_text": "Hi there!",
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
     }
@@ -60,7 +66,14 @@ def test_get_nonexistent(store):
 def test_delete(store):
     rid = store.generate_response_id()
     conversation = {"messages": [], "reasoning_history": [], "tool_calls": []}
-    response = {"id": rid, "model": "gpt-4o", "status": "completed", "output": [], "output_text": "", "usage": None}
+    response = {
+        "id": rid,
+        "model": "gpt-4o",
+        "status": "completed",
+        "output": [],
+        "output_text": "",
+        "usage": None,
+    }
 
     asyncio.run(store.put(rid, conversation, response))
     assert asyncio.run(store.get_response(rid)) is not None

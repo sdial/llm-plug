@@ -1,5 +1,9 @@
 import pytest
-from responses_handler import parse_responses_request, build_input_messages, generate_response_id
+from responses_handler import (
+    parse_responses_request,
+    build_input_messages,
+    generate_response_id,
+)
 
 
 def test_parse_basic_request():

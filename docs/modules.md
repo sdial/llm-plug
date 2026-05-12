@@ -59,13 +59,6 @@
 |------|----------|--------|------|
 | `PROXY_API_KEY` | `PROXY_API_KEY` | `""` (空) | 代理 API 密钥，空则不鉴权 |
 
-#### 调试
-
-| 变量 | 环境变量 | 默认值 | 说明 |
-|------|----------|--------|------|
-| `DEBUG` | `DEBUG` | `false` | 调试模式开关 |
-| `DEBUG_LOG_DIR` | `DEBUG_LOG_DIR` | 项目根目录/logs | 调试日志目录 |
-
 #### PostgreSQL 统计
 
 | 变量 | 环境变量 | 默认值 | 说明 |
@@ -77,7 +70,6 @@
 
 1. **不支持热加载**：修改环境变量后需重启服务
 2. **PORT 是 int 转换**：如果环境变量不是数字会抛出 `ValueError`
-3. **DEBUG 日志可能很大**：高流量下磁盘空间消耗快，建议仅调试时开启
 
 ---
 
@@ -404,7 +396,6 @@ async def _do_request(channel, request_data, target_api_type, is_stream, ...)
 | `_get_channels_for_model(model)` | 筛选匹配模型的已启用渠道 |
 | `_get_converter_and_upstream_type(channel, target_api_type)` | 获取转换器 |
 | `_get_upstream_url(channel)` | 拼接上游 URL |
-| `_log_debug(...)` | 调试日志记录 |
 
 ### 注意事项
 

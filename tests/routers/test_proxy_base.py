@@ -26,6 +26,7 @@ def setup_test_data():
 
         import config
         import storage
+
         old_data_dir = config.DATA_DIR
         old_channels_file = config.CHANNELS_FILE
         old_api_keys_file = config.API_KEYS_FILE
@@ -59,7 +60,7 @@ def test_invalid_json_request_returns_400():
         response = client.post(
             "/v1/chat/completions",
             content=b"not valid json {",
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 400
         assert "Invalid JSON" in response.text or "invalid" in response.text.lower()
@@ -90,16 +91,22 @@ def test_anthropic_without_stream_defaults_to_non_stream():
     )
     seen = {}
 
-    async def fake_proxy_request(model, request_data, target_api_type, is_stream, **kwargs):
+    async def fake_proxy_request(
+        model, request_data, target_api_type, is_stream, **kwargs
+    ):
         seen["is_stream"] = is_stream
         if is_stream:
+
             async def stream():
                 yield 'event: message_start\ndata: {"type": "message_start"}\n\n'
 
             return stream(), channel
         return {"id": "msg_1", "type": "message", "content": []}, channel
 
-    with TestClient(app) as client, patch("routers.proxy_base.proxy_request", fake_proxy_request):
+    with (
+        TestClient(app) as client,
+        patch("routers.proxy_base.proxy_request", fake_proxy_request),
+    ):
         response = client.post(
             "/v1/messages",
             json={
@@ -121,7 +128,12 @@ def test_upstream_http_error_status_and_body_are_passed_through():
     request = httpx.Request("POST", "https://upstream.example/v1/chat/completions")
     upstream_response = httpx.Response(
         401,
-        json={"error": {"message": "invalid upstream key", "type": "invalid_request_error"}},
+        json={
+            "error": {
+                "message": "invalid upstream key",
+                "type": "invalid_request_error",
+            }
+        },
         request=request,
         headers={"content-type": "application/json"},
     )
@@ -134,14 +146,22 @@ def test_upstream_http_error_status_and_body_are_passed_through():
     async def fake_proxy_request(*args, **kwargs):
         raise upstream_error
 
-    with TestClient(app) as client, patch("routers.proxy_base.proxy_request", fake_proxy_request):
+    with (
+        TestClient(app) as client,
+        patch("routers.proxy_base.proxy_request", fake_proxy_request),
+    ):
         response = client.post(
             "/v1/chat/completions",
-            json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]},
+            json={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hello"}],
+            },
         )
 
     assert response.status_code == 401
-    assert response.json() == {"error": {"message": "invalid upstream key", "type": "invalid_request_error"}}
+    assert response.json() == {
+        "error": {"message": "invalid upstream key", "type": "invalid_request_error"}
+    }
 
 
 def test_stream_upstream_http_error_before_first_chunk_is_passed_through():
@@ -176,10 +196,17 @@ def test_stream_upstream_http_error_before_first_chunk_is_passed_through():
     async def fake_proxy_request(*args, **kwargs):
         return stream(), channel
 
-    with TestClient(app) as client, patch("routers.proxy_base.proxy_request", fake_proxy_request):
+    with (
+        TestClient(app) as client,
+        patch("routers.proxy_base.proxy_request", fake_proxy_request),
+    ):
         response = client.post(
             "/v1/chat/completions",
-            json={"model": "gpt-4o", "stream": True, "messages": [{"role": "user", "content": "hello"}]},
+            json={
+                "model": "gpt-4o",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
         )
 
     assert response.status_code == 400

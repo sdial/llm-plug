@@ -229,7 +229,7 @@ async def test_same_type_anthropic_passes_client_version_and_beta_when_channel_n
     assert captured_headers["anthropic-beta"] == "client-beta"
 ```
 
-用 `patch("proxy_core.create_client", ...)`、`patch("proxy_core._log_debug", ...)`、`patch("proxy_core.stats.record_request")` 包住上面的调用，保持现有测试风格。
+用 `patch("proxy_core.create_client", ...)`、`patch("proxy_core.stats.record_request")` 包住上面的调用，保持现有测试风格。
 
 - [ ] **步骤 5：实现 `_build_upstream_headers()`**
 
@@ -342,7 +342,6 @@ async def test_same_type_anthropic_stream_preserves_event_type_for_multiline_dat
     )
 
     with patch("proxy_core.create_stream_client", return_value=FakeClient()), \
-            patch("proxy_core._log_debug", new_callable=AsyncMock), \
             patch("proxy_core.stats.record_request"):
         stream = _do_stream_request(
             channel=channel,
@@ -541,7 +540,6 @@ async def test_anthropic_stream_error_event_before_output_fails_over(self):
 
     with patch("proxy_core._get_channels_for_model", new_callable=AsyncMock, return_value=[primary, fallback]), \
             patch("proxy_core.create_stream_client", side_effect=fake_stream_client), \
-            patch("proxy_core._log_debug", new_callable=AsyncMock), \
             patch("proxy_core.stats.record_request"):
         stream, selected = await _proxy_single_model_request(
             model="claude-3",

@@ -1,15 +1,16 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-24 | Updated: 2026-04-24 -->
+<!-- Generated: 2026-04-24 | Updated: 2026-05-12 -->
 
 # static
 
 ## Purpose
-前端管理页面，提供渠道管理 UI，使用原生 HTML + TailwindCSS (CDN) 实现，零构建依赖。
+前端管理页面，提供渠道管理 UI，使用原生 HTML + TailwindCSS (本地文件) 实现，零构建依赖，支持离线部署。
 
 ## Key Files
 | File | Description |
 |------|-------------|
 | `index.html` | 单页应用，渠道列表展示、添加/编辑/删除/测试渠道 |
+| `tailwind.min.js` | TailwindCSS 本地文件，替代 CDN |
 
 ## Subdirectories
 无
@@ -17,7 +18,7 @@
 ## For AI Agents
 
 ### Working In This Directory
-- 使用 TailwindCSS CDN，无需构建步骤
+- 使用本地 TailwindCSS 文件，支持离线部署
 - 所有 JavaScript 内联在 HTML 中
 - API 调用使用原生 fetch
 
@@ -37,6 +38,6 @@
 - 调用 `/admin/channels` API
 
 ### External
-- `TailwindCSS CDN` - CSS 框架
+- `TailwindCSS` - CSS 框架（本地文件）
 
 <!-- MANUAL: -->

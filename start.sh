@@ -62,9 +62,8 @@ run)
     --backlog 2048
     ;;
 debug)
-    echo ">>> 调试运行 (reload + trace + debug日志) -> http://${HOST}:${PORT}"
+    echo ">>> 调试运行 (reload + trace) -> http://${HOST}:${PORT}"
     export LOG_LEVEL=debug
-    export DEBUG=true
     uv run uvicorn main:app \
     --host "$HOST" \
     --port "$PORT" \

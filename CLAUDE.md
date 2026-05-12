@@ -87,4 +87,3 @@ uv run ruff check .
 - `REQUEST_TIMEOUT` — 上游请求超时（默认 300s）
 - `MAX_FAIL_COUNT`/`COOLDOWN_SECONDS` — 败渠道剔除与恢复
 - `DATABASE_URL` — PostgreSQL 统计存储（可选）
-- `DEBUG` — 开启调试日志输出 JSONL

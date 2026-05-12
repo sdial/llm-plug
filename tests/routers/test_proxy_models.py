@@ -1,4 +1,5 @@
 """Tests for /v1/models and /v1/anthropic/models endpoints."""
+
 import json
 
 import pytest
@@ -75,6 +76,7 @@ class TestOpenAIModelsEndpoint:
     def test_returns_models_without_auth(self):
         """GET /v1/models should work without any Authorization header."""
         from main import app
+
         with TestClient(app) as client:
             resp = client.get("/v1/models")
             assert resp.status_code == 200
@@ -89,6 +91,7 @@ class TestAnthropicModelsEndpoint:
     def test_returns_models_without_auth(self):
         """GET /v1/anthropic/models should work without any Authorization header."""
         from main import app
+
         with TestClient(app) as client:
             resp = client.get("/v1/anthropic/models")
         assert resp.status_code == 200
@@ -100,6 +103,7 @@ class TestAnthropicModelsEndpoint:
     def test_returns_anthropic_models(self):
         """GET /v1/anthropic/models should work and return models."""
         from main import app
+
         with TestClient(app) as client:
             resp = client.get("/v1/anthropic/models")
             assert resp.status_code == 200

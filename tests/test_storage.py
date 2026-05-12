@@ -124,6 +124,7 @@ class TestSaveData:
         await storage.save_data(valid)
 
         import unittest.mock
+
         with unittest.mock.patch("json.dump", side_effect=OSError("disk full")):
             with pytest.raises(OSError):
                 await storage.save_data({"channels": []})

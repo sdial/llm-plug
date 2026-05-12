@@ -41,10 +41,26 @@ class TestChatToResponseStreamGolden:
         """文本流应产生完整的 Responses SSE 生命周期事件。"""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hello"}}]},
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": " world"}}]},
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "stop"}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"role": "assistant", "content": ""}}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"content": "Hello"}}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"content": " world"}}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "stop"}],
+            },
         ]
         outputs = feed_response_events(converter, events)
         event_types = [o.get("type") for o in outputs if isinstance(o, dict)]
@@ -68,30 +84,46 @@ class TestChatToResponseStreamGolden:
         """工具调用流应产生完整生命周期事件。"""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "id": "call_1", "function": {"name": "search", "arguments": ""}}
-                        ]
-                    }
-                }],
+                "choices": [{"delta": {"role": "assistant", "content": ""}}],
             },
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "function": {"arguments": '{"q":"x"}'}}
-                        ]
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search", "arguments": ""},
+                                }
+                            ]
+                        }
                     }
-                }],
+                ],
             },
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": '{"q":"x"}'}}
+                            ]
+                        }
+                    }
+                ],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "tool_calls"}],
+            },
         ]
         outputs = feed_response_events(converter, events)
         event_types = [o.get("type") for o in outputs if isinstance(o, dict)]
@@ -107,31 +139,51 @@ class TestChatToResponseStreamGolden:
         """文本 + 工具调用流的事件顺序。"""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Let me search"}}]},
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "id": "call_1", "function": {"name": "search", "arguments": ""}}
-                        ]
-                    }
-                }],
+                "choices": [{"delta": {"role": "assistant", "content": ""}}],
             },
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "function": {"arguments": '{"q":"x"}'}}
-                        ]
-                    }
-                }],
+                "choices": [{"delta": {"content": "Let me search"}}],
             },
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search", "arguments": ""},
+                                }
+                            ]
+                        }
+                    }
+                ],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": '{"q":"x"}'}}
+                            ]
+                        }
+                    }
+                ],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "tool_calls"}],
+            },
         ]
         outputs = feed_response_events(converter, events)
         event_types = [o.get("type") for o in outputs if isinstance(o, dict)]
@@ -164,7 +216,10 @@ class TestChatToAnthropicStream:
         """message_start 应包含 input_tokens"""
         converter = ToAnthropicConverter()
         events = [
-            {"choices": [{"delta": {"role": "assistant", "content": ""}}], "usage": {"prompt_tokens": 42}},
+            {
+                "choices": [{"delta": {"role": "assistant", "content": ""}}],
+                "usage": {"prompt_tokens": 42},
+            },
             {"choices": [{"delta": {"content": "Hello"}}]},
             {"choices": [{"finish_reason": "stop"}]},
         ]
@@ -190,7 +245,11 @@ class TestChatToResponseStream:
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
             },
             "openai-chat-completions",
         )
@@ -204,7 +263,11 @@ class TestChatToResponseStream:
         assert result["output_text"] == "Hello"
         assert result["output"][0]["type"] == "message"
         assert result["output"][0]["content"][0]["text"] == "Hello"
-        assert result["usage"] == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+        assert result["usage"] == {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "total_tokens": 15,
+        }
 
     def test_non_stream_chat_tool_calls_have_response_function_call_fields(self):
         """Chat tool_calls 应转换为 Responses function_call 输出项。"""
@@ -223,14 +286,21 @@ class TestChatToResponseStream:
                                 {
                                     "id": "call_1",
                                     "type": "function",
-                                    "function": {"name": "search", "arguments": "{\"q\":\"x\"}"},
+                                    "function": {
+                                        "name": "search",
+                                        "arguments": '{"q":"x"}',
+                                    },
                                 }
                             ],
                         },
                         "finish_reason": "tool_calls",
                     }
                 ],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
             },
             "openai-chat-completions",
         )
@@ -240,7 +310,7 @@ class TestChatToResponseStream:
         assert function_call["id"].startswith("fc_")
         assert function_call["call_id"] == "call_1"
         assert function_call["name"] == "search"
-        assert function_call["arguments"] == "{\"q\":\"x\"}"
+        assert function_call["arguments"] == '{"q":"x"}'
         assert function_call["status"] == "completed"
         assert result["output_text"] == ""
 
@@ -257,7 +327,11 @@ class TestChatToResponseStream:
                         "finish_reason": "length",
                     }
                 ],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
             },
             "openai-chat-completions",
         )
@@ -282,7 +356,11 @@ class TestChatToResponseStream:
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
             },
             "openai-chat-completions",
         )
@@ -300,7 +378,12 @@ class TestChatToResponseStream:
                 "id": "chatcmpl_1",
                 "created": 123,
                 "model": "gpt-4o",
-                "choices": [{"message": {"role": "assistant", "content": "Hi"}, "finish_reason": "stop"}],
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "Hi"},
+                        "finish_reason": "stop",
+                    }
+                ],
                 "usage": {
                     "prompt_tokens": 10,
                     "completion_tokens": 5,
@@ -320,8 +403,36 @@ class TestChatToResponseStream:
         converter = ToResponseConverter()
         events = [
             {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
-            {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "function": {"name": "search"}}]}}]},
-            {"choices": [{"delta": {"tool_calls": [{"index": 1, "id": "call_2", "function": {"name": "calc"}}]}}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 1,
+                                    "id": "call_2",
+                                    "function": {"name": "calc"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
             {"choices": [{"finish_reason": "tool_calls"}]},
         ]
         outputs = []
@@ -331,7 +442,11 @@ class TestChatToResponseStream:
                 outputs.append(result)
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
-        added_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.output_item.added"]
+        added_events = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.output_item.added"
+        ]
         assert len(added_events) == 2
         assert added_events[0]["output_index"] == 0
         assert added_events[1]["output_index"] == 1
@@ -340,41 +455,59 @@ class TestChatToResponseStream:
         """Chat tool_call argument deltas often omit id and must still be accumulated."""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "id": "call_1", "function": {"name": "search", "arguments": ""}}
-                        ]
-                    }
-                }],
+                "choices": [{"delta": {"role": "assistant", "content": ""}}],
             },
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "function": {"arguments": '{"q"'}}
-                        ]
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search", "arguments": ""},
+                                }
+                            ]
+                        }
                     }
-                }],
+                ],
             },
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "function": {"arguments": ':"x"}'}}
-                        ]
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": '{"q"'}}
+                            ]
+                        }
                     }
-                }],
+                ],
             },
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": ':"x"}'}}
+                            ]
+                        }
+                    }
+                ],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "tool_calls"}],
+            },
         ]
 
         outputs = []
@@ -385,8 +518,16 @@ class TestChatToResponseStream:
                 outputs.extend(converter.get_extra_events(result or {}))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
 
-        completed = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"][0]
-        tool_call = [item for item in completed["response"]["output"] if item["type"] == "function_call"][0]
+        completed = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ][0]
+        tool_call = [
+            item
+            for item in completed["response"]["output"]
+            if item["type"] == "function_call"
+        ][0]
         assert tool_call["call_id"] == "call_1"
         assert tool_call["arguments"] == '{"q":"x"}'
 
@@ -395,7 +536,21 @@ class TestChatToResponseStream:
         converter = ToResponseConverter()
         events = [
             {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
-            {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "function": {"name": "search"}}]}}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
             {"choices": [{"delta": {"reasoning_content": "Thinking..."}}]},
             {"choices": [{"finish_reason": "stop"}]},
         ]
@@ -406,11 +561,16 @@ class TestChatToResponseStream:
                 outputs.append(result)
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
-        added_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.output_item.added"]
-        reasoning_events = [o for o in added_events if o.get("item", {}).get("type") == "reasoning"]
+        added_events = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.output_item.added"
+        ]
+        reasoning_events = [
+            o for o in added_events if o.get("item", {}).get("type") == "reasoning"
+        ]
         assert len(reasoning_events) == 1
         assert reasoning_events[0]["output_index"] == 1
-
 
     def test_response_completed_sent_on_finish_reason(self):
         """finish_reason 应生成包含完整 output 和 usage 的 response.completed 事件"""
@@ -428,7 +588,11 @@ class TestChatToResponseStream:
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
-        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        completed_events = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ]
         assert len(completed_events) == 1
         resp = completed_events[0]["response"]
         assert resp["status"] == "completed"
@@ -461,7 +625,11 @@ class TestChatToResponseStream:
                 outputs.extend(extra)
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
         # 验证 response.completed 被发送
-        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        completed_events = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ]
         assert len(completed_events) == 1
 
     def test_response_completed_incomplete_status(self):
@@ -480,25 +648,41 @@ class TestChatToResponseStream:
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
-        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        completed_events = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ]
         assert len(completed_events) == 1
         assert completed_events[0]["response"]["status"] == "incomplete"
-        assert completed_events[0]["response"]["incomplete_details"] == {"reason": "max_output_tokens"}
+        assert completed_events[0]["response"]["incomplete_details"] == {
+            "reason": "max_output_tokens"
+        }
 
     def test_output_item_added_marks_message_and_function_call_in_progress(self):
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hello"}}]},
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "id": "call_1", "function": {"name": "search", "arguments": ""}}
-                        ]
+                "choices": [{"delta": {"content": "Hello"}}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search", "arguments": ""},
+                                }
+                            ]
+                        }
                     }
-                }],
+                ],
             },
         ]
 
@@ -509,9 +693,13 @@ class TestChatToResponseStream:
                 outputs.append(result)
                 outputs.extend(converter.get_extra_events(result or {}))
 
-        added_items = [o["item"] for o in outputs if o.get("type") == "response.output_item.added"]
+        added_items = [
+            o["item"] for o in outputs if o.get("type") == "response.output_item.added"
+        ]
         message = [item for item in added_items if item["type"] == "message"][0]
-        function_call = [item for item in added_items if item["type"] == "function_call"][0]
+        function_call = [
+            item for item in added_items if item["type"] == "function_call"
+        ][0]
         assert message["status"] == "in_progress"
         assert function_call["status"] == "in_progress"
 
@@ -545,10 +733,18 @@ class TestChatToResponseStream:
                 outputs.extend(extra)
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
         # 应有 response.created
-        created_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.created"]
+        created_events = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.created"
+        ]
         assert len(created_events) == 1
         # 应有 response.completed
-        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        completed_events = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ]
         assert len(completed_events) == 1
 
     def test_response_created_sent_before_first_content(self):
@@ -573,7 +769,11 @@ class TestChatToResponseStream:
         """Responses text delta 应包含 item/content 索引和 sequence_number。"""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hello"}}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"content": "Hello"}}],
+            },
         ]
         outputs = []
         for evt in events:
@@ -592,8 +792,16 @@ class TestChatToResponseStream:
         """文本流应包含 content_part added/done 生命周期事件。"""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hello"}}]},
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "stop"}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"content": "Hello"}}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "stop"}],
+            },
         ]
         outputs = []
         for evt in events:
@@ -603,10 +811,18 @@ class TestChatToResponseStream:
                 outputs.extend(converter.get_extra_events(result or {}))
 
         event_types = [o.get("type") for o in outputs]
-        assert event_types.index("response.output_item.added") < event_types.index("response.content_part.added")
-        assert event_types.index("response.content_part.added") < event_types.index("response.output_text.delta")
-        assert event_types.index("response.output_text.done") < event_types.index("response.content_part.done")
-        assert event_types.index("response.content_part.done") < event_types.index("response.output_item.done")
+        assert event_types.index("response.output_item.added") < event_types.index(
+            "response.content_part.added"
+        )
+        assert event_types.index("response.content_part.added") < event_types.index(
+            "response.output_text.delta"
+        )
+        assert event_types.index("response.output_text.done") < event_types.index(
+            "response.content_part.done"
+        )
+        assert event_types.index("response.content_part.done") < event_types.index(
+            "response.output_item.done"
+        )
 
     def test_tool_stream_includes_arguments_done(self):
         """工具调用流结束时应输出 function_call_arguments.done。"""
@@ -615,26 +831,38 @@ class TestChatToResponseStream:
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "id": "call_1", "function": {"name": "search", "arguments": ""}}
-                        ]
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search", "arguments": ""},
+                                }
+                            ]
+                        }
                     }
-                }],
+                ],
             },
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "function": {"arguments": '{"q":"x"}'}}
-                        ]
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": '{"q":"x"}'}}
+                            ]
+                        }
                     }
-                }],
+                ],
             },
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "tool_calls"}],
+            },
         ]
         outputs = []
         for evt in events:
@@ -643,7 +871,11 @@ class TestChatToResponseStream:
                 outputs.append(result)
                 outputs.extend(converter.get_extra_events(result or {}))
 
-        done_events = [o for o in outputs if o.get("type") == "response.function_call_arguments.done"]
+        done_events = [
+            o
+            for o in outputs
+            if o.get("type") == "response.function_call_arguments.done"
+        ]
         assert len(done_events) == 1
         assert done_events[0]["item_id"].startswith("fc_")
         assert done_events[0]["output_index"] == 0
@@ -669,7 +901,9 @@ class TestChatToResponseStream:
         # output_item.added 应在第一个 output_text.delta 之前
         item_added_idx = event_types.index("response.output_item.added")
         first_delta_idx = event_types.index("response.output_text.delta")
-        assert item_added_idx < first_delta_idx, f"output_item.added at {item_added_idx} should be before first delta at {first_delta_idx}"
+        assert item_added_idx < first_delta_idx, (
+            f"output_item.added at {item_added_idx} should be before first delta at {first_delta_idx}"
+        )
         # 验证 item 类型为 message
         item_added = outputs[item_added_idx]
         assert item_added["item"]["type"] == "message"
@@ -703,9 +937,15 @@ class TestChatToResponseStream:
         """usage 数据应包含在 response.completed 中"""
         converter = ToResponseConverter()
         events = [
-            {"choices": [{"delta": {"role": "assistant", "content": ""}}], "usage": {"prompt_tokens": 100}},
+            {
+                "choices": [{"delta": {"role": "assistant", "content": ""}}],
+                "usage": {"prompt_tokens": 100},
+            },
             {"choices": [{"delta": {"content": "Hello"}}]},
-            {"choices": [{"delta": {}, "finish_reason": "stop"}], "usage": {"completion_tokens": 50, "total_tokens": 150}},
+            {
+                "choices": [{"delta": {}, "finish_reason": "stop"}],
+                "usage": {"completion_tokens": 50, "total_tokens": 150},
+            },
         ]
         outputs = []
         for evt in events:
@@ -715,7 +955,11 @@ class TestChatToResponseStream:
                 extra = converter.get_extra_events(result or {})
                 outputs.extend(extra)
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
-        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        completed_events = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ]
         assert len(completed_events) == 1
         usage = completed_events[0]["response"]["usage"]
         assert usage["input_tokens"] == 100
@@ -726,13 +970,25 @@ class TestChatToResponseStream:
         """finish_reason 后的 usage-only chunk 应进入 response.completed.usage。"""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hi"}}]},
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "stop"}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"content": "Hi"}}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "stop"}],
+            },
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
                 "choices": [],
-                "usage": {"prompt_tokens": 7, "completion_tokens": 2, "total_tokens": 9},
+                "usage": {
+                    "prompt_tokens": 7,
+                    "completion_tokens": 2,
+                    "total_tokens": 9,
+                },
             },
         ]
 
@@ -744,7 +1000,11 @@ class TestChatToResponseStream:
                 outputs.extend(converter.get_extra_events(result or {}))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
 
-        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        completed_events = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ]
         assert len(completed_events) == 1
         assert completed_events[0]["response"]["usage"] == {
             "input_tokens": 7,
@@ -756,8 +1016,16 @@ class TestChatToResponseStream:
         """没有 finish 后 usage-only chunk 时，finalize_stream 应释放 response.completed。"""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Hi"}}]},
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "stop"}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"content": "Hi"}}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "stop"}],
+            },
         ]
 
         outputs = []
@@ -766,20 +1034,38 @@ class TestChatToResponseStream:
             if result is not None:
                 outputs.append(result)
                 outputs.extend(converter.get_extra_events(result or {}))
-        assert not [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        assert not [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ]
 
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
 
-        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
+        completed_events = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ]
         assert len(completed_events) == 1
-        assert completed_events[0]["response"]["output"][0]["content"][0]["text"] == "Hi"
+        assert (
+            completed_events[0]["response"]["output"][0]["content"][0]["text"] == "Hi"
+        )
 
     def test_finalize_stream_emits_response_completed_without_finish_reason(self):
         """上游只返回内容和 [DONE] 时，收尾仍应补出 response.completed"""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "glm-5", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
-            {"id": "chatcmpl_1", "model": "glm-5", "choices": [{"delta": {"content": "Hello"}}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "glm-5",
+                "choices": [{"delta": {"role": "assistant", "content": ""}}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "glm-5",
+                "choices": [{"delta": {"content": "Hello"}}],
+            },
         ]
         outputs = []
         for evt in events:
@@ -795,7 +1081,11 @@ class TestChatToResponseStream:
         assert "response.output_text.done" in event_types
         assert "response.output_item.done" in event_types
         assert "response.completed" in event_types
-        completed = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"][0]
+        completed = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ][0]
         assert completed["response"]["status"] == "completed"
         assert completed["response"]["output"][0]["content"][0]["text"] == "Hello"
 
@@ -805,12 +1095,31 @@ class TestAnthropicToChatStream:
         """Anthropic 文本流 -> OpenAI Chat 流"""
         converter = ToChatCompletionsConverter()
         events = [
-            {"type": "message_start", "message": {"id": "msg_001", "model": "claude-opus-4-7"}},
-            {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hello"}},
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " world"}},
+            {
+                "type": "message_start",
+                "message": {"id": "msg_001", "model": "claude-opus-4-7"},
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "Hello"},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": " world"},
+            },
             {"type": "content_block_stop", "index": 0},
-            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 2}},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 2},
+            },
             {"type": "message_stop"},
         ]
         outputs = []
@@ -827,11 +1136,31 @@ class TestAnthropicToChatStream:
         """Anthropic tool_use 流 -> OpenAI Chat tool_calls 流"""
         converter = ToChatCompletionsConverter()
         events = [
-            {"type": "message_start", "message": {"id": "msg_001", "model": "claude-opus-4-7"}},
-            {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_001", "name": "search", "input": {}}},
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": '{"q": "test"}'}},
+            {
+                "type": "message_start",
+                "message": {"id": "msg_001", "model": "claude-opus-4-7"},
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu_001",
+                    "name": "search",
+                    "input": {},
+                },
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": '{"q": "test"}'},
+            },
             {"type": "content_block_stop", "index": 0},
-            {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 10}},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "tool_use"},
+                "usage": {"output_tokens": 10},
+            },
             {"type": "message_stop"},
         ]
         outputs = []
@@ -839,7 +1168,9 @@ class TestAnthropicToChatStream:
             result = converter.convert_stream_chunk(evt, "anthropic")
             if result is not None:
                 outputs.append(result)
-        tool_call_events = [o for o in outputs if o["choices"][0]["delta"].get("tool_calls")]
+        tool_call_events = [
+            o for o in outputs if o["choices"][0]["delta"].get("tool_calls")
+        ]
         assert len(tool_call_events) >= 1
         assert outputs[-1]["choices"][0]["finish_reason"] == "tool_calls"
 
@@ -847,14 +1178,37 @@ class TestAnthropicToChatStream:
         """Anthropic thinking 流 -> OpenAI reasoning_content 流"""
         converter = ToChatCompletionsConverter()
         events = [
-            {"type": "message_start", "message": {"id": "msg_001", "model": "claude-opus-4-7"}},
-            {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "Let me think..."}},
+            {
+                "type": "message_start",
+                "message": {"id": "msg_001", "model": "claude-opus-4-7"},
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "Let me think..."},
+            },
             {"type": "content_block_stop", "index": 0},
-            {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}},
-            {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "The answer is 42"}},
+            {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "text", "text": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "text_delta", "text": "The answer is 42"},
+            },
             {"type": "content_block_stop", "index": 1},
-            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 10}},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 10},
+            },
             {"type": "message_stop"},
         ]
         outputs = []
@@ -862,7 +1216,15 @@ class TestAnthropicToChatStream:
             result = converter.convert_stream_chunk(evt, "anthropic")
             if result is not None:
                 outputs.append(result)
-        reasoning_parts = [o["choices"][0]["delta"].get("reasoning_content", "") for o in outputs if o["choices"][0]["delta"].get("reasoning_content")]
+        reasoning_parts = [
+            o["choices"][0]["delta"].get("reasoning_content", "")
+            for o in outputs
+            if o["choices"][0]["delta"].get("reasoning_content")
+        ]
         assert "Let me think..." in reasoning_parts
-        content_parts = [o["choices"][0]["delta"].get("content", "") for o in outputs if o["choices"][0]["delta"].get("content")]
+        content_parts = [
+            o["choices"][0]["delta"].get("content", "")
+            for o in outputs
+            if o["choices"][0]["delta"].get("content")
+        ]
         assert "The answer is 42" in content_parts

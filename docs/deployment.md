@@ -39,13 +39,11 @@
 |------|--------|------|
 | `PROXY_API_KEY` | (空) | 代理 API 密钥，空则不鉴权 |
 
-### 日志与调试
+### 日志
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `LOG_LEVEL` | `info` | 日志级别 |
-| `DEBUG` | `false` | 调试模式开关 |
-| `DEBUG_LOG_DIR` | 项目根目录/logs | 调试日志目录 |
 
 ### PostgreSQL 统计
 
@@ -198,8 +196,7 @@ sudo systemctl start llm-plug
 1. **启用鉴权**：设置 `PROXY_API_KEY` 或使用 API Keys 管理
 2. **HTTPS**：通过 Nginx 配置 SSL 证书
 3. **限制访问**：Nginx 配置 IP 白名单或限流
-4. **日志轮转**：配置 logrotate 管理 DEBUG 日志
-5. **定期备份**：备份 `data/channels.json` 和 PostgreSQL 数据库
+4. **定期备份**：备份 `data/channels.json` 和 PostgreSQL 数据库
 
 ### 性能调优
 
@@ -214,7 +211,6 @@ sudo systemctl start llm-plug
 
 1. **健康检查**：`GET /v1/models` 可作为健康检查端点
 2. **统计查询**：`GET /admin/stats` 获取请求统计
-3. **日志分析**：DEBUG 日志为 JSONL 格式，可用 jq 或 ELK 分析
 
 ## Windows 部署
 
