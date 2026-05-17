@@ -16,10 +16,7 @@ WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
 
-ENV PATH="/app/.venv/bin:$PATH" \
-HOST=0.0.0.0 \
-PORT=55555 \
-WORKERS=1
+ENV PATH="/app/.venv/bin:$PATH"
 
 COPY . .
 
@@ -34,7 +31,7 @@ CMD uvicorn main:app \
     --host 0.0.0.0 \
     --port 55555 \
     --http httptools \
-    --workers ${WORKERS} \
+    --workers 1 \
     --timeout-keep-alive 360 \
     --log-level info \
     --no-use-colors \

@@ -21,55 +21,46 @@
 
 ### 模块定位
 
-`config.py` 是项目配置的**单一来源**（Single Source of Truth），所有配置项通过环境变量读取，模块加载时即确定值。
+`config.py` 是项目配置的**单一来源**（Single Source of Truth）。项目不读取 `.env`：启动常量使用内置默认值，业务配置从 `data/settings.json` 读取，前端「设置」页负责写入。
 
 ### 配置项详解
 
 #### 服务器配置
 
-| 变量 | 环境变量 | 默认值 | 说明 |
-|------|----------|--------|------|
-| `HOST` | `HOST` | `"0.0.0.0"` | 监听地址 |
-| `PORT` | `PORT` | `8000` | 监听端口 |
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `HOST` | `"0.0.0.0"` | 固定监听地址 |
+| `PORT` | `55555` | 固定容器内部端口 |
 
 #### 数据存储
 
-| 变量 | 环境变量 | 默认值 | 说明 |
-|------|----------|--------|------|
-| `DATA_DIR` | `DATA_DIR` | 项目根目录/data | 数据存储目录 |
-| `CHANNELS_FILE` | `CHANNELS_FILE` | `DATA_DIR/channels.json` | 渠道配置文件 |
-| `API_KEYS_FILE` | `API_KEYS_FILE` | `DATA_DIR/api_keys.json` | API Key 配置文件 |
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DATA_DIR` | 项目根目录/data | 固定数据存储目录 |
+| `CHANNELS_FILE` | `DATA_DIR/channels.json` | 渠道配置文件 |
+| `API_KEYS_FILE` | `DATA_DIR/api_keys.json` | API Key 配置文件 |
 
 #### 负载均衡
 
-| 变量 | 环境变量 | 默认值 | 说明 |
-|------|----------|--------|------|
-| `MAX_FAIL_COUNT` | `MAX_FAIL_COUNT` | `5` | 连续失败 N 次后标记渠道不健康 |
-| `COOLDOWN_SECONDS` | `COOLDOWN_SECONDS` | `60` | 不健康渠道冷却恢复时间（秒） |
+| 设置键 | 默认值 | 说明 |
+|------|--------|------|
+| `max_fail_count` | `5` | 连续失败 N 次后标记渠道不健康 |
+| `cooldown_seconds` | `60` | 不健康渠道冷却恢复时间（秒） |
 
 #### 请求超时
 
-| 变量 | 环境变量 | 默认值 | 说明 |
-|------|----------|--------|------|
-| `REQUEST_TIMEOUT` | `REQUEST_TIMEOUT` | `300` | 上游请求超时时间（秒） |
+| 设置键 | 默认值 | 说明 |
+|------|--------|------|
+| `request_timeout` | `300` | 上游请求超时时间（秒） |
 
-#### 鉴权
+#### 鉴权与请求记录
 
-| 变量 | 环境变量 | 默认值 | 说明 |
-|------|----------|--------|------|
-| `PROXY_API_KEY` | `PROXY_API_KEY` | `""` (空) | 代理 API 密钥，空则不鉴权 |
-
-#### PostgreSQL 统计
-
-| 变量 | 环境变量 | 默认值 | 说明 |
-|------|----------|--------|------|
-| `DATABASE_URL` | `DATABASE_URL` | `postgresql://localhost:5432/llmplug` | PostgreSQL 连接 URL |
-| `STATS_TRACKED_HEADERS` | `STATS_TRACKED_HEADERS` | (空) | 统计追踪的请求头 |
+代理鉴权通过前端 API Key 页面管理，数据写入 `data/api_keys.json`。请求记录默认使用 `data/request_logs.db`，也可在前端设置页切换到 PostgreSQL。
 
 ### 注意事项
 
-1. **不支持热加载**：修改环境变量后需重启服务
-2. **PORT 是 int 转换**：如果环境变量不是数字会抛出 `ValueError`
+1. **零配置启动**：`.env` 不参与运行时配置
+2. **部分设置热更新**：请求超时、负载均衡、请求记录数据库保存后立即生效；日志级别需重启
 
 ---
 
@@ -308,11 +299,11 @@ def make_proxy_router(path: str, api_type: APIType) -> APIRouter
 ### auth.py — 鉴权
 
 ```python
-def check_proxy_authorization(authorization: str | None) -> bool
+def check_proxy_authorization(authorization: str | None, request_state=None) -> bool
 ```
 
-- `PROXY_API_KEY` 为空 → 不鉴权
-- 格式需为 `Bearer <token>`
+- 代理鉴权由中间件完成，结果写入 `request.state.proxy_auth_checked`
+- API Key 在前端 API Key 页面维护，存储于 `data/api_keys.json`
 
 ### proxy_errors.py — 错误响应
 

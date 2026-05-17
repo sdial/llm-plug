@@ -15,7 +15,7 @@ FastAPI 路由模块，包含管理 API 和三种代理 API 的路由实现。
 | `proxy_response.py` | OpenAI Response 代理路由 `/v1/responses` |
 | `proxy_anthropic.py` | Anthropic Messages 代理路由 `/v1/messages` |
 | `proxy_models.py` | 模型列表 API：`/v1/models` 和 `/v1/anthropic/models` |
-| `auth.py` | 代理 API 鉴权：`check_proxy_authorization`（`PROXY_API_KEY`） |
+| `auth.py` | 代理 API 鉴权结果检查：`check_proxy_authorization` |
 | `proxy_errors.py` | OpenAI 风格错误 JSON；`response_from_proxy_exception` 映射 httpx 异常 |
 
 ## Subdirectories
@@ -31,7 +31,7 @@ FastAPI 路由模块，包含管理 API 和三种代理 API 的路由实现。
 
 ### Testing Requirements
 - 测试各路由的请求/响应格式
-- 验证鉴权逻辑 (PROXY_API_KEY)
+- 验证 API Key 鉴权逻辑
 - 测试流式响应的正确传输
 
 ### Common Patterns
@@ -45,7 +45,7 @@ FastAPI 路由模块，包含管理 API 和三种代理 API 的路由实现。
 - `models/` - Channel, ChannelCreate, ChannelUpdate, APIType
 - `proxy_core.py` - proxy_request 核心代理逻辑
 - `storage.py` - load_data, save_data 数据持久化
-- `config.py` - PROXY_API_KEY 鉴权配置
+- `storage.py` - API Key 持久化
 - `client.py` - create_client, get_upstream_headers
 
 ### External

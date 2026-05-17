@@ -44,7 +44,7 @@ uv run ruff check .
 | `converters/` | 格式转换器（`to_chat.py`, `to_response.py`, `to_anthropic.py`） |
 | `balancer/load_balancer.py` | 加权轮询 + 优先级分组 + 健康检查 |
 | `client.py` | HTTP 客户端缓存池，支持 SOCKS5 代理 |
-| `config.py` | 配置管理，支持环境变量 + `settings.json` |
+| `config.py` | 零配置默认值 + `data/settings.json` 配置管理 |
 | `storage.py` | JSON 文件读写（`channels.json`, `api_keys.json`） |
 
 ### 格式转换路由
@@ -80,10 +80,10 @@ uv run ruff check .
 
 模型组存储于 `data/model_groups.json`，支持 Fallback 顺序。
 
-## 环境变量
+## 配置
 
-关键配置可通过环境变量或 `data/settings.json` 设置：
-- `HOST`/`PORT` — 监听地址
-- `REQUEST_TIMEOUT` — 上游请求超时（默认 300s）
-- `MAX_FAIL_COUNT`/`COOLDOWN_SECONDS` — 败渠道剔除与恢复
-- `DATABASE_URL` — PostgreSQL 统计存储（可选）
+项目不依赖 `.env`。服务固定监听 `0.0.0.0:55555`，Docker 对外端口由 ports 映射处理。业务配置通过前端设置页保存到 `data/settings.json`：
+- 请求超时、请求体大小
+- 负载均衡失败阈值和冷却时间
+- 日志级别
+- 请求记录数据库与 RAW 信息保存开关

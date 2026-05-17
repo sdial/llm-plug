@@ -30,8 +30,8 @@ def test_init_settings_from_file(tmp_settings_file):
         config._SETTINGS_FILE = original
 
 
-def test_init_settings_env_fallback(tmp_settings_file, monkeypatch):
-    """settings.json 无对应项时回退到环境变量"""
+def test_init_settings_ignores_environment_fallback(tmp_settings_file, monkeypatch):
+    """settings.json 无对应项时使用默认值，不从环境变量读取业务配置"""
     import json
 
     with open(tmp_settings_file, "w") as f:
@@ -44,7 +44,7 @@ def test_init_settings_env_fallback(tmp_settings_file, monkeypatch):
         config._SETTINGS_FILE = tmp_settings_file
         config._settings = {}
         config._init_settings_sync()
-        assert config._settings["request_timeout"] == 500
+        assert config._settings["request_timeout"] == 300
     finally:
         config._SETTINGS_FILE = original
 
@@ -109,23 +109,16 @@ def test_config_defaults():
     assert _CONFIG_SCHEMA["log_level"]["default"] == "info"
     assert "database_url" not in _CONFIG_SCHEMA
     assert os.path.basename(_CONFIG_SCHEMA["stats_sqlite_path"]["default"]) == "stats.db"
-    assert _CONFIG_SCHEMA["stats_sqlite_path"]["env"] == "STATS_SQLITE_PATH"
     assert _CONFIG_SCHEMA["request_log_db_type"]["default"] == "sqlite"
-    assert _CONFIG_SCHEMA["request_log_db_type"]["env"] == "REQUEST_LOG_DB_TYPE"
     assert os.path.basename(_CONFIG_SCHEMA["request_log_sqlite_path"]["default"]) == "request_logs.db"
-    assert _CONFIG_SCHEMA["request_log_sqlite_path"]["env"] == "REQUEST_LOG_SQLITE_PATH"
     assert _CONFIG_SCHEMA["request_log_database_url"]["default"] == ""
-    assert _CONFIG_SCHEMA["request_log_database_url"]["env"] == "REQUEST_LOG_DATABASE_URL"
     assert _CONFIG_SCHEMA["save_request_headers"]["default"] is False
-    assert _CONFIG_SCHEMA["save_request_headers"]["env"] == "SAVE_REQUEST_HEADERS"
     assert _CONFIG_SCHEMA["save_response_headers"]["default"] is False
-    assert _CONFIG_SCHEMA["save_response_headers"]["env"] == "SAVE_RESPONSE_HEADERS"
     assert _CONFIG_SCHEMA["save_request_body"]["default"] is False
-    assert _CONFIG_SCHEMA["save_request_body"]["env"] == "SAVE_REQUEST_BODY"
     assert _CONFIG_SCHEMA["save_response_body"]["default"] is False
-    assert _CONFIG_SCHEMA["save_response_body"]["env"] == "SAVE_RESPONSE_BODY"
     assert _CONFIG_SCHEMA["max_fail_count"]["default"] == 5
     assert _CONFIG_SCHEMA["cooldown_seconds"]["default"] == 60
+    assert all("env" not in schema for schema in _CONFIG_SCHEMA.values())
 
 
 def test_config_requires_restart():
@@ -187,6 +180,20 @@ def test_settings_page_has_request_log_db_controls():
     assert "set_save_response_body" in html
     assert "loadStatsRequestLogs" in html
     assert "params.set('source', 'stats')" in html
+
+
+def test_settings_page_explains_zero_config_runtime():
+    """Settings page documents zero-config startup and storage boundaries."""
+    html = Path("static/index.html").read_text(encoding="utf-8")
+
+    assert "零配置启动" in html
+    assert "服务不需要 .env" in html
+    assert "0.0.0.0:55555" in html
+    assert "Docker 端口映射" in html
+    assert "data/settings.json" in html
+    assert "data/channels.json" in html
+    assert "data/api_keys.json" in html
+    assert "data/request_logs.db" in html
 
 
 def test_migrate_lb_config(tmp_path):

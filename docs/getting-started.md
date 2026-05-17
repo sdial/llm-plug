@@ -23,13 +23,13 @@ uv sync
 uv run python main.py
 ```
 
-默认监听 `http://0.0.0.0:8000`
+默认监听 `http://0.0.0.0:55555`。Docker 部署时通过端口映射决定宿主机访问端口，例如 `8000:55555`。
 
 ### 其他启动方式
 
 ```bash
 # 使用 uvicorn（支持热重载）
-uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn main:app --host 0.0.0.0 --port 55555 --reload
 
 # 使用启动脚本
 ./start.sh run     # 正常启动
@@ -38,7 +38,7 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ## 添加渠道
 
-1. 访问管理页面 `http://localhost:8000/`
+1. 访问管理页面 `http://localhost:55555/`
 2. 点击「渠道管理」标签
 3. 点击「添加渠道」按钮
 4. 填写渠道信息：
@@ -74,7 +74,7 @@ Authorization: Bearer <your-api-key>
 ### OpenAI Chat Completions 格式
 
 ```bash
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:55555/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <your-api-key>" \
   -d '{
@@ -86,7 +86,7 @@ curl http://localhost:8000/v1/chat/completions \
 ### Anthropic Messages 格式
 
 ```bash
-curl http://localhost:8000/v1/messages \
+curl http://localhost:55555/v1/messages \
   -H "Content-Type: application/json" \
   -H "x-api-key: <your-api-key>" \
   -H "anthropic-version: 2023-06-01" \
@@ -101,10 +101,10 @@ curl http://localhost:8000/v1/messages \
 
 ```bash
 # OpenAI 格式
-curl http://localhost:8000/v1/models
+curl http://localhost:55555/v1/models
 
 # Anthropic 格式
-curl http://localhost:8000/v1/anthropic/models
+curl http://localhost:55555/v1/anthropic/models
 ```
 
 ## 配置模型组 Fallback
@@ -132,7 +132,7 @@ socks5://[user:pass@]host:port
 ### Q: 启动后访问管理页面显示空白？
 
 检查终端是否有错误输出。常见原因：
-- 端口被占用：修改 `PORT` 环境变量
+- 端口被占用：释放 55555，或在 Docker 部署时修改宿主机映射端口
 - 依赖未安装：运行 `uv sync`
 
 ### Q: 请求返回 401 Unauthorized？

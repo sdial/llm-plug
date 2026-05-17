@@ -293,7 +293,6 @@ if __name__ == "__main__":
                         help="禁用热重载（避免 Windows 下进程退出后端口未释放的问题）")
     args = parser.parse_args()
 
-    os.environ["LOG_LEVEL"] = args.log_level
     import config as _config
     _config.LOG_LEVEL = args.log_level
     log_config = {

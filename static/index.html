@@ -459,18 +459,23 @@
         <!-- 服务信息 -->
         <div id="settings_server" class="settings-section">
           <div class="mb-5">
-            <h2 class="text-base font-semibold text-ink-900">服务信息</h2>
-            <p class="text-sm text-ink-400 mt-0.5">当前服务监听地址和端口，启动后不可修改</p>
+            <h2 class="text-base font-semibold text-ink-900">零配置启动</h2>
+            <p class="text-sm text-ink-600 mt-0.5">服务不需要 .env。容器内固定监听 0.0.0.0:55555，对外访问端口由 Docker 端口映射决定。</p>
           </div>
           <div class="card p-5">
+            <div class="mb-4 rounded-lg border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-ink-700">
+              首次启动会使用内置默认值，并把可调整的业务设置保存到 <span class="font-mono text-ink-900">data/settings.json</span>。只要持久化 <span class="font-mono text-ink-900">data/</span> 目录，渠道、API Key、统计和设置都会随容器重建保留。
+            </div>
             <div class="grid grid-cols-2 gap-5">
               <div>
-                <label class="block text-sm font-medium text-ink-900 mb-1.5">Host</label>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">容器监听地址</label>
                 <input type="text" id="set_host" readonly class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 bg-surface-50 text-ink-400 cursor-not-allowed">
+                <p class="text-xs text-ink-400 mt-1">固定监听所有网卡，便于 Docker 映射到宿主机端口。</p>
               </div>
               <div>
-                <label class="block text-sm font-medium text-ink-900 mb-1.5">Port</label>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">容器内部端口</label>
                 <input type="text" id="set_port" readonly class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 bg-surface-50 text-ink-400 cursor-not-allowed">
+                <p class="text-xs text-ink-400 mt-1">宿主机端口请在 Docker 中映射，例如 8000:55555。</p>
               </div>
             </div>
           </div>
@@ -480,9 +485,12 @@
         <div id="settings_request" class="settings-section hidden">
           <div class="mb-5">
             <h2 class="text-base font-semibold text-ink-900">请求处理</h2>
-            <p class="text-sm text-ink-400 mt-0.5">控制代理请求的超时时间和请求体大小限制</p>
+            <p class="text-sm text-ink-600 mt-0.5">这些设置影响所有代理入口：OpenAI Chat Completions、OpenAI Responses 和 Anthropic Messages。</p>
           </div>
           <div class="card p-5">
+            <div class="mb-4 text-sm text-ink-600 leading-6">
+              普通请求和流式请求都会使用同一套超时配置。请求体限制在进入代理前检查，适合防止意外上传超大 payload。
+            </div>
             <div class="grid grid-cols-2 gap-5">
               <div>
                 <label class="block text-sm font-medium text-ink-900 mb-1.5">请求超时</label>
@@ -502,9 +510,12 @@
         <div id="settings_lb" class="settings-section hidden">
           <div class="mb-5">
             <h2 class="text-base font-semibold text-ink-900">负载均衡</h2>
-            <p class="text-sm text-ink-400 mt-0.5">渠道故障剔除与自动恢复策略</p>
+            <p class="text-sm text-ink-600 mt-0.5">渠道按优先级分组，再在同组内按权重轮询；故障渠道会暂时避开，冷却后再尝试恢复。</p>
           </div>
           <div class="card p-5">
+            <div class="mb-4 text-sm text-ink-600 leading-6">
+              这里是全局健康策略。具体模型、渠道权重、优先级和启停状态在「渠道管理」与「模型分组」中维护。
+            </div>
             <div class="grid grid-cols-2 gap-5">
               <div>
                 <label class="block text-sm font-medium text-ink-900 mb-1.5">失败次数阈值</label>
@@ -524,7 +535,7 @@
         <div id="settings_logs" class="settings-section hidden">
           <div class="mb-5">
             <h2 class="text-base font-semibold text-ink-900">日志</h2>
-            <p class="text-sm text-ink-400 mt-0.5">控制服务日志输出级别，修改后需重启服务生效</p>
+            <p class="text-sm text-ink-600 mt-0.5">控制服务端输出级别。配置会写入 settings.json，重启后生效。</p>
           </div>
           <div class="card p-5">
             <div>
@@ -538,7 +549,7 @@
                 <option value="WARNING">WARNING</option>
                 <option value="ERROR">ERROR</option>
               </select>
-              <p class="text-xs text-ink-400 mt-1">控制日志输出的最低级别</p>
+              <p class="text-xs text-ink-400 mt-1">DEBUG 会输出更多代理细节；生产环境通常使用 INFO 或 WARNING。</p>
             </div>
           </div>
         </div>
@@ -547,8 +558,14 @@
         <div id="settings_database" class="settings-section hidden">
           <div class="mb-5">
             <h2 class="text-base font-semibold text-ink-900">请求记录数据库</h2>
-            <p class="text-sm text-ink-400 mt-0.5">请求调试记录存储配置，保存后立即生效，切换后RAW信息不会同步到新DB</p>
-            <p class="text-sm text-ink-400 mt-0.5">统计表为单独sqlite3数据库，在/app/data/stats.db</p>
+            <p class="text-sm text-ink-600 mt-0.5">请求记录用于排查代理行为，保存后立即生效；切换数据库不会迁移已有 RAW 信息。</p>
+            <p class="text-sm text-ink-600 mt-0.5">统计聚合单独保存在 <span class="font-mono">data/stats.db</span>，请求记录默认保存在 <span class="font-mono">data/request_logs.db</span>。</p>
+          </div>
+          <div class="card p-5 mb-4">
+            <div class="text-sm font-medium text-ink-900 mb-2">存储边界</div>
+            <div class="text-sm text-ink-600 leading-6">
+              渠道配置写入 <span class="font-mono">data/channels.json</span>，API Key 写入 <span class="font-mono">data/api_keys.json</span>，系统设置写入 <span class="font-mono">data/settings.json</span>。这些文件由前端和管理 API 维护，不需要手动编辑。
+            </div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="card p-5">
@@ -573,6 +590,7 @@
           </div>
           <div class="card p-5 mt-4">
             <div class="text-sm font-medium text-ink-900 mb-3">原始信息保存</div>
+            <p class="text-xs text-ink-400 mb-3">默认只保存轻量统计。开启 Header 或 Body 会增加存储量，也可能记录敏感内容；只在需要审计或调试时打开。</p>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-ink-700">
               <label class="flex items-center gap-2"><input type="checkbox" id="set_save_request_headers" data-section="database" class="settings-input rounded border-surface-200">请求 Header</label>
               <label class="flex items-center gap-2"><input type="checkbox" id="set_save_response_headers" data-section="database" class="settings-input rounded border-surface-200">返回 Header</label>

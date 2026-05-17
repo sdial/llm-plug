@@ -10,23 +10,19 @@ LLM API 转换器 - 一个将不同大模型API格式互转的代理服务。支
 | Command | Description |
 |---------|-------------|
 | `uv sync` | 安装项目依赖 |
-| `uv run python main.py` | 启动服务（带热重载），默认监听 0.0.0.0:8000 |
+| `uv run python main.py` | 启动服务（带热重载），默认监听 0.0.0.0:55555 |
 | `./start.sh run` | 通过启动脚本启动（首次自动执行 `uv sync`） |
 | `./start.sh debug` | 调试模式启动（热重载 + uvicorn trace 日志） |
 | `uv run ruff check .` | 代码检查 |
 | `uv run ruff check . --fix` | 代码检查并自动修复 |
 | `uv run pytest` | 运行测试（`tests/` 目录下已有单元及集成测试） |
 
-### 环境变量
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `HOST` | `0.0.0.0` | 监听地址 |
-| `PORT` | `8000` | 监听端口 |
-| `DATA_DIR` | 项目根目录下 `data/` | 数据目录（基于 `os.path.dirname(__file__)` 解析） |
-| `CHANNELS_FILE` | 项目根目录下 `data/channels.json` | 渠道存储文件（基于 `DATA_DIR` 解析） |
-| `MAX_FAIL_COUNT` | `5` | 连续失败剔除阈值 |
-| `COOLDOWN_SECONDS` | `60` | 渠道冷却恢复时间(秒) |
-| `PROXY_API_KEY` | (空) | 代理API密钥，空则不鉴权 |
+### 配置
+项目不需要 `.env`。服务固定监听 `0.0.0.0:55555`，Docker 对外端口通过 ports 映射处理。数据固定写入项目根目录下 `data/`：
+- `data/channels.json` — 渠道配置
+- `data/api_keys.json` — 访问 Key
+- `data/settings.json` — 前端设置页保存的业务配置
+- `data/stats.db` / `data/request_logs.db` — 统计与默认请求记录数据库
 
 ## Architecture
 
@@ -56,7 +52,7 @@ LLM API 转换器 - 一个将不同大模型API格式互转的代理服务。支
 
 **`routers/`** — `proxy_base.py` 定义 `make_proxy_router(path, api_type)` 工厂函数，三个代理路由模块各调用一次生成端点。`admin.py` 提供渠道 CRUD + 测试连通性 + 日志查看。`proxy_models.py` 聚合已启用渠道的模型列表。`auth.py` 校验 Bearer Token。`proxy_errors.py` 将 httpx 异常映射为 HTTP 错误响应。
 
-**`balancer/load_balancer.py`** — `LoadBalancer` 单例实现优先级分组 + 平滑加权轮询（类似 Nginx SWRR）。`ChannelHealth` 跟踪每个渠道的连续失败次数，超过 `MAX_FAIL_COUNT` 则标记不健康，冷却 `COOLDOWN_SECONDS` 后恢复探测。
+**`balancer/load_balancer.py`** — `LoadBalancer` 单例实现优先级分组 + 平滑加权轮询（类似 Nginx SWRR）。`ChannelHealth` 跟踪每个渠道的连续失败次数，超过前端设置页配置的失败阈值则标记不健康，经过冷却时间后恢复探测。
 
 **`storage.py`** — JSON 文件读写，5 秒 TTL 内存缓存 + `threading.Lock` 线程安全。写入使用原子操作（先写临时文件再 `os.replace`）。`save_data()` 后自动更新缓存。**重要**：所有修改渠道数据的操作必须通过 `save_data()` 写入（它会同步更新内存缓存），切勿直接写 `channels.json` 文件，否则缓存与磁盘不一致，代理请求最多延迟 5 秒才能感知变更。
 

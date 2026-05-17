@@ -16,7 +16,7 @@
 **解决方法**：
 1. 检查请求头：`Authorization: Bearer <your-api-key>`
 2. 在管理页面检查 API Key 状态
-3. 如未配置鉴权，检查 `PROXY_API_KEY` 环境变量
+3. 在管理页面重新生成或启用对应 API Key
 
 ### 模型不存在
 
@@ -50,11 +50,11 @@
 **现象**：请求返回 504 Gateway Timeout
 
 **原因**：
-- 上游响应时间超过 `REQUEST_TIMEOUT`
+- 上游响应时间超过前端设置页中的请求超时
 - 网络不稳定
 
 **解决方法**：
-1. 增加 `REQUEST_TIMEOUT` 环境变量值
+1. 在前端「设置」页增加请求超时时间
 2. 检查上游服务状态
 3. 检查网络连接
 
@@ -72,7 +72,7 @@
 2. 如使用 Nginx，确保配置 `proxy_buffering off`
 3. 检查请求/响应日志定位问题
 
-### PostgreSQL 连接失败
+### 请求记录 PostgreSQL 连接失败
 
 **现象**：日志显示数据库连接错误
 
@@ -83,10 +83,10 @@
 
 **解决方法**：
 1. 检查 PostgreSQL 服务状态
-2. 验证 `DATABASE_URL` 格式
-3. 测试网络连接：`psql $DATABASE_URL`
+2. 验证前端「设置」页中的 PostgreSQL URL 格式
+3. 测试网络连接：`psql "postgresql://user:pass@host:5432/db"`
 
-**注意**：数据库连接失败时，统计功能自动禁用，代理功能不受影响。
+**注意**：请求记录数据库连接失败时，代理功能不受影响；可切回默认 SQLite。
 
 ### SOCKS5 代理连接失败
 

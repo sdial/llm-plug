@@ -2,55 +2,24 @@
 
 本文档介绍 LLM-Plug 的部署配置和生产环境最佳实践。
 
-## 环境变量
+## 零配置启动
 
-### 服务器配置
+LLM-Plug 不需要 `.env`。服务使用内置默认值启动，业务设置通过前端「设置」页写入 `data/settings.json`。
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `HOST` | `0.0.0.0` | 监听地址 |
-| `PORT` | `8000` | 监听端口 |
+固定启动约定：
 
-### 数据存储
+| 项 | 值 |
+|------|------|
+| 容器监听地址 | `0.0.0.0` |
+| 容器内部端口 | `55555` |
+| 数据目录 | `data/` |
+| 渠道配置 | `data/channels.json` |
+| API Key | `data/api_keys.json` |
+| 系统设置 | `data/settings.json` |
+| 统计库 | `data/stats.db` |
+| 默认请求记录库 | `data/request_logs.db` |
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `DATA_DIR` | 项目根目录/data | 数据存储目录 |
-| `CHANNELS_FILE` | `DATA_DIR/channels.json` | 渠道配置文件 |
-| `API_KEYS_FILE` | `DATA_DIR/api_keys.json` | API Key 配置文件 |
-
-### 负载均衡
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `MAX_FAIL_COUNT` | `5` | 连续失败 N 次后标记渠道不健康 |
-| `COOLDOWN_SECONDS` | `60` | 不健康渠道冷却恢复时间（秒） |
-
-### 请求配置
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `REQUEST_TIMEOUT` | `300` | 上游请求超时时间（秒） |
-| `MAX_BODY_SIZE` | `10485760` | 请求体最大字节数（默认 10MB） |
-
-### 鉴权
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `PROXY_API_KEY` | (空) | 代理 API 密钥，空则不鉴权 |
-
-### 日志
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `LOG_LEVEL` | `info` | 日志级别 |
-
-### PostgreSQL 统计
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `DATABASE_URL` | `postgresql://localhost:5432/llmplug` | PostgreSQL 连接 URL |
-| `STATS_TRACKED_HEADERS` | (空) | 统计追踪的请求头 |
+对外端口请使用 Docker 端口映射处理，例如 `8000:55555`。请求超时、请求体大小、负载均衡、日志级别、请求记录数据库等业务配置都在前端设置页维护。
 
 ## Docker 部署
 
@@ -65,11 +34,9 @@ docker build -t llm-plug:latest .
 ```bash
 docker run -d \
   --name llm-plug \
-  -p 8000:8000 \
+  -p 8000:55555 \
   -v ./data:/app/data \
   -v ./logs:/app/logs \
-  -e PROXY_API_KEY=your-secret-key \
-  -e DATABASE_URL=postgresql://user:pass@host:5432/llmplug \
   llm-plug:latest
 ```
 
@@ -81,29 +48,10 @@ services:
   llm-plug:
     build: .
     ports:
-      - "8000:8000"
+      - "8000:55555"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-    environment:
-      - PROXY_API_KEY=${PROXY_API_KEY}
-      - DATABASE_URL=postgresql://llmplug:llmplug@postgres:5432/llmplug
-      - MAX_FAIL_COUNT=3
-      - COOLDOWN_SECONDS=120
-    depends_on:
-      - postgres
-
-  postgres:
-    image: postgres:15
-    environment:
-      - POSTGRES_USER=llmplug
-      - POSTGRES_PASSWORD=llmplug
-      - POSTGRES_DB=llmplug
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
 ```
 
 启动：
@@ -112,9 +60,11 @@ volumes:
 docker-compose up -d
 ```
 
-## PostgreSQL 配置
+## 请求记录数据库
 
-### 创建数据库
+请求记录默认使用 `data/request_logs.db`。如需 PostgreSQL，在前端「设置」页切换请求记录数据库并填写连接串。
+
+### 创建 PostgreSQL 数据库
 
 ```sql
 CREATE DATABASE llmplug;
@@ -124,15 +74,11 @@ GRANT ALL PRIVILEGES ON DATABASE llmplug TO llmplug;
 
 ### 表结构
 
-应用启动时会自动创建所需表：
+应用切换到 PostgreSQL 请求记录后会自动创建所需表：
 
 - `requests` — 请求明细记录
-- `stats_hourly` — 小时聚合统计
-- `stats_daily` — 日聚合统计
 
-### 统计功能
-
-如果未配置 `DATABASE_URL`，统计功能将被禁用，不影响代理核心功能。
+统计聚合仍使用本地 `data/stats.db`。
 
 ## 生产环境建议
 
@@ -174,9 +120,7 @@ After=network.target
 Type=simple
 User=llmplug
 WorkingDirectory=/opt/llm-plug
-Environment="PROXY_API_KEY=your-secret-key"
-Environment="DATABASE_URL=postgresql://..."
-ExecStart=/usr/local/bin/uv run uvicorn main:app --host 127.0.0.1 --port 8000
+ExecStart=/usr/local/bin/uv run uvicorn main:app --host 0.0.0.0 --port 55555
 Restart=always
 RestartSec=5
 
@@ -193,19 +137,21 @@ sudo systemctl start llm-plug
 
 ### 安全建议
 
-1. **启用鉴权**：设置 `PROXY_API_KEY` 或使用 API Keys 管理
+1. **启用鉴权**：在前端 API Key 页面创建访问 Key
 2. **HTTPS**：通过 Nginx 配置 SSL 证书
 3. **限制访问**：Nginx 配置 IP 白名单或限流
 4. **定期备份**：备份 `data/channels.json` 和 PostgreSQL 数据库
 
 ### 性能调优
 
-| 参数 | 建议值 | 说明 |
+这些参数在前端「设置」页调整：
+
+| 设置 | 建议值 | 说明 |
 |------|--------|------|
-| `MAX_FAIL_COUNT` | 3 | 生产环境更快剔除故障渠道 |
-| `COOLDOWN_SECONDS` | 120 | 更长冷却期避免频繁重试 |
-| `REQUEST_TIMEOUT` | 600 | 处理长耗时请求 |
-| `LOG_LEVEL` | `warning` | 减少日志输出 |
+| 失败次数阈值 | 3 | 生产环境更快剔除故障渠道 |
+| 冷却时间 | 120 | 更长冷却期避免频繁重试 |
+| 请求超时 | 600 | 处理长耗时请求 |
+| 日志级别 | `warning` | 减少日志输出 |
 
 ### 监控
 
@@ -223,7 +169,7 @@ uv run python main.py --no-reload
 或使用 `kill_port.sh` 脚本强制释放端口：
 
 ```bash
-./kill_port.sh 8000
+./kill_port.sh 55555
 uv run python main.py
 ```
 
@@ -231,7 +177,7 @@ uv run python main.py
 
 ### 数据恢复
 
-所有配置存储在 `data/channels.json`，恢复时：
+核心数据都在 `data/` 下。恢复渠道配置时：
 
 ```bash
 cp channels.json.backup data/channels.json
