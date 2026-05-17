@@ -27,15 +27,15 @@ EXPOSE 55555
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:55555/v1/models')" || exit 1
 
-CMD uvicorn main:app \
-    --host 0.0.0.0 \
-    --port 55555 \
-    --http httptools \
-    --workers 1 \
-    --timeout-keep-alive 360 \
-    --log-level info \
-    --no-use-colors \
-    --no-server-header \
-    --ws none \
-    --loop uvloop \
-    --backlog 2048
+CMD ["uvicorn", "main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "55555", \
+     "--http", "httptools", \
+     "--workers", "1", \
+     "--timeout-keep-alive", "360", \
+     "--log-level", "info", \
+     "--no-use-colors", \
+     "--no-server-header", \
+     "--ws", "none", \
+     "--loop", "uvloop", \
+     "--backlog", "2048"]

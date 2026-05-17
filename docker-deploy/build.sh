@@ -15,6 +15,8 @@ docker buildx build \
   -t "${FULL_IMAGE}" \
   -t "${IMAGE_REGISTRY}:latest" \
   --push \
+  --provenance=false \
+  --sbom=false \
   "${PROJECT_ROOT}"
 
 echo ">>> 镜像已推送到 CNB"
