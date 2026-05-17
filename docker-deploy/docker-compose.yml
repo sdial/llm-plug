@@ -8,13 +8,3 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-    environment:
-      - HOST=0.0.0.0
-      - PORT=55555
-      - PROXY_API_KEY=${PROXY_API_KEY:-}
-      - MAX_FAIL_COUNT=${MAX_FAIL_COUNT:-5}
-      - COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-60}
-      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-300}
-      - DATABASE_URL=${DATABASE_URL:-}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - WORKERS=${WORKERS:-1}

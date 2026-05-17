@@ -4,100 +4,78 @@ import os
 import re
 import tempfile
 
-from dotenv import load_dotenv
 from loguru import logger
 
-load_dotenv()
-
-DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
-_SETTINGS_FILE = os.getenv("SETTINGS_FILE", os.path.join(DATA_DIR, "settings.json"))
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+_SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 
 _CONFIG_SCHEMA = {
-    "host": {"type": "str", "default": "0.0.0.0", "requires_restart": True, "readonly": True, "env": "HOST"},
-    "port": {"type": "int", "default": 55555, "requires_restart": True, "readonly": True, "env": "PORT"},
-    "request_timeout": {"type": "int", "default": 300, "requires_restart": False, "env": "REQUEST_TIMEOUT"},
-    "max_body_size": {"type": "int", "default": 10 * 1024 * 1024, "requires_restart": False, "env": "MAX_BODY_SIZE"},
-    "log_level": {"type": "str", "default": "info", "requires_restart": True, "env": "LOG_LEVEL"},
+    "host": {"type": "str", "default": "0.0.0.0", "requires_restart": True, "readonly": True},
+    "port": {"type": "int", "default": 55555, "requires_restart": True, "readonly": True},
+    "request_timeout": {"type": "int", "default": 300, "requires_restart": False},
+    "max_body_size": {"type": "int", "default": 10 * 1024 * 1024, "requires_restart": False},
+    "log_level": {"type": "str", "default": "info", "requires_restart": True},
     "stats_sqlite_path": {
         "type": "str",
         "default": os.path.join(DATA_DIR, "stats.db"),
         "requires_restart": False,
-        "env": "STATS_SQLITE_PATH",
     },
     "request_log_db_type": {
         "type": "str",
         "default": "sqlite",
         "requires_restart": False,
-        "env": "REQUEST_LOG_DB_TYPE",
     },
     "request_log_sqlite_path": {
         "type": "str",
         "default": os.path.join(DATA_DIR, "request_logs.db"),
         "requires_restart": False,
-        "env": "REQUEST_LOG_SQLITE_PATH",
     },
     "request_log_database_url": {
         "type": "str",
         "default": "",
         "requires_restart": False,
-        "env": "REQUEST_LOG_DATABASE_URL",
     },
     "save_request_headers": {
         "type": "bool",
         "default": False,
         "requires_restart": False,
-        "env": "SAVE_REQUEST_HEADERS",
     },
     "save_response_headers": {
         "type": "bool",
         "default": False,
         "requires_restart": False,
-        "env": "SAVE_RESPONSE_HEADERS",
     },
     "save_request_body": {
         "type": "bool",
         "default": False,
         "requires_restart": False,
-        "env": "SAVE_REQUEST_BODY",
     },
     "save_response_body": {
         "type": "bool",
         "default": False,
         "requires_restart": False,
-        "env": "SAVE_RESPONSE_BODY",
     },
-    "max_fail_count": {"type": "int", "default": 5, "requires_restart": False, "env": "MAX_FAIL_COUNT"},
-    "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False, "env": "COOLDOWN_SECONDS"},
-    "response_state_max_entries": {"type": "int", "default": 1000, "requires_restart": False, "env": "RESPONSE_STATE_MAX_ENTRIES"},
-    "response_state_ttl_minutes": {"type": "int", "default": 60, "requires_restart": False, "env": "RESPONSE_STATE_TTL_MINUTES"},
-    "response_state_cleanup_interval_minutes": {"type": "int", "default": 30, "requires_restart": False, "env": "RESPONSE_STATE_CLEANUP_INTERVAL_MINUTES"},
+    "max_fail_count": {"type": "int", "default": 5, "requires_restart": False},
+    "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False},
+    "response_state_max_entries": {"type": "int", "default": 1000, "requires_restart": False},
+    "response_state_ttl_minutes": {"type": "int", "default": 60, "requires_restart": False},
+    "response_state_cleanup_interval_minutes": {"type": "int", "default": 30, "requires_restart": False},
 }
 
 _settings: dict = {}
 _settings_lock = asyncio.Lock()
 
 
-def _int_env(key: str, default: int) -> int:
-    raw = os.getenv(key)
-    if raw is None:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning(f"Invalid integer for {key}={raw!r}, using default {default}")
-        return default
+HOST = _CONFIG_SCHEMA["host"]["default"]
+PORT = _CONFIG_SCHEMA["port"]["default"]
 
+CHANNELS_FILE = os.path.join(DATA_DIR, "channels.json")
+API_KEYS_FILE = os.path.join(DATA_DIR, "api_keys.json")
 
-HOST = os.getenv("HOST", "0.0.0.0")
-PORT = _int_env("PORT", 55555)
+REQUEST_TIMEOUT = _CONFIG_SCHEMA["request_timeout"]["default"]
+MAX_BODY_SIZE = _CONFIG_SCHEMA["max_body_size"]["default"]
 
-CHANNELS_FILE = os.getenv("CHANNELS_FILE", os.path.join(DATA_DIR, "channels.json"))
-API_KEYS_FILE = os.getenv("API_KEYS_FILE", os.path.join(DATA_DIR, "api_keys.json"))
-
-REQUEST_TIMEOUT = _int_env("REQUEST_TIMEOUT", 300)
-MAX_BODY_SIZE = _int_env("MAX_BODY_SIZE", 10 * 1024 * 1024)
-
-LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
+LOG_LEVEL = _CONFIG_SCHEMA["log_level"]["default"]
 
 def _cast_value(value, type_name):
     if type_name == "int":
@@ -125,12 +103,7 @@ def _init_settings_sync():
         if key in file_data:
             _settings[key] = _cast_value(file_data[key], schema["type"])
         else:
-            env_key = schema.get("env", "")
-            env_val = os.getenv(env_key) if env_key else None
-            if env_val is not None:
-                _settings[key] = _cast_value(env_val, schema["type"])
-            else:
-                _settings[key] = schema["default"]
+            _settings[key] = schema["default"]
     _sync_module_vars()
 
 

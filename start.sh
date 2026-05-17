@@ -7,11 +7,10 @@ cd "$SCRIPT_DIR"
 # 默认模式: run (正常运行) / debug (调试运行)
 MODE="${1:-run}"
 
-# 环境变量（按需修改或 export 覆盖）
-export HOST="${HOST:-0.0.0.0}"
-export PORT="${PORT:-55555}"
-export WORKERS="${WORKERS:-1}"
-export LOG_LEVEL="${LOG_LEVEL:-info}"
+HOST="0.0.0.0"
+PORT="55555"
+WORKERS="1"
+LOG_LEVEL="info"
 
 # 清理函数：杀死所有子进程
 cleanup() {
@@ -63,7 +62,7 @@ run)
     ;;
 debug)
     echo ">>> 调试运行 (reload + trace) -> http://${HOST}:${PORT}"
-    export LOG_LEVEL=debug
+    LOG_LEVEL="debug"
     uv run uvicorn main:app \
     --host "$HOST" \
     --port "$PORT" \
