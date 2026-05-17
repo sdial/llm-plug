@@ -178,7 +178,9 @@ def test_settings_page_has_request_log_db_controls():
 
     assert "set_request_log_db_type" in html
     assert "set_request_log_sqlite_path" in html
+    assert 'id="set_request_log_sqlite_path"' in html and "readonly" in html
     assert "set_request_log_database_url" in html
+    assert "syncRequestLogDbMode" in html
     assert "set_save_request_headers" in html
     assert "set_save_response_headers" in html
     assert "set_save_request_body" in html
