@@ -16,6 +16,7 @@ from balancer.load_balancer import load_balancer
 from client import create_client, create_stream_client, get_upstream_headers
 from config import LOG_LEVEL, DATA_DIR, get_setting
 import storage
+import request_logs
 from state_store import FileStore
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
@@ -37,6 +38,12 @@ _responses_store = FileStore(
 
 # 流式响应最大记录chunk数量，防止内存溢出
 MAX_STREAM_CHUNKS = 2000
+
+
+def _record_request(**kwargs) -> None:
+    """Write lightweight stats and optional debug request log without blocking responses."""
+    stats.record_request(**kwargs)
+    request_logs.record_request(**kwargs)
 
 
 def _filter_think_in_response(response_data: dict[str, Any]) -> dict[str, Any]:
@@ -844,7 +851,7 @@ async def _do_request(
                 finish_reason = response_data.get("stop_reason")
 
         # 记录统计（入队，由后台 worker 写入，不阻塞响应）
-        stats.record_request(
+        _record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -883,7 +890,7 @@ async def _do_request(
         # upstream_start 为 None 表示 create_client 失败，此时用 request_start 兜底
         latency_ms = int((time.time() - (upstream_start or request_start)) * 1000)
         # 记录失败统计（入队，由后台 worker 写入，不阻塞响应）
-        stats.record_request(
+        _record_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
@@ -1469,7 +1476,7 @@ async def _do_stream_request(
                 model=model,
             )
             logger.debug(f"[STREAM STATS] model={model} success={stream_success} error={stream_error} latency={latency_ms}ms lag={lag_ms}ms chunks={len(stream_chunks)} input={input_tokens} output={output_tokens} finish={finish_reason}")
-            stats.record_request(
+            _record_request(
                 channel_id=channel.id,
                 channel_name=channel.name,
                 model=model,

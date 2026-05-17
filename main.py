@@ -17,6 +17,7 @@ from config import init_settings, get_setting, DATA_DIR
 from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
 from state_store import FileStore
 from stats import init_db as init_stats_db, close_pool as close_stats_pool, start_stats_workers, stop_stats_workers
+import request_logs
 from storage import load_data, load_api_keys
 
 # 配置日志级别文件输出
@@ -74,6 +75,7 @@ async def lifespan(app):
     key_count = len(keys_data.get("api_keys", []))
     logger.info(f"就绪: {channel_count} 个渠道, {model_count} 个模型, {key_count} 个 API Key")
     await init_stats_db()
+    await request_logs.init_backend()
     start_stats_workers()
 
     async def _client_cleanup_loop():
@@ -103,6 +105,7 @@ async def lifespan(app):
             pass
         await stop_stats_workers()
         await close_stats_pool()
+        await request_logs.close_backend()
         await close_all_clients()
 
 _PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")

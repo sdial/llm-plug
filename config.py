@@ -18,7 +18,54 @@ _CONFIG_SCHEMA = {
     "request_timeout": {"type": "int", "default": 300, "requires_restart": False, "env": "REQUEST_TIMEOUT"},
     "max_body_size": {"type": "int", "default": 10 * 1024 * 1024, "requires_restart": False, "env": "MAX_BODY_SIZE"},
     "log_level": {"type": "str", "default": "info", "requires_restart": True, "env": "LOG_LEVEL"},
-    "database_url": {"type": "str", "default": "", "requires_restart": True, "env": "DATABASE_URL"},
+    "stats_sqlite_path": {
+        "type": "str",
+        "default": os.path.join(DATA_DIR, "stats.db"),
+        "requires_restart": False,
+        "env": "STATS_SQLITE_PATH",
+    },
+    "request_log_db_type": {
+        "type": "str",
+        "default": "sqlite",
+        "requires_restart": False,
+        "env": "REQUEST_LOG_DB_TYPE",
+    },
+    "request_log_sqlite_path": {
+        "type": "str",
+        "default": os.path.join(DATA_DIR, "request_logs.db"),
+        "requires_restart": False,
+        "env": "REQUEST_LOG_SQLITE_PATH",
+    },
+    "request_log_database_url": {
+        "type": "str",
+        "default": "",
+        "requires_restart": False,
+        "env": "REQUEST_LOG_DATABASE_URL",
+    },
+    "save_request_headers": {
+        "type": "bool",
+        "default": False,
+        "requires_restart": False,
+        "env": "SAVE_REQUEST_HEADERS",
+    },
+    "save_response_headers": {
+        "type": "bool",
+        "default": False,
+        "requires_restart": False,
+        "env": "SAVE_RESPONSE_HEADERS",
+    },
+    "save_request_body": {
+        "type": "bool",
+        "default": False,
+        "requires_restart": False,
+        "env": "SAVE_REQUEST_BODY",
+    },
+    "save_response_body": {
+        "type": "bool",
+        "default": False,
+        "requires_restart": False,
+        "env": "SAVE_RESPONSE_BODY",
+    },
     "max_fail_count": {"type": "int", "default": 5, "requires_restart": False, "env": "MAX_FAIL_COUNT"},
     "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False, "env": "COOLDOWN_SECONDS"},
     "response_state_max_entries": {"type": "int", "default": 1000, "requires_restart": False, "env": "RESPONSE_STATE_MAX_ENTRIES"},
@@ -51,9 +98,6 @@ REQUEST_TIMEOUT = _int_env("REQUEST_TIMEOUT", 300)
 MAX_BODY_SIZE = _int_env("MAX_BODY_SIZE", 10 * 1024 * 1024)
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
-
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-
 
 def _cast_value(value, type_name):
     if type_name == "int":
@@ -114,8 +158,9 @@ def _mask_db_url(url: str) -> str:
 
 def get_settings() -> dict:
     result = dict(_settings)
-    if "database_url" in result and result["database_url"]:
-        result["database_url"] = _mask_db_url(result["database_url"])
+    if result.get("request_log_database_url"):
+        result["request_log_database_url"] = _mask_db_url(result["request_log_database_url"])
+    result["request_log_database_url_masked"] = result.get("request_log_database_url", "")
     return result
 
 

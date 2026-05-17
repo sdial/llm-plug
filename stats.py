@@ -1,27 +1,32 @@
-"""PostgreSQL 统计模块 - 使用 asyncpg 存储请求统计"""
-import json
-from contextlib import asynccontextmanager
+"""SQLite-backed lightweight request statistics."""
+
+import asyncio
+import os
+import sqlite3
 from datetime import date, datetime, timedelta
 from typing import Any
 
-import asyncio
-
-import asyncpg
 from loguru import logger
 
-from config import DATABASE_URL
+import config
 
-_pool: asyncpg.Pool | None = None
-_db_available: bool = False
-_pool_lock = asyncio.Lock()
+_DB_PATH: str | None = None
+_DB_AVAILABLE = False
+_DB_INIT_LOCK = asyncio.Lock()
 
-# 统计写入队列与 worker 配置
 _STATS_QUEUE: asyncio.Queue | None = None
 _STATS_QUEUE_LOOP: asyncio.AbstractEventLoop | None = None
 _STATS_WORKERS: list[asyncio.Task] = []
 _STATS_QUEUE_MAX_SIZE = 1000
 _STATS_WORKER_COUNT = 4
-_STATS_WRITE_TIMEOUT = 60  # seconds
+_STATS_WRITE_TIMEOUT = 60
+
+_RAW_FIELDS = {
+    "request_headers",
+    "response_headers",
+    "request_body",
+    "response_body",
+}
 
 
 def utc8_now() -> datetime:
@@ -29,142 +34,162 @@ def utc8_now() -> datetime:
     return datetime.utcnow() + timedelta(hours=8)
 
 
-async def init_pool() -> asyncpg.Pool | None:
-    """初始化数据库连接池"""
-    global _pool, _db_available
-    async with _pool_lock:
-        if _pool is None and not _db_available:
-            if not DATABASE_URL:
-                logger.warning("DATABASE_URL 未配置，PostgreSQL 统计功能已禁用")
-                return None
-            try:
-                _pool = await asyncpg.create_pool(
-                DATABASE_URL,
-                min_size=2,
-                max_size=40,
-                max_inactive_connection_lifetime=600,
-            )
-                _db_available = True
-            except Exception as exc:
-                logger.warning("PostgreSQL 连接失败，统计功能已禁用: %s", exc)
-                _db_available = False
-        return _pool
+def _resolve_db_path(db_path: str | None = None) -> str:
+    if db_path:
+        return db_path
+    configured = config.get_setting("stats_sqlite_path")
+    if configured:
+        return configured
+    return os.path.join(config.DATA_DIR, "stats.db")
 
 
-async def close_pool():
-    """关闭连接池"""
-    global _pool, _db_available
-    if _pool:
-        await _pool.close()
-        _pool = None
-    _db_available = False
+def _connect() -> sqlite3.Connection:
+    if not _DB_PATH:
+        raise RuntimeError("stats database is not initialized")
+    conn = sqlite3.connect(_DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES)
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
-@asynccontextmanager
-async def _get_conn():
-    """获取数据库连接"""
-    pool = await init_pool()
-    if pool is None:
-        yield None
-        return
-    async with pool.acquire() as conn:
-        # 为每个连接设置 jsonb codec
-        await conn.set_type_codec(
-            'jsonb',
-            encoder=json.dumps,
-            decoder=json.loads,
-            schema='pg_catalog'
-        )
-        yield conn
+def _to_iso(value: datetime) -> str:
+    return value.isoformat(sep=" ", timespec="microseconds")
 
 
-async def init_db():
-    """初始化数据库表结构"""
-    async with _get_conn() as conn:
-        if conn is None:
-            return
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS requests (
-                id SERIAL PRIMARY KEY,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+def _from_row(row: sqlite3.Row) -> dict[str, Any]:
+    data = dict(row)
+    if "success" in data and data["success"] is not None:
+        data["success"] = bool(data["success"])
+    if "is_stream" in data and data["is_stream"] is not None:
+        data["is_stream"] = bool(data["is_stream"])
+    return data
+
+
+def _init_db_sync(db_path: str) -> None:
+    directory = os.path.dirname(os.path.abspath(db_path))
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS request_stats_raw (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
                 model TEXT NOT NULL,
                 channel_id TEXT NOT NULL,
                 channel_name TEXT NOT NULL,
                 api_key_id TEXT,
-                request_headers JSONB,
-                response_headers JSONB,
-                request_body JSONB,
-                response_body JSONB,
-                is_stream BOOLEAN NOT NULL,
-                input_tokens INT DEFAULT 0,
-                output_tokens INT DEFAULT 0,
-                cost NUMERIC(10,6),
-                latency_ms INT NOT NULL,
-                lag_ms INT,
+                is_stream INTEGER NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                latency_ms INTEGER NOT NULL,
+                lag_ms INTEGER,
                 finish_reason TEXT,
-                success BOOLEAN NOT NULL,
+                success INTEGER NOT NULL,
                 error_msg TEXT
-            )
-        """)
-        await conn.execute("""
+            );
+
             CREATE TABLE IF NOT EXISTS daily_stats (
-                date DATE NOT NULL,
+                date TEXT NOT NULL,
                 channel_id TEXT NOT NULL,
                 model TEXT NOT NULL,
                 api_key_id TEXT NOT NULL,
-                request_count INT DEFAULT 0,
-                success_count INT DEFAULT 0,
-                fail_count INT DEFAULT 0,
-                input_tokens BIGINT DEFAULT 0,
-                output_tokens BIGINT DEFAULT 0,
-                avg_latency_ms INT,
-                avg_lag_ms INT,
-                updated_at TIMESTAMPTZ DEFAULT now(),
+                request_count INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                fail_count INTEGER NOT NULL DEFAULT 0,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                avg_latency_ms INTEGER,
+                avg_lag_ms INTEGER,
+                updated_at TEXT NOT NULL,
                 PRIMARY KEY (date, channel_id, model, api_key_id)
-            )
-        """)
-        # 创建索引
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON requests(timestamp)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_channel ON requests(channel_id)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_model ON requests(model)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_api_key ON requests(api_key_id)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_stats_time ON daily_stats(date)")
+            );
 
-        # 表结构迁移：处理旧字段
-        # 1. 检查是否存在旧的 headers 列，若存在则重命名为 request_headers
-        old_cols = await conn.fetch("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'requests' AND column_name = 'headers'
-        """)
-        if old_cols:
-            await conn.execute("ALTER TABLE requests RENAME COLUMN headers TO request_headers")
+            CREATE TABLE IF NOT EXISTS hourly_stats (
+                hour TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                api_key_id TEXT NOT NULL,
+                request_count INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                fail_count INTEGER NOT NULL DEFAULT 0,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                avg_latency_ms INTEGER,
+                avg_lag_ms INTEGER,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (hour, channel_id, model, api_key_id)
+            );
 
-        # 2. 确保新列存在（若表已存在但缺少这些列）
-        await conn.execute("ALTER TABLE requests ADD COLUMN IF NOT EXISTS request_headers JSONB")
-        await conn.execute("ALTER TABLE requests ADD COLUMN IF NOT EXISTS response_headers JSONB")
-        await conn.execute("ALTER TABLE requests ADD COLUMN IF NOT EXISTS request_body JSONB")
-        await conn.execute("ALTER TABLE requests ADD COLUMN IF NOT EXISTS response_body JSONB")
+            CREATE INDEX IF NOT EXISTS idx_request_stats_raw_timestamp ON request_stats_raw(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_request_stats_raw_model ON request_stats_raw(model);
+            CREATE INDEX IF NOT EXISTS idx_request_stats_raw_channel ON request_stats_raw(channel_id, channel_name);
+            CREATE INDEX IF NOT EXISTS idx_request_stats_raw_api_key ON request_stats_raw(api_key_id);
+            CREATE INDEX IF NOT EXISTS idx_daily_stats_date ON daily_stats(date);
+            CREATE INDEX IF NOT EXISTS idx_hourly_stats_hour ON hourly_stats(hour);
+            """
+        )
 
-        # 3. 创建 GIN 索引（用于 JSONB 查询）
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_request_body ON requests USING GIN (request_body)")
-        await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_response_body ON requests USING GIN (response_body)")
+
+async def init_db(db_path: str | None = None) -> None:
+    """初始化 SQLite 统计库。"""
+    global _DB_PATH, _DB_AVAILABLE
+    resolved_path = _resolve_db_path(db_path)
+    async with _DB_INIT_LOCK:
+        await asyncio.to_thread(_init_db_sync, resolved_path)
+        _DB_PATH = resolved_path
+        _DB_AVAILABLE = True
 
 
-def start_stats_workers():
-    """启动统计写入后台 worker"""
+async def close_pool():
+    """保留旧名称；SQLite 版关闭/重置模块状态。"""
+    global _DB_PATH, _DB_AVAILABLE, _STATS_QUEUE, _STATS_QUEUE_LOOP
+    await stop_stats_workers()
+    _DB_PATH = None
+    _DB_AVAILABLE = False
+    _STATS_QUEUE = None
+    _STATS_QUEUE_LOOP = None
+
+
+async def init_pool():
+    """兼容旧调用名，SQLite 不维护连接池。"""
+    await init_db()
+    return None
+
+
+def _ensure_queue() -> asyncio.Queue | None:
     global _STATS_QUEUE, _STATS_QUEUE_LOOP
-    current_loop = asyncio.get_running_loop()
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.warning("Stats queue requires a running event loop; discarding record")
+        return None
     if _STATS_QUEUE is None or _STATS_QUEUE_LOOP is not current_loop:
         _STATS_QUEUE = asyncio.Queue(maxsize=_STATS_QUEUE_MAX_SIZE)
         _STATS_QUEUE_LOOP = current_loop
+    return _STATS_QUEUE
+
+
+def start_stats_workers():
+    """启动统计写入后台 worker。"""
+    queue = _ensure_queue()
+    if queue is None:
+        return
+    if _STATS_WORKERS:
+        return
     for _ in range(_STATS_WORKER_COUNT):
         task = asyncio.create_task(_stats_worker())
         _STATS_WORKERS.append(task)
-    logger.info(f"Stats workers started: {_STATS_WORKER_COUNT} workers, queue max={_STATS_QUEUE_MAX_SIZE}, write timeout={_STATS_WRITE_TIMEOUT}s")
+    logger.info(
+        f"Stats workers started: {_STATS_WORKER_COUNT} workers, "
+        f"queue max={queue.maxsize}, write timeout={_STATS_WRITE_TIMEOUT}s"
+    )
 
 
 async def stop_stats_workers():
-    """停止统计写入后台 worker"""
+    """停止统计写入后台 worker。"""
     global _STATS_QUEUE, _STATS_QUEUE_LOOP
     for task in _STATS_WORKERS:
         task.cancel()
@@ -176,73 +201,69 @@ async def stop_stats_workers():
     _STATS_WORKERS.clear()
     _STATS_QUEUE = None
     _STATS_QUEUE_LOOP = None
-    logger.info("Stats workers stopped")
 
 
 async def _stats_worker():
-    """后台 worker：从队列消费记录并写入数据库，带超时保护"""
     while True:
         try:
             record = await _STATS_QUEUE.get()
             try:
                 await asyncio.wait_for(_write_record(record), timeout=_STATS_WRITE_TIMEOUT)
             except asyncio.TimeoutError:
-                logger.warning(f"Stats write timed out ({_STATS_WRITE_TIMEOUT}s), discarding record for model={record.get('model')}")
-            except Exception as e:
-                logger.warning(f"Stats write failed: {e}")
+                logger.warning(
+                    f"Stats write timed out ({_STATS_WRITE_TIMEOUT}s), "
+                    f"discarding record for model={record.get('model')}"
+                )
+            except Exception as exc:
+                logger.warning(f"Stats write failed: {exc}")
             finally:
                 _STATS_QUEUE.task_done()
         except asyncio.CancelledError:
             break
-        except Exception as e:
-            logger.warning(f"Stats worker error: {e}")
+        except Exception as exc:
+            logger.warning(f"Stats worker error: {exc}")
 
 
-async def _write_record(record: dict):
-    """实际写入数据库（从队列消费的记录）"""
-    if not _db_available:
+def _normalize_record(record: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in record.items() if key not in _RAW_FIELDS}
+
+
+def _write_record_sync(record: dict[str, Any]) -> None:
+    if not _DB_AVAILABLE:
         return
-
-    # 处理 request_headers：确保所有值都是字符串
-    req_headers = {}
-    request_headers = record.get("request_headers")
-    if request_headers:
-        for k, v in request_headers.items():
-            if isinstance(v, str):
-                req_headers[k] = v
-            elif v is None:
-                req_headers[k] = ""
-            else:
-                req_headers[k] = str(v)
-
-    # 处理 response_headers：确保所有值都是字符串
-    resp_headers = {}
-    response_headers = record.get("response_headers")
-    if response_headers:
-        for k, v in response_headers.items():
-            if isinstance(v, str):
-                resp_headers[k] = v
-            elif v is None:
-                resp_headers[k] = ""
-            else:
-                resp_headers[k] = str(v)
-
-    async with _get_conn() as conn:
-        if conn is None:
-            return
-        await conn.execute(
+    lightweight = _normalize_record(record)
+    timestamp = lightweight.get("timestamp") or utc8_now() - timedelta(hours=8)
+    if isinstance(timestamp, datetime):
+        timestamp = _to_iso(timestamp)
+    with _connect() as conn:
+        conn.execute(
             """
-            INSERT INTO requests
-            (timestamp, model, channel_id, channel_name, api_key_id, request_headers, response_headers,
-             request_body, response_body, is_stream, input_tokens, output_tokens,
-             latency_ms, lag_ms, finish_reason, success, error_msg)
-            VALUES (now(), $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16)
+            INSERT INTO request_stats_raw
+            (timestamp, model, channel_id, channel_name, api_key_id, is_stream,
+             input_tokens, output_tokens, latency_ms, lag_ms, finish_reason,
+             success, error_msg)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            record["model"], record["channel_id"], record["channel_name"], record.get("api_key_id"),
-            req_headers, resp_headers, record.get("request_body"), record.get("response_body"),
-            record["is_stream"], record["input_tokens"], record["output_tokens"],
-            record["latency_ms"], record.get("lag_ms"), record.get("finish_reason"), record["success"], record.get("error_msg")
+            (
+                timestamp,
+                lightweight["model"],
+                lightweight["channel_id"],
+                lightweight["channel_name"],
+                lightweight.get("api_key_id"),
+                1 if lightweight["is_stream"] else 0,
+                int(lightweight.get("input_tokens") or 0),
+                int(lightweight.get("output_tokens") or 0),
+                int(lightweight["latency_ms"]),
+                lightweight.get("lag_ms"),
+                lightweight.get("finish_reason"),
+                1 if lightweight["success"] else 0,
+                lightweight.get("error_msg"),
+            ),
         )
+
+
+async def _write_record(record: dict[str, Any]) -> None:
+    await asyncio.to_thread(_write_record_sync, record)
 
 
 def record_request(
@@ -263,92 +284,138 @@ def record_request(
     lag_ms: int | None = None,
     finish_reason: str | None = None,
 ) -> None:
-    """将请求记录入队，由后台 worker 写入数据库。队列满时丢弃。"""
-    if not _db_available:
+    """将请求记录入队，由后台 worker 或 drain_queue 写入 SQLite。"""
+    if not _DB_AVAILABLE:
         return
-    if _STATS_QUEUE is None:
+    queue = _ensure_queue()
+    if queue is None:
         return
     try:
-        _STATS_QUEUE.put_nowait({
-            "channel_id": channel_id,
-            "channel_name": channel_name,
-            "model": model,
-            "is_stream": is_stream,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "latency_ms": latency_ms,
-            "success": success,
-            "error_msg": error_msg,
-            "api_key_id": api_key_id,
-            "request_headers": request_headers,
-            "response_headers": response_headers,
-            "request_body": request_body,
-            "response_body": response_body,
-            "lag_ms": lag_ms,
-            "finish_reason": finish_reason,
-        })
+        queue.put_nowait(
+            {
+                "channel_id": channel_id,
+                "channel_name": channel_name,
+                "model": model,
+                "is_stream": is_stream,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "latency_ms": latency_ms,
+                "success": success,
+                "error_msg": error_msg,
+                "api_key_id": api_key_id,
+                "request_headers": request_headers,
+                "response_headers": response_headers,
+                "request_body": request_body,
+                "response_body": response_body,
+                "lag_ms": lag_ms,
+                "finish_reason": finish_reason,
+            }
+        )
     except asyncio.QueueFull:
         logger.warning(f"Stats queue full ({_STATS_QUEUE_MAX_SIZE}), discarding record for model={model}")
 
 
+async def drain_queue() -> None:
+    """消费当前队列中已入队的统计记录，主要供测试和优雅停机使用。"""
+    queue = _STATS_QUEUE
+    if queue is None:
+        return
+    while _STATS_WORKERS == [] and not queue.empty():
+        record = await queue.get()
+        try:
+            await _write_record(record)
+        finally:
+            queue.task_done()
+    await queue.join()
 
-async def aggregate_daily_stats(
-    start_date: date,
-    end_date: date,
-) -> dict[str, Any]:
-    """手动触发指定日期范围的日聚合
 
-    注意：start_date 和 end_date 是东8区日期，需要转换为 UTC 时间查询
-    """
-    if not _db_available:
-        return {"updated_rows": 0}
-    # 东8区日期的0点 = 该日期前一天的 16:00 UTC
-    # 例如：东8区 2026-05-03 00:00:00 = UTC 2026-05-02 16:00:00
+def _daily_bounds(start_date: date, end_date: date) -> tuple[str, str]:
     start_utc = datetime.combine(start_date, datetime.min.time()) - timedelta(hours=8)
     end_utc = datetime.combine(end_date, datetime.min.time()) + timedelta(days=1) - timedelta(hours=8)
+    return _to_iso(start_utc), _to_iso(end_utc)
 
-    async with _get_conn() as conn:
-        await conn.execute(
+
+def _aggregate_daily_stats_sync(start_date: date, end_date: date) -> dict[str, Any]:
+    if not _DB_AVAILABLE:
+        return {"updated_rows": 0}
+    start_iso, end_iso = _daily_bounds(start_date, end_date)
+    updated_at = _to_iso(utc8_now())
+    with _connect() as conn:
+        conn.execute(
             """
-INSERT INTO daily_stats
-        (date, channel_id, model, api_key_id, request_count, success_count, fail_count,
-         input_tokens, output_tokens, avg_latency_ms, avg_lag_ms, updated_at)
-        SELECT
-        date_trunc('day', timestamp + interval '8 hours')::date as date,
+            DELETE FROM daily_stats
+            WHERE date >= ? AND date <= ?
+            """,
+            (start_date.isoformat(), end_date.isoformat()),
+        )
+        conn.execute(
+            """
+            INSERT INTO daily_stats
+            (date, channel_id, model, api_key_id, request_count, success_count, fail_count,
+             input_tokens, output_tokens, avg_latency_ms, avg_lag_ms, updated_at)
+            SELECT
+                date(datetime(timestamp, '+8 hours')) AS date,
                 channel_id,
                 model,
-                COALESCE(api_key_id, '') as api_key_id,
-                COUNT(*) as request_count,
-                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
-                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
-                SUM(input_tokens) as input_tokens,
-                SUM(output_tokens) as output_tokens,
-                AVG(latency_ms)::int as avg_latency_ms,
-                AVG(lag_ms)::int as avg_lag_ms,
-                now()
-            FROM requests
-            WHERE timestamp >= $1 AND timestamp < $2
-            GROUP BY date, channel_id, model, api_key_id
-            ON CONFLICT (date, channel_id, model, api_key_id) DO UPDATE SET
-                request_count = EXCLUDED.request_count,
-                success_count = EXCLUDED.success_count,
-                fail_count = EXCLUDED.fail_count,
-                input_tokens = EXCLUDED.input_tokens,
-                output_tokens = EXCLUDED.output_tokens,
-                avg_latency_ms = EXCLUDED.avg_latency_ms,
-                avg_lag_ms = EXCLUDED.avg_lag_ms,
-                updated_at = now()
+                COALESCE(api_key_id, '') AS api_key_id,
+                COUNT(*) AS request_count,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
+                COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                CAST(ROUND(AVG(latency_ms)) AS INTEGER) AS avg_latency_ms,
+                CAST(ROUND(AVG(lag_ms)) AS INTEGER) AS avg_lag_ms,
+                ? AS updated_at
+            FROM request_stats_raw
+            WHERE timestamp >= ? AND timestamp < ?
+            GROUP BY date, channel_id, model, COALESCE(api_key_id, '')
             """,
-            start_utc,
-            end_utc
+            (updated_at, start_iso, end_iso),
         )
-        count = await conn.fetchval(
-            "SELECT COUNT(*) FROM daily_stats WHERE date >= $1 AND date <= $2",
-            start_date, end_date
-        )
+        count = conn.execute(
+            "SELECT COUNT(*) FROM daily_stats WHERE date >= ? AND date <= ?",
+            (start_date.isoformat(), end_date.isoformat()),
+        ).fetchone()[0]
         return {"updated_rows": count or 0}
 
 
+async def aggregate_daily_stats(start_date: date, end_date: date) -> dict[str, Any]:
+    """手动触发指定东八区日期范围的日聚合。"""
+    return await asyncio.to_thread(_aggregate_daily_stats_sync, start_date, end_date)
+
+
+def _get_daily_stats_sync(
+    days: int = 7,
+    channel_id: str | None = None,
+    model: str | None = None,
+    api_key_id: str | None = None,
+) -> list[dict[str, Any]]:
+    if not _DB_AVAILABLE:
+        return []
+    start_date = utc8_now().date() - timedelta(days=days - 1)
+    conditions = ["date >= ?"]
+    args: list[Any] = [start_date.isoformat()]
+    if channel_id:
+        conditions.append("channel_id = ?")
+        args.append(channel_id)
+    if model:
+        conditions.append("model = ?")
+        args.append(model)
+    if api_key_id:
+        conditions.append("api_key_id = ?")
+        args.append(api_key_id)
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT date, channel_id, model, api_key_id, request_count, success_count,
+                   fail_count, input_tokens, output_tokens, avg_latency_ms, avg_lag_ms
+            FROM daily_stats
+            WHERE {" AND ".join(conditions)}
+            ORDER BY date ASC
+            """,
+            args,
+        ).fetchall()
+        return [_from_row(row) for row in rows]
 
 
 async def get_daily_stats(
@@ -357,35 +424,51 @@ async def get_daily_stats(
     model: str | None = None,
     api_key_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """查询日聚合统计"""
-    if not _db_available:
+    """查询日聚合统计。"""
+    return await asyncio.to_thread(_get_daily_stats_sync, days, channel_id, model, api_key_id)
+
+
+def _get_daily_stats_from_requests_sync(
+    days: int = 7,
+    channel_id: str | None = None,
+    model: str | None = None,
+    api_key_id: str | None = None,
+) -> list[dict[str, Any]]:
+    if not _DB_AVAILABLE:
         return []
     start_date = utc8_now().date() - timedelta(days=days - 1)
-    conditions = ["date >= $1"]
-    args: list[Any] = [start_date]
+    start_utc = datetime.combine(start_date, datetime.min.time()) - timedelta(hours=8)
+    conditions = ["timestamp >= ?"]
+    args: list[Any] = [_to_iso(start_utc)]
     if channel_id:
+        conditions.append("channel_id = ?")
         args.append(channel_id)
-        conditions.append(f"channel_id = ${len(args)}")
     if model:
+        conditions.append("model = ?")
         args.append(model)
-        conditions.append(f"model = ${len(args)}")
     if api_key_id:
+        conditions.append("api_key_id = ?")
         args.append(api_key_id)
-        conditions.append(f"api_key_id = ${len(args)}")
-
-    where_clause = " AND ".join(conditions)
-    async with _get_conn() as conn:
-        rows = await conn.fetch(
+    with _connect() as conn:
+        rows = conn.execute(
             f"""
-            SELECT date, channel_id, model, api_key_id, request_count, success_count, fail_count,
-                   input_tokens, output_tokens, avg_latency_ms, avg_lag_ms
-            FROM daily_stats
-            WHERE {where_clause}
+            SELECT
+                date(datetime(timestamp, '+8 hours')) AS date,
+                COUNT(*) AS request_count,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
+                COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                CAST(ROUND(AVG(latency_ms)) AS INTEGER) AS avg_latency_ms,
+                CAST(ROUND(AVG(lag_ms)) AS INTEGER) AS avg_lag_ms
+            FROM request_stats_raw
+            WHERE {" AND ".join(conditions)}
+            GROUP BY date(datetime(timestamp, '+8 hours'))
             ORDER BY date ASC
             """,
-            *args
-        )
-        return [dict(r) for r in rows]
+            args,
+        ).fetchall()
+        return [_from_row(row) for row in rows]
 
 
 async def get_daily_stats_from_requests(
@@ -394,455 +477,354 @@ async def get_daily_stats_from_requests(
     model: str | None = None,
     api_key_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """从 requests 明细表实时聚合日统计（daily_stats 无数据时的兜底）"""
-    if not _db_available:
-        return []
+    """从明细表实时聚合日统计。"""
+    return await asyncio.to_thread(_get_daily_stats_from_requests_sync, days, channel_id, model, api_key_id)
 
-    # 计算东8区今天的日期，然后计算查询起始时间（UTC时间）
-    today_utc8 = utc8_now().date()
-    start_date = today_utc8 - timedelta(days=days - 1)
-    # 东8区日期对应的UTC时间范围：start_date 00:00 UTC+8 = start_date-1 16:00 UTC
-    start_utc = datetime.combine(start_date, datetime.min.time()) - timedelta(hours=8)
 
-    conditions = ["timestamp >= $1"]
-    args: list[Any] = [start_utc]
-    if channel_id:
-        args.append(channel_id)
-        conditions.append(f"channel_id = ${len(args)}")
-    if model:
-        args.append(model)
-        conditions.append(f"model = ${len(args)}")
-    if api_key_id:
-        args.append(api_key_id)
-        conditions.append(f"api_key_id = ${len(args)}")
-
-    where_clause = " AND ".join(conditions)
-    async with _get_conn() as conn:
-        if conn is None:
-            return []
-        rows = await conn.fetch(
-            f"""
-        SELECT
-        date_trunc('day', timestamp + interval '8 hours')::date as date,
-        COUNT(*) as request_count,
-        SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
-        SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
-        SUM(input_tokens) as input_tokens,
-        SUM(output_tokens) as output_tokens,
-        AVG(latency_ms)::int as avg_latency_ms,
-        AVG(lag_ms)::int as avg_lag_ms
-        FROM requests
-        WHERE {where_clause}
-        GROUP BY date_trunc('day', timestamp + interval '8 hours')::date
-            ORDER BY date ASC
+def _refresh_missing_daily_stats_sync() -> dict[str, Any]:
+    if not _DB_AVAILABLE:
+        return {"refreshed_dates": [], "count": 0, "debug": {"db_available": False}}
+    today = utc8_now().date()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT date(datetime(timestamp, '+8 hours')) AS d
+            FROM request_stats_raw
+            WHERE date(datetime(timestamp, '+8 hours')) < ?
+            ORDER BY d
             """,
-            *args
-        )
-        return [dict(r) for r in rows]
-
+            (today.isoformat(),),
+        ).fetchall()
+        request_dates = {date.fromisoformat(row["d"]) for row in rows if row["d"]}
+        if not request_dates:
+            return {
+                "refreshed_dates": [],
+                "count": 0,
+                "debug": {"today": str(today), "request_dates": [], "missing_dates": []},
+            }
+        existing_rows = conn.execute(
+            """
+            SELECT DISTINCT date FROM daily_stats
+            WHERE date >= ? AND date <= ?
+            """,
+            (min(request_dates).isoformat(), max(request_dates).isoformat()),
+        ).fetchall()
+    existing_dates = {date.fromisoformat(row["date"]) for row in existing_rows}
+    missing_dates = sorted(request_dates - existing_dates)
+    for missing in missing_dates:
+        _aggregate_daily_stats_sync(missing, missing)
+    return {
+        "refreshed_dates": [str(d) for d in missing_dates],
+        "count": len(missing_dates),
+        "debug": {
+            "today": str(today),
+            "request_dates": [str(d) for d in sorted(request_dates)],
+            "existing_dates": [str(d) for d in sorted(existing_dates)],
+            "missing_dates": [str(d) for d in missing_dates],
+        },
+    }
 
 
 async def refresh_missing_daily_stats() -> dict[str, Any]:
-    """自动补全 daily_stats 中缺失的历史日期（不含当天）"""
-    if not _db_available:
-        return {
-            "refreshed_dates": [], "count": 0,
-            "debug": {"db_available": False, "reason": "_db_available is False"}
-        }
-
-    async with _get_conn() as conn:
-        if conn is None:
-            return {
-                "refreshed_dates": [], "count": 0,
-                "debug": {"db_available": True, "conn": None}
-            }
-
-        today = utc8_now().date()
-        now_dt = utc8_now()
-
-        # 获取 requests 表中存在的日期（排除当天）
-        request_dates = await conn.fetch(
-            """
-            SELECT DISTINCT date_trunc('day', timestamp + interval '8 hours')::date as d
-            FROM requests
-            WHERE date_trunc('day', timestamp + interval '8 hours')::date < $1
-            ORDER BY d
-            """,
-            today,
-        )
-        all_request_dates = {r["d"] for r in request_dates}
-
-        # 获取 requests 表中的总记录数和时间范围
-        req_range = await conn.fetchrow(
-            "SELECT MIN(timestamp) as min_ts, MAX(timestamp) as max_ts, COUNT(*) as cnt FROM requests"
-        )
-
-        if not all_request_dates:
-            return {
-                "refreshed_dates": [], "count": 0,
-                "debug": {
-                    "today": str(today),
-                    "now": now_dt.isoformat(),
-                    "request_dates": [],
-                    "request_range": dict(req_range) if req_range else None,
-                }
-            }
-
-        min_date = min(all_request_dates)
-        max_date = max(all_request_dates)
-
-        # 获取 daily_stats 中已存在的日期
-        existing_rows = await conn.fetch(
-            "SELECT DISTINCT date FROM daily_stats WHERE date >= $1 AND date <= $2",
-            min_date,
-            max_date,
-        )
-        existing_dates = {r["date"] for r in existing_rows}
-
-        missing_dates = sorted(all_request_dates - existing_dates)
-
-        debug_info = {
-            "today": str(today),
-            "now": now_dt.isoformat(),
-            "request_dates": [str(d) for d in sorted(all_request_dates)],
-            "existing_dates": [str(d) for d in sorted(existing_dates)],
-            "missing_dates": [str(d) for d in missing_dates],
-            "request_range": dict(req_range) if req_range else None,
-        }
-
-        if not missing_dates:
-            return {
-                "refreshed_dates": [], "count": 0,
-                "debug": debug_info,
-            }
-
-        # 按连续区间分组聚合
-        refreshed = []
-        start = missing_dates[0]
-        prev = missing_dates[0]
-
-        for d in missing_dates[1:]:
-            if d == prev + timedelta(days=1):
-                prev = d
-            else:
-                await aggregate_daily_stats(start, prev)
-                refreshed.append(f"{start}~{prev}" if start != prev else str(start))
-                start = d
-                prev = d
-
-        # 处理最后一个区间
-        await aggregate_daily_stats(start, prev)
-        refreshed.append(f"{start}~{prev}" if start != prev else str(start))
-
-        return {
-            "refreshed_dates": refreshed,
-            "count": len(missing_dates),
-            "debug": debug_info,
-        }
+    """自动补全 daily_stats 中缺失的历史日期（不含当天）。"""
+    return await asyncio.to_thread(_refresh_missing_daily_stats_sync)
 
 
 async def refresh_stats() -> dict[str, Any]:
-    """统一刷新统计：补全缺失历史日聚合 + 强制刷新近3天日聚合"""
-    if not _db_available:
+    """统一刷新统计：补全缺失历史日聚合 + 强制刷新近3天日聚合。"""
+    if not _DB_AVAILABLE:
         return {"backfilled_count": 0, "recent_refreshed_days": 0}
-
+    backfilled = await refresh_missing_daily_stats()
     today = utc8_now().date()
-    three_days_ago = today - timedelta(days=2)
-
-    # 步骤1：补全缺失历史聚合（排除近3天，避免和步骤2重复）
-    backfilled_count = 0
-    async with _get_conn() as conn:
-        if conn is None:
-            return {"backfilled_count": 0, "recent_refreshed_days": 0}
-
-        request_dates = await conn.fetch(
-            """
-            SELECT DISTINCT date_trunc('day', timestamp + interval '8 hours')::date as d
-            FROM requests
-            WHERE date_trunc('day', timestamp + interval '8 hours')::date < $1
-            ORDER BY d
-            """,
-            three_days_ago,
-        )
-        all_request_dates = {r["d"] for r in request_dates}
-
-        if all_request_dates:
-            min_date = min(all_request_dates)
-            max_date = max(all_request_dates)
-            existing_rows = await conn.fetch(
-                "SELECT DISTINCT date FROM daily_stats WHERE date >= $1 AND date <= $2",
-                min_date, max_date,
-            )
-            existing_dates = {r["date"] for r in existing_rows}
-            missing_dates = sorted(all_request_dates - existing_dates)
-
-            if missing_dates:
-                start = missing_dates[0]
-                prev = missing_dates[0]
-                for d in missing_dates[1:]:
-                    if d == prev + timedelta(days=1):
-                        prev = d
-                    else:
-                        await aggregate_daily_stats(start, prev)
-                        start = d
-                        prev = d
-                await aggregate_daily_stats(start, prev)
-                backfilled_count = len(missing_dates)
-
-    # 步骤2：强制刷新近3天日聚合（含当天）
-    await aggregate_daily_stats(three_days_ago, today)
-
+    await aggregate_daily_stats(today - timedelta(days=2), today)
     return {
-        "backfilled_count": backfilled_count,
+        "backfilled_count": backfilled.get("count", 0),
         "recent_refreshed_days": 3,
     }
 
 
-async def get_overall_stats(days: int = 7) -> dict[str, Any]:
-    """总体统计数据"""
-    if not _db_available:
-        return {
-            "total_requests": 0,
-            "success_count": 0,
-            "fail_count": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "channels": [],
-            "models": [],
-            "api_keys": [],
-        }
-    async with _get_conn() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT
-                COUNT(*) as total_requests,
-                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
-                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
-                COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-                COALESCE(SUM(output_tokens), 0) as total_output_tokens
-            FROM requests
-            WHERE timestamp >= (now() + interval '8 hours') - ($1 || ' days')::interval
-            """,
-            str(days)
-        )
-
-        channel_rows = await conn.fetch(
-            """
-            SELECT channel_name, COUNT(*) as count
-            FROM requests
-            WHERE timestamp >= (now() + interval '8 hours') - ($1 || ' days')::interval
-            GROUP BY channel_id, channel_name
-            ORDER BY count DESC
-            """,
-            str(days)
-        )
-
-        model_rows = await conn.fetch(
-            """
-            SELECT model, COUNT(*) as count
-            FROM requests
-            WHERE timestamp >= (now() + interval '8 hours') - ($1 || ' days')::interval
-            GROUP BY model
-            ORDER BY count DESC
-            LIMIT 20
-            """,
-            str(days)
-        )
-
-        key_rows = await conn.fetch(
-            """
-            SELECT api_key_id, COUNT(*) as count,
-                   COALESCE(SUM(input_tokens), 0) as input_tokens,
-                   COALESCE(SUM(output_tokens), 0) as output_tokens
-            FROM requests
-            WHERE api_key_id IS NOT NULL AND api_key_id != ''
-              AND timestamp >= (now() + interval '8 hours') - ($1 || ' days')::interval
-            GROUP BY api_key_id
-            ORDER BY count DESC
-            """,
-            str(days)
-        )
-
-        return {
-            "total_requests": row["total_requests"] or 0,
-            "success_count": row["success_count"] or 0,
-            "fail_count": row["fail_count"] or 0,
-            "total_input_tokens": row["total_input_tokens"] or 0,
-            "total_output_tokens": row["total_output_tokens"] or 0,
-            "channels": [{"name": r["channel_name"], "count": r["count"]} for r in channel_rows],
-            "models": [{"name": r["model"], "count": r["count"]} for r in model_rows],
-            "api_keys": [{"key_id": r["api_key_id"], "count": r["count"],
-                          "input_tokens": r["input_tokens"], "output_tokens": r["output_tokens"]} for r in key_rows],
-        }
-
-
-async def get_today_stats() -> dict[str, Any]:
-    """今天（东8区0点至今）的实时统计，直接查 requests 表"""
-    if not _db_available:
-        return {
-            "overall": {
-                "total_requests": 0, "success_count": 0, "fail_count": 0,
-                "total_input_tokens": 0, "total_output_tokens": 0,
-                "channels": [], "models": [], "api_keys": [],
-            },
-            "daily": [],
-        }
-    utc8 = utc8_now()
-    start_of_today = (utc8.replace(hour=0, minute=0, second=0, microsecond=0)
-                      - timedelta(hours=8))
-
-    async with _get_conn() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT
-                COUNT(*) as total_requests,
-                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
-                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
-                COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-                COALESCE(SUM(output_tokens), 0) as total_output_tokens
-            FROM requests
-            WHERE timestamp >= $1
-            """,
-            start_of_today,
-        )
-
-        channel_rows = await conn.fetch(
-            """
-            SELECT channel_name, COUNT(*) as count
-            FROM requests
-            WHERE timestamp >= $1
-            GROUP BY channel_id, channel_name
-            ORDER BY count DESC
-            """,
-            start_of_today,
-        )
-
-        model_rows = await conn.fetch(
-            """
-            SELECT model, COUNT(*) as count
-            FROM requests
-            WHERE timestamp >= $1
-            GROUP BY model
-            ORDER BY count DESC
-            LIMIT 20
-            """,
-            start_of_today,
-        )
-
-        key_rows = await conn.fetch(
-            """
-            SELECT api_key_id, COUNT(*) as count,
-                   COALESCE(SUM(input_tokens), 0) as input_tokens,
-                   COALESCE(SUM(output_tokens), 0) as output_tokens
-            FROM requests
-            WHERE api_key_id IS NOT NULL AND api_key_id != ''
-              AND timestamp >= $1
-            GROUP BY api_key_id
-            ORDER BY count DESC
-            """,
-            start_of_today,
-        )
-
-        daily_row = await conn.fetchrow(
-            """
-            SELECT
-                COUNT(*) as request_count,
-                SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
-                SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as fail_count,
-                SUM(input_tokens) as input_tokens,
-                SUM(output_tokens) as output_tokens,
-                AVG(latency_ms)::int as avg_latency_ms,
-                AVG(lag_ms) FILTER (WHERE lag_ms IS NOT NULL)::int as avg_lag_ms
-            FROM requests
-            WHERE timestamp >= $1
-            """,
-            start_of_today,
-        )
-
-    total = row["total_requests"] or 0
-    daily = []
-    if total > 0:
-        daily = [{
-            "date": str(utc8.date()),
-            "total_requests": daily_row["request_count"] or 0,
-            "success_count": daily_row["success_count"] or 0,
-            "fail_count": daily_row["fail_count"] or 0,
-            "total_input_tokens": daily_row["input_tokens"] or 0,
-            "total_output_tokens": daily_row["output_tokens"] or 0,
-            "avg_latency_ms": daily_row["avg_latency_ms"] or 0,
-            "avg_lag_ms": daily_row["avg_lag_ms"] or 0,
-        }]
-
+def _overall_zero() -> dict[str, Any]:
     return {
-        "overall": {
-            "total_requests": total,
-            "success_count": row["success_count"] or 0,
-            "fail_count": row["fail_count"] or 0,
-            "total_input_tokens": row["total_input_tokens"] or 0,
-            "total_output_tokens": row["total_output_tokens"] or 0,
-            "channels": [{"name": r["channel_name"], "count": r["count"]} for r in channel_rows],
-            "models": [{"name": r["model"], "count": r["count"]} for r in model_rows],
-            "api_keys": [{"key_id": r["api_key_id"], "count": r["count"],
-                          "input_tokens": r["input_tokens"], "output_tokens": r["output_tokens"]} for r in key_rows],
-        },
-        "daily": daily,
+        "total_requests": 0,
+        "success_count": 0,
+        "fail_count": 0,
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "channels": [],
+        "models": [],
+        "api_keys": [],
     }
 
 
-async def get_api_key_stats() -> dict[str, dict[str, int]]:
-    """按 api_key_id 聚合全量统计数据，返回 {api_key_id: {request_count, input_tokens, output_tokens}}"""
-    if not _db_available:
+def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
+    if not _DB_AVAILABLE:
+        return _overall_zero()
+    since = _to_iso(utc8_now() - timedelta(days=days) - timedelta(hours=8))
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total_requests,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
+                COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens
+            FROM request_stats_raw
+            WHERE timestamp >= ?
+            """,
+            (since,),
+        ).fetchone()
+        channel_rows = conn.execute(
+            """
+            SELECT channel_name, COUNT(*) AS count
+            FROM request_stats_raw
+            WHERE timestamp >= ?
+            GROUP BY channel_id, channel_name
+            ORDER BY count DESC
+            """,
+            (since,),
+        ).fetchall()
+        model_rows = conn.execute(
+            """
+            SELECT model, COUNT(*) AS count
+            FROM request_stats_raw
+            WHERE timestamp >= ?
+            GROUP BY model
+            ORDER BY count DESC
+            LIMIT 20
+            """,
+            (since,),
+        ).fetchall()
+        key_rows = conn.execute(
+            """
+            SELECT api_key_id, COUNT(*) AS count,
+                   COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                   COALESCE(SUM(output_tokens), 0) AS output_tokens
+            FROM request_stats_raw
+            WHERE api_key_id IS NOT NULL AND api_key_id != '' AND timestamp >= ?
+            GROUP BY api_key_id
+            ORDER BY count DESC
+            """,
+            (since,),
+        ).fetchall()
+    return {
+        "total_requests": row["total_requests"] or 0,
+        "success_count": row["success_count"] or 0,
+        "fail_count": row["fail_count"] or 0,
+        "total_input_tokens": row["total_input_tokens"] or 0,
+        "total_output_tokens": row["total_output_tokens"] or 0,
+        "channels": [{"name": r["channel_name"], "count": r["count"]} for r in channel_rows],
+        "models": [{"name": r["model"], "count": r["count"]} for r in model_rows],
+        "api_keys": [
+            {
+                "key_id": r["api_key_id"],
+                "count": r["count"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+            }
+            for r in key_rows
+        ],
+    }
+
+
+async def get_overall_stats(days: int = 7) -> dict[str, Any]:
+    """总体统计数据。"""
+    return await asyncio.to_thread(_get_overall_stats_sync, days)
+
+
+async def get_today_stats() -> dict[str, Any]:
+    """今天（东8区0点至今）的实时统计。"""
+    if not _DB_AVAILABLE:
+        return {"overall": _overall_zero(), "daily": []}
+    today = utc8_now().date()
+    start_of_today = _to_iso(datetime.combine(today, datetime.min.time()) - timedelta(hours=8))
+    overall = await asyncio.to_thread(_get_overall_stats_since_sync, start_of_today)
+    daily_rows = await get_daily_stats_from_requests(days=1)
+    daily = []
+    if daily_rows:
+        row = daily_rows[-1]
+        daily = [
+            {
+                "date": str(row["date"]),
+                "total_requests": row["request_count"] or 0,
+                "success_count": row["success_count"] or 0,
+                "fail_count": row["fail_count"] or 0,
+                "total_input_tokens": row["input_tokens"] or 0,
+                "total_output_tokens": row["output_tokens"] or 0,
+                "avg_latency_ms": row["avg_latency_ms"] or 0,
+                "avg_lag_ms": row["avg_lag_ms"] or 0,
+            }
+        ]
+    return {"overall": overall, "daily": daily}
+
+
+def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total_requests,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
+                COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens
+            FROM request_stats_raw
+            WHERE timestamp >= ?
+            """,
+            (since,),
+        ).fetchone()
+        channel_rows = conn.execute(
+            """
+            SELECT channel_name, COUNT(*) AS count
+            FROM request_stats_raw
+            WHERE timestamp >= ?
+            GROUP BY channel_id, channel_name
+            ORDER BY count DESC
+            """,
+            (since,),
+        ).fetchall()
+        model_rows = conn.execute(
+            """
+            SELECT model, COUNT(*) AS count
+            FROM request_stats_raw
+            WHERE timestamp >= ?
+            GROUP BY model
+            ORDER BY count DESC
+            LIMIT 20
+            """,
+            (since,),
+        ).fetchall()
+        key_rows = conn.execute(
+            """
+            SELECT api_key_id, COUNT(*) AS count,
+                   COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                   COALESCE(SUM(output_tokens), 0) AS output_tokens
+            FROM request_stats_raw
+            WHERE api_key_id IS NOT NULL AND api_key_id != '' AND timestamp >= ?
+            GROUP BY api_key_id
+            ORDER BY count DESC
+            """,
+            (since,),
+        ).fetchall()
+    return {
+        "total_requests": row["total_requests"] or 0,
+        "success_count": row["success_count"] or 0,
+        "fail_count": row["fail_count"] or 0,
+        "total_input_tokens": row["total_input_tokens"] or 0,
+        "total_output_tokens": row["total_output_tokens"] or 0,
+        "channels": [{"name": r["channel_name"], "count": r["count"]} for r in channel_rows],
+        "models": [{"name": r["model"], "count": r["count"]} for r in model_rows],
+        "api_keys": [
+            {
+                "key_id": r["api_key_id"],
+                "count": r["count"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+            }
+            for r in key_rows
+        ],
+    }
+
+
+def _get_api_key_stats_sync() -> dict[str, dict[str, int]]:
+    if not _DB_AVAILABLE:
         return {}
-    async with _get_conn() as conn:
-        if conn is None:
-            return {}
-        rows = await conn.fetch(
+    with _connect() as conn:
+        rows = conn.execute(
             """
             SELECT api_key_id,
-                   COUNT(*) as request_count,
-                   COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-                   COALESCE(SUM(output_tokens), 0) as total_output_tokens
-            FROM requests
+                   COUNT(*) AS request_count,
+                   COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                   COALESCE(SUM(output_tokens), 0) AS total_output_tokens
+            FROM request_stats_raw
             WHERE api_key_id IS NOT NULL AND api_key_id != ''
             GROUP BY api_key_id
             """
-        )
+        ).fetchall()
         return {
-            r["api_key_id"]: {
-                "request_count": r["request_count"],
-                "total_input_tokens": r["total_input_tokens"],
-                "total_output_tokens": r["total_output_tokens"],
+            row["api_key_id"]: {
+                "request_count": row["request_count"],
+                "total_input_tokens": row["total_input_tokens"],
+                "total_output_tokens": row["total_output_tokens"],
             }
-            for r in rows
+            for row in rows
         }
 
 
-# 允许的字段映射：URL 路径名 → SQL 列名
-_REQUEST_FIELD_MAP = {
-    "request_headers": "request_headers",
-    "request_body": "request_body",
-    "response_headers": "response_headers",
-    "response_body": "response_body",
-}
+async def get_api_key_stats() -> dict[str, dict[str, int]]:
+    """按 api_key_id 聚合全量统计数据。"""
+    return await asyncio.to_thread(_get_api_key_stats_sync)
 
 
 async def get_request_field(request_id: int, field: str) -> dict | None:
-    """查询单个请求的单个 JSONB 字段。field 必须在 _REQUEST_FIELD_MAP 中。"""
-    if not _db_available:
-        return None
-    column = _REQUEST_FIELD_MAP.get(field)
-    if column is None:
-        return None
-    async with _get_conn() as conn:
-        if conn is None:
-            return None
-        row = await conn.fetchrow(
-            f"SELECT {column} FROM requests WHERE id = $1",
-            request_id,
-        )
-        if row is None:
-            return None
-        return {"data": row[column]}
+    """统计库不保存 headers/body，始终返回 None。"""
+    return None
+
+
+def _list_requests_sync(
+    model: str | None = None,
+    channel: str | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    success: bool | None = None,
+    api_key_id: str | None = None,
+    is_stream: bool | None = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> dict[str, Any]:
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
+    if not _DB_AVAILABLE:
+        return {"items": [], "total": 0, "page": page, "page_size": page_size}
+
+    conditions = ["1 = 1"]
+    args: list[Any] = []
+    if model:
+        conditions.append("LOWER(model) LIKE LOWER(?)")
+        args.append(f"%{model}%")
+    if channel:
+        conditions.append("(LOWER(channel_name) LIKE LOWER(?) OR LOWER(channel_id) LIKE LOWER(?))")
+        args.extend([f"%{channel}%", f"%{channel}%"])
+    if start:
+        conditions.append("timestamp >= ?")
+        args.append(_to_iso(start))
+    if end:
+        conditions.append("timestamp < ?")
+        args.append(_to_iso(end))
+    if success is not None:
+        conditions.append("success = ?")
+        args.append(1 if success else 0)
+    if api_key_id:
+        conditions.append("api_key_id = ?")
+        args.append(api_key_id)
+    if is_stream is not None:
+        conditions.append("is_stream = ?")
+        args.append(1 if is_stream else 0)
+
+    where_clause = " AND ".join(conditions)
+    with _connect() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM request_stats_raw WHERE {where_clause}",
+            args,
+        ).fetchone()[0]
+        rows = conn.execute(
+            f"""
+            SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
+                   is_stream, input_tokens, output_tokens, latency_ms, lag_ms,
+                   finish_reason, success, error_msg
+            FROM request_stats_raw
+            WHERE {where_clause}
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            [*args, page_size, (page - 1) * page_size],
+        ).fetchall()
+        return {
+            "items": [_from_row(row) for row in rows],
+            "total": total or 0,
+            "page": page,
+            "page_size": page_size,
+        }
 
 
 async def list_requests(
@@ -856,67 +838,33 @@ async def list_requests(
     page: int = 1,
     page_size: int = 10,
 ) -> dict[str, Any]:
-    """查询请求记录（支持分页和过滤）"""
-    page = max(1, page)
-    page_size = max(1, min(page_size, 100))
+    """查询轻量请求记录（支持分页和过滤）。"""
+    return await asyncio.to_thread(
+        _list_requests_sync,
+        model,
+        channel,
+        start,
+        end,
+        success,
+        api_key_id,
+        is_stream,
+        page,
+        page_size,
+    )
 
-    if not _db_available:
-        return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
-    conditions = ["1=1"]
-    args: list[Any] = []
+def _list_tables_for_test_sync() -> set[str]:
+    if not _DB_AVAILABLE:
+        return set()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+            """
+        ).fetchall()
+        return {row["name"] for row in rows}
 
-    if model:
-        args.append(f"%{model}%")
-        conditions.append(f"model ILIKE ${len(args)}")
-    if channel:
-        args.append(f"%{channel}%")
-        conditions.append(f"channel_name ILIKE ${len(args)}")
-    if start:
-        args.append(start)
-        conditions.append(f"timestamp >= ${len(args)}")
-    if end:
-        args.append(end)
-        conditions.append(f"timestamp < ${len(args)}")
-    if success is not None:
-        args.append(success)
-        conditions.append(f"success = ${len(args)}")
-    if api_key_id:
-        args.append(api_key_id)
-        conditions.append(f"api_key_id = ${len(args)}")
-    if is_stream is not None:
-        args.append(is_stream)
-        conditions.append(f"is_stream = ${len(args)}")
 
-    where_clause = " AND ".join(conditions)
-
-    async with _get_conn() as conn:
-        if conn is None:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size}
-
-        total = await conn.fetchval(
-            f"SELECT COUNT(*) FROM requests WHERE {where_clause}",
-            *args
-        )
-
-        offset = (page - 1) * page_size
-        data_args = args + [page_size, offset]
-        rows = await conn.fetch(
-            f"""
-            SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                   is_stream, input_tokens, output_tokens, cost, latency_ms, lag_ms,
-                   finish_reason, success, error_msg
-            FROM requests
-            WHERE {where_clause}
-            ORDER BY timestamp DESC
-            LIMIT ${len(args) + 1} OFFSET ${len(args) + 2}
-            """,
-            *data_args
-        )
-
-        return {
-            "items": [dict(r) for r in rows],
-            "total": total or 0,
-            "page": page,
-            "page_size": page_size,
-        }
+async def _list_tables_for_test() -> set[str]:
+    return await asyncio.to_thread(_list_tables_for_test_sync)

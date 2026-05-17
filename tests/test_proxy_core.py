@@ -581,6 +581,61 @@ class TestDoRequest:
         assert lowered["authorization"] == "Bearer sk-test"
 
     @pytest.mark.anyio
+    async def test_non_stream_success_records_stats_and_request_log(self):
+        upstream_response = {
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+        }
+
+        class FakeClient:
+            async def post(self, url, json, headers):
+                request = httpx.Request("POST", url)
+                return httpx.Response(
+                    200,
+                    json=upstream_response,
+                    headers={"X-Upstream": "yes"},
+                    request=request,
+                )
+
+        channel = Channel(
+            id="ch_chat",
+            name="Chat",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request") as stats_record,
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            await _do_request(
+                channel,
+                {"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]},
+                APIType.OPENAI_CHAT,
+                is_stream=False,
+            )
+
+        stats_record.assert_called_once()
+        request_log_record.assert_called_once()
+        assert request_log_record.call_args.kwargs == stats_record.call_args.kwargs
+        assert request_log_record.call_args.kwargs["response_body"] == upstream_response
+
+    @pytest.mark.anyio
     async def test_same_type_openai_response_non_stream_forwards_body_and_response_unchanged(
         self,
     ):
