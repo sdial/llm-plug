@@ -7,10 +7,12 @@ from proxy_core import ConverterError
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     from fastapi import FastAPI
+    import routers.proxy_response as proxy_response
     from routers.proxy_response import router
 
+    monkeypatch.setattr(proxy_response, "check_proxy_authorization", lambda authorization, request_state=None: True)
     app = FastAPI()
     app.include_router(router)
     return TestClient(app)

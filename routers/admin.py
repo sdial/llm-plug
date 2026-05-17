@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 import httpx
 
 from client import get_upstream_headers, remove_channel_client
+import request_logs
 from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from models.model_group import LBConfig, ModelGroup, ModelGroupCreate, ModelGroupUpdate
@@ -16,9 +17,9 @@ from proxy_core import _get_upstream_url
 
 from stats import (
     get_daily_stats, get_daily_stats_from_requests,
-    get_overall_stats, list_requests,
+    get_overall_stats, list_requests as stats_list_requests,
     aggregate_daily_stats,
-    refresh_missing_daily_stats, get_request_field, refresh_stats,
+    refresh_missing_daily_stats, refresh_stats,
     get_today_stats,
 )
 from storage import (
@@ -26,6 +27,9 @@ from storage import (
     load_model_groups, add_model_group, update_model_group, delete_model_group,
     get_lb_config, save_lb_config,
 )
+
+request_log_list_requests = request_logs.list_requests
+request_log_get_request_field = request_logs.get_request_field
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -449,6 +453,7 @@ async def trigger_daily_aggregation(
 
 @router.get("/requests")
 async def list_requests_endpoint(
+    source: str | None = Query(default=None),
     model: str | None = Query(default=None),
     channel: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
@@ -460,7 +465,24 @@ async def list_requests_endpoint(
     page_size: int = Query(default=10, ge=1, le=100),
 ):
     """查询请求记录（支持分页和过滤）"""
-    result = await list_requests(
+    if source == "stats":
+        result = await stats_list_requests(
+            model=model,
+            channel=channel,
+            start=start,
+            end=end,
+            success=success,
+            api_key_id=api_key_id,
+            is_stream=is_stream,
+            page=page,
+            page_size=page_size,
+        )
+        result["source"] = "stats"
+        return result
+    if source not in (None, "request_logs"):
+        raise HTTPException(status_code=400, detail=f"不支持的请求记录来源: {source}")
+
+    result = await request_log_list_requests(
         model=model,
         channel=channel,
         start=start,
@@ -471,6 +493,8 @@ async def list_requests_endpoint(
         page=page,
         page_size=page_size,
     )
+    if result.get("available") is False:
+        raise HTTPException(status_code=503, detail=result.get("error") or "请求记录库不可用")
     return result
 
 
@@ -488,7 +512,7 @@ async def get_request_field_endpoint(request_id: int, field_name: str):
     field = _FIELD_PATH_MAP.get(field_name)
     if field is None:
         raise HTTPException(status_code=400, detail=f"不支持的字段: {field_name}")
-    result = await get_request_field(request_id, field)
+    result = await request_log_get_request_field(request_id, field)
     if result is None:
         raise HTTPException(status_code=404, detail="请求记录不存在")
     return result
@@ -576,11 +600,6 @@ async def get_settings_endpoint():
     """获取所有配置项"""
     import config as _config
     settings = _config.get_settings()
-    # 添加 database_url_masked 字段
-    if settings.get("database_url"):
-        settings["database_url_masked"] = settings["database_url"]
-    else:
-        settings["database_url_masked"] = ""
     # max_body_size 转换为 MB 单位
     if settings.get("max_body_size"):
         settings["max_body_size_mb"] = settings["max_body_size"] // (1024 * 1024)
@@ -594,6 +613,17 @@ async def update_settings_endpoint(body: dict):
     """批量更新配置"""
     import config as _config
     result = await _config.update_settings(body)
+    reload_result = await request_logs.reload_backend()
+    result["request_log_backend"] = reload_result
+    if not reload_result.get("available"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "请求记录库配置已保存，但新 backend 初始化失败，已保留旧 backend",
+                "settings": result,
+                "request_log_backend": reload_result,
+            },
+        )
     return result
 
 
