@@ -84,6 +84,21 @@ async def test_sqlite_backend_initializes_writes_and_lists_paginated(sqlite_requ
     assert page_2["items"][0]["channel_id"] == "ch_old"
 
 
+async def test_start_workers_persist_queued_request_logs(sqlite_request_logs):
+    request_logs.start_request_log_workers(worker_count=1)
+    try:
+        _sample_record(channel_id="ch_worker", channel_name="Worker")
+        await request_logs.wait_for_queue()
+
+        result = await request_logs.list_requests()
+
+        assert result["available"] is True
+        assert result["total"] == 1
+        assert result["items"][0]["channel_id"] == "ch_worker"
+    finally:
+        await request_logs.stop_request_log_workers()
+
+
 async def test_save_flags_control_raw_fields(sqlite_request_logs, monkeypatch):
     monkeypatch.setattr(
         request_logs,

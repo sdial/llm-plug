@@ -77,6 +77,7 @@ async def lifespan(app):
     await init_stats_db()
     await request_logs.init_backend()
     start_stats_workers()
+    request_logs.start_request_log_workers()
 
     async def _client_cleanup_loop():
         while True:

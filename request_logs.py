@@ -30,6 +30,9 @@ _backend_lock = asyncio.Lock()
 _REQUEST_QUEUE: asyncio.Queue | None = None
 _REQUEST_QUEUE_LOOP: asyncio.AbstractEventLoop | None = None
 _REQUEST_QUEUE_MAX_SIZE = 1000
+_REQUEST_WORKERS: list[asyncio.Task] = []
+_REQUEST_WORKER_COUNT = 2
+_REQUEST_WRITE_TIMEOUT = 60
 
 
 def _utc_now() -> datetime:
@@ -566,6 +569,7 @@ async def reload_backend(settings: dict | None = None) -> dict:
 
 async def close_backend() -> None:
     global _backend, _backend_error, _REQUEST_QUEUE, _REQUEST_QUEUE_LOOP
+    await stop_request_log_workers()
     async with _backend_lock:
         backend = _backend
         _backend = None
@@ -587,6 +591,64 @@ def _ensure_queue() -> asyncio.Queue | None:
         _REQUEST_QUEUE = asyncio.Queue(maxsize=_REQUEST_QUEUE_MAX_SIZE)
         _REQUEST_QUEUE_LOOP = current_loop
     return _REQUEST_QUEUE
+
+
+def start_request_log_workers(worker_count: int | None = None) -> None:
+    queue = _ensure_queue()
+    if queue is None:
+        return
+    if _REQUEST_WORKERS:
+        return
+    count = worker_count or _REQUEST_WORKER_COUNT
+    for _ in range(count):
+        _REQUEST_WORKERS.append(asyncio.create_task(_request_log_worker()))
+    logger.info(f"Request log workers started: {count} workers, queue max={queue.maxsize}")
+
+
+async def stop_request_log_workers() -> None:
+    global _REQUEST_QUEUE, _REQUEST_QUEUE_LOOP
+    for task in _REQUEST_WORKERS:
+        task.cancel()
+    for task in _REQUEST_WORKERS:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    _REQUEST_WORKERS.clear()
+    _REQUEST_QUEUE = None
+    _REQUEST_QUEUE_LOOP = None
+
+
+async def _request_log_worker() -> None:
+    while True:
+        try:
+            queue = _REQUEST_QUEUE
+            if queue is None:
+                await asyncio.sleep(0)
+                continue
+            record = await queue.get()
+            try:
+                backend = _backend
+                if backend is None:
+                    logger.warning(
+                        f"Request log backend unavailable ({_backend_error}); discarding queued record "
+                        f"for model={record.get('model')}"
+                    )
+                else:
+                    await asyncio.wait_for(backend.write_record(record), timeout=_REQUEST_WRITE_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Request log write timed out ({_REQUEST_WRITE_TIMEOUT}s), "
+                    f"discarding record for model={record.get('model')}"
+                )
+            except Exception as exc:
+                logger.warning(f"Request log write failed: {exc}")
+            finally:
+                queue.task_done()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.warning(f"Request log worker error: {exc}")
 
 
 def _filtered_raw_value(flags: dict[str, bool], flag_name: str, value: Any) -> Any:
@@ -648,7 +710,7 @@ async def drain_queue() -> None:
     queue = _REQUEST_QUEUE
     if queue is None:
         return
-    while not queue.empty():
+    while not _REQUEST_WORKERS and not queue.empty():
         record = await queue.get()
         try:
             backend = _backend
@@ -664,6 +726,12 @@ async def drain_queue() -> None:
         finally:
             queue.task_done()
     await queue.join()
+
+
+async def wait_for_queue() -> None:
+    queue = _REQUEST_QUEUE
+    if queue is not None:
+        await queue.join()
 
 
 def _unavailable_result(page: int, page_size: int) -> dict[str, Any]:

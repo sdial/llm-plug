@@ -552,14 +552,14 @@
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="card p-5">
               <div class="text-sm font-medium text-ink-900 mb-1.5">数据库类型</div>
-              <select id="set_request_log_db_type" data-section="database" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+              <select id="set_request_log_db_type" data-section="database" onchange="syncRequestLogDbMode()" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
                 <option value="sqlite">SQLite</option>
                 <option value="postgres">PostgreSQL</option>
               </select>
             </div>
             <div class="card p-5">
               <div class="text-sm font-medium text-ink-900 mb-1.5">SQLite 路径</div>
-              <input type="text" id="set_request_log_sqlite_path" data-section="database" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white font-mono">
+              <input type="text" id="set_request_log_sqlite_path" readonly data-section="database" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none bg-surface-50 text-ink-500 font-mono cursor-not-allowed">
             </div>
           </div>
           <div class="card p-5 mt-4">
@@ -1908,10 +1908,8 @@ function _detectSettingsDirty() {
   if (newLevel !== (orig.log_level || 'INFO').toUpperCase()) _settingsDirtySections.add('logs');
   const requestLogDbType = document.getElementById('set_request_log_db_type').value;
   if (requestLogDbType !== (orig.request_log_db_type || 'sqlite')) _settingsDirtySections.add('database');
-  const requestLogSqlitePath = document.getElementById('set_request_log_sqlite_path').value;
-  if (requestLogSqlitePath !== (orig.request_log_sqlite_path || '')) _settingsDirtySections.add('database');
   const requestLogDbUrl = document.getElementById('set_request_log_database_url').value;
-  if (requestLogDbUrl && requestLogDbUrl !== (orig.request_log_database_url_masked || '')) _settingsDirtySections.add('database');
+  if (requestLogDbType === 'postgres' && requestLogDbUrl && requestLogDbUrl !== (orig.request_log_database_url_masked || '')) _settingsDirtySections.add('database');
   ['save_request_headers', 'save_response_headers', 'save_request_body', 'save_response_body'].forEach(key => {
     const el = document.getElementById('set_' + key);
     if (el && el.checked !== Boolean(orig[key])) _settingsDirtySections.add('database');
@@ -1941,6 +1939,18 @@ function _showSettingsToast(msg, type) {
   }, 2500);
 }
 
+function syncRequestLogDbMode() {
+  const typeEl = document.getElementById('set_request_log_db_type');
+  const pgUrlEl = document.getElementById('set_request_log_database_url');
+  if (!typeEl || !pgUrlEl) return;
+  const usingPostgres = typeEl.value === 'postgres';
+  pgUrlEl.disabled = !usingPostgres;
+  pgUrlEl.classList.toggle('bg-surface-50', !usingPostgres);
+  pgUrlEl.classList.toggle('text-ink-500', !usingPostgres);
+  pgUrlEl.classList.toggle('cursor-not-allowed', !usingPostgres);
+  pgUrlEl.placeholder = usingPostgres ? 'postgresql://user:pass@host:5432/db' : 'SQLite 模式下无需填写';
+}
+
 async function loadSettings() {
   try {
     const resp = await fetch('/admin/settings');
@@ -1956,6 +1966,7 @@ async function loadSettings() {
     document.getElementById('set_request_log_db_type').value = data.request_log_db_type || 'sqlite';
     document.getElementById('set_request_log_sqlite_path').value = data.request_log_sqlite_path || '';
     document.getElementById('set_request_log_database_url').value = data.request_log_database_url_masked || '';
+    syncRequestLogDbMode();
     document.getElementById('set_save_request_headers').checked = Boolean(data.save_request_headers);
     document.getElementById('set_save_response_headers').checked = Boolean(data.save_response_headers);
     document.getElementById('set_save_request_body').checked = Boolean(data.save_request_body);
@@ -1985,10 +1996,8 @@ async function saveSettings() {
   if (newLogLevel !== (orig.log_level || 'INFO').toUpperCase()) data.log_level = newLogLevel;
   const requestLogDbType = document.getElementById('set_request_log_db_type').value;
   if (requestLogDbType !== (orig.request_log_db_type || 'sqlite')) data.request_log_db_type = requestLogDbType;
-  const requestLogSqlitePath = document.getElementById('set_request_log_sqlite_path').value;
-  if (requestLogSqlitePath !== (orig.request_log_sqlite_path || '')) data.request_log_sqlite_path = requestLogSqlitePath;
   const requestLogDbUrl = document.getElementById('set_request_log_database_url').value;
-  if (requestLogDbUrl && requestLogDbUrl !== (orig.request_log_database_url_masked || '')) data.request_log_database_url = requestLogDbUrl;
+  if (requestLogDbType === 'postgres' && requestLogDbUrl && requestLogDbUrl !== (orig.request_log_database_url_masked || '')) data.request_log_database_url = requestLogDbUrl;
   ['save_request_headers', 'save_response_headers', 'save_request_body', 'save_response_body'].forEach(key => {
     const el = document.getElementById('set_' + key);
     if (el && el.checked !== Boolean(orig[key])) data[key] = el.checked;
