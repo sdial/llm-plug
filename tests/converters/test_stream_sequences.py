@@ -1374,6 +1374,61 @@ class TestAnthropicToChatStreamIncludeUsage:
         assert usage_chunk["usage"]["prompt_tokens_details"]["cached_tokens"] == 5
 
 
+class TestAnthropicToResponseCacheTokens:
+    """Anthropic→Response 的 cache token 映射测试。"""
+
+    def test_anthropic_to_response_nonstream_cache_tokens(self):
+        """非流式响应的 cache tokens 应正确映射到 OpenAI Response usage。"""
+        from converters.to_response import ToResponseConverter
+        conv = ToResponseConverter()
+        anthropic_resp = {
+            "id": "msg_y",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "ok"}],
+            "model": "claude-opus-4-7",
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 10,
+                "cache_creation_input_tokens": 100,
+                "cache_read_input_tokens": 1000,
+                "output_tokens": 50,
+            },
+        }
+        result = conv.convert_response(anthropic_resp, source_type="anthropic")
+        assert result["usage"]["input_tokens"] == 1110  # 10 + 100 + 1000
+        assert result["usage"]["output_tokens"] == 50
+        assert result["usage"]["total_tokens"] == 1160  # 1110 + 50
+        assert result["usage"]["input_tokens_details"]["cached_tokens"] == 1000
+
+    def test_anthropic_to_response_stream_emits_full_usage(self):
+        """流式 message_delta 应在 response.completed 中携带完整 usage。"""
+        from converters.to_response import ToResponseConverter
+        conv = ToResponseConverter()
+        events = [
+            {"type": "message_start", "message": {"id": "msg_z", "model": "claude-opus-4-7",
+                "usage": {"input_tokens": 10, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 1000, "output_tokens": 0}}},
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "x"}},
+            {"type": "content_block_stop", "index": 0},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn"},
+             "usage": {"output_tokens": 50, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 1000}},
+            {"type": "message_stop"},
+        ]
+        completed_events = []
+        for e in events:
+            out = conv.convert_stream_chunk(e, source_type="anthropic")
+            if isinstance(out, dict) and out.get("type") == "response.completed":
+                completed_events.append(out)
+        assert completed_events, "expected at least one response.completed event"
+        usage = completed_events[-1]["response"].get("usage")
+        assert usage is not None, "response.completed must carry usage"
+        assert usage["input_tokens"] == 1110  # 10 + 100 + 1000
+        assert usage["output_tokens"] == 50
+        assert usage["total_tokens"] == 1160
+        assert usage["input_tokens_details"]["cached_tokens"] == 1000
+
+
 class TestReviewBugFixes:
     """REVIEW1.md C12-C16 五个流式转换 bug 的回归测试。"""
 

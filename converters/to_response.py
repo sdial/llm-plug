@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from converters.base import BaseConverter
+from converters.usage import anthropic_to_openai_response
 
 
 class ToResponseConverter(BaseConverter):
@@ -43,6 +44,8 @@ class ToResponseConverter(BaseConverter):
             "pending_finish_reason": None,
             "pending_final_events": [],
             "waiting_for_usage_after_finish": False,
+            # Anthropic usage accumulation for cache-aware mapping
+            "anthropic_usage": {},
         }
         self._pending_extra_events = []
         self._need_in_progress = False
@@ -387,11 +390,7 @@ class ToResponseConverter(BaseConverter):
             "model": data.get("model", ""),
             "status": status,
             "output": output,
-            "usage": {
-                "input_tokens": data.get("usage", {}).get("input_tokens", 0),
-                "output_tokens": data.get("usage", {}).get("output_tokens", 0),
-                "total_tokens": data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0),
-            }
+            "usage": anthropic_to_openai_response(data.get("usage")),
         }
 
     # --- Chat Completions 流式 → Response 流式 ---
@@ -713,6 +712,13 @@ class ToResponseConverter(BaseConverter):
         if event_type == "message_start":
             msg = chunk.get("message", {})
             self._stream_state["message_id"] = msg.get("id", "")
+            # Accumulate usage from message_start (input_tokens, cache_creation_input_tokens, cache_read_input_tokens)
+            msg_usage = msg.get("usage")
+            if isinstance(msg_usage, dict):
+                existing = self._stream_state["anthropic_usage"]
+                for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"):
+                    if key in msg_usage:
+                        existing[key] = existing.get(key, 0) + msg_usage[key]
             self._need_in_progress = True
             return {
                 "type": "response.created",
@@ -783,14 +789,25 @@ class ToResponseConverter(BaseConverter):
             return None
 
         elif event_type == "message_delta":
+            # Accumulate output_tokens from message_delta (only output_tokens is incremental)
+            # cache fields in message_delta are duplicates of message_start values, not increments
+            delta_usage = chunk.get("usage")
+            if isinstance(delta_usage, dict):
+                existing = self._stream_state["anthropic_usage"]
+                # Only output_tokens is incremental; update it
+                if "output_tokens" in delta_usage:
+                    existing["output_tokens"] = existing.get("output_tokens", 0) + delta_usage["output_tokens"]
             stop_reason = chunk.get("delta", {}).get("stop_reason")
             status = "completed"
             if stop_reason == "max_tokens":
                 status = "incomplete"
+            # Use anthropic_to_openai_response for proper cache-aware mapping
+            final_usage = anthropic_to_openai_response(self._stream_state["anthropic_usage"])
             return {
                 "type": "response.completed",
                 "response": {
                     "status": status,
+                    "usage": final_usage,
                 },
             }
 
