@@ -6,6 +6,7 @@
 - `[conv]` `_filter_content_type` 仅浅拷贝，**污染调用方 messages**，多渠道 fallback 会传递被改过的请求
 - `[conv]` `to_chat.py` 与 `to_response.py` 的 **thinking budget→reasoning_effort 阈值不一致**
 - `[conv]` Anthropic→Response：tool_use + text 同一 message 时**输出顺序错乱**（function_call 跑到 text 前）
+- ~~`[conv]` `total_tokens` 自己累加，**忽略 cached/reasoning tokens**，计费偏低~~ ✅ 修复于 2026-05-19 (commits d316eab..bc80014)
 
 
 ---
