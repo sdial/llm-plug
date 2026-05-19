@@ -7,6 +7,7 @@ from typing import Any
 from loguru import logger
 
 from converters.base import BaseConverter
+from converters.usage import openai_chat_to_anthropic, openai_response_to_anthropic
 
 
 class ToAnthropicConverter(BaseConverter):
@@ -359,12 +360,7 @@ class ToAnthropicConverter(BaseConverter):
             "model": data.get("model", ""),
             "stop_reason": finish_reason,
             "stop_sequence": None,
-            "usage": {
-                "input_tokens": data.get("usage", {}).get("prompt_tokens", 0),
-                "output_tokens": data.get("usage", {}).get("completion_tokens", 0),
-                "cache_creation_input_tokens": data.get("usage", {}).get("cache_creation_input_tokens", 0),
-                "cache_read_input_tokens": data.get("usage", {}).get("cache_read_input_tokens", 0),
-            },
+            "usage": openai_chat_to_anthropic(data.get("usage")),
         }
 
     def _chat_build_message_stop_events(
@@ -393,8 +389,8 @@ class ToAnthropicConverter(BaseConverter):
                 "delta": {"stop_reason": stop_reason, "stop_sequence": None},
                 "usage": {
                     "output_tokens": usage_output,
-                    "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0) if usage else 0,
-                    "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0) if usage else 0,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": (usage or {}).get("prompt_tokens_details", {}).get("cached_tokens", 0),
                 },
             }),
             ("message_stop", {"type": "message_stop"}),
