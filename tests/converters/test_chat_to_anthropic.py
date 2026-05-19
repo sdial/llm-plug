@@ -423,3 +423,66 @@ class TestChatToAnthropic:
         md = delta_events[-1][1]
         assert md["usage"]["cache_read_input_tokens"] == 900
         assert md["usage"]["cache_creation_input_tokens"] == 0
+
+    def test_response_to_anthropic_nonstream_uses_input_tokens_details(self):
+        """Response 响应的 input_tokens_details.cached_tokens 应转为 cache_read_input_tokens"""
+        resp = {
+            "id": "resp_xxx",
+            "object": "response",
+            "model": "gpt-4o",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "message",
+                    "id": "msg_a",
+                    "status": "completed",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "hi"}],
+                }
+            ],
+            "usage": {
+                "input_tokens": 1000,
+                "output_tokens": 50,
+                "total_tokens": 1050,
+                "input_tokens_details": {"cached_tokens": 900},
+            },
+        }
+        result = self.converter.convert_response(resp, APIType.OPENAI_RESPONSE)
+        assert result["usage"]["input_tokens"] == 100
+        assert result["usage"]["output_tokens"] == 50
+        assert result["usage"]["cache_read_input_tokens"] == 900
+        assert result["usage"]["cache_creation_input_tokens"] == 0
+
+    def test_response_to_anthropic_stream_uses_input_tokens_details(self):
+        """Response 流式 chunk 的 input_tokens_details.cached_tokens 应转为 cache_read_input_tokens"""
+        chunks = [
+            {"type": "response.created", "response": {"id": "resp_a", "model": "gpt-4o", "status": "in_progress"}},
+            {"type": "response.output_text.delta", "delta": "hi"},
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_a",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "id": "msg_a",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "hi"}],
+                        }
+                    ],
+                    "usage": {"input_tokens": 1000, "output_tokens": 50, "input_tokens_details": {"cached_tokens": 900}},
+                },
+            },
+        ]
+        all_events: list[tuple[str, dict]] = []
+        for c in chunks:
+            out = self.converter._response_stream_chunk_to_anthropic(c)
+            all_events.extend(out)
+        delta_events = [e for e in all_events if e[0] == "message_delta"]
+        assert delta_events, "expected message_delta"
+        md = delta_events[-1][1]
+        assert md["usage"]["cache_read_input_tokens"] == 900
+        assert md["usage"]["cache_creation_input_tokens"] == 0
+        assert md["usage"]["output_tokens"] == 50
