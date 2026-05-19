@@ -1236,6 +1236,144 @@ class TestAnthropicToChatStream:
         assert "The answer is 42" in content_parts
 
 
+class TestAnthropicToChatStreamIncludeUsage:
+    """Anthropic→Chat 流式 + stream_options.include_usage 末帧测试。"""
+
+    def test_anthropic_to_chat_stream_emits_usage_when_include_usage(self):
+        """当 set_stream_include_usage(True) 后，message_stop 应 emit usage chunk."""
+        converter = ToChatCompletionsConverter()
+        converter.set_stream_include_usage(True)
+        events = [
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_001",
+                    "model": "claude-opus-4-7",
+                    "usage": {"input_tokens": 100, "cache_read_input_tokens": 20},
+                },
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "Hello"},
+            },
+            {"type": "content_block_stop", "index": 0},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 5},
+            },
+            {"type": "message_stop"},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "anthropic")
+            if result is not None:
+                outputs.append(result)
+
+        # message_stop 应返回 usage chunk（choices 为空数组）
+        last_chunk = outputs[-1]
+        assert last_chunk["choices"] == [], f"Expected choices=[], got {last_chunk['choices']}"
+        assert "usage" in last_chunk
+        # prompt_tokens = input_tokens + cache_creation + cache_read = 100 + 0 + 20 = 120
+        assert last_chunk["usage"]["prompt_tokens"] == 120
+        assert last_chunk["usage"]["completion_tokens"] == 5
+        assert last_chunk["usage"]["total_tokens"] == 125
+        assert last_chunk["usage"]["prompt_tokens_details"]["cached_tokens"] == 20
+
+    def test_anthropic_to_chat_stream_no_usage_when_flag_false(self):
+        """当 include_usage=False（默认）时，message_stop 返回 None，不 emit usage chunk."""
+        converter = ToChatCompletionsConverter()
+        # 不调用 set_stream_include_usage，默认为 False
+        events = [
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_001",
+                    "model": "claude-opus-4-7",
+                    "usage": {"input_tokens": 100},
+                },
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "Hello"},
+            },
+            {"type": "content_block_stop", "index": 0},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 5},
+            },
+            {"type": "message_stop"},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "anthropic")
+            if result is not None:
+                outputs.append(result)
+
+        # message_stop 应返回 None，最后一个 chunk 是 message_delta（有 finish_reason）
+        assert outputs[-1]["choices"][0]["finish_reason"] == "stop"
+        # 不应有 choices=[] 的 usage chunk
+        usage_chunks = [o for o in outputs if o.get("choices") == [] and "usage" in o]
+        assert usage_chunks == [], f"Expected no usage chunk, got {usage_chunks}"
+
+    def test_anthropic_usage_accumulated_from_message_start_and_delta(self):
+        """usage 应从 message_start 和 message_delta 两处累积."""
+        converter = ToChatCompletionsConverter()
+        converter.set_stream_include_usage(True)
+        events = [
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_002",
+                    "model": "claude-opus-4-7",
+                    "usage": {"input_tokens": 50, "cache_creation_input_tokens": 10},
+                },
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "Hi"},
+            },
+            {"type": "content_block_stop", "index": 0},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 3, "cache_read_input_tokens": 5},
+            },
+            {"type": "message_stop"},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "anthropic")
+            if result is not None:
+                outputs.append(result)
+
+        usage_chunk = outputs[-1]
+        # prompt_tokens = 50 + 10 + 5 = 65
+        assert usage_chunk["usage"]["prompt_tokens"] == 65
+        assert usage_chunk["usage"]["completion_tokens"] == 3
+        assert usage_chunk["usage"]["total_tokens"] == 68
+        assert usage_chunk["usage"]["prompt_tokens_details"]["cached_tokens"] == 5
+
+
 class TestReviewBugFixes:
     """REVIEW1.md C12-C16 五个流式转换 bug 的回归测试。"""
 
