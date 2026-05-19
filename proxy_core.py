@@ -347,7 +347,8 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
                 completion_details = cd
 
     if not response_id:
-        response_id = f"chatcmpl-{model[:8]}"
+        import secrets
+        response_id = f"chatcmpl-{secrets.token_hex(12)}"
 
     message: dict = {
         "role": role,
@@ -391,6 +392,7 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
 
 _model_channels_cache: dict[str, list[Channel]] | None = None
 _model_channels_lock = asyncio.Lock()
+_background_tasks: set[asyncio.Task] = set()
 
 
 async def _invalidate_model_channels_cache() -> None:
@@ -404,7 +406,9 @@ async def _invalidate_model_channels_cache() -> None:
 
 def _schedule_invalidate_model_channels_cache() -> None:
     try:
-        asyncio.create_task(_invalidate_model_channels_cache())
+        task = asyncio.create_task(_invalidate_model_channels_cache())
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
     except RuntimeError:
         pass
 

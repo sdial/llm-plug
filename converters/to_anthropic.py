@@ -62,6 +62,9 @@ class ToAnthropicConverter(BaseConverter):
         if isinstance(content, list):
             result = []
             for item in content:
+                if isinstance(item, str):
+                    result.append({"type": "text", "text": item})
+                    continue
                 if isinstance(item, dict):
                     if item.get("type") == "text":
                         result.append({"type": "text", "text": item.get("text", "")})
@@ -115,8 +118,6 @@ class ToAnthropicConverter(BaseConverter):
                         else:
                             result.append({"type": "text", "text": f"[File input not supported: {filename or 'unknown'}]"})
 
-                    elif isinstance(item, str):
-                        result.append({"type": "text", "text": item})
                     else:
                         item_type = item.get("type", "unknown")
                         logger.warning("Unsupported content item type '%s', converting to text", item_type)

@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from converters.base import BaseConverter
+from converters.base import BaseConverter, thinking_budget_to_effort
 from converters.usage import anthropic_to_openai_chat
 
 HOSTED_RESPONSE_TOOL_TYPES = {
@@ -76,6 +76,18 @@ class ToChatCompletionsConverter(BaseConverter):
                 if isinstance(item, dict):
                     if item.get("type") == "text":
                         text_parts.append(item.get("text", ""))
+                    elif item.get("type") == "image":
+                        # OpenAI tool 消息不支持 image 块，转成可读占位符避免静默丢失。
+                        src = item.get("source", {}) or {}
+                        src_type = src.get("type", "")
+                        if src_type == "base64":
+                            media_type = src.get("media_type", "image/*")
+                            text_parts.append(f"[Image: {media_type} (base64, omitted in tool message)]")
+                        elif src_type == "url":
+                            url = src.get("url", "")
+                            text_parts.append(f"[Image: {url}]")
+                        else:
+                            text_parts.append("[Image (unsupported in tool message)]")
                     elif "text" in item:
                         text_parts.append(item.get("text", ""))
                 elif isinstance(item, str):
@@ -250,15 +262,7 @@ class ToChatCompletionsConverter(BaseConverter):
             if isinstance(thinking, dict):
                 if thinking.get("type") == "enabled":
                     budget = thinking.get("budget_tokens", 0)
-                    # 将 budget_tokens 映射为语义合理的 reasoning_effort 值
-                    if budget <= 0:
-                        result["reasoning_effort"] = "low"
-                    elif budget <= 2048:
-                        result["reasoning_effort"] = "low"
-                    elif budget <= 8192:
-                        result["reasoning_effort"] = "medium"
-                    else:
-                        result["reasoning_effort"] = "high"
+                    result["reasoning_effort"] = thinking_budget_to_effort(budget)
                     result["enable_thinking"] = True
                 elif thinking.get("type") == "adaptive":
                     result["reasoning_effort"] = "medium"

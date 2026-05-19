@@ -5,12 +5,14 @@ import contextlib
 import json
 import os
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from loguru import logger
 
 import config
+
+UTC8 = timezone(timedelta(hours=8))
 
 _DB_PATH: str | None = None
 _DB_AVAILABLE = False
@@ -48,8 +50,8 @@ def _spill_to_overflow_file(record: dict[str, Any]) -> None:
 
 
 def utc8_now() -> datetime:
-    """返回当前东8区时间（硬编码 UTC+8）"""
-    return datetime.utcnow() + timedelta(hours=8)
+    """返回当前东8区时间（UTC+8，naive，仅用于落库与日聚合）。"""
+    return datetime.now(timezone.utc).astimezone(UTC8).replace(tzinfo=None)
 
 
 def _resolve_db_path(db_path: str | None = None) -> str:

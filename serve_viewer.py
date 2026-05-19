@@ -75,14 +75,12 @@ class SessionViewerHandler(BaseHTTPRequestHandler):
     def send_json_response(self, data):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
 
     def send_file_response(self, file_path, content_type):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(file_path.read_bytes())
 
@@ -94,7 +92,8 @@ def main(port=8080):
     logger.info(f"Session Viewer running at http://localhost:{port}/session-viewer.html")
     logger.info("Press Ctrl+C to stop")
 
-    server = HTTPServer(("", port), SessionViewerHandler)
+    # 仅绑定 loopback：viewer 无认证，任何能访问该端口的人都能读到 logs/ 下的会话记录。
+    server = HTTPServer(("127.0.0.1", port), SessionViewerHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

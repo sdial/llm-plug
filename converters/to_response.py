@@ -6,7 +6,7 @@ import secrets
 import time
 from typing import Any
 
-from converters.base import BaseConverter
+from converters.base import BaseConverter, thinking_budget_to_effort
 from converters.usage import anthropic_to_openai_response
 
 
@@ -325,13 +325,7 @@ class ToResponseConverter(BaseConverter):
                     result["tool_choice"] = {"type": "function", "name": tc.get("name", "")}
         if data.get("thinking") is not None:
             budget = data["thinking"].get("budget_tokens", 0) if isinstance(data["thinking"], dict) else 0
-            if budget >= 10000:
-                effort = "high"
-            elif budget >= 4000:
-                effort = "medium"
-            else:
-                effort = "low"
-            result["reasoning"] = {"effort": effort}
+            result["reasoning"] = {"effort": thinking_budget_to_effort(budget)}
         return result
 
     def _anthropic_tools_to_response(self, tools: list) -> list:
@@ -347,14 +341,31 @@ class ToResponseConverter(BaseConverter):
         return response_tools
 
     def _anthropic_response_to_response(self, data: dict[str, Any]) -> dict[str, Any]:
-        output = []
-        text = ""
+        output: list[dict[str, Any]] = []
         stop_reason = data.get("stop_reason", "end_turn")
+        msg_id = data.get("id", "")
+
+        text_buffer = ""
+
+        def flush_text() -> None:
+            nonlocal text_buffer
+            if text_buffer:
+                output.append({
+                    "type": "message",
+                    "id": f"msg_{msg_id}",
+                    "status": "completed",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": text_buffer}],
+                })
+                text_buffer = ""
 
         for part in data.get("content", []):
-            if part.get("type") == "text":
-                text += part.get("text", "")
-            elif part.get("type") == "tool_use":
+            ptype = part.get("type")
+            if ptype == "text":
+                text_buffer += part.get("text", "")
+            elif ptype == "tool_use":
+                # 工具调用前先把累积的文本作为独立 message 输出，保持原始顺序
+                flush_text()
                 output.append({
                     "type": "function_call",
                     "call_id": part.get("id", ""),
@@ -362,18 +373,12 @@ class ToResponseConverter(BaseConverter):
                     "arguments": json.dumps(part.get("input", {})),
                 })
 
-        if text:
-            output.insert(0, {
-                "type": "message",
-                "id": f"msg_{data.get('id', '')}",
-                "status": "completed",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": text}],
-            })
-        elif not output:
+        flush_text()
+
+        if not output:
             output.append({
                 "type": "message",
-                "id": f"msg_{data.get('id', '')}",
+                "id": f"msg_{msg_id}",
                 "status": "completed",
                 "role": "assistant",
                 "content": [{"type": "output_text", "text": ""}],
@@ -384,7 +389,7 @@ class ToResponseConverter(BaseConverter):
             status = "incomplete"
 
         return {
-            "id": f"resp_{data.get('id', '')}",
+            "id": f"resp_{msg_id}",
             "object": "response",
             "created_at": int(time.time()),
             "model": data.get("model", ""),
@@ -857,7 +862,7 @@ class ToResponseConverter(BaseConverter):
                     "id": self._stream_state.get("response_id", ""),
                     "object": "response",
                     "status": "in_progress",
-                    "model": "",
+                    "model": self._stream_state.get("model", ""),
                     "output": [],
                 },
             }
@@ -990,6 +995,7 @@ class ToResponseConverter(BaseConverter):
                 "type": "response.function_call_arguments.done",
                 "item_id": self._make_function_call_id(call_id),
                 "output_index": tc_data.get("output_index", 0),
+                "name": tc_data.get("name", ""),
                 "arguments": tc_data.get("arguments", ""),
             })
         done_events.append(completed_event)
