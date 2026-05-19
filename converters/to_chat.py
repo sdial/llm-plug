@@ -40,6 +40,13 @@ class ToChatCompletionsConverter(BaseConverter):
 
     def __init__(self):
         self._stream_state: dict[str, Any] | None = None
+        self._stream_include_usage: bool = False
+
+    def set_stream_include_usage(self, flag: bool) -> None:
+        """供 proxy_core 在创建 converter 后透传客户端的 stream_options.include_usage。
+        仅影响 Anthropic→Chat 流式：当 flag=True 时，在 message_stop 处 emit 末帧 usage chunk。
+        """
+        self._stream_include_usage = bool(flag)
 
     def _reset_stream_state(self):
         self._stream_state = {
@@ -48,6 +55,7 @@ class ToChatCompletionsConverter(BaseConverter):
             "tool_call_index": 0,
             "content_block_to_tc_index": {},  # Anthropic content block index → OpenAI tool_call index
             "output_index_to_tc_index": {},   # Response output_index → OpenAI tool_call index
+            "anthropic_usage": {},  # 累积 Anthropic 侧 usage
         }
 
     @staticmethod
@@ -410,6 +418,10 @@ class ToChatCompletionsConverter(BaseConverter):
             self._stream_state["msg_id"] = f"chatcmpl-{msg.get('id', '')}"
             self._stream_state["model"] = msg.get("model", "")
             self._stream_state["tool_call_index"] = 0
+            # 累积 message_start 中的 usage
+            anthropic_usage = msg.get("usage")
+            if isinstance(anthropic_usage, dict):
+                self._stream_state["anthropic_usage"].update(anthropic_usage)
             return {
                 "id": self._stream_state["msg_id"],
                 "object": "chat.completion.chunk",
@@ -482,6 +494,10 @@ class ToChatCompletionsConverter(BaseConverter):
 
         elif event_type == "message_delta":
             stop_reason = chunk.get("delta", {}).get("stop_reason")
+            # 累积 message_delta 中的 usage
+            delta_usage = chunk.get("usage")
+            if isinstance(delta_usage, dict):
+                self._stream_state["anthropic_usage"].update(delta_usage)
             choice = {"index": 0, "delta": {}, "finish_reason": self._map_stop_reason(stop_reason)}
             stop_seq = chunk.get("delta", {}).get("stop_sequence") or chunk.get("stop_sequence")
             if stop_reason == "stop_sequence" and stop_seq:
@@ -495,6 +511,16 @@ class ToChatCompletionsConverter(BaseConverter):
             }
 
         elif event_type == "message_stop":
+            if self._stream_include_usage:
+                usage_payload = anthropic_to_openai_chat(self._stream_state.get("anthropic_usage"))
+                return {
+                    "id": self._stream_state["msg_id"],
+                    "object": "chat.completion.chunk",
+                    "created": 0,
+                    "model": self._stream_state["model"],
+                    "choices": [],
+                    "usage": usage_payload,
+                }
             return None
 
         elif event_type == "ping":
