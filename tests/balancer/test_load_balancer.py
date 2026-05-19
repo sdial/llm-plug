@@ -1,3 +1,7 @@
+import inspect
+
+import pytest
+
 from balancer.load_balancer import LoadBalancer, ChannelHealth
 from models.channel import Channel
 from models.api_types import APIType
@@ -87,3 +91,19 @@ def test_weighted_round_robin_weight_distribution():
     assert 0.5 < ch1_ratio < 0.7, (
         f"Expected ch1 ratio around 0.6, got {ch1_ratio:.2f} (ch1={selections['ch1']}, ch2={selections['ch2']})"
     )
+
+
+@pytest.mark.anyio
+async def test_health_mutations_are_async_lock_protected():
+    balancer = LoadBalancer()
+
+    assert inspect.iscoroutinefunction(balancer.record_success)
+    assert inspect.iscoroutinefunction(balancer.record_failure)
+    assert inspect.iscoroutinefunction(balancer.cleanup_removed_channels)
+
+    await balancer.record_failure("ch1")
+    assert balancer._health["ch1"].fail_count == 1
+    await balancer.record_success("ch1")
+    assert balancer._health["ch1"].fail_count == 0
+    await balancer.cleanup_removed_channels(set())
+    assert "ch1" not in balancer._health

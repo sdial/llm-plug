@@ -1,6 +1,6 @@
 import asyncio
 import json
-import os
+import secrets
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -13,9 +13,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import request_logs
 from client import cleanup_stale_clients, close_all_clients
-from config import DATA_DIR, HOST, MAX_BODY_SIZE, PORT, get_setting, init_settings
+from config import HOST, MAX_BODY_SIZE, PORT, get_setting, init_settings
+from response_state import get_responses_store, reload_responses_store
 from routers import admin, proxy_anthropic, proxy_chat, proxy_models, proxy_response
-from state_store import FileStore
 from stats import close_pool as close_stats_pool
 from stats import init_db as init_stats_db
 from stats import start_stats_workers, stop_stats_workers
@@ -47,12 +47,7 @@ logger.add(
 )
 
 
-_session_dir = os.path.join(DATA_DIR, "responses_session")
-_responses_store = FileStore(
-    data_dir=_session_dir,
-    max_entries=get_setting("response_state_max_entries") or 1000,
-    ttl_minutes=get_setting("response_state_ttl_minutes") or 60,
-)
+_responses_store = get_responses_store()
 
 
 async def _session_cleanup_loop():
@@ -69,6 +64,7 @@ async def _session_cleanup_loop():
 @asynccontextmanager
 async def lifespan(app):
     await init_settings()
+    reload_responses_store()
     channels_data = await load_data()
     keys_data = await load_api_keys()
     channel_count = len(channels_data.get("channels", []))
@@ -189,9 +185,8 @@ class CombinedMiddleware:
 
             matched_key = None
             for key in api_keys:
-                if key.get("key") == token:
+                if secrets.compare_digest(key.get("key") or "", token):
                     matched_key = key
-                    break
 
             if matched_key is None:
                 await self._send_error(send, 401, "Invalid API key")

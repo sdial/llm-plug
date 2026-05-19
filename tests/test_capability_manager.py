@@ -129,7 +129,7 @@ class TestApplyCapabilityFilter:
         assert "parallel_tool_calls" not in result
 
     def test_filter_tool_choice_auto(self):
-        """当不支持 tool_choice=auto 时，应降级为 none"""
+        """当不支持 tool_choice=auto 时，应移除字段（让上游使用默认 auto-like 行为），而非反转为 none"""
         caps = ProviderCapabilities(
             supports_tool_choice_auto=False,
         )
@@ -139,7 +139,7 @@ class TestApplyCapabilityFilter:
             "tool_choice": "auto",
         }
         result = apply_capability_filter(request, caps)
-        assert result["tool_choice"] == "none"
+        assert "tool_choice" not in result
 
     def test_no_modification_when_false(self):
         """当参数值为 False 时，不应移除"""

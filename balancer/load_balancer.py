@@ -47,16 +47,19 @@ class LoadBalancer:
         self._max_fail_count = max_fail_count
         self._cooldown_seconds = float(cooldown_seconds)
 
-    def record_success(self, channel_id: str):
-        self._health[channel_id].record_success()
+    async def record_success(self, channel_id: str):
+        async with self._lock:
+            self._health[channel_id].record_success()
 
-    def record_failure(self, channel_id: str):
-        self._health[channel_id].record_failure()
+    async def record_failure(self, channel_id: str):
+        async with self._lock:
+            self._health[channel_id].record_failure()
 
-    def cleanup_removed_channels(self, active_channel_ids: set[str]):
-        for ch_id in list(self._health.keys()):
-            if ch_id not in active_channel_ids:
-                del self._health[ch_id]
+    async def cleanup_removed_channels(self, active_channel_ids: set[str]):
+        async with self._lock:
+            for ch_id in list(self._health.keys()):
+                if ch_id not in active_channel_ids:
+                    del self._health[ch_id]
 
     async def select_channel(
         self,

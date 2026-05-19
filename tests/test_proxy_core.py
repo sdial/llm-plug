@@ -1722,10 +1722,10 @@ class TestAnthropicHeaderPriority:
 
 
 class TestFailoverOn401:
-    """401/403/404 应触发故障转移到其他渠道。"""
+    """401/403 属于请求/凭据错误，不应拉黑所有候选渠道；404 仍允许故障转移。"""
 
     @pytest.mark.anyio
-    async def test_401_fails_over_to_next_channel(self):
+    async def test_401_does_not_fail_over_to_next_channel(self):
         calls = []
 
         class UnauthorizedClient:
@@ -1797,23 +1797,25 @@ class TestFailoverOn401:
                 side_effect=fake_create_client,
             ),
             patch("proxy_core.stats.record_request"),
+            patch("proxy_core.load_balancer.record_failure", new_callable=AsyncMock) as record_failure,
         ):
-            result, selected = await _proxy_single_model_request(
-                model="gpt-4o",
-                request_data={"model": "gpt-4o", "messages": []},
-                target_api_type=APIType.OPENAI_CHAT,
-                is_stream=False,
-                query_string=None,
-                client_headers=None,
-                api_key_id=None,
-            )
+            with pytest.raises(httpx.HTTPStatusError) as exc_info:
+                await _proxy_single_model_request(
+                    model="gpt-4o",
+                    request_data={"model": "gpt-4o", "messages": []},
+                    target_api_type=APIType.OPENAI_CHAT,
+                    is_stream=False,
+                    query_string=None,
+                    client_headers=None,
+                    api_key_id=None,
+                )
 
-        assert selected.id == "ch_fallback"
-        assert len(calls) == 2
-        assert result["choices"][0]["message"]["content"] == "ok"
+        assert exc_info.value.response.status_code == 401
+        assert len(calls) == 1
+        record_failure.assert_not_awaited()
 
     @pytest.mark.anyio
-    async def test_403_fails_over_to_next_channel(self):
+    async def test_403_does_not_fail_over_to_next_channel(self):
         calls = []
 
         class ForbiddenClient:
@@ -1885,19 +1887,22 @@ class TestFailoverOn401:
                 side_effect=fake_create_client,
             ),
             patch("proxy_core.stats.record_request"),
+            patch("proxy_core.load_balancer.record_failure", new_callable=AsyncMock) as record_failure,
         ):
-            result, selected = await _proxy_single_model_request(
-                model="gpt-4o",
-                request_data={"model": "gpt-4o", "messages": []},
-                target_api_type=APIType.OPENAI_CHAT,
-                is_stream=False,
-                query_string=None,
-                client_headers=None,
-                api_key_id=None,
-            )
+            with pytest.raises(httpx.HTTPStatusError) as exc_info:
+                await _proxy_single_model_request(
+                    model="gpt-4o",
+                    request_data={"model": "gpt-4o", "messages": []},
+                    target_api_type=APIType.OPENAI_CHAT,
+                    is_stream=False,
+                    query_string=None,
+                    client_headers=None,
+                    api_key_id=None,
+                )
 
-        assert selected.id == "ch_fallback"
-        assert len(calls) == 2
+        assert exc_info.value.response.status_code == 403
+        assert len(calls) == 1
+        record_failure.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_404_fails_over_to_next_channel(self):

@@ -93,12 +93,14 @@ def apply_capability_filter(request_data: dict, caps: ProviderCapabilities) -> d
             del result["parallel_tool_calls"]
             logger.warning("[CAPABILITY] 降级: parallel_tool_calls 被移除（渠道不支持）")
 
-    # 过滤 tool_choice
+    # 过滤 tool_choice=auto
+    # 注意：不能把 auto 改成 none —— 这是语义反转（auto=允许调用工具，none=禁止）。
+    # 正确降级是删除字段，让上游使用默认行为（OpenAI/Anthropic 默认即 auto-like）。
     if not caps.supports_tool_choice_auto:
         tc = result.get("tool_choice")
         if tc == "auto":
-            result["tool_choice"] = "none"
-            logger.warning("[CAPABILITY] 降级: tool_choice auto → none（渠道不支持）")
+            del result["tool_choice"]
+            logger.warning("[CAPABILITY] 降级: tool_choice auto 被移除，回退上游默认（渠道不支持显式 auto）")
 
     # 过滤 tool_choice=required
     if not caps.supports_tool_choice_required:

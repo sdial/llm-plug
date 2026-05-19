@@ -403,6 +403,55 @@ class ToResponseConverter(BaseConverter):
     def _make_response_event(self, event_type: str, **payload) -> dict[str, Any]:
         return {"type": event_type, **payload}
 
+    def _emit_text_done_events(self) -> list[dict[str, Any]]:
+        """关闭当前活跃的 text output；返回 output_text.done + content_part.done + output_item.done 序列。
+
+        在 Chat→Response 流式中，若文本之后切换到 function_call，必须先把文本 output 关闭再 emit
+        function_call output_item.added，否则严格模式客户端会拒收。
+        """
+        if self._stream_state is None:
+            return []
+        item_id = self._stream_state.get("active_text_item_id")
+        if item_id is None:
+            return []
+        text_output_index = self._stream_state.get("active_text_output_index")
+        if text_output_index is None:
+            text_output_index = 0
+        text = self._stream_state.get("accumulated_text", "")
+
+        events: list[dict[str, Any]] = []
+        if text:
+            events.append(self._make_response_event(
+                "response.output_text.done",
+                item_id=item_id,
+                output_index=text_output_index,
+                content_index=0,
+                text=text,
+            ))
+            events.append(self._make_response_event(
+                "response.content_part.done",
+                item_id=item_id,
+                output_index=text_output_index,
+                content_index=0,
+                part={"type": "output_text", "text": text},
+            ))
+        events.append(self._make_response_event(
+            "response.output_item.done",
+            output_index=text_output_index,
+            item={
+                "type": "message",
+                "id": item_id,
+                "status": "completed",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": text}],
+            },
+        ))
+        # 清空活跃文本状态，避免 finalize_stream 重复发送相同的 done 事件
+        self._stream_state["active_text_item_id"] = None
+        self._stream_state["active_text_output_index"] = None
+        self._stream_state["content_part_added_sent"] = False
+        return events
+
     def _chat_stream_chunk_to_response(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
         from loguru import logger
         if self._stream_state is None:
@@ -539,6 +588,8 @@ class ToResponseConverter(BaseConverter):
         # 处理工具调用
         if delta.get("tool_calls"):
             events = []
+            # 切到 function_call 之前需要先关闭尚未结束的 text output（C16）
+            events.extend(self._emit_text_done_events())
             for tc in delta["tool_calls"]:
                 call_id = tc.get("id", "")
                 tc_index = tc.get("index")
@@ -570,7 +621,9 @@ class ToResponseConverter(BaseConverter):
                             "status": "in_progress",
                         },
                     ))
-                elif function.get("arguments") is not None:
+                # 同 chunk 中可能同时携带 name 和 arguments（DeepSeek/Qwen 等高发），
+                # 用独立的 if 而非 elif，避免首块 arguments 丢失。
+                if function.get("arguments") is not None:
                     args = function.get("arguments", "")
                     if args:
                         if call_id in self._stream_state["tool_calls"]:

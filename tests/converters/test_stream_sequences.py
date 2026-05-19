@@ -1234,3 +1234,280 @@ class TestAnthropicToChatStream:
             if o["choices"][0]["delta"].get("content")
         ]
         assert "The answer is 42" in content_parts
+
+
+class TestReviewBugFixes:
+    """REVIEW1.md C12-C16 五个流式转换 bug 的回归测试。"""
+
+    # --- C12 ---
+    def test_c12_repeated_tool_name_does_not_double_emit_content_block_start(self):
+        """DeepSeek/Qwen 在每个 delta 重复发送 name 时，不应多次发 content_block_start。"""
+        converter = ToAnthropicConverter()
+        events = [
+            {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search", "arguments": "{"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search", "arguments": '"q":"x"'},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search", "arguments": "}"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+        ]
+        outputs = feed_anthropic_events(converter, events)
+        start_events = [e for et, e in outputs if et == "content_block_start"]
+        assert len(start_events) == 1, (
+            f"Expected exactly 1 content_block_start for the repeated tool_call, "
+            f"got {len(start_events)} -> {start_events}"
+        )
+        # 参数应完整拼接
+        arg_text = "".join(
+            d.get("delta", {}).get("partial_json", "")
+            for et, d in outputs
+            if d.get("delta", {}).get("type") == "input_json_delta"
+        )
+        assert arg_text == '{"q":"x"}', f"Got partial_json={arg_text!r}"
+
+    # --- C13 ---
+    def test_c13_function_name_and_arguments_in_same_chunk_preserves_arguments(self):
+        """DeepSeek/Qwen 同一 chunk 中给 name 和 arguments 时，首块 arguments 不能丢失。"""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant"}}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search", "arguments": '{"q":'},
+                                }
+                            ]
+                        }
+                    }
+                ],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": '"x"}'}}
+                            ]
+                        }
+                    }
+                ],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "tool_calls"}],
+            },
+        ]
+        outputs = feed_response_events(converter, events)
+        args_text = "".join(
+            o.get("delta", "")
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.function_call_arguments.delta"
+        )
+        assert args_text == '{"q":"x"}', f"Expected '{{\"q\":\"x\"}}', got {args_text!r}"
+
+        # 最终 completed 的 arguments 也应完整
+        completed = [
+            o for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ][0]
+        tool_call = [
+            item for item in completed["response"]["output"]
+            if item["type"] == "function_call"
+        ][0]
+        assert tool_call["arguments"] == '{"q":"x"}'
+
+    # --- C14 ---
+    def test_c14_usage_only_chunk_after_finish_does_not_double_message_stop(self):
+        """finish_reason 后单独的 usage chunk 不应重复触发 message_stop。"""
+        converter = ToAnthropicConverter()
+        events = [
+            {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {"choices": [{"delta": {"content": "Hello"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},  # 无 usage
+            {"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 1}},
+        ]
+        outputs = feed_anthropic_events(converter, events)
+        stop_events = [(et, d) for et, d in outputs if et == "message_stop"]
+        assert len(stop_events) == 1, f"Expected 1 message_stop, got {len(stop_events)}"
+        # usage 应反映在最终的 message_delta 中
+        delta_events = [d for et, d in outputs if et == "message_delta"]
+        assert delta_events, "Expected at least one message_delta"
+        last_delta = delta_events[-1]
+        assert last_delta["usage"]["output_tokens"] == 1, (
+            f"Expected output_tokens=1, got {last_delta['usage']['output_tokens']}"
+        )
+
+    # --- C15 ---
+    def test_c15_response_reasoning_event_reaches_anthropic_output(self):
+        """OpenAI Response 的 reasoning_summary_text 事件应转换为 Anthropic thinking 事件。"""
+        converter = ToAnthropicConverter()
+        events = [
+            {"type": "response.created", "response": {"id": "resp_1", "model": "o1"}},
+            {
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {"type": "reasoning", "id": "rs_1", "summary": []},
+            },
+            {"type": "response.reasoning_summary_text.delta", "delta": "thinking step..."},
+            {"type": "response.output_item.done", "output_index": 0, "item": {"type": "reasoning", "id": "rs_1"}},
+            {
+                "type": "response.output_item.added",
+                "output_index": 1,
+                "item": {"type": "message", "id": "msg_1"},
+            },
+            {"type": "response.output_text.delta", "delta": "the answer"},
+            {
+                "type": "response.completed",
+                "response": {
+                    "status": "completed",
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+            },
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-response")
+            if result is not None:
+                et = converter.get_stream_event_type(evt, "openai-response")
+                outputs.append((et, result))
+                extra = converter.get_extra_events(result or {})
+                for extra_evt in extra:
+                    if isinstance(extra_evt, tuple) and len(extra_evt) == 2:
+                        outputs.append(extra_evt)
+                    elif isinstance(extra_evt, dict):
+                        outputs.append((extra_evt.get("type", ""), extra_evt))
+
+        # thinking 文本到达
+        thinking_text = "".join(
+            d.get("delta", {}).get("thinking", "")
+            for et, d in outputs
+            if d.get("delta", {}).get("type") == "thinking_delta"
+        )
+        assert "thinking step..." in thinking_text, (
+            f"Expected thinking text in Anthropic output, got events={[et for et, _ in outputs]}"
+        )
+
+        # 常规文本仍能到达
+        text_content = "".join(
+            d.get("delta", {}).get("text", "")
+            for et, d in outputs
+            if d.get("delta", {}).get("type") == "text_delta"
+        )
+        assert "the answer" in text_content
+
+    # --- C16 ---
+    def test_c16_text_to_tool_call_closes_text_output_first(self):
+        """Chat→Response 文本之后切到 function_call，须先关闭 text output。"""
+        converter = ToResponseConverter()
+        events = [
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant"}}]},
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Searching"}}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "search", "arguments": ""},
+                                }
+                            ]
+                        }
+                    }
+                ],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": "{}"}}
+                            ]
+                        }
+                    }
+                ],
+            },
+            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+        ]
+        outputs = feed_response_events(converter, events)
+        event_seq = [o.get("type") for o in outputs if isinstance(o, dict)]
+
+        added_indexes = [i for i, t in enumerate(event_seq) if t == "response.output_item.added"]
+        # 至少 2 个 output_item.added：text message + function_call
+        assert len(added_indexes) >= 2, f"Expected >=2 output_item.added, got {event_seq}"
+
+        # 找 function_call 对应的 output_item.added
+        function_call_added_idx = None
+        for i, o in enumerate(outputs):
+            if (
+                isinstance(o, dict)
+                and o.get("type") == "response.output_item.added"
+                and o.get("item", {}).get("type") == "function_call"
+            ):
+                function_call_added_idx = i
+                break
+        assert function_call_added_idx is not None, "function_call output_item.added not found"
+
+        # text 的关闭事件必须在 function_call 的 added 之前
+        for ev_name in ("response.output_text.done", "response.content_part.done", "response.output_item.done"):
+            assert ev_name in event_seq, f"Missing {ev_name} in stream"
+            assert event_seq.index(ev_name) < function_call_added_idx, (
+                f"{ev_name} ({event_seq.index(ev_name)}) must precede "
+                f"function_call output_item.added ({function_call_added_idx})"
+            )

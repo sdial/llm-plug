@@ -206,6 +206,32 @@ class TestCleanupStaleClients:
         assert not c.is_closed
         assert len(client._clients) == 1
 
+    @pytest.mark.anyio
+    async def test_does_not_close_client_reused_after_stale_scan(self, sample_channel):
+        c = await client.get_or_create_client(sample_channel)
+        key = client._cache_key(sample_channel)
+        client._cache_ts[key] = time.time() - 1000
+
+        original_time = client.time.time
+        calls = 0
+
+        def fake_time():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return original_time()
+            return original_time() + 1
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(client.time, "time", fake_time)
+            cleanup_task = asyncio.create_task(client.cleanup_stale_clients(max_age=300.0))
+            reused = await client.get_or_create_client(sample_channel)
+            await cleanup_task
+
+        assert reused is c
+        assert not c.is_closed
+        assert client._clients[key] is c
+
 
 class TestRemoveChannelClient:
     @pytest.mark.anyio

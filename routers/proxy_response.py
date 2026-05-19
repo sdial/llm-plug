@@ -1,5 +1,4 @@
 import json
-import os
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 
@@ -8,25 +7,19 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from loguru import logger
 
-from config import DATA_DIR, get_setting
 from models.api_types import APIType
 from proxy_core import ConverterError, proxy_request
+from response_state import get_responses_store
 from routers.auth import check_proxy_authorization
 from routers.proxy_errors import (
     invalid_request,
     response_from_proxy_exception,
     unauthorized,
 )
-from state_store import FileStore
 
 router = APIRouter(tags=["代理"])
 
-_session_dir = os.path.join(DATA_DIR, "responses_session")
-_store = FileStore(
-    data_dir=_session_dir,
-    max_entries=get_setting("response_state_max_entries") or 1000,
-    ttl_minutes=get_setting("response_state_ttl_minutes") or 60,
-)
+_store = get_responses_store()
 
 
 def _input_to_items(input_data: Any) -> list[dict[str, Any]]:
