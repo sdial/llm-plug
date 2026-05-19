@@ -1,9 +1,11 @@
 import asyncio
+import contextlib
 import json
 import os
 import tempfile
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import config
 from models.model_group import LBConfig, ModelGroup
@@ -38,10 +40,8 @@ def register_save_callback(callback: Callable[[], None]) -> None:
 
 def _trigger_save_callbacks() -> None:
     for cb in _save_callbacks:
-        try:
+        with contextlib.suppress(Exception):
             cb()
-        except Exception:
-            pass
 
 
 def _ensure_data_dir():
@@ -55,30 +55,23 @@ def _read_channels_from_disk() -> dict[str, Any]:
 
 def _write_channels_to_disk(data: dict[str, Any]) -> None:
     dir_name = os.path.dirname(os.path.abspath(config.CHANNELS_FILE)) or "."
-    f = tempfile.NamedTemporaryFile(
+    with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
         dir=dir_name,
         delete=False,
         prefix=".channels_",
         suffix=".tmp.json",
-    )
-    tmp_path = f.name
-    try:
+    ) as f:
+        tmp_path = f.name
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.flush()
         os.fsync(f.fileno())
-        f.close()
+    try:
         os.replace(tmp_path, config.CHANNELS_FILE)
     except Exception:
-        try:
-            f.close()
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise
 
 
@@ -134,30 +127,23 @@ def _read_api_keys_from_disk() -> dict[str, Any]:
 
 def _write_api_keys_to_disk(data: dict[str, Any]) -> None:
     dir_name = os.path.dirname(os.path.abspath(config.API_KEYS_FILE)) or "."
-    f = tempfile.NamedTemporaryFile(
+    with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
         dir=dir_name,
         delete=False,
         prefix=".api_keys_",
         suffix=".tmp.json",
-    )
-    tmp_path = f.name
-    try:
+    ) as f:
+        tmp_path = f.name
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.flush()
         os.fsync(f.fileno())
-        f.close()
+    try:
         os.replace(tmp_path, config.API_KEYS_FILE)
     except Exception:
-        try:
-            f.close()
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise
 
 

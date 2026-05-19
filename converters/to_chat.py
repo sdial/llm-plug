@@ -9,7 +9,6 @@ from loguru import logger
 
 from converters.base import BaseConverter
 
-
 HOSTED_RESPONSE_TOOL_TYPES = {
     "web_search",
     "web_search_preview",

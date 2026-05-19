@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -151,30 +152,23 @@ def _apply_lb_settings():
 async def _save_settings_to_disk():
     dir_name = os.path.dirname(os.path.abspath(_SETTINGS_FILE)) or "."
     os.makedirs(dir_name, exist_ok=True)
-    f = tempfile.NamedTemporaryFile(
+    with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
         dir=dir_name,
         delete=False,
         prefix=".settings_",
         suffix=".tmp.json",
-    )
-    tmp_path = f.name
-    try:
+    ) as f:
+        tmp_path = f.name
         json.dump(_settings, f, ensure_ascii=False, indent=2)
         f.flush()
         os.fsync(f.fileno())
-        f.close()
+    try:
         os.replace(tmp_path, _SETTINGS_FILE)
     except Exception:
-        try:
-            f.close()
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise
 
 

@@ -1,6 +1,7 @@
 """SQLite-backed lightweight request statistics."""
 
 import asyncio
+import contextlib
 import os
 import sqlite3
 from datetime import date, datetime, timedelta
@@ -156,7 +157,6 @@ async def close_pool():
 async def init_pool():
     """兼容旧调用名，SQLite 不维护连接池。"""
     await init_db()
-    return None
 
 
 def _ensure_queue() -> asyncio.Queue | None:
@@ -194,10 +194,8 @@ async def stop_stats_workers():
     for task in _STATS_WORKERS:
         task.cancel()
     for task in _STATS_WORKERS:
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
     _STATS_WORKERS.clear()
     _STATS_QUEUE = None
     _STATS_QUEUE_LOOP = None
@@ -756,7 +754,7 @@ async def get_api_key_stats() -> dict[str, dict[str, int]]:
     return await asyncio.to_thread(_get_api_key_stats_sync)
 
 
-async def get_request_field(request_id: int, field: str) -> dict | None:
+async def get_request_field(request_id: int, field: str) -> dict | None:  # noqa: ARG001
     """统计库不保存 headers/body，始终返回 None。"""
     return None
 

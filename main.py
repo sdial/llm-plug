@@ -9,16 +9,17 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
-from starlette.types import ASGIApp, Receive, Scope, Send, Message
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from client import close_all_clients, cleanup_stale_clients
-from config import HOST, PORT, MAX_BODY_SIZE
-from config import init_settings, get_setting, DATA_DIR
-from routers import admin, proxy_chat, proxy_response, proxy_anthropic, proxy_models
-from state_store import FileStore
-from stats import init_db as init_stats_db, close_pool as close_stats_pool, start_stats_workers, stop_stats_workers
 import request_logs
-from storage import load_data, load_api_keys
+from client import cleanup_stale_clients, close_all_clients
+from config import DATA_DIR, HOST, MAX_BODY_SIZE, PORT, get_setting, init_settings
+from routers import admin, proxy_anthropic, proxy_chat, proxy_models, proxy_response
+from state_store import FileStore
+from stats import close_pool as close_stats_pool
+from stats import init_db as init_stats_db
+from stats import start_stats_workers, stop_stats_workers
+from storage import load_api_keys, load_data
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
@@ -284,6 +285,7 @@ if __name__ == "__main__":
     import argparse
     import signal
     import socket
+
     import uvicorn
 
     parser = argparse.ArgumentParser(description="LLM API 转换器")

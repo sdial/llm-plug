@@ -8,25 +8,28 @@ import time
 from datetime import datetime
 from typing import Any
 
+import httpx
 from loguru import logger
 
-import httpx
-
-from balancer.load_balancer import load_balancer
-from client import create_client, create_stream_client, get_upstream_headers
-from config import LOG_LEVEL, DATA_DIR, get_setting
-import storage
 import request_logs
-from state_store import FileStore
+import stats
+import storage
+from balancer.load_balancer import load_balancer
+from capability_manager import (
+    apply_capability_filter,
+    infer_capabilities,
+    merge_system_messages,
+)
+from client import create_client, create_stream_client, get_upstream_headers
+from config import DATA_DIR, LOG_LEVEL, get_setting
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
-import stats
+from state_store import FileStore
 from storage import register_save_callback
-from capability_manager import infer_capabilities, apply_capability_filter, merge_system_messages
-from think_filter import filter_think_content_static, ThinkFilter
+from think_filter import ThinkFilter, filter_think_content_static
 
 # Responses 状态存储
 _session_dir = os.path.join(DATA_DIR, "responses_session")
@@ -592,7 +595,7 @@ class _UpstreamStreamErrorEvent(Exception):
 
 async def _prime_stream(gen):
     """消费首个 chunk，让连接和首包前错误进入故障转移循环。
-    
+
     如果上游连接成功但没有任何 SSE 输出（StopAsyncIteration），
     视为上游异常，触发故障转移而非返回空流。
     """

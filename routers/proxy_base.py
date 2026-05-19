@@ -1,8 +1,8 @@
 import json
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Header, Request
 import httpx
+from fastapi import APIRouter, Header, Request
 from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 
@@ -17,7 +17,6 @@ from routers.proxy_errors import (
     response_from_proxy_exception,
     unauthorized,
 )
-
 
 
 async def _closeable_stream(gen: AsyncGenerator):

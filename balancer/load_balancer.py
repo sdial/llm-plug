@@ -94,7 +94,7 @@ class LoadBalancer:
 
     def _weighted_round_robin(self, channels: list[Channel]) -> Channel:
         """平滑加权轮询算法
-        
+
         算法：
         1. 所有 channel 的 current_weight += weight
         2. 选择 current_weight 最大的 channel
