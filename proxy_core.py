@@ -3,7 +3,6 @@
 """
 import asyncio
 import json
-import os
 import time
 from datetime import datetime
 from typing import Any
@@ -21,23 +20,18 @@ from capability_manager import (
     merge_system_messages,
 )
 from client import create_client, create_stream_client, get_upstream_headers
-from config import DATA_DIR, LOG_LEVEL, get_setting
+from config import LOG_LEVEL
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
-from state_store import FileStore
+from response_state import get_responses_store
 from storage import register_save_callback
 from think_filter import ThinkFilter, filter_think_content_static
 
 # Responses 状态存储
-_session_dir = os.path.join(DATA_DIR, "responses_session")
-_responses_store = FileStore(
-    data_dir=_session_dir,
-    max_entries=get_setting("response_state_max_entries") or 1000,
-    ttl_minutes=get_setting("response_state_ttl_minutes") or 60,
-)
+_responses_store = get_responses_store()
 
 # 流式响应最大记录chunk数量，防止内存溢出
 MAX_STREAM_CHUNKS = 2000
@@ -384,7 +378,7 @@ async def _invalidate_model_channels_cache() -> None:
         _model_channels_cache = None
     data = await storage.load_data()
     active_ids = {ch.get("id") for ch in data.get("channels", [])}
-    load_balancer.cleanup_removed_channels(active_ids)
+    await load_balancer.cleanup_removed_channels(active_ids)
 
 
 def _schedule_invalidate_model_channels_cache() -> None:
@@ -684,12 +678,12 @@ async def _proxy_single_model_request(
             return result, selected
         except Exception as e:
             if _is_retryable_exception(e):
-                load_balancer.record_failure(selected.id)
+                await load_balancer.record_failure(selected.id)
                 last_error = e
                 all_tried.add(selected.id)
             elif _is_channel_config_error(e):
                 # 渠道配置错误（401/403/404）：记录失败并继续尝试其他渠道
-                load_balancer.record_failure(selected.id)
+                await load_balancer.record_failure(selected.id)
                 last_error = e
                 all_tried.add(selected.id)
             else:
@@ -734,12 +728,12 @@ async def _proxy_model_group_request(
                 return result, selected
             except Exception as e:
                 if _is_retryable_exception(e):
-                    load_balancer.record_failure(selected.id)
+                    await load_balancer.record_failure(selected.id)
                     last_error = e
                     tried_channels.add(selected.id)
                 elif _is_channel_config_error(e):
                     # 渠道配置错误（401/403/404）：记录失败并继续尝试其他渠道
-                    load_balancer.record_failure(selected.id)
+                    await load_balancer.record_failure(selected.id)
                     last_error = e
                     tried_channels.add(selected.id)
                 else:
@@ -887,7 +881,7 @@ async def _do_request(
             logger.debug(f"content: [{', '.join(summary)}]")
         logger.debug(f"stop_reason: {response_data.get('stop_reason', '?') if isinstance(response_data, dict) else '?'}")
 
-        load_balancer.record_success(channel.id)
+        await load_balancer.record_success(channel.id)
         return response_data
     except Exception as e:
         # upstream_start 为 None 表示 create_client 失败，此时用 request_start 兜底
@@ -1269,20 +1263,20 @@ async def _do_stream_request(
                         raise
                     continue
 
-    try:
-        chunk = json.loads(data_str)
-    except json.JSONDecodeError:
-        _record_chunk(data_str)
-        _mark_first_token()
-        if response_converter:
-            raise ConverterError(f"流式 chunk 不是有效 JSON: {data_str[:120]}") from None
-        sse = _format_raw_sse(upstream_event_type, data_str)
-        _log_stream_event(sse)
-        _mark_output()
-        yield sse
-        continue
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    _record_chunk(data_str)
+                    _mark_first_token()
+                    if response_converter:
+                        raise ConverterError(f"流式 chunk 不是有效 JSON: {data_str[:120]}") from None
+                    sse = _format_raw_sse(upstream_event_type, data_str)
+                    _log_stream_event(sse)
+                    _mark_output()
+                    yield sse
+                    continue
 
-    _record_chunk(chunk)
+                _record_chunk(chunk)
                 _mark_first_token()
 
                 if isinstance(chunk, dict) and is_upstream_anthropic and (
@@ -1434,7 +1428,7 @@ async def _do_stream_request(
             if _is_retryable_exception(e) or _is_channel_config_error(e):
                 raise _StreamPreflightError(e) from e
             raise
-        load_balancer.record_failure(channel.id)
+        await load_balancer.record_failure(channel.id)
         failure_recorded = True
         if output_anthropic_sse:
             emitted_output = True
@@ -1498,11 +1492,11 @@ async def _do_stream_request(
                 response_body=response_body,
             )
             if stream_success:
-                load_balancer.record_success(channel.id)
+                await load_balancer.record_success(channel.id)
                 logger.debug(f"[STREAM RECORDED SUCCESS] channel={channel.name}")
             else:
                 if stream_error and emitted_output and not failure_recorded:
-                    load_balancer.record_failure(channel.id)
+                    await load_balancer.record_failure(channel.id)
                 logger.warning(f"[STREAM RECORDED FAILURE] channel={channel.name} error={stream_error}")
         except Exception as finally_err:
             logger.warning(f"stream finally error: {finally_err}")

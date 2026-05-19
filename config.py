@@ -248,4 +248,10 @@ async def update_settings(updates: dict) -> dict:
             await invalidate_all_clients()
         except Exception as e:
             logger.warning(f"Failed to invalidate clients after timeout change: {e}")
+    if any(key.startswith("response_state_") for key in updated_keys):
+        try:
+            from response_state import reload_responses_store
+            reload_responses_store()
+        except Exception as e:
+            logger.warning(f"Failed to reload response state store after settings change: {e}")
     return {"updated": updated_keys, "needs_restart": needs_restart}

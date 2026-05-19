@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -119,6 +120,142 @@ def test_anthropic_without_stream_defaults_to_non_stream():
     assert seen["is_stream"] is False
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
+
+
+def test_proxy_api_key_auth_uses_cached_index_after_first_load():
+    """代理 API Key 校验应复用内存索引，避免每个请求都加载并线性匹配。"""
+    import config
+
+    with open(config.API_KEYS_FILE, "w") as f:
+        json.dump(
+            {
+                "api_keys": [
+                    {"id": "key_1", "name": "first", "key": "sk-first"},
+                    {"id": "key_2", "name": "second", "key": "sk-second"},
+                ]
+            },
+            f,
+        )
+
+    channel = Channel(
+        id="ch_openai",
+        name="OpenAI",
+        api_type=APIType.OPENAI_CHAT,
+        base_url="https://api.openai.com",
+        api_key="sk-upstream",
+        models=["gpt-4o"],
+    )
+
+    async def fake_proxy_request(*args, **kwargs):
+        return {
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+        }, channel
+
+    with (
+        TestClient(app) as client,
+        patch("routers.proxy_base.proxy_request", fake_proxy_request),
+        patch("main.load_api_keys", new_callable=AsyncMock) as load_api_keys,
+    ):
+        load_api_keys.return_value = json.load(open(config.API_KEYS_FILE))
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            headers={"Authorization": "Bearer sk-second"},
+        )
+        second_response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            headers={"Authorization": "Bearer sk-second"},
+        )
+
+    assert response.status_code == 200
+    assert second_response.status_code == 200
+    assert load_api_keys.await_count == 1
+
+
+def test_content_length_over_limit_is_rejected_before_body_read():
+    """Content-Length 超限时应提前 413，不继续读取请求体或加载 API keys。"""
+    import config
+
+    with open(config.API_KEYS_FILE, "w") as f:
+        json.dump({"api_keys": [{"id": "key_1", "name": "test", "key": "sk-test"}]}, f)
+
+    async def exploding_receive():
+        raise AssertionError("body should not be read")
+
+    sent = []
+
+    async def capture_send(message):
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": [
+            (b"content-length", str(10**9).encode()),
+            (b"authorization", b"Bearer sk-test"),
+        ],
+        "query_string": b"",
+    }
+
+    from main import CombinedMiddleware
+
+    async def app(scope, receive, send):
+        raise AssertionError("downstream app should not be called")
+
+    with patch("main.load_api_keys", new_callable=AsyncMock) as load_api_keys:
+        import anyio
+
+        anyio.run(CombinedMiddleware(app), scope, exploding_receive, capture_send)
+
+    assert sent[0]["status"] == 413
+    load_api_keys.assert_not_awaited()
+
+
+def test_exception_before_response_start_is_logged_as_500():
+    """下游异常且未发 response.start 时，日志状态不应默认为 200。"""
+    sent = []
+    logged = []
+
+    async def receive():
+        return {"type": "http.request", "body": b'{"model":"gpt-4o"}', "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    async def app(scope, receive, send):
+        raise RuntimeError("boom")
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": [],
+        "query_string": b"",
+    }
+
+    from main import CombinedMiddleware
+
+    middleware = CombinedMiddleware(app)
+    with (
+        patch("main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}),
+        patch.object(middleware, "_log_request", side_effect=lambda *args: logged.append(args)),
+    ):
+        import anyio
+
+        with pytest.raises(RuntimeError):
+            anyio.run(middleware, scope, receive, send)
+
+    assert logged[0][7] == 500
 
 
 def test_upstream_http_error_status_and_body_are_passed_through():

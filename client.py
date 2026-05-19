@@ -28,13 +28,10 @@ async def get_or_create_client(channel: Channel, timeout: float | None = None) -
     if timeout is None:
         timeout = float(REQUEST_TIMEOUT)
     key = _cache_key(channel)
-    client = _clients.get(key)
-    if client is not None and not client.is_closed:
-        _cache_ts[key] = time.time()
-        return client
     async with _lock:
         client = _clients.get(key)
         if client is not None and not client.is_closed:
+            _cache_ts[key] = time.time()
             return client
         proxy = channel.socks5_proxy
         if proxy:
@@ -73,11 +70,12 @@ def create_stream_client(channel: Channel) -> httpx.AsyncClient:
 
 
 async def close_all_clients():
-    for key, client in list(_clients.items()):
-        if not client.is_closed:
-            await client.aclose()
-    _clients.clear()
-    _cache_ts.clear()
+    async with _lock:
+        for key, client in list(_clients.items()):
+            if not client.is_closed:
+                await client.aclose()
+        _clients.clear()
+        _cache_ts.clear()
 
 
 async def invalidate_all_clients():
@@ -92,9 +90,9 @@ async def invalidate_all_clients():
 
 async def cleanup_stale_clients(max_age: float = 300.0):
     """关闭并移除超过 max_age 秒未使用的客户端连接。"""
-    now = time.time()
-    stale_keys = [k for k, ts in _cache_ts.items() if now - ts > max_age]
     async with _lock:
+        now = time.time()
+        stale_keys = [k for k, ts in _cache_ts.items() if now - ts > max_age]
         for key in stale_keys:
             client = _clients.pop(key, None)
             _cache_ts.pop(key, None)
