@@ -10,6 +10,7 @@ from models.api_types import APIType
 from models.channel import Channel
 from proxy_core import (
     _build_anthropic_stream_response,
+    _build_openai_stream_response,
     _do_request,
     _do_stream_request,
     _get_channels_for_model,
@@ -3104,3 +3105,224 @@ class TestAnthropicHeaderPriorityEarly:
             )
 
         assert captured_headers["anthropic-version"] == "2023-06-01"
+
+
+class TestBuildOpenaiStreamResponsePreservesTokenDetails:
+    def test_preserves_upstream_total_tokens_and_details(self):
+        """_build_openai_stream_response 应该使用上游的 total_tokens，而不是自加；
+        同时应该透传 prompt_tokens_details 和 completion_tokens_details。"""
+        chunks = [
+            {
+                "id": "chatcmpl-x",
+                "choices": [
+                    {"index": 0, "delta": {"role": "assistant", "content": "hi"}, "finish_reason": None}
+                ],
+            },
+            {
+                "id": "chatcmpl-x",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "completion_tokens": 50,
+                    "total_tokens": 1050,
+                    "prompt_tokens_details": {"cached_tokens": 900},
+                    "completion_tokens_details": {"reasoning_tokens": 30},
+                },
+            },
+        ]
+        result = _build_openai_stream_response(chunks, "gpt-4o")
+        assert result is not None
+        assert result["usage"]["prompt_tokens"] == 1000
+        assert result["usage"]["completion_tokens"] == 50
+        assert result["usage"]["total_tokens"] == 1050  # 使用上游的 total，不是自加
+        assert result["usage"]["prompt_tokens_details"]["cached_tokens"] == 900
+        assert result["usage"]["completion_tokens_details"]["reasoning_tokens"] == 30
+
+    def test_falls_back_to_sum_when_upstream_total_missing(self):
+        """当上游没有提供 total_tokens 时，应回退到 prompt + completion 的和。"""
+        chunks = [
+            {
+                "id": "chatcmpl-x",
+                "choices": [{"index": 0, "delta": {"content": "hi"}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    # 注意：没有 total_tokens
+                    "prompt_tokens_details": {"cached_tokens": 50},
+                },
+            },
+        ]
+        result = _build_openai_stream_response(chunks, "gpt-4o")
+        assert result is not None
+        assert result["usage"]["total_tokens"] == 120  # 100 + 20
+        assert result["usage"]["prompt_tokens_details"]["cached_tokens"] == 50
+
+    def test_handles_missing_details_gracefully(self):
+        """当上游没有 prompt_tokens_details/completion_tokens_details 时，不应包含这些字段。"""
+        chunks = [
+            {
+                "id": "chatcmpl-x",
+                "choices": [{"index": 0, "delta": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 50,
+                    "completion_tokens": 10,
+                    "total_tokens": 60,
+                },
+            },
+        ]
+        result = _build_openai_stream_response(chunks, "gpt-4o")
+        assert result is not None
+        assert result["usage"]["prompt_tokens"] == 50
+        assert result["usage"]["completion_tokens"] == 10
+        assert result["usage"]["total_tokens"] == 60
+        # 不应该有 details 字段
+        assert "prompt_tokens_details" not in result["usage"]
+        assert "completion_tokens_details" not in result["usage"]
+
+
+class TestChatConverterSetStreamIncludeUsage:
+    def test_set_stream_include_usage_sets_flag(self):
+        """ToChatCompletionsConverter.set_stream_include_usage 应正确设置内部标志。"""
+        from converters.to_chat import ToChatCompletionsConverter
+
+        conv = ToChatCompletionsConverter()
+        assert conv._stream_include_usage is False
+        conv.set_stream_include_usage(True)
+        assert conv._stream_include_usage is True
+        conv.set_stream_include_usage(False)
+        assert conv._stream_include_usage is False
+
+
+class TestDoRequestSetsIncludeUsage:
+    @pytest.mark.anyio
+    async def test_do_request_sets_include_usage_on_chat_converter(self):
+        """请求体携带 stream_options.include_usage=true 时，response_converter 应被设置该 flag。"""
+        captured = {}
+
+        real_setter = ToChatCompletionsConverter.set_stream_include_usage
+
+        def spy(self, flag):
+            captured["flag"] = flag
+            return real_setter(self, flag)
+
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"claude-3","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, method, url, json, headers):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_anthropic",
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3"],
+        )
+        request_data = {
+            "model": "claude-3",
+            "stream": True,
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream_options": {"include_usage": True},
+        }
+
+        with (
+            patch(
+                "proxy_core.ToChatCompletionsConverter.set_stream_include_usage",
+                spy,
+            ),
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = await _do_request(
+                channel, request_data, APIType.OPENAI_CHAT, is_stream=True
+            )
+            # 消费流以触发执行
+            _ = [chunk async for chunk in stream]
+
+        assert captured["flag"] is True
+
+    @pytest.mark.anyio
+    async def test_do_request_does_not_set_include_usage_when_false(self):
+        """请求体不携带 stream_options.include_usage 时，不应调用 setter。"""
+        captured = {}
+
+        real_setter = ToChatCompletionsConverter.set_stream_include_usage
+
+        def spy(self, flag):
+            captured["called"] = True
+            captured["flag"] = flag
+            return real_setter(self, flag)
+
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"claude-3","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, method, url, json, headers):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_anthropic",
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3"],
+        )
+        request_data = {
+            "model": "claude-3",
+            "stream": True,
+            "messages": [{"role": "user", "content": "hello"}],
+            # 没有 stream_options
+        }
+
+        with (
+            patch(
+                "proxy_core.ToChatCompletionsConverter.set_stream_include_usage",
+                spy,
+            ),
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = await _do_request(
+                channel, request_data, APIType.OPENAI_CHAT, is_stream=True
+            )
+            _ = [chunk async for chunk in stream]
+
+        assert captured.get("called") is True
+        assert captured["flag"] is False
