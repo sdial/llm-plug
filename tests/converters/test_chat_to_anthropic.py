@@ -385,3 +385,41 @@ class TestChatToAnthropic:
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         assert result["thinking"] == {"type": "enabled", "budget_tokens": 1024}
+
+    def test_chat_to_anthropic_nonstream_translates_cached_tokens(self):
+        """Chat 响应的 prompt_tokens_details.cached_tokens 应转为 cache_read_input_tokens"""
+        chat_resp = {
+            "id": "chatcmpl-xxx",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "gpt-4o",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": 1000,
+                "completion_tokens": 50,
+                "total_tokens": 1050,
+                "prompt_tokens_details": {"cached_tokens": 900},
+            },
+        }
+        result = self.converter.convert_response(chat_resp, APIType.OPENAI_CHAT)
+        assert result["usage"]["input_tokens"] == 100
+        assert result["usage"]["output_tokens"] == 50
+        assert result["usage"]["cache_read_input_tokens"] == 900
+        assert result["usage"]["cache_creation_input_tokens"] == 0
+
+    def test_chat_to_anthropic_stream_cache_read_from_cached_tokens(self):
+        """Chat 流式 chunk 的 prompt_tokens_details.cached_tokens 应转为 cache_read_input_tokens"""
+        chunks = [
+            {"id": "chatcmpl-a", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "hi"}, "finish_reason": None}]},
+            {"id": "chatcmpl-a", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+             "usage": {"prompt_tokens": 1000, "completion_tokens": 50, "prompt_tokens_details": {"cached_tokens": 900}}},
+        ]
+        events: list[tuple[str, dict]] = []
+        for c in chunks:
+            out = self.converter._chat_stream_chunk_to_anthropic(c)
+            events.extend(out)
+        delta_events = [e for e in events if e[0] == "message_delta"]
+        assert delta_events, "expected message_delta"
+        md = delta_events[-1][1]
+        assert md["usage"]["cache_read_input_tokens"] == 900
+        assert md["usage"]["cache_creation_input_tokens"] == 0
