@@ -28,6 +28,8 @@ from stats import (
 )
 from storage import (
     add_model_group,
+    atomic_update_api_keys,
+    atomic_update_data,
     delete_model_group,
     get_lb_config,
     invalidate_keys_cache,
@@ -77,60 +79,80 @@ async def list_channels():
 @router.post("/channels", response_model=Channel)
 async def create_channel(body: ChannelCreate):
     """添加渠道"""
-    channels = await _get_channels()
     channel = Channel(**body.model_dump())
-    channels.append(channel)
-    await _save_channels(channels)
+
+    def _mutate(data: dict):
+        data.setdefault("channels", []).append(channel.model_dump())
+        return data
+
+    await atomic_update_data(_mutate)
     return channel
 
 
 @router.put("/channels/{channel_id}", response_model=Channel)
 async def update_channel(channel_id: str, body: ChannelUpdate):
     """更新渠道"""
-    channels = await _get_channels()
-    for i, ch in enumerate(channels):
-        if ch.id == channel_id:
-            update_data = body.model_dump(exclude_unset=True)
-            updated = Channel(**{**ch.model_dump(), **update_data})
-            channels[i] = updated
-            await _save_channels(channels)
-            old_channel = ch
-            break
-    else:
+    update_data = body.model_dump(exclude_unset=True)
+    state: dict = {}
+
+    def _mutate(data: dict):
+        channels_raw = data.get("channels", [])
+        for i, ch_dict in enumerate(channels_raw):
+            if ch_dict.get("id") == channel_id:
+                old = Channel(**ch_dict)
+                updated = Channel(**{**ch_dict, **update_data})
+                channels_raw[i] = updated.model_dump()
+                state["old"] = old
+                state["updated"] = updated
+                data["channels"] = channels_raw
+                return data
         raise HTTPException(status_code=404, detail="渠道不存在")
-    await remove_channel_client(old_channel)
-    return updated
+
+    await atomic_update_data(_mutate)
+    await remove_channel_client(state["old"])
+    return state["updated"]
 
 
 @router.delete("/channels/{channel_id}")
 async def delete_channel(channel_id: str):
     """删除渠道"""
-    channels = await _get_channels()
-    new_channels = [ch for ch in channels if ch.id != channel_id]
-    if len(new_channels) == len(channels):
-        raise HTTPException(status_code=404, detail="渠道不存在")
-    removed_channel = next((ch for ch in channels if ch.id == channel_id), None)
-    await _save_channels(new_channels)
-    if removed_channel:
-        await remove_channel_client(removed_channel)
+    state: dict = {}
+
+    def _mutate(data: dict):
+        channels_raw = data.get("channels", [])
+        removed = next((ch for ch in channels_raw if ch.get("id") == channel_id), None)
+        if removed is None:
+            raise HTTPException(status_code=404, detail="渠道不存在")
+        data["channels"] = [ch for ch in channels_raw if ch.get("id") != channel_id]
+        state["removed"] = Channel(**removed)
+        return data
+
+    await atomic_update_data(_mutate)
+    await remove_channel_client(state["removed"])
     return {"message": "删除成功"}
 
 
 @router.patch("/channels/{channel_id}/toggle", response_model=Channel)
 async def toggle_channel(channel_id: str):
     """启用/禁用渠道"""
-    channels = await _get_channels()
-    for i, ch in enumerate(channels):
-        if ch.id == channel_id:
-            updated = ch.model_copy(update={"enabled": not ch.enabled})
-            channels[i] = updated
-            await _save_channels(channels)
-            old_channel = ch
-            break
-    else:
+    state: dict = {}
+
+    def _mutate(data: dict):
+        channels_raw = data.get("channels", [])
+        for i, ch_dict in enumerate(channels_raw):
+            if ch_dict.get("id") == channel_id:
+                old = Channel(**ch_dict)
+                updated = old.model_copy(update={"enabled": not old.enabled})
+                channels_raw[i] = updated.model_dump()
+                state["old"] = old
+                state["updated"] = updated
+                data["channels"] = channels_raw
+                return data
         raise HTTPException(status_code=404, detail="渠道不存在")
-    await remove_channel_client(old_channel)
-    return updated
+
+    await atomic_update_data(_mutate)
+    await remove_channel_client(state["old"])
+    return state["updated"]
 
 
 # ============ API Keys CRUD ============
@@ -169,11 +191,14 @@ async def list_api_keys():
 @router.post("/api-keys", response_model=ApiKey)
 async def create_api_key(body: ApiKeyCreate):
     """添加 API Key"""
-    keys = await _get_api_keys()
     data = body.model_dump(exclude_none=True)
     key = ApiKey(**data)
-    keys.append(key)
-    await _save_api_keys(keys)
+
+    def _mutate(d: dict):
+        d.setdefault("api_keys", []).append(key.model_dump())
+        return d
+
+    await atomic_update_api_keys(_mutate)
     await invalidate_keys_cache()
     return key
 
@@ -181,26 +206,39 @@ async def create_api_key(body: ApiKeyCreate):
 @router.put("/api-keys/{key_id}", response_model=ApiKey)
 async def update_api_key(key_id: str, body: ApiKeyUpdate):
     """更新 API Key"""
-    keys = await _get_api_keys()
-    for i, k in enumerate(keys):
-        if k.id == key_id:
-            update_data = body.model_dump(exclude_unset=True)
-            updated = k.model_copy(update=update_data)
-            keys[i] = updated
-            await _save_api_keys(keys)
-            await invalidate_keys_cache()
-            return updated
-    raise HTTPException(status_code=404, detail="API Key 不存在")
+    update_data = body.model_dump(exclude_unset=True)
+    state: dict = {}
+
+    def _mutate(d: dict):
+        keys_raw = d.get("api_keys", [])
+        for i, k_dict in enumerate(keys_raw):
+            if k_dict.get("id") == key_id:
+                old = ApiKey(**k_dict)
+                updated = old.model_copy(update=update_data)
+                keys_raw[i] = updated.model_dump()
+                state["updated"] = updated
+                d["api_keys"] = keys_raw
+                return d
+        raise HTTPException(status_code=404, detail="API Key 不存在")
+
+    await atomic_update_api_keys(_mutate)
+    await invalidate_keys_cache()
+    return state["updated"]
 
 
 @router.delete("/api-keys/{key_id}")
 async def delete_api_key(key_id: str):
     """删除 API Key"""
-    keys = await _get_api_keys()
-    new_keys = [k for k in keys if k.id != key_id]
-    if len(new_keys) == len(keys):
-        raise HTTPException(status_code=404, detail="API Key 不存在")
-    await _save_api_keys(new_keys)
+
+    def _mutate(d: dict):
+        keys_raw = d.get("api_keys", [])
+        new_keys = [k for k in keys_raw if k.get("id") != key_id]
+        if len(new_keys) == len(keys_raw):
+            raise HTTPException(status_code=404, detail="API Key 不存在")
+        d["api_keys"] = new_keys
+        return d
+
+    await atomic_update_api_keys(_mutate)
     await invalidate_keys_cache()
     return {"message": "删除成功"}
 
@@ -218,16 +256,24 @@ async def get_api_key_value(key_id: str):
 @router.patch("/api-keys/{key_id}/regenerate", response_model=ApiKey)
 async def regenerate_api_key(key_id: str):
     """重新生成 API Key"""
-    keys = await _get_api_keys()
-    for i, k in enumerate(keys):
-        if k.id == key_id:
-            new_key_value = f"sk-{secrets.token_hex(24)}"
-            updated = k.model_copy(update={"key": new_key_value})
-            keys[i] = updated
-            await _save_api_keys(keys)
-            await invalidate_keys_cache()
-            return updated
-    raise HTTPException(status_code=404, detail="API Key 不存在")
+    state: dict = {}
+
+    def _mutate(d: dict):
+        keys_raw = d.get("api_keys", [])
+        for i, k_dict in enumerate(keys_raw):
+            if k_dict.get("id") == key_id:
+                old = ApiKey(**k_dict)
+                new_key_value = f"sk-{secrets.token_hex(24)}"
+                updated = old.model_copy(update={"key": new_key_value})
+                keys_raw[i] = updated.model_dump()
+                state["updated"] = updated
+                d["api_keys"] = keys_raw
+                return d
+        raise HTTPException(status_code=404, detail="API Key 不存在")
+
+    await atomic_update_api_keys(_mutate)
+    await invalidate_keys_cache()
+    return state["updated"]
 
 
 @router.post("/channels/{channel_id}/test")
@@ -623,7 +669,18 @@ async def get_settings_endpoint():
 async def update_settings_endpoint(body: dict):
     """批量更新配置"""
     import config as _config
-    result = await _config.update_settings(body)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body 必须是对象")
+    unknown = [k for k in body.keys() if k not in _config._CONFIG_SCHEMA]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"未知配置项: {unknown}",
+        )
+    try:
+        result = await _config.update_settings(body)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     reload_result = await request_logs.reload_backend()
     result["request_log_backend"] = reload_result
     if not reload_result.get("available"):

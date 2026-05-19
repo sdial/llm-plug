@@ -32,14 +32,25 @@ _cache_ts: float = 0
 _CACHE_TTL = 5.0
 
 _save_callbacks: list[Callable[[], None]] = []
+_api_keys_save_callbacks: list[Callable[[], None]] = []
 
 
 def register_save_callback(callback: Callable[[], None]) -> None:
     _save_callbacks.append(callback)
 
 
+def register_api_keys_save_callback(callback: Callable[[], None]) -> None:
+    _api_keys_save_callbacks.append(callback)
+
+
 def _trigger_save_callbacks() -> None:
     for cb in _save_callbacks:
+        with contextlib.suppress(Exception):
+            cb()
+
+
+def _trigger_api_keys_save_callbacks() -> None:
+    for cb in _api_keys_save_callbacks:
         with contextlib.suppress(Exception):
             cb()
 
@@ -90,6 +101,30 @@ async def load_data() -> dict[str, Any]:
         _cache = data
         _cache_ts = time.time()
         return data
+
+
+async def atomic_update_data(mutator: Callable[[dict[str, Any]], Any]):
+    """在 channels 锁内完成 read-modify-write，消除 lost-update 竞态。
+
+    mutator 接收当前 data 字典（已是最新磁盘状态），可原地修改或返回新字典。
+    支持同步或异步 mutator。返回 mutator 的返回值。
+    """
+    global _cache, _cache_ts
+    _ensure_data_dir()
+    async with _get_channels_lock():
+        if not os.path.exists(config.CHANNELS_FILE):
+            data: dict[str, Any] = {"channels": []}
+        else:
+            data = await asyncio.to_thread(_read_channels_from_disk)
+        result = mutator(data)
+        if asyncio.iscoroutine(result):
+            result = await result
+        new_data = result if isinstance(result, dict) else data
+        await asyncio.to_thread(_write_channels_to_disk, new_data)
+        _cache = new_data
+        _cache_ts = time.time()
+        _trigger_save_callbacks()
+        return result
 
 
 async def invalidate_cache() -> None:
@@ -171,6 +206,27 @@ async def save_api_keys(data: dict[str, Any]) -> None:
         await asyncio.to_thread(_write_api_keys_to_disk, data)
         _keys_cache = data
         _keys_cache_ts = time.time()
+        _trigger_api_keys_save_callbacks()
+
+
+async def atomic_update_api_keys(mutator: Callable[[dict[str, Any]], Any]):
+    """API Keys 版本的原子 read-modify-write。"""
+    global _keys_cache, _keys_cache_ts
+    _ensure_data_dir()
+    async with _get_keys_lock():
+        if not os.path.exists(config.API_KEYS_FILE):
+            data: dict[str, Any] = {"api_keys": []}
+        else:
+            data = await asyncio.to_thread(_read_api_keys_from_disk)
+        result = mutator(data)
+        if asyncio.iscoroutine(result):
+            result = await result
+        new_data = result if isinstance(result, dict) else data
+        await asyncio.to_thread(_write_api_keys_to_disk, new_data)
+        _keys_cache = new_data
+        _keys_cache_ts = time.time()
+        _trigger_api_keys_save_callbacks()
+        return result
 
 
 async def invalidate_keys_cache() -> None:

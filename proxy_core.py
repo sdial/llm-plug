@@ -515,6 +515,8 @@ class ConverterError(Exception):
 def _is_retryable_exception(exc: BaseException) -> bool:
     if isinstance(exc, _UpstreamStreamErrorEvent):
         return True
+    if isinstance(exc, _EmptyStreamError):
+        return True
     if isinstance(exc, httpx.HTTPStatusError):
         status_code = exc.response.status_code
         return status_code == 429 or 500 <= status_code < 600
@@ -526,7 +528,28 @@ def _is_retryable_exception(exc: BaseException) -> bool:
 def _is_channel_config_error(exc: BaseException) -> bool:
     """检查是否为渠道配置错误（如认证失败、路径错误等）"""
     if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code in (401, 403, 404)
+        return exc.response.status_code == 404
+    return False
+
+
+def _is_stream_terminal_event_missing(
+    target_api_type: APIType,
+    source_type: str,
+    response_converter,
+    stream_chunks: list[Any],
+    done_received: bool,
+) -> bool:
+    if target_api_type == APIType.ANTHROPIC:
+        if response_converter is not None:
+            return True
+        if source_type == "anthropic":
+            return not any(
+                isinstance(chunk, dict) and chunk.get("type") == "message_stop"
+                for chunk in stream_chunks
+            )
+        return True
+    if target_api_type != APIType.OPENAI_RESPONSE:
+        return not done_received
     return False
 
 
@@ -587,6 +610,10 @@ class _UpstreamStreamErrorEvent(Exception):
         super().__init__(error.get("message") or "upstream stream error")
 
 
+class _EmptyStreamError(Exception):
+    pass
+
+
 async def _prime_stream(gen):
     """消费首个 chunk，让连接和首包前错误进入故障转移循环。
 
@@ -596,7 +623,7 @@ async def _prime_stream(gen):
     try:
         first_chunk = await anext(gen)
     except StopAsyncIteration:
-        raise RuntimeError("上游流式响应为空，没有任何 SSE 输出") from None
+        raise _EmptyStreamError("上游流式响应为空，没有任何 SSE 输出") from None
     except _StreamPreflightError as exc:
         raise exc.original from exc
 
@@ -818,7 +845,6 @@ async def _do_request(
         resp = await client.post(url, json=upstream_data, headers=headers)
         resp.raise_for_status()
         response_data = resp.json()
-        latency_ms = int((time.time() - upstream_start) * 1000)
 
         # 转换响应：上游格式 → 客户端格式
         if response_converter:
@@ -827,6 +853,8 @@ async def _do_request(
             except Exception as conv_err:
                 logger.warning(f"响应转换失败: {type(conv_err).__name__}: {conv_err}")
                 raise ConverterError(f"响应转换失败: {conv_err}") from conv_err
+
+        latency_ms = int((time.time() - upstream_start) * 1000)
 
         # 过滤 💭 内容
         if need_think_filter:
@@ -1184,6 +1212,21 @@ async def _do_stream_request(
             _line_count = 0
             _done_received = False
 
+            def _terminal_events_for_error() -> list[str]:
+                if not _is_stream_terminal_event_missing(
+                    target_api_type,
+                    source_type,
+                    response_converter,
+                    stream_chunks,
+                    _done_received,
+                ):
+                    return []
+                if output_anthropic_sse:
+                    return [_yield_anthropic_event("message_stop", {"type": "message_stop"})]
+                if not output_sse_events:
+                    return ["data: [DONE]\n\n"]
+                return []
+
             async for upstream_event_type, data_lines, passthrough_lines in _iter_sse_blocks(
                 resp.aiter_lines(),
                 coalesce_data_lines=is_upstream_event_sse,
@@ -1341,6 +1384,12 @@ async def _do_stream_request(
                     _log_stream_event(sse)
                     _mark_output()
                     yield sse
+                    if stream_error:
+                        for terminal_sse in _terminal_events_for_error():
+                            _log_stream_event(terminal_sse)
+                            _mark_output()
+                            yield terminal_sse
+                        break
 
         logger.debug(f"[STREAM LOOP END] model={model} lines={_line_count} done={_done_received}")
         logger.debug(f"[STREAM ASYNC WITH EXIT] model={model}")
@@ -1436,6 +1485,7 @@ async def _do_stream_request(
                 "type": "error",
                 "error": {"type": "api_error", "message": str(e)},
             })
+            yield _yield_anthropic_event("message_stop", {"type": "message_stop"})
         elif output_responses_sse:
             error_data = {"type": "error", "error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
             emitted_output = True

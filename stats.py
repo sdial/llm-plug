@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import json
 import os
 import sqlite3
 from datetime import date, datetime, timedelta
@@ -22,12 +23,28 @@ _STATS_QUEUE_MAX_SIZE = 1000
 _STATS_WORKER_COUNT = 4
 _STATS_WRITE_TIMEOUT = 60
 
+_STATS_OVERFLOW_FILENAME = "stats_overflow.jsonl"
+
 _RAW_FIELDS = {
     "request_headers",
     "response_headers",
     "request_body",
     "response_body",
 }
+
+
+def _escape_like(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _spill_to_overflow_file(record: dict[str, Any]) -> None:
+    try:
+        path = os.path.join(config.DATA_DIR, _STATS_OVERFLOW_FILENAME)
+        os.makedirs(config.DATA_DIR, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    except Exception as exc:
+        logger.error(f"Failed to spill stats record to overflow file: {exc}")
 
 
 def utc8_now() -> datetime:
@@ -288,29 +305,32 @@ def record_request(
     queue = _ensure_queue()
     if queue is None:
         return
+    record = {
+        "channel_id": channel_id,
+        "channel_name": channel_name,
+        "model": model,
+        "is_stream": is_stream,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "latency_ms": latency_ms,
+        "success": success,
+        "error_msg": error_msg,
+        "api_key_id": api_key_id,
+        "request_headers": request_headers,
+        "response_headers": response_headers,
+        "request_body": request_body,
+        "response_body": response_body,
+        "lag_ms": lag_ms,
+        "finish_reason": finish_reason,
+    }
     try:
-        queue.put_nowait(
-            {
-                "channel_id": channel_id,
-                "channel_name": channel_name,
-                "model": model,
-                "is_stream": is_stream,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "latency_ms": latency_ms,
-                "success": success,
-                "error_msg": error_msg,
-                "api_key_id": api_key_id,
-                "request_headers": request_headers,
-                "response_headers": response_headers,
-                "request_body": request_body,
-                "response_body": response_body,
-                "lag_ms": lag_ms,
-                "finish_reason": finish_reason,
-            }
-        )
+        queue.put_nowait(record)
     except asyncio.QueueFull:
-        logger.warning(f"Stats queue full ({_STATS_QUEUE_MAX_SIZE}), discarding record for model={model}")
+        logger.warning(
+            f"Stats queue full ({_STATS_QUEUE_MAX_SIZE}); "
+            f"spilling record for model={model} to overflow file"
+        )
+        _spill_to_overflow_file(record)
 
 
 async def drain_queue() -> None:
@@ -778,11 +798,15 @@ def _list_requests_sync(
     conditions = ["1 = 1"]
     args: list[Any] = []
     if model:
-        conditions.append("LOWER(model) LIKE LOWER(?)")
-        args.append(f"%{model}%")
+        conditions.append("LOWER(model) LIKE LOWER(?) ESCAPE '\\'")
+        args.append(f"%{_escape_like(model)}%")
     if channel:
-        conditions.append("(LOWER(channel_name) LIKE LOWER(?) OR LOWER(channel_id) LIKE LOWER(?))")
-        args.extend([f"%{channel}%", f"%{channel}%"])
+        conditions.append(
+            "(LOWER(channel_name) LIKE LOWER(?) ESCAPE '\\' "
+            "OR LOWER(channel_id) LIKE LOWER(?) ESCAPE '\\')"
+        )
+        escaped = f"%{_escape_like(channel)}%"
+        args.extend([escaped, escaped])
     if start:
         conditions.append("timestamp >= ?")
         args.append(_to_iso(start))
