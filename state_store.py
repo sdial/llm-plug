@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import os
 import tempfile
@@ -79,37 +80,31 @@ class FileStore:
         """删除会话记录"""
         async with self._lock:
             path = self._file_path(response_id)
-            if os.path.exists(path):
-                try:
-                    os.unlink(path)
-                    return True
-                except OSError:
-                    return False
-            return False
+            if not os.path.exists(path):
+                return False
+            try:
+                os.unlink(path)
+            except OSError:
+                return False
+            else:
+                return True
 
     def _write_file(self, path: str, data: dict) -> None:
         """原子写入文件"""
         dir_name = os.path.dirname(os.path.abspath(path)) or "."
-        f = tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", dir=dir_name, delete=False,
             prefix=".session_", suffix=".tmp.json",
-        )
-        tmp_path = f.name
-        try:
+        ) as f:
+            tmp_path = f.name
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())
-            f.close()
+        try:
             os.replace(tmp_path, path)
         except Exception:
-            try:
-                f.close()
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
             raise
 
     async def cleanup_expired(self) -> int:

@@ -1,31 +1,42 @@
 import secrets
 import time
+from datetime import date, datetime
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-import httpx
-
-from client import get_upstream_headers, remove_channel_client
 import request_logs
+from client import get_upstream_headers, remove_channel_client
 from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from models.model_group import LBConfig, ModelGroup, ModelGroupCreate, ModelGroupUpdate
-from datetime import date, datetime
 from proxy_core import _get_upstream_url
-
 from stats import (
-    get_daily_stats, get_daily_stats_from_requests,
-    get_overall_stats, list_requests as stats_list_requests,
     aggregate_daily_stats,
-    refresh_missing_daily_stats, refresh_stats,
+    get_daily_stats,
+    get_daily_stats_from_requests,
+    get_overall_stats,
     get_today_stats,
+    refresh_missing_daily_stats,
+    refresh_stats,
+)
+from stats import (
+    list_requests as stats_list_requests,
 )
 from storage import (
-    load_api_keys, load_data, save_api_keys, save_data, invalidate_keys_cache,
-    load_model_groups, add_model_group, update_model_group, delete_model_group,
-    get_lb_config, save_lb_config,
+    add_model_group,
+    delete_model_group,
+    get_lb_config,
+    invalidate_keys_cache,
+    load_api_keys,
+    load_data,
+    load_model_groups,
+    save_api_keys,
+    save_data,
+    save_lb_config,
+    update_model_group,
 )
 
 request_log_list_requests = request_logs.list_requests
@@ -319,7 +330,7 @@ async def test_channel(channel_id: str, model: str | None = Query(default=None))
         latency_ms = round((time.monotonic() - start) * 1000)
         return {
             "success": False,
-            "message": f"请求失败: {str(e)}",
+            "message": f"请求失败: {e!s}",
             "model": test_model,
             "latency_ms": latency_ms,
             "reply": None,

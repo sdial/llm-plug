@@ -3,7 +3,6 @@
 import httpx
 from fastapi.responses import JSONResponse
 
-
 # ── Anthropic 格式错误 ──
 
 def anthropic_error(status_code: int, error_type: str, message: str) -> JSONResponse:

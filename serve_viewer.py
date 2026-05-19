@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Simple server to serve the session viewer with access to logs."""
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 

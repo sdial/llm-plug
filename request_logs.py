@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import sqlite3
@@ -132,7 +133,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         await asyncio.to_thread(self._init_sync)
 
     async def close(self) -> None:
-        return None
+        return  # SQLite backend needs no cleanup
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -610,10 +611,8 @@ async def stop_request_log_workers() -> None:
     for task in _REQUEST_WORKERS:
         task.cancel()
     for task in _REQUEST_WORKERS:
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
     _REQUEST_WORKERS.clear()
     _REQUEST_QUEUE = None
     _REQUEST_QUEUE_LOOP = None

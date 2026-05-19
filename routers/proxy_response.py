@@ -12,7 +12,11 @@ from config import DATA_DIR, get_setting
 from models.api_types import APIType
 from proxy_core import ConverterError, proxy_request
 from routers.auth import check_proxy_authorization
-from routers.proxy_errors import invalid_request, response_from_proxy_exception, unauthorized
+from routers.proxy_errors import (
+    invalid_request,
+    response_from_proxy_exception,
+    unauthorized,
+)
 from state_store import FileStore
 
 router = APIRouter(tags=["代理"])
