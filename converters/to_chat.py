@@ -8,6 +8,7 @@ from typing import Any
 from loguru import logger
 
 from converters.base import BaseConverter
+from converters.usage import anthropic_to_openai_chat
 
 HOSTED_RESPONSE_TOOL_TYPES = {
     "web_search",
@@ -380,11 +381,7 @@ class ToChatCompletionsConverter(BaseConverter):
                 "message": message,
                 "finish_reason": self._map_stop_reason(data.get("stop_reason")),
             }],
-            "usage": {
-                "prompt_tokens": data.get("usage", {}).get("input_tokens", 0),
-                "completion_tokens": data.get("usage", {}).get("output_tokens", 0),
-                "total_tokens": data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0),
-            }
+            "usage": anthropic_to_openai_chat(data.get("usage")),
         }
         stop_seq = data.get("stop_sequence")
         if data.get("stop_reason") == "stop_sequence" and stop_seq:
@@ -784,11 +781,7 @@ class ToChatCompletionsConverter(BaseConverter):
                 "message": message,
                 "finish_reason": finish_reason,
             }],
-            "usage": {
-                "prompt_tokens": data.get("usage", {}).get("input_tokens", 0),
-                "completion_tokens": data.get("usage", {}).get("output_tokens", 0),
-                "total_tokens": data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0),
-            }
+            "usage": anthropic_to_openai_chat(data.get("usage")),
         }
         return result
 
