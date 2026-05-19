@@ -663,12 +663,7 @@ class ToAnthropicConverter(BaseConverter):
             "model": data.get("model", ""),
             "stop_reason": stop_reason,
             "stop_sequence": None,
-            "usage": {
-                "input_tokens": data.get("usage", {}).get("input_tokens", 0),
-                "output_tokens": data.get("usage", {}).get("output_tokens", 0),
-                "cache_creation_input_tokens": data.get("usage", {}).get("cache_creation_input_tokens", 0),
-                "cache_read_input_tokens": data.get("usage", {}).get("cache_read_input_tokens", 0),
-            },
+            "usage": openai_response_to_anthropic(data.get("usage")),
         }
 
     def _response_stream_chunk_to_anthropic(self, chunk: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -827,15 +822,17 @@ class ToAnthropicConverter(BaseConverter):
                     if item.get("type") == "function_call":
                         stop_reason = "tool_use"
                         break
-            usage_output = resp.get("usage", {}).get("output_tokens", 0)
+            resp_usage = resp.get("usage") or {}
+            usage_output = resp_usage.get("output_tokens", 0)
+            cached = (resp_usage.get("input_tokens_details") or {}).get("cached_tokens", 0)
             events.append(
                 ("message_delta", {
                     "type": "message_delta",
                     "delta": {"stop_reason": stop_reason, "stop_sequence": None},
                     "usage": {
                         "output_tokens": usage_output,
-                        "cache_creation_input_tokens": resp.get("usage", {}).get("cache_creation_input_tokens", 0),
-                        "cache_read_input_tokens": resp.get("usage", {}).get("cache_read_input_tokens", 0),
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": cached,
                     },
                 })
             )
