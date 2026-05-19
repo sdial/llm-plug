@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Query
 
 from models.api_types import APIType
@@ -44,9 +46,9 @@ async def list_models_openai():
 
 @router.get("/v1/anthropic/models")
 async def list_models_anthropic(
-    limit: int = Query(default=20, ge=1, le=100),
-    before: str | None = Query(default=None),
-    after: str | None = Query(default=None),
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    before: Annotated[str | None, Query()] = None,
+    after: Annotated[str | None, Query()] = None,
 ):
     models = await _collect_models()
     anthropic_models = [m for m in models if m["api_type"] == APIType.ANTHROPIC.value]

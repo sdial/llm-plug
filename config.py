@@ -201,26 +201,19 @@ def _migrate_lb_config_sync(channels_file: str):
     if "lb_config" in data:
         del data["lb_config"]
         dir_name = os.path.dirname(os.path.abspath(channels_file)) or "."
-        f = tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", dir=dir_name, delete=False,
             prefix=".channels_", suffix=".tmp.json",
-        )
-        tmp_path = f.name
-        try:
+        ) as f:
+            tmp_path = f.name
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())
-            f.close()
+        try:
             os.replace(tmp_path, channels_file)
         except Exception:
-            try:
-                f.close()
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
 
 
 async def _migrate_lb_config():
