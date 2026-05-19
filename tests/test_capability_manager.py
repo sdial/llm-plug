@@ -294,3 +294,50 @@ class TestMergeSystemMessages:
         result = merge_system_messages(messages)
         assert len(result) == 1
         assert result[0]["role"] == "user"
+
+    def test_list_system_content(self):
+        """list 形式的 system content（OpenAI Chat 规范）应被正确合并，不抛 TypeError"""
+        messages = [
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "Part A"},
+                    {"type": "text", "text": "Part B"},
+                ],
+            },
+            {"role": "system", "content": "Plain string rule."},
+            {"role": "user", "content": "hello"},
+        ]
+        result = merge_system_messages(messages)
+        assert len(result) == 2
+        assert result[0]["role"] == "system"
+        assert result[0]["content"] == "Part A\n\nPart B\n\nPlain string rule."
+
+    def test_list_system_content_only(self):
+        """仅 list 形式的 system content 也应正确合并"""
+        messages = [
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": "Only rule."}],
+            },
+            {"role": "user", "content": "hello"},
+        ]
+        result = merge_system_messages(messages)
+        assert len(result) == 2
+        assert result[0]["content"] == "Only rule."
+
+    def test_list_system_content_non_text_parts_ignored(self):
+        """list content 中非 text 块应被忽略，不抛错"""
+        messages = [
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "Keep this."},
+                    {"type": "image_url", "image_url": {"url": "http://x"}},
+                ],
+            },
+            {"role": "user", "content": "hello"},
+        ]
+        result = merge_system_messages(messages)
+        assert len(result) == 2
+        assert result[0]["content"] == "Keep this."

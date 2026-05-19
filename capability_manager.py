@@ -173,14 +173,23 @@ def merge_system_messages(messages: list[dict]) -> list[dict]:
     Returns:
         合并后的消息列表
     """
-    system_parts = []
+    system_parts: list[str] = []
     other_messages = []
 
     for msg in messages:
         if msg.get("role") == "system":
             content = msg.get("content", "")
-            if content:
-                system_parts.append(content)
+            if isinstance(content, str):
+                if content:
+                    system_parts.append(content)
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        text = part.get("text", "")
+                        if isinstance(text, str) and text:
+                            system_parts.append(text)
+                    elif isinstance(part, str) and part:
+                        system_parts.append(part)
         else:
             other_messages.append(msg)
 
