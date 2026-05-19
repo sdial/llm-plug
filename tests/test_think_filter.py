@@ -79,6 +79,23 @@ class TestThinkFilter:
             result.append(final)
         assert "".join(result).strip() == "Hello world!"
 
+    def test_short_chunks_without_think_prefix_stream_immediately(self):
+        """没有 think 标签前缀的短 chunk 应立即输出"""
+        filter = ThinkFilter()
+
+        outputs = [filter.feed(chunk) for chunk in ["H", "e", "l", "l", "o"]]
+
+        assert outputs == ["H", "e", "l", "l", "o"]
+        assert filter.flush() == ""
+
+    def test_partial_think_prefix_is_buffered(self):
+        """疑似 think 起始标签的尾部应继续暂存"""
+        filter = ThinkFilter()
+
+        assert filter.feed("Hello <thi") == "Hello "
+        assert filter.feed("nk>thought</think>answer") == "answer"
+        assert filter.flush() == ""
+
     def test_simple_think_block_streaming(self):
         """流式 think 块应被过滤"""
         filter = ThinkFilter()

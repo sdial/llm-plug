@@ -76,9 +76,9 @@ class ThinkFilter:
                 # Look for start tag
                 start_pos = self._find_start_tag(self.buffer, i)
                 if start_pos == -1:
-                    # No start tag found, output all remaining content
-                    # But keep last few chars in case of partial tag
-                    safe_len = len(self.buffer) - 7
+                    # No full start tag found. Only keep a tail that could
+                    # become a split "<think>" tag in the next chunk.
+                    safe_len = len(self.buffer) - self._partial_start_tag_len(self.buffer)
                     if safe_len > i:
                         result_parts.append(self.buffer[i:safe_len])
                         self.buffer = self.buffer[safe_len:]
@@ -106,6 +106,16 @@ class ThinkFilter:
         if idx != -1:
             return idx
         return -1
+
+    def _partial_start_tag_len(self, text: str) -> int:
+        """Return tail length if text ends with a prefix of a start tag."""
+        candidates = ("<think>", "💭")
+        max_len = 0
+        for tag in candidates:
+            for length in range(1, len(tag)):
+                if text.endswith(tag[:length]):
+                    max_len = max(max_len, length)
+        return max_len
 
     def _get_start_tag_end(self, text: str, pos: int) -> int:
         """Get position after start tag."""
