@@ -266,6 +266,9 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
     finish_reason = None
     input_tokens = 0
     output_tokens = 0
+    total_tokens: int | None = None
+    prompt_details: dict | None = None
+    completion_details: dict | None = None
     role = "assistant"
     # tool_calls 拼接：按 index 分组
     # 每个 tool call 结构: {id, type: "function", function: {name, arguments}}
@@ -331,6 +334,17 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
         if usage:
             input_tokens = usage.get("prompt_tokens", input_tokens)
             output_tokens = usage.get("completion_tokens", output_tokens)
+            # 优先使用上游的 total_tokens
+            if usage.get("total_tokens") is not None:
+                total_tokens = usage["total_tokens"]
+            # 透传 prompt_tokens_details
+            pd = usage.get("prompt_tokens_details")
+            if isinstance(pd, dict):
+                prompt_details = pd
+            # 透传 completion_tokens_details
+            cd = usage.get("completion_tokens_details")
+            if isinstance(cd, dict):
+                completion_details = cd
 
     if not response_id:
         response_id = f"chatcmpl-{model[:8]}"
@@ -348,6 +362,17 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
         tool_calls_list = [tool_calls_map[i] for i in sorted(tool_calls_map.keys())]
         message["tool_calls"] = tool_calls_list
 
+    # 构建 usage 字段
+    final_usage: dict[str, Any] = {
+        "prompt_tokens": input_tokens,
+        "completion_tokens": output_tokens,
+        "total_tokens": total_tokens if total_tokens is not None else input_tokens + output_tokens,
+    }
+    if prompt_details is not None:
+        final_usage["prompt_tokens_details"] = prompt_details
+    if completion_details is not None:
+        final_usage["completion_tokens_details"] = completion_details
+
     return {
         "id": response_id,
         "object": "chat.completion",
@@ -358,11 +383,7 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
             "message": message,
             "finish_reason": finish_reason,
         }],
-        "usage": {
-            "prompt_tokens": input_tokens,
-            "completion_tokens": output_tokens,
-            "total_tokens": input_tokens + output_tokens,
-        },
+        "usage": final_usage,
     }
 
 
@@ -783,6 +804,12 @@ async def _do_request(
 ):
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
     same_type_passthrough = request_converter is None and response_converter is None
+
+    # 透传 OpenAI Chat 客户端的 stream_options.include_usage 到 response_converter
+    if is_stream and isinstance(response_converter, ToChatCompletionsConverter):
+        include_usage = bool((request_data.get("stream_options") or {}).get("include_usage", False))
+        response_converter.set_stream_include_usage(include_usage)
+
     request_data = await _prepare_openai_response_request_for_upstream(
         request_data,
         source_type,
