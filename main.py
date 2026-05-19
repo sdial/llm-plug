@@ -19,7 +19,7 @@ from routers import admin, proxy_anthropic, proxy_chat, proxy_models, proxy_resp
 from stats import close_pool as close_stats_pool
 from stats import init_db as init_stats_db
 from stats import start_stats_workers, stop_stats_workers
-from storage import load_api_keys, load_data
+from storage import load_api_keys, load_data, register_api_keys_save_callback
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
@@ -109,6 +109,35 @@ async def lifespan(app):
 _PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")
 
 
+_api_key_index: dict[str, dict] | None = None
+_api_key_index_lock = asyncio.Lock()
+
+
+def _invalidate_api_key_index() -> None:
+    global _api_key_index
+    _api_key_index = None
+
+
+register_api_keys_save_callback(_invalidate_api_key_index)
+
+
+async def _get_api_key_index() -> dict[str, dict]:
+    global _api_key_index
+    if _api_key_index is not None:
+        return _api_key_index
+
+    async with _api_key_index_lock:
+        if _api_key_index is not None:
+            return _api_key_index
+        keys_data = await load_api_keys()
+        _api_key_index = {
+            key.get("key") or "": key
+            for key in keys_data.get("api_keys", [])
+            if key.get("key")
+        }
+        return _api_key_index
+
+
 class CombinedMiddleware:
     """Pure ASGI middleware combining auth and logging - avoids BaseHTTPMiddleware streaming bug."""
 
@@ -131,6 +160,17 @@ class CombinedMiddleware:
         start = time.time()
         ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         query = scope.get("query_string", b"").decode()
+        headers_dict = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+
+        content_length = headers_dict.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_BODY_SIZE:
+                    await self._send_error(send, 413, "Request body too large")
+                    self._log_request(ts_start, method, path, query, "", False, "", 413, start)
+                    return
+            except ValueError:
+                pass
 
         # Buffer the request body once
         body_parts = []
@@ -164,12 +204,9 @@ class CombinedMiddleware:
         scope["state"]["body_bytes"] = body_bytes
 
         # Auth check
-        keys_data = await load_api_keys()
-        api_keys = keys_data.get("api_keys", [])
+        api_key_index = await _get_api_key_index()
 
-        if api_keys:
-            # 从 scope 中提取 headers（ASGI 格式：[(b"name", b"value"), ...]）
-            headers_dict = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+        if api_key_index:
             # 支持两种认证方式：Authorization: Bearer xxx 或 x-api-key: xxx
             auth_header = headers_dict.get("authorization", "")
             x_api_key = headers_dict.get("x-api-key", "")
@@ -183,10 +220,9 @@ class CombinedMiddleware:
                 self._log_request(ts_start, method, path, query, model, stream, "", 401, start)
                 return
 
-            matched_key = None
-            for key in api_keys:
-                if secrets.compare_digest(key.get("key") or "", token):
-                    matched_key = key
+            matched_key = api_key_index.get(token)
+            if matched_key is not None and not secrets.compare_digest(matched_key.get("key") or "", token):
+                matched_key = None
 
             if matched_key is None:
                 await self._send_error(send, 401, "Invalid API key")
@@ -214,7 +250,7 @@ class CombinedMiddleware:
             return await receive()
 
         # Track response status
-        response_status = 200
+        response_status: int | None = None
         original_send = send
 
         async def tracking_send(message: Message) -> None:
@@ -225,10 +261,14 @@ class CombinedMiddleware:
 
         try:
             await self.app(scope, buffered_receive, tracking_send)
+        except Exception:
+            if response_status is None:
+                response_status = 500
+            raise
         finally:
             state = scope.get("state", {})
             channel = state.get("selected_channel_name", "")
-            self._log_request(ts_start, method, path, query, model, stream, channel, response_status, start)
+            self._log_request(ts_start, method, path, query, model, stream, channel, response_status or 500, start)
 
     def _log_request(self, ts_start: str, method: str, path: str, query: str,
                      model: str, stream: bool, channel: str, status: int, start: float) -> None:

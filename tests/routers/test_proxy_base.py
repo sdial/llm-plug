@@ -41,6 +41,9 @@ def setup_test_data():
         storage._keys_cache_ts = 0
         storage._channels_lock = None
         storage._keys_lock = None
+        import main
+
+        main._api_key_index = None
 
         yield
 
@@ -53,6 +56,7 @@ def setup_test_data():
         storage._keys_cache_ts = 0
         storage._channels_lock = None
         storage._keys_lock = None
+        main._api_key_index = None
 
 
 def test_invalid_json_request_returns_400():

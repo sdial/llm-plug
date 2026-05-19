@@ -949,6 +949,71 @@ class TestDoStreamRequest:
             assert block.startswith("event: ")
 
     @pytest.mark.anyio
+    async def test_anthropic_stream_mid_error_emits_message_stop(self):
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: message_start"
+                yield 'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-3","usage":{"input_tokens":1,"output_tokens":0}}}'
+                yield ""
+                yield "event: content_block_start"
+                yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
+                yield ""
+                yield "event: content_block_delta"
+                yield 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}'
+                yield ""
+                yield "event: error"
+                yield 'data: {"type":"error","error":{"type":"api_error","message":"midstream failure"}}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_1",
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.load_balancer.record_failure", new_callable=AsyncMock),
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "claude-3", "stream": True},
+                response_converter=None,
+                source_type="anthropic",
+                target_api_type=APIType.ANTHROPIC,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        joined = "".join(outputs)
+        assert "event: error" in joined
+        assert "event: message_stop" in joined
+
+    @pytest.mark.anyio
     async def test_same_type_openai_stream_does_not_inject_stream_options(self):
         captured = {}
 
@@ -2064,7 +2129,7 @@ class TestConverterErrorFailover:
                 request = httpx.Request("POST", url)
                 return httpx.Response(
                     200,
-                    json={"unexpected": "format"},
+                    json={"content": [None]},
                     request=request,
                 )
 

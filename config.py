@@ -56,6 +56,11 @@ _CONFIG_SCHEMA = {
         "default": False,
         "requires_restart": False,
     },
+    "max_log_body_size": {
+        "type": "int",
+        "default": 64 * 1024,
+        "requires_restart": False,
+    },
     "max_fail_count": {"type": "int", "default": 5, "requires_restart": False},
     "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False},
     "response_state_max_entries": {"type": "int", "default": 1000, "requires_restart": False},
@@ -77,6 +82,34 @@ REQUEST_TIMEOUT = _CONFIG_SCHEMA["request_timeout"]["default"]
 MAX_BODY_SIZE = _CONFIG_SCHEMA["max_body_size"]["default"]
 
 LOG_LEVEL = _CONFIG_SCHEMA["log_level"]["default"]
+
+_CONFIG_CONSTRAINTS: dict[str, dict] = {
+    "request_timeout": {"min": 1, "max": 3600},
+    "max_body_size": {"min": 1024, "max": 1024 * 1024 * 1024},
+    "max_log_body_size": {"min": 0, "max": 256 * 1024 * 1024},
+    "max_fail_count": {"min": 1, "max": 100000},
+    "cooldown_seconds": {"min": 1, "max": 86400},
+    "response_state_max_entries": {"min": 1, "max": 10_000_000},
+    "response_state_ttl_minutes": {"min": 1, "max": 525600},
+    "response_state_cleanup_interval_minutes": {"min": 1, "max": 1440},
+    "log_level": {"choices": ("trace", "debug", "info", "warning", "error", "critical")},
+    "request_log_db_type": {"choices": ("sqlite", "postgres")},
+}
+
+
+def _validate_setting(key: str, value):
+    constraints = _CONFIG_CONSTRAINTS.get(key)
+    if not constraints:
+        return
+    if "min" in constraints and value < constraints["min"]:
+        raise ValueError(f"{key} must be >= {constraints['min']}, got {value}")
+    if "max" in constraints and value > constraints["max"]:
+        raise ValueError(f"{key} must be <= {constraints['max']}, got {value}")
+    if "choices" in constraints and str(value).lower() not in constraints["choices"]:
+        raise ValueError(
+            f"{key} must be one of {constraints['choices']}, got {value!r}"
+        )
+
 
 def _cast_value(value, type_name):
     if type_name == "int":
@@ -232,7 +265,11 @@ async def update_settings(updates: dict) -> dict:
                 continue
             if schema.get("readonly"):
                 continue
-            casted = _cast_value(value, schema["type"])
+            try:
+                casted = _cast_value(value, schema["type"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{key} type cast failed: {exc}") from exc
+            _validate_setting(key, casted)
             _settings[key] = casted
             updated_keys.append(key)
             if schema.get("requires_restart"):

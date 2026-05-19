@@ -22,7 +22,27 @@ _RAW_FIELDS = {
     "response_body",
 }
 
+_RAW_FIELD_SELECT_SQLITE: dict[str, str] = {
+    "request_headers": "SELECT request_headers FROM request_logs WHERE id = ?",
+    "response_headers": "SELECT response_headers FROM request_logs WHERE id = ?",
+    "request_body": "SELECT request_body FROM request_logs WHERE id = ?",
+    "response_body": "SELECT response_body FROM request_logs WHERE id = ?",
+}
+
+_RAW_FIELD_SELECT_POSTGRES: dict[str, str] = {
+    "request_headers": "SELECT request_headers FROM request_logs WHERE id = $1",
+    "response_headers": "SELECT response_headers FROM request_logs WHERE id = $1",
+    "request_body": "SELECT request_body FROM request_logs WHERE id = $1",
+    "response_body": "SELECT response_body FROM request_logs WHERE id = $1",
+}
+
+
+def _escape_like(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 _BACKEND_UNINITIALIZED_ERROR = "request log backend is not initialized"
+
+_OVERFLOW_LOG_FILENAME = "request_logs_overflow.jsonl"
 
 _backend: "_BaseRequestLogBackend | None" = None
 _backend_error = _BACKEND_UNINITIALIZED_ERROR
@@ -235,11 +255,15 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         conditions = ["1 = 1"]
         args: list[Any] = []
         if model:
-            conditions.append("LOWER(model) LIKE LOWER(?)")
-            args.append(f"%{model}%")
+            conditions.append("LOWER(model) LIKE LOWER(?) ESCAPE '\\'")
+            args.append(f"%{_escape_like(model)}%")
         if channel:
-            conditions.append("(LOWER(channel_name) LIKE LOWER(?) OR LOWER(channel_id) LIKE LOWER(?))")
-            args.extend([f"%{channel}%", f"%{channel}%"])
+            conditions.append(
+                "(LOWER(channel_name) LIKE LOWER(?) ESCAPE '\\' "
+                "OR LOWER(channel_id) LIKE LOWER(?) ESCAPE '\\')"
+            )
+            escaped = f"%{_escape_like(channel)}%"
+            args.extend([escaped, escaped])
         if start:
             conditions.append("timestamp >= ?")
             args.append(_to_iso(start))
@@ -308,13 +332,11 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         )
 
     def _get_request_field_sync(self, request_id: int, field: str) -> dict | None:
-        if not _raw_field_allowed(field):
+        sql = _RAW_FIELD_SELECT_SQLITE.get(field)
+        if sql is None:
             return None
         with self._connect() as conn:
-            row = conn.execute(
-                f"SELECT {field} FROM request_logs WHERE id = ?",
-                (request_id,),
-            ).fetchone()
+            row = conn.execute(sql, (request_id,)).fetchone()
         if row is None:
             return None
         if row[field] is None:
@@ -443,11 +465,17 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
         conditions = ["1 = 1"]
         args: list[Any] = []
         if model:
-            conditions.append(f"model ILIKE {self._placeholder(args, f'%{model}%')}")
+            conditions.append(
+                f"model ILIKE {self._placeholder(args, f'%{_escape_like(model)}%')} ESCAPE '\\'"
+            )
         if channel:
-            name_param = self._placeholder(args, f"%{channel}%")
-            id_param = self._placeholder(args, f"%{channel}%")
-            conditions.append(f"(channel_name ILIKE {name_param} OR channel_id ILIKE {id_param})")
+            escaped = f"%{_escape_like(channel)}%"
+            name_param = self._placeholder(args, escaped)
+            id_param = self._placeholder(args, escaped)
+            conditions.append(
+                f"(channel_name ILIKE {name_param} ESCAPE '\\' "
+                f"OR channel_id ILIKE {id_param} ESCAPE '\\')"
+            )
         if start:
             conditions.append(f"timestamp >= {self._placeholder(args, start)}")
         if end:
@@ -490,14 +518,12 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
         }
 
     async def get_request_field(self, request_id: int, field: str) -> dict | None:
-        if not _raw_field_allowed(field):
+        sql = _RAW_FIELD_SELECT_POSTGRES.get(field)
+        if sql is None:
             return None
         pool = self._require_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                f"SELECT {field} FROM request_logs WHERE id = $1",
-                request_id,
-            )
+            row = await conn.fetchrow(sql, request_id)
         if row is None:
             return None
         if row[field] is None:
@@ -651,7 +677,49 @@ async def _request_log_worker() -> None:
 
 
 def _filtered_raw_value(flags: dict[str, bool], flag_name: str, value: Any) -> Any:
-    return value if flags.get(flag_name) else None
+    if not flags.get(flag_name):
+        return None
+    return _truncate_raw_value(value)
+
+
+def _truncate_raw_value(value: Any) -> Any:
+    if value is None:
+        return None
+    max_bytes = config.get_setting("max_log_body_size")
+    try:
+        limit = int(max_bytes) if max_bytes is not None else 0
+    except (TypeError, ValueError):
+        limit = 0
+    if limit <= 0:
+        return value
+    try:
+        encoded = json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return value
+    raw = encoded.encode("utf-8")
+    if len(raw) <= limit:
+        return value
+    truncated = raw[:limit].decode("utf-8", errors="ignore")
+    return {
+        "_truncated": True,
+        "_original_bytes": len(raw),
+        "_limit_bytes": limit,
+        "_preview": truncated,
+    }
+
+
+def _spill_to_overflow_file(record: dict[str, Any]) -> None:
+    try:
+        path = os.path.join(config.DATA_DIR, _OVERFLOW_LOG_FILENAME)
+        os.makedirs(config.DATA_DIR, exist_ok=True)
+        payload = dict(record)
+        ts = payload.get("timestamp")
+        if isinstance(ts, datetime):
+            payload["timestamp"] = ts.isoformat(sep=" ", timespec="microseconds")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+    except Exception as exc:
+        logger.error(f"Failed to spill request log to overflow file: {exc}")
 
 
 def record_request(
@@ -679,30 +747,33 @@ def record_request(
     if queue is None:
         return
     flags = _get_save_flags()
+    record = {
+        "timestamp": _utc_now(),
+        "channel_id": channel_id,
+        "channel_name": channel_name,
+        "model": model,
+        "is_stream": is_stream,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "latency_ms": latency_ms,
+        "success": success,
+        "error_msg": error_msg,
+        "api_key_id": api_key_id,
+        "request_headers": _filtered_raw_value(flags, "save_request_headers", request_headers),
+        "response_headers": _filtered_raw_value(flags, "save_response_headers", response_headers),
+        "request_body": _filtered_raw_value(flags, "save_request_body", request_body),
+        "response_body": _filtered_raw_value(flags, "save_response_body", response_body),
+        "lag_ms": lag_ms,
+        "finish_reason": finish_reason,
+    }
     try:
-        queue.put_nowait(
-            {
-                "timestamp": _utc_now(),
-                "channel_id": channel_id,
-                "channel_name": channel_name,
-                "model": model,
-                "is_stream": is_stream,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "latency_ms": latency_ms,
-                "success": success,
-                "error_msg": error_msg,
-                "api_key_id": api_key_id,
-                "request_headers": _filtered_raw_value(flags, "save_request_headers", request_headers),
-                "response_headers": _filtered_raw_value(flags, "save_response_headers", response_headers),
-                "request_body": _filtered_raw_value(flags, "save_request_body", request_body),
-                "response_body": _filtered_raw_value(flags, "save_response_body", response_body),
-                "lag_ms": lag_ms,
-                "finish_reason": finish_reason,
-            }
-        )
+        queue.put_nowait(record)
     except asyncio.QueueFull:
-        logger.warning(f"Request log queue full ({_REQUEST_QUEUE_MAX_SIZE}), discarding record for model={model}")
+        logger.warning(
+            f"Request log queue full ({_REQUEST_QUEUE_MAX_SIZE}); "
+            f"spilling record for model={model} to overflow file"
+        )
+        _spill_to_overflow_file(record)
 
 
 async def drain_queue() -> None:
