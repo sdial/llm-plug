@@ -1,5 +1,6 @@
 import json
 from collections.abc import AsyncGenerator
+from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, Header, Request
@@ -58,7 +59,7 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
     err_unauth, err_invalid, err_exception = _pick_error_helpers(api_type)
 
     @router.post(path)
-    async def proxy_handler(request: Request, authorization: str | None = Header(None)):
+    async def proxy_handler(request: Request, authorization: Annotated[str | None, Header()] = None):
         if not check_proxy_authorization(authorization, request.state):
             return err_unauth()
 

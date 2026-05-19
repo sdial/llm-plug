@@ -1,10 +1,10 @@
 import json
 import os
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from loguru import logger
 
@@ -161,7 +161,7 @@ async def _stateful_stream(
 
 
 @router.post("/v1/responses")
-async def post_response(request: Request, authorization: str | None = None):
+async def post_response(request: Request, authorization: Annotated[str | None, Header()] = None):
     if not check_proxy_authorization(authorization, request.state):
         return unauthorized()
 

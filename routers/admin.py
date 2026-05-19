@@ -2,6 +2,7 @@ import secrets
 import time
 from datetime import date, datetime
 from pathlib import Path
+from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
@@ -230,7 +231,7 @@ async def regenerate_api_key(key_id: str):
 
 
 @router.post("/channels/{channel_id}/test")
-async def test_channel(channel_id: str, model: str | None = Query(default=None)):
+async def test_channel(channel_id: str, model: Annotated[str | None, Query()] = None):
     """测试渠道连通性：发送最简prompt，检查返回"""
     channels = await _get_channels()
     channel = next((ch for ch in channels if ch.id == channel_id), None)
@@ -366,7 +367,7 @@ async def get_log(filename: str):
 
 
 @router.get("/stats")
-async def get_stats(days: int = Query(default=7, ge=1)):
+async def get_stats(days: Annotated[int, Query(ge=1)] = 7):
     """获取统计数据"""
     overall = await get_overall_stats(days=days)
     raw_daily = await get_daily_stats(days=days)
@@ -464,16 +465,16 @@ async def trigger_daily_aggregation(
 
 @router.get("/requests")
 async def list_requests_endpoint(
-    source: str | None = Query(default=None),
-    model: str | None = Query(default=None),
-    channel: str | None = Query(default=None),
-    start: datetime | None = Query(default=None),
-    end: datetime | None = Query(default=None),
-    success: bool | None = Query(default=None),
-    api_key_id: str | None = Query(default=None),
-    is_stream: bool | None = Query(default=None),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=10, ge=1, le=100),
+    source: Annotated[str | None, Query()] = None,
+    model: Annotated[str | None, Query()] = None,
+    channel: Annotated[str | None, Query()] = None,
+    start: Annotated[datetime | None, Query()] = None,
+    end: Annotated[datetime | None, Query()] = None,
+    success: Annotated[bool | None, Query()] = None,
+    api_key_id: Annotated[str | None, Query()] = None,
+    is_stream: Annotated[bool | None, Query()] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 10,
 ):
     """查询请求记录（支持分页和过滤）"""
     if source == "stats":
@@ -552,11 +553,10 @@ async def create_model_group(body: ModelGroupCreate):
 async def update_model_group_endpoint(group_id: str, body: ModelGroupUpdate):
     """更新模型组"""
     groups = await load_model_groups()
-    for i, g in enumerate(groups):
+    for g in groups:
         if g.id == group_id:
             update_data = body.model_dump(exclude_unset=True)
-            if "name" in update_data:
-                if any(other.id != group_id and other.name == update_data["name"] for other in groups):
+            if "name" in update_data and any(other.id != group_id and other.name == update_data["name"] for other in groups):
                     raise HTTPException(status_code=400, detail="模型组名称已存在")
             updated = await update_model_group(group_id, update_data)
             if updated is None:
@@ -578,7 +578,7 @@ async def delete_model_group_endpoint(group_id: str):
 async def toggle_model_group(group_id: str):
     """启用/禁用模型组"""
     groups = await load_model_groups()
-    for i, g in enumerate(groups):
+    for g in groups:
         if g.id == group_id:
             updated = await update_model_group(group_id, {"enabled": not g.enabled})
             if updated is None:

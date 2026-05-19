@@ -13,8 +13,8 @@ LOGS_DIR = BASE_DIR / "logs"
 
 
 class SessionViewerHandler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        logger.info(f"[{self.address_string()}] {format % args}")
+    def log_message(self, fmt, *args):  # noqa: A002
+        logger.info(f"[{self.address_string()}] {fmt % args}")
 
     def do_GET(self):
         parsed = urlparse(self.path)

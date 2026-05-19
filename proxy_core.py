@@ -602,7 +602,7 @@ async def _prime_stream(gen):
     try:
         first_chunk = await anext(gen)
     except StopAsyncIteration:
-        raise RuntimeError("上游流式响应为空，没有任何 SSE 输出")
+        raise RuntimeError("上游流式响应为空，没有任何 SSE 输出") from None
     except _StreamPreflightError as exc:
         raise exc.original from exc
 
@@ -1269,20 +1269,20 @@ async def _do_stream_request(
                         raise
                     continue
 
-                try:
-                    chunk = json.loads(data_str)
-                except json.JSONDecodeError:
-                    _record_chunk(data_str)
-                    _mark_first_token()
-                    if response_converter:
-                        raise ConverterError(f"流式 chunk 不是有效 JSON: {data_str[:120]}")
-                    sse = _format_raw_sse(upstream_event_type, data_str)
-                    _log_stream_event(sse)
-                    _mark_output()
-                    yield sse
-                    continue
+    try:
+        chunk = json.loads(data_str)
+    except json.JSONDecodeError:
+        _record_chunk(data_str)
+        _mark_first_token()
+        if response_converter:
+            raise ConverterError(f"流式 chunk 不是有效 JSON: {data_str[:120]}") from None
+        sse = _format_raw_sse(upstream_event_type, data_str)
+        _log_stream_event(sse)
+        _mark_output()
+        yield sse
+        continue
 
-                _record_chunk(chunk)
+    _record_chunk(chunk)
                 _mark_first_token()
 
                 if isinstance(chunk, dict) and is_upstream_anthropic and (
