@@ -136,28 +136,38 @@ def apply_capability_filter(request_data: dict, caps: ProviderCapabilities) -> d
     if not caps.supports_file_content:
         messages = result.get("messages")
         if isinstance(messages, list):
-            _filter_content_type(messages, "file")
+            result["messages"] = _filter_content_type(messages, "file")
 
     # 过滤 audio content in messages
     if not caps.supports_audio_content:
         messages = result.get("messages")
         if isinstance(messages, list):
-            _filter_content_type(messages, "input_audio")
+            result["messages"] = _filter_content_type(messages, "input_audio")
 
     return result
 
 
-def _filter_content_type(messages: list, content_type: str) -> None:
-    """从消息列表中移除指定类型的内容块。"""
+def _filter_content_type(messages: list, content_type: str) -> list:
+    """从消息列表中移除指定类型的内容块，返回新列表，不修改入参。"""
+    new_messages: list = []
+    warned = False
     for msg in messages:
         if not isinstance(msg, dict):
+            new_messages.append(msg)
             continue
         content = msg.get("content")
         if isinstance(content, list):
             filtered = [p for p in content if not (isinstance(p, dict) and p.get("type") == content_type)]
             if len(filtered) < len(content):
-                msg["content"] = filtered
-                logger.warning(f"[CAPABILITY] 降级: {content_type} 内容块被移除（渠道不支持）")
+                msg_copy = dict(msg)
+                msg_copy["content"] = filtered
+                new_messages.append(msg_copy)
+                if not warned:
+                    logger.warning(f"[CAPABILITY] 降级: {content_type} 内容块被移除（渠道不支持）")
+                    warned = True
+                continue
+        new_messages.append(msg)
+    return new_messages
 
 
 def merge_system_messages(messages: list[dict]) -> list[dict]:

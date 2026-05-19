@@ -2,6 +2,26 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 
+# Anthropic thinking.budget_tokens -> OpenAI reasoning_effort 的统一阈值。
+# 对应 to_anthropic.py 的反向映射 (low=1024, medium=4096, high=16384)：
+# - <=2048 落在 low 区间（1024 的邻域）
+# - <=8192 落在 medium 区间（4096 的邻域）
+# - >8192  落在 high 区间（>=16384 的邻域）
+THINKING_BUDGET_LOW_MAX = 2048
+THINKING_BUDGET_MEDIUM_MAX = 8192
+
+
+def thinking_budget_to_effort(budget: int | None) -> str:
+    """将 Anthropic thinking.budget_tokens 映射为 OpenAI reasoning_effort。"""
+    if not budget or budget <= 0:
+        return "low"
+    if budget <= THINKING_BUDGET_LOW_MAX:
+        return "low"
+    if budget <= THINKING_BUDGET_MEDIUM_MAX:
+        return "medium"
+    return "high"
+
+
 class BaseConverter(ABC):
     """转换器基类，定义格式转换接口。
 

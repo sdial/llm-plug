@@ -38,8 +38,9 @@ class FileStore:
                     data = json.load(f)
                 if data.get("expires_at", 0) < time.time():
                     return None
-                data["last_access_at"] = int(time.time())
-                self._write_file(path, data)
+                # 用 mtime 跟踪 LRU 访问时间，避免每次读都重写整个 JSON。
+                with contextlib.suppress(OSError):
+                    os.utime(path, None)
                 return data.get("response")
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to read session {response_id}: {e}")
@@ -127,7 +128,7 @@ class FileStore:
             return removed
 
     async def evict_lru(self) -> int:
-        """淘汰超出容量的最旧文件"""
+        """淘汰超出容量的最旧文件（按 mtime LRU）"""
         async with self._lock:
             files = []
             for filename in os.listdir(self.data_dir):
@@ -135,11 +136,10 @@ class FileStore:
                     continue
                 path = os.path.join(self.data_dir, filename)
                 try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    files.append((path, data.get("last_access_at", 0)))
-                except (json.JSONDecodeError, OSError):
+                    mtime = os.path.getmtime(path)
+                except OSError:
                     continue
+                files.append((path, mtime))
 
             if len(files) <= self.max_entries:
                 return 0
