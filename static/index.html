@@ -2123,7 +2123,6 @@ async function loadSettings() {
     document.getElementById('set_max_body_size').value = data.max_body_size_mb ?? 10;
     document.getElementById('set_log_level').value = (data.log_level || 'INFO').toUpperCase();
     document.getElementById('set_aggregation_timezone').value = data.aggregation_timezone || '';
-    document.getElementById('set_aggregation_timezone').value = data.aggregation_timezone || '';
     document.getElementById('set_request_log_db_type').value = data.request_log_db_type || 'sqlite';
     document.getElementById('set_request_log_sqlite_path').value = data.request_log_sqlite_path || '';
     document.getElementById('set_request_log_database_url').value = data.request_log_database_url_masked || '';
@@ -2155,8 +2154,6 @@ async function saveSettings() {
   if (maxBodyMB !== origMaxBodyMB) data.max_body_size = maxBodyMB * 1024 * 1024;
   const newLogLevel = document.getElementById('set_log_level').value;
   if (newLogLevel !== (orig.log_level || 'INFO').toUpperCase()) data.log_level = newLogLevel;
-  const newAggTz = document.getElementById('set_aggregation_timezone').value.trim();
-  if (newAggTz !== (orig.aggregation_timezone || '')) data.aggregation_timezone = newAggTz;
   const newAggTz = document.getElementById('set_aggregation_timezone').value.trim();
   if (newAggTz !== (orig.aggregation_timezone || '')) data.aggregation_timezone = newAggTz;
   const requestLogDbType = document.getElementById('set_request_log_db_type').value;
