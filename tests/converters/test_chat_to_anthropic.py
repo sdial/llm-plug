@@ -318,8 +318,8 @@ class TestChatToAnthropic:
                 for c in content
             )
 
-    def test_assistant_reasoning_content_is_not_unsigned_thinking(self):
-        """OpenAI reasoning_content 不能伪造成无签名 Anthropic thinking"""
+    def test_assistant_reasoning_content_emits_thinking_with_empty_signature(self):
+        """OpenAI reasoning_content 应转为带空 signature 的 Anthropic thinking 块（让客户端可渲染）"""
         request = {
             "model": "gpt-4o",
             "messages": [
@@ -335,16 +335,12 @@ class TestChatToAnthropic:
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         assistant_msg = result["messages"][1]
         assert assistant_msg["content"] == [
-            {"type": "text", "text": "Visible answer"}
+            {"type": "thinking", "thinking": "private chain", "signature": ""},
+            {"type": "text", "text": "Visible answer"},
         ]
-        assert all(
-            part.get("type") != "thinking"
-            for part in assistant_msg["content"]
-            if isinstance(part, dict)
-        )
 
-    def test_chat_response_reasoning_content_is_not_unsigned_thinking(self):
-        """Chat 响应转 Anthropic 时也不能生成空 signature thinking"""
+    def test_chat_response_reasoning_content_emits_thinking_with_empty_signature(self):
+        """Chat 响应转 Anthropic 时应生成空 signature thinking 块（thinking 排在 text 之前）"""
         response = {
             "id": "chatcmpl-1",
             "model": "gpt-4o",
@@ -361,7 +357,10 @@ class TestChatToAnthropic:
             "usage": {"prompt_tokens": 1, "completion_tokens": 1},
         }
         result = self.converter.convert_response(response, APIType.OPENAI_CHAT)
-        assert result["content"] == [{"type": "text", "text": "Visible answer"}]
+        assert result["content"] == [
+            {"type": "thinking", "thinking": "private chain", "signature": ""},
+            {"type": "text", "text": "Visible answer"},
+        ]
 
     def test_explicit_thinking_takes_priority_over_reasoning_effort(self):
         """显式 thinking 不应被 reasoning_effort 静默覆盖"""

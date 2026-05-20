@@ -146,10 +146,14 @@ class ToAnthropicConverter(BaseConverter):
                 content_parts = []
                 reasoning_content = msg.get("reasoning_content")
                 if reasoning_content:
-                    logger.warning(
-                        "Dropping OpenAI reasoning_content in Chat->Anthropic request: "
-                        "Anthropic thinking signatures cannot be synthesized"
-                    )
+                    # Chat 侧没有 Anthropic 加密签名，emit 空 signature 让 client 渲染思考过程；
+                    # 反向回传上游时 to_chat.py 会把整个 thinking 块降级为 reasoning_content，
+                    # 上游 Chat Completions 看不到 signature，不会触发 Anthropic API 的 400。
+                    content_parts.append({
+                        "type": "thinking",
+                        "thinking": reasoning_content,
+                        "signature": "",
+                    })
                 text_content = msg.get("content")
                 if text_content:
                     if isinstance(text_content, str):
@@ -319,11 +323,13 @@ class ToAnthropicConverter(BaseConverter):
             tool_calls = msg.get("tool_calls")
 
         content = []
+        # thinking 块必须在 text 块之前
         if reasoning_content:
-            logger.warning(
-                "Dropping OpenAI reasoning_content in Chat->Anthropic response: "
-                "Anthropic thinking signatures cannot be synthesized"
-            )
+            content.append({
+                "type": "thinking",
+                "thinking": reasoning_content,
+                "signature": "",
+            })
         if text:
             content.append({"type": "text", "text": text})
         if tool_calls:
@@ -425,6 +431,14 @@ class ToAnthropicConverter(BaseConverter):
             else:
                 # 罕见：usage 出现在 finish_reason 之前，按现有约定立即收尾
                 if self._stream_state["content_block_started"]:
+                    if self._stream_state["current_content_type"] == "thinking":
+                        events.append(
+                            ("content_block_delta", {
+                                "type": "content_block_delta",
+                                "index": self._stream_state["content_block_index"],
+                                "delta": {"type": "signature_delta", "signature": ""},
+                            })
+                        )
                     events.append(
                         ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                     )
@@ -441,16 +455,49 @@ class ToAnthropicConverter(BaseConverter):
             self._ensure_message_started(chunk, events)
 
         if delta.get("reasoning_content") is not None:
-            logger.warning(
-                "Dropping OpenAI reasoning_content in Chat->Anthropic stream: "
-                "Anthropic thinking signatures cannot be synthesized"
-            )
+            reasoning_text = delta.get("reasoning_content")
+            if reasoning_text:
+                self._ensure_message_started(chunk, events)
+                # 当前若有非 thinking 块在进行，先关闭并切换 index
+                if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "thinking":
+                    events.append(
+                        ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                    )
+                    self._stream_state["content_block_started"] = False
+                    self._stream_state["content_block_index"] += 1
+
+                if not self._stream_state["content_block_started"]:
+                    self._stream_state["content_block_started"] = True
+                    self._stream_state["current_content_type"] = "thinking"
+                    events.append(
+                        ("content_block_start", {
+                            "type": "content_block_start",
+                            "index": self._stream_state["content_block_index"],
+                            "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+                        })
+                    )
+                events.append(
+                    ("content_block_delta", {
+                        "type": "content_block_delta",
+                        "index": self._stream_state["content_block_index"],
+                        "delta": {"type": "thinking_delta", "thinking": reasoning_text},
+                    })
+                )
 
         # 处理 content（忽略空字符串，避免创建空的 text block）
         content_text = delta.get("content")
         if content_text is not None and content_text != "":
             self._ensure_message_started(chunk, events)
             if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "text":
+                # 从 thinking 切到 text 前，先补发 signature_delta
+                if self._stream_state["current_content_type"] == "thinking":
+                    events.append(
+                        ("content_block_delta", {
+                            "type": "content_block_delta",
+                            "index": self._stream_state["content_block_index"],
+                            "delta": {"type": "signature_delta", "signature": ""},
+                        })
+                    )
                 events.append(
                     ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                 )
@@ -484,6 +531,14 @@ class ToAnthropicConverter(BaseConverter):
                 if is_new_tool_call:
                     # 关闭上一个 content block 并分配新的 block index
                     if self._stream_state["content_block_started"]:
+                        if self._stream_state["current_content_type"] == "thinking":
+                            events.append(
+                                ("content_block_delta", {
+                                    "type": "content_block_delta",
+                                    "index": self._stream_state["content_block_index"],
+                                    "delta": {"type": "signature_delta", "signature": ""},
+                                })
+                            )
                         events.append(
                             ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                         )
@@ -527,6 +582,14 @@ class ToAnthropicConverter(BaseConverter):
                 return events
             self._ensure_message_started(chunk, events)
             if self._stream_state["content_block_started"]:
+                if self._stream_state["current_content_type"] == "thinking":
+                    events.append(
+                        ("content_block_delta", {
+                            "type": "content_block_delta",
+                            "index": self._stream_state["content_block_index"],
+                            "delta": {"type": "signature_delta", "signature": ""},
+                        })
+                    )
                 events.append(
                     ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
                 )
@@ -904,6 +967,14 @@ class ToAnthropicConverter(BaseConverter):
 
         events: list[tuple[str, dict[str, Any]]] = []
         if self._stream_state.get("content_block_started"):
+            if self._stream_state.get("current_content_type") == "thinking":
+                events.append(
+                    ("content_block_delta", {
+                        "type": "content_block_delta",
+                        "index": self._stream_state["content_block_index"],
+                        "delta": {"type": "signature_delta", "signature": ""},
+                    })
+                )
             events.append(
                 ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
             )
