@@ -1576,10 +1576,15 @@ async function loadStats() {
       const serverNow = todayData._debug?.server_now;
       if (serverNow) {
         const dt = new Date(serverNow);
-        cutoffTimeValue.textContent = dt.toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        // 使用设置中的统计时区来显示时间
+        const timezone = _settingsOriginal?.aggregation_timezone || undefined;
+        const options = { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: timezone };
+        cutoffTimeValue.textContent = dt.toLocaleString('zh-CN', options);
       } else {
         const now = new Date();
-        cutoffTimeValue.textContent = now.toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const timezone = _settingsOriginal?.aggregation_timezone || undefined;
+        const options = { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: timezone };
+        cutoffTimeValue.textContent = now.toLocaleString('zh-CN', options);
       }
       cutoffTimeEl.classList.remove('hidden');
     } else {
