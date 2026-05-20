@@ -2402,6 +2402,7 @@ async function restartServer() {
         }
 
         // 初始化
+        loadSettings();  // 先加载设置,确保时区等配置可用
         loadChannels();
         initTabFromHash();
     </script>
