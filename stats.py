@@ -5,14 +5,15 @@ import contextlib
 import json
 import os
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from loguru import logger
 
 import config
 
-UTC8 = timezone(timedelta(hours=8))
+UTC8 = timezone(timedelta(hours=8))  # 保留供外部历史 import，新代码请使用 _agg_tz()
 
 _DB_PATH: str | None = None
 _DB_AVAILABLE = False
@@ -49,9 +50,43 @@ def _spill_to_overflow_file(record: dict[str, Any]) -> None:
         logger.error(f"Failed to spill stats record to overflow file: {exc}")
 
 
+def _agg_tz() -> tzinfo:
+    """返回聚合时区：优先 settings.aggregation_timezone，否则系统本地时区。"""
+    name = (config.get_setting("aggregation_timezone") or "").strip()
+    if name:
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError):
+            logger.warning(f"Invalid aggregation_timezone {name!r}, falling back to system local")
+    return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def _agg_offset_seconds(at: datetime | None = None) -> int:
+    """返回聚合时区相对 UTC 的偏移秒数（按指定时刻，处理 DST）。"""
+    tz = _agg_tz()
+    if at is None:
+        at = datetime.now(timezone.utc)
+    elif at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    offset = tz.utcoffset(at.astimezone(tz).replace(tzinfo=None))
+    return int((offset or timedelta(0)).total_seconds())
+
+
+def _agg_offset_sql(at: datetime | None = None) -> str:
+    """SQLite datetime modifier，例如 '+28800 seconds'。"""
+    seconds = _agg_offset_seconds(at)
+    sign = "+" if seconds >= 0 else "-"
+    return f"{sign}{abs(seconds)} seconds"
+
+
+def agg_now() -> datetime:
+    """返回聚合时区的当前时间（naive，仅用于日聚合切日与同时区运算）。"""
+    return datetime.now(timezone.utc).astimezone(_agg_tz()).replace(tzinfo=None)
+
+
 def utc8_now() -> datetime:
-    """返回当前东8区时间（UTC+8，naive，仅用于落库与日聚合）。"""
-    return datetime.now(timezone.utc).astimezone(UTC8).replace(tzinfo=None)
+    """已弃用：保留旧名供外部 import，等价于 agg_now()。"""
+    return agg_now()
 
 
 def _resolve_db_path(db_path: str | None = None) -> str:
@@ -249,7 +284,7 @@ def _write_record_sync(record: dict[str, Any]) -> None:
     if not _DB_AVAILABLE:
         return
     lightweight = _normalize_record(record)
-    timestamp = lightweight.get("timestamp") or utc8_now() - timedelta(hours=8)
+    timestamp = lightweight.get("timestamp") or datetime.now(timezone.utc).replace(tzinfo=None)
     if isinstance(timestamp, datetime):
         timestamp = _to_iso(timestamp)
     with _connect() as conn:
@@ -350,8 +385,11 @@ async def drain_queue() -> None:
 
 
 def _daily_bounds(start_date: date, end_date: date) -> tuple[str, str]:
-    start_utc = datetime.combine(start_date, datetime.min.time()) - timedelta(hours=8)
-    end_utc = datetime.combine(end_date, datetime.min.time()) + timedelta(days=1) - timedelta(hours=8)
+    tz = _agg_tz()
+    start_local = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=tz)
+    end_local = datetime.combine(end_date + timedelta(days=1), datetime.min.time()).replace(tzinfo=tz)
+    start_utc = start_local.astimezone(timezone.utc).replace(tzinfo=None)
+    end_utc = end_local.astimezone(timezone.utc).replace(tzinfo=None)
     return _to_iso(start_utc), _to_iso(end_utc)
 
 
@@ -359,7 +397,8 @@ def _aggregate_daily_stats_sync(start_date: date, end_date: date) -> dict[str, A
     if not _DB_AVAILABLE:
         return {"updated_rows": 0}
     start_iso, end_iso = _daily_bounds(start_date, end_date)
-    updated_at = _to_iso(utc8_now())
+    updated_at = _to_iso(agg_now())
+    offset_modifier = _agg_offset_sql()
     with _connect() as conn:
         conn.execute(
             """
@@ -369,12 +408,12 @@ def _aggregate_daily_stats_sync(start_date: date, end_date: date) -> dict[str, A
             (start_date.isoformat(), end_date.isoformat()),
         )
         conn.execute(
-            """
+            f"""
             INSERT INTO daily_stats
             (date, channel_id, model, api_key_id, request_count, success_count, fail_count,
              input_tokens, output_tokens, avg_latency_ms, avg_lag_ms, updated_at)
             SELECT
-                date(datetime(timestamp, '+8 hours')) AS date,
+                date(datetime(timestamp, '{offset_modifier}')) AS date,
                 channel_id,
                 model,
                 COALESCE(api_key_id, '') AS api_key_id,
@@ -400,8 +439,15 @@ def _aggregate_daily_stats_sync(start_date: date, end_date: date) -> dict[str, A
 
 
 async def aggregate_daily_stats(start_date: date, end_date: date) -> dict[str, Any]:
-    """手动触发指定东八区日期范围的日聚合。"""
+    """手动触发指定日期范围的日聚合（按聚合时区切日）。"""
     return await asyncio.to_thread(_aggregate_daily_stats_sync, start_date, end_date)
+
+
+def _local_date_to_utc_iso(local_date: date) -> str:
+    """将聚合时区某日 0 点转为 naive UTC 的 ISO 字符串（DB timestamp 用）。"""
+    tz = _agg_tz()
+    local = datetime.combine(local_date, datetime.min.time()).replace(tzinfo=tz)
+    return _to_iso(local.astimezone(timezone.utc).replace(tzinfo=None))
 
 
 def _get_daily_stats_sync(
@@ -412,7 +458,7 @@ def _get_daily_stats_sync(
 ) -> list[dict[str, Any]]:
     if not _DB_AVAILABLE:
         return []
-    start_date = utc8_now().date() - timedelta(days=days - 1)
+    start_date = agg_now().date() - timedelta(days=days - 1)
     conditions = ["date >= ?"]
     args: list[Any] = [start_date.isoformat()]
     if channel_id:
@@ -456,10 +502,10 @@ def _get_daily_stats_from_requests_sync(
 ) -> list[dict[str, Any]]:
     if not _DB_AVAILABLE:
         return []
-    start_date = utc8_now().date() - timedelta(days=days - 1)
-    start_utc = datetime.combine(start_date, datetime.min.time()) - timedelta(hours=8)
+    start_date = agg_now().date() - timedelta(days=days - 1)
+    offset_modifier = _agg_offset_sql()
     conditions = ["timestamp >= ?"]
-    args: list[Any] = [_to_iso(start_utc)]
+    args: list[Any] = [_local_date_to_utc_iso(start_date)]
     if channel_id:
         conditions.append("channel_id = ?")
         args.append(channel_id)
@@ -473,7 +519,7 @@ def _get_daily_stats_from_requests_sync(
         rows = conn.execute(
             f"""
             SELECT
-                date(datetime(timestamp, '+8 hours')) AS date,
+                date(datetime(timestamp, '{offset_modifier}')) AS date,
                 COUNT(*) AS request_count,
                 SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
                 SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
@@ -483,7 +529,7 @@ def _get_daily_stats_from_requests_sync(
                 CAST(ROUND(AVG(lag_ms)) AS INTEGER) AS avg_lag_ms
             FROM request_stats_raw
             WHERE {" AND ".join(conditions)}
-            GROUP BY date(datetime(timestamp, '+8 hours'))
+            GROUP BY date(datetime(timestamp, '{offset_modifier}'))
             ORDER BY date ASC
             """,
             args,
@@ -504,13 +550,14 @@ async def get_daily_stats_from_requests(
 def _refresh_missing_daily_stats_sync() -> dict[str, Any]:
     if not _DB_AVAILABLE:
         return {"refreshed_dates": [], "count": 0, "debug": {"db_available": False}}
-    today = utc8_now().date()
+    today = agg_now().date()
+    offset_modifier = _agg_offset_sql()
     with _connect() as conn:
         rows = conn.execute(
-            """
-            SELECT DISTINCT date(datetime(timestamp, '+8 hours')) AS d
+            f"""
+            SELECT DISTINCT date(datetime(timestamp, '{offset_modifier}')) AS d
             FROM request_stats_raw
-            WHERE date(datetime(timestamp, '+8 hours')) < ?
+            WHERE date(datetime(timestamp, '{offset_modifier}')) < ?
             ORDER BY d
             """,
             (today.isoformat(),),
@@ -555,7 +602,7 @@ async def refresh_stats() -> dict[str, Any]:
     if not _DB_AVAILABLE:
         return {"backfilled_count": 0, "recent_refreshed_days": 0}
     backfilled = await refresh_missing_daily_stats()
-    today = utc8_now().date()
+    today = agg_now().date()
     await aggregate_daily_stats(today - timedelta(days=2), today)
     return {
         "backfilled_count": backfilled.get("count", 0),
@@ -579,7 +626,7 @@ def _overall_zero() -> dict[str, Any]:
 def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
     if not _DB_AVAILABLE:
         return _overall_zero()
-    since = _to_iso(utc8_now() - timedelta(days=days) - timedelta(hours=8))
+    since = _to_iso(datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days))
     with _connect() as conn:
         row = conn.execute(
             """
@@ -653,11 +700,11 @@ async def get_overall_stats(days: int = 7) -> dict[str, Any]:
 
 
 async def get_today_stats() -> dict[str, Any]:
-    """今天（东8区0点至今）的实时统计。"""
+    """今天（聚合时区 0 点至今）的实时统计。"""
     if not _DB_AVAILABLE:
         return {"overall": _overall_zero(), "daily": []}
-    today = utc8_now().date()
-    start_of_today = _to_iso(datetime.combine(today, datetime.min.time()) - timedelta(hours=8))
+    today = agg_now().date()
+    start_of_today = _local_date_to_utc_iso(today)
     overall = await asyncio.to_thread(_get_overall_stats_since_sync, start_of_today)
     daily_rows = await get_daily_stats_from_requests(days=1)
     daily = []
@@ -781,6 +828,20 @@ async def get_request_field(request_id: int, field: str) -> dict | None:  # noqa
     return None
 
 
+def _to_db_utc_iso(value: datetime) -> str:
+    """将任意 datetime（aware/naive）归一为 naive UTC ISO，与 DB 中的 timestamp 字符串可比。"""
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return _to_iso(value)
+
+
+def _to_db_utc_iso(value: datetime) -> str:
+    """将任意 datetime（aware/naive）归一为 naive UTC ISO，与 DB 中的 timestamp 字符串可比。"""
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return _to_iso(value)
+
+
 def _list_requests_sync(
     model: str | None = None,
     channel: str | None = None,
@@ -811,10 +872,10 @@ def _list_requests_sync(
         args.extend([escaped, escaped])
     if start:
         conditions.append("timestamp >= ?")
-        args.append(_to_iso(start))
+        args.append(_to_db_utc_iso(start))
     if end:
         conditions.append("timestamp < ?")
-        args.append(_to_iso(end))
+        args.append(_to_db_utc_iso(end))
     if success is not None:
         conditions.append("success = ?")
         args.append(1 if success else 0)

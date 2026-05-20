@@ -66,6 +66,7 @@ _CONFIG_SCHEMA = {
     "response_state_max_entries": {"type": "int", "default": 1000, "requires_restart": False},
     "response_state_ttl_minutes": {"type": "int", "default": 60, "requires_restart": False},
     "response_state_cleanup_interval_minutes": {"type": "int", "default": 30, "requires_restart": False},
+    "aggregation_timezone": {"type": "str", "default": "", "requires_restart": False},
 }
 
 _settings: dict = {}
@@ -94,7 +95,18 @@ _CONFIG_CONSTRAINTS: dict[str, dict] = {
     "response_state_cleanup_interval_minutes": {"min": 1, "max": 1440},
     "log_level": {"choices": ("trace", "debug", "info", "warning", "error", "critical")},
     "request_log_db_type": {"choices": ("sqlite", "postgres")},
+    "aggregation_timezone": {"validator": "iana_timezone"},
 }
+
+
+def _validate_iana_timezone(value: str):
+    if not value:
+        return
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"aggregation_timezone 不是有效的 IANA 时区名: {value!r}") from exc
 
 
 def _validate_setting(key: str, value):
@@ -109,6 +121,9 @@ def _validate_setting(key: str, value):
         raise ValueError(
             f"{key} must be one of {constraints['choices']}, got {value!r}"
         )
+    validator = constraints.get("validator")
+    if validator == "iana_timezone":
+        _validate_iana_timezone(value)
 
 
 def _cast_value(value, type_name):
