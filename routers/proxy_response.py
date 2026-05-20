@@ -168,6 +168,7 @@ async def post_response(request: Request, authorization: Annotated[str | None, H
     query_string = str(request.url.query) if request.url.query else None
     client_headers = dict(request.headers)
     api_key_id = getattr(request.state, "api_key_id", None)
+    client_ip = request.client.host if request.client else None
 
     logger.debug(f"[RESPONSES REQUEST] model={model} stream={is_stream} api_key_id={api_key_id}")
 
@@ -176,6 +177,7 @@ async def post_response(request: Request, authorization: Annotated[str | None, H
             model, body, APIType.OPENAI_RESPONSE, is_stream,
             query_string=query_string, client_headers=client_headers,
             api_key_id=api_key_id,
+            client_ip=client_ip,
         )
         request.state.selected_channel_name = channel.name
         logger.debug(f"[RESPONSES SUCCESS] model={model} channel={channel.name}")

@@ -136,6 +136,7 @@ def _init_db_sync(db_path: str) -> None:
                 channel_id TEXT NOT NULL,
                 channel_name TEXT NOT NULL,
                 api_key_id TEXT,
+                client_ip TEXT,
                 is_stream INTEGER NOT NULL,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -182,6 +183,7 @@ def _init_db_sync(db_path: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_request_stats_raw_model ON request_stats_raw(model);
             CREATE INDEX IF NOT EXISTS idx_request_stats_raw_channel ON request_stats_raw(channel_id, channel_name);
             CREATE INDEX IF NOT EXISTS idx_request_stats_raw_api_key ON request_stats_raw(api_key_id);
+            CREATE INDEX IF NOT EXISTS idx_request_stats_raw_client_ip ON request_stats_raw(client_ip);
             CREATE INDEX IF NOT EXISTS idx_daily_stats_date ON daily_stats(date);
             CREATE INDEX IF NOT EXISTS idx_hourly_stats_hour ON hourly_stats(hour);
             """
@@ -291,10 +293,10 @@ def _write_record_sync(record: dict[str, Any]) -> None:
         conn.execute(
             """
             INSERT INTO request_stats_raw
-            (timestamp, model, channel_id, channel_name, api_key_id, is_stream,
+            (timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
              input_tokens, output_tokens, latency_ms, lag_ms, finish_reason,
              success, error_msg)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 timestamp,
@@ -302,6 +304,7 @@ def _write_record_sync(record: dict[str, Any]) -> None:
                 lightweight["channel_id"],
                 lightweight["channel_name"],
                 lightweight.get("api_key_id"),
+                lightweight.get("client_ip"),
                 1 if lightweight["is_stream"] else 0,
                 int(lightweight.get("input_tokens") or 0),
                 int(lightweight.get("output_tokens") or 0),
@@ -329,6 +332,7 @@ def record_request(
     success: bool,
     error_msg: str | None = None,
     api_key_id: str | None = None,
+    client_ip: str | None = None,
     request_headers: dict[str, str] | None = None,
     response_headers: dict[str, str] | None = None,
     request_body: dict | None = None,
@@ -353,6 +357,7 @@ def record_request(
         "success": success,
         "error_msg": error_msg,
         "api_key_id": api_key_id,
+        "client_ip": client_ip,
         "request_headers": request_headers,
         "response_headers": response_headers,
         "request_body": request_body,
@@ -849,6 +854,7 @@ def _list_requests_sync(
     end: datetime | None = None,
     success: bool | None = None,
     api_key_id: str | None = None,
+    client_ip: str | None = None,
     is_stream: bool | None = None,
     page: int = 1,
     page_size: int = 10,
@@ -882,6 +888,9 @@ def _list_requests_sync(
     if api_key_id:
         conditions.append("api_key_id = ?")
         args.append(api_key_id)
+    if client_ip:
+        conditions.append("client_ip LIKE ? ESCAPE '\\'")
+        args.append(f"%{_escape_like(client_ip)}%")
     if is_stream is not None:
         conditions.append("is_stream = ?")
         args.append(1 if is_stream else 0)
@@ -895,8 +904,8 @@ def _list_requests_sync(
         rows = conn.execute(
             f"""
             SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                   is_stream, input_tokens, output_tokens, latency_ms, lag_ms,
-                   finish_reason, success, error_msg
+                   client_ip, is_stream, input_tokens, output_tokens, latency_ms,
+                   lag_ms, finish_reason, success, error_msg
             FROM request_stats_raw
             WHERE {where_clause}
             ORDER BY timestamp DESC, id DESC
@@ -919,6 +928,7 @@ async def list_requests(
     end: datetime | None = None,
     success: bool | None = None,
     api_key_id: str | None = None,
+    client_ip: str | None = None,
     is_stream: bool | None = None,
     page: int = 1,
     page_size: int = 10,
@@ -932,6 +942,7 @@ async def list_requests(
         end,
         success,
         api_key_id,
+        client_ip,
         is_stream,
         page,
         page_size,
