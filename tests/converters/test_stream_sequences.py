@@ -198,8 +198,8 @@ class TestChatToResponseStreamGolden:
 
 
 class TestChatToAnthropicStream:
-    def test_reasoning_content_stream_is_not_unsigned_thinking(self):
-        """OpenAI reasoning_content 流不能伪造成无签名 Anthropic thinking"""
+    def test_reasoning_content_stream_emits_thinking_with_empty_signature(self):
+        """OpenAI reasoning_content 流应转为 Anthropic thinking 块，附 signature_delta 收尾"""
         converter = ToAnthropicConverter()
         events = [
             {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
@@ -209,14 +209,34 @@ class TestChatToAnthropicStream:
         ]
         outputs = feed_anthropic_events(converter, events)
         delta_types = [d.get("delta", {}).get("type") for _, d in outputs]
-        assert "thinking_delta" not in delta_types
-        assert "signature_delta" not in delta_types
+        # thinking_delta 必须出现（让 client 渲染思考过程）
+        assert "thinking_delta" in delta_types
+        # 切到 text 前必须补 signature_delta，结束 thinking 块
+        assert "signature_delta" in delta_types
+        assert delta_types.index("signature_delta") > delta_types.index("thinking_delta")
+
+        thinking_deltas = [
+            d.get("delta", {}).get("thinking")
+            for _, d in outputs
+            if d.get("delta", {}).get("type") == "thinking_delta"
+        ]
+        assert thinking_deltas == ["Let me think..."]
+
         text_deltas = [
             d.get("delta", {}).get("text")
             for _, d in outputs
             if d.get("delta", {}).get("type") == "text_delta"
         ]
         assert text_deltas == ["The answer is 42"]
+
+        # thinking content_block 必须带空 signature
+        thinking_starts = [
+            d for evt, d in outputs
+            if evt == "content_block_start"
+            and d.get("content_block", {}).get("type") == "thinking"
+        ]
+        assert len(thinking_starts) == 1
+        assert thinking_starts[0]["content_block"]["signature"] == ""
 
     def test_message_start_with_usage(self):
         """message_start 应包含 input_tokens"""
