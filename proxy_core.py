@@ -671,6 +671,7 @@ async def proxy_request(
     query_string: str | None = None,
     client_headers: dict[str, str] | None = None,
     api_key_id: str | None = None,
+    client_ip: str | None = None,
 ) -> tuple[Any, Channel]:
     """
     执行代理请求，返回 (response_data_or_stream, selected_channel)
@@ -685,13 +686,13 @@ async def proxy_request(
         # 模型组请求：按 Fallback 顺序尝试每个模型
         return await _proxy_model_group_request(
             group, request_data, target_api_type, is_stream,
-            query_string, client_headers, api_key_id
+            query_string, client_headers, api_key_id, client_ip
         )
     else:
         # 单模型请求：现有逻辑
         return await _proxy_single_model_request(
             model, request_data, target_api_type, is_stream,
-            query_string, client_headers, api_key_id
+            query_string, client_headers, api_key_id, client_ip
         )
 
 
@@ -703,6 +704,7 @@ async def _proxy_single_model_request(
     query_string: str | None,
     client_headers: dict[str, str] | None,
     api_key_id: str | None,
+    client_ip: str | None,
 ) -> tuple[Any, Channel]:
     """单模型请求，现有逻辑"""
     channels = await _get_channels_for_model(model)
@@ -724,6 +726,7 @@ async def _proxy_single_model_request(
                 selected, request_data, target_api_type, is_stream,
                 query_string=query_string, client_headers=client_headers,
                 api_key_id=api_key_id,
+                client_ip=client_ip,
             )
             if is_stream:
                 result = await _prime_stream(result)
@@ -750,6 +753,7 @@ async def _proxy_model_group_request(
     query_string: str | None,
     client_headers: dict[str, str] | None,
     api_key_id: str | None,
+    client_ip: str | None,
 ) -> tuple[Any, Channel]:
     """模型组请求：按 Fallback 顺序尝试每个模型"""
     # 按组内模型的 Fallback 顺序尝试
@@ -774,6 +778,7 @@ async def _proxy_model_group_request(
                     selected, modified_request, target_api_type, is_stream,
                     query_string=query_string, client_headers=client_headers,
                     api_key_id=api_key_id,
+                    client_ip=client_ip,
                 )
                 if is_stream:
                     result = await _prime_stream(result)
@@ -805,6 +810,7 @@ async def _do_request(
     query_string: str | None = None,
     client_headers: dict[str, str] | None = None,
     api_key_id: str | None = None,
+    client_ip: str | None = None,
 ):
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
     same_type_passthrough = request_converter is None and response_converter is None
@@ -862,6 +868,7 @@ async def _do_request(
         stream = _do_stream_request(
             channel, url, headers, upstream_data, response_converter, source_type, target_api_type,
             api_key_id=api_key_id,
+            client_ip=client_ip,
             need_think_filter=need_think_filter,
         )
         return _raise_preflight_stream_errors(stream)
@@ -919,6 +926,7 @@ async def _do_request(
             success=True,
             finish_reason=finish_reason,
             api_key_id=api_key_id,
+            client_ip=client_ip,
             request_headers={k: v for k, v in headers.items() if k.lower() not in ("authorization", "x-api-key")},
             response_headers=dict(resp.headers),
             request_body=upstream_data,
@@ -959,6 +967,7 @@ async def _do_request(
             error_msg=str(e),
             finish_reason=None,
             api_key_id=api_key_id,
+            client_ip=client_ip,
             request_headers={k: v for k, v in headers.items() if k.lower() not in ("authorization", "x-api-key")},
             request_body=upstream_data,
         )
@@ -1084,6 +1093,7 @@ def _format_raw_sse(event_type: str | None, data: str) -> str:
 async def _do_stream_request(
     channel: Channel, url: str, headers: dict, upstream_data: dict, response_converter, source_type: str,
     target_api_type: APIType = APIType.OPENAI_CHAT, api_key_id: str | None = None,
+    client_ip: str | None = None,
     need_think_filter: bool = False,
 ):
     """流式请求，yield SSE 数据行。
@@ -1567,6 +1577,7 @@ async def _do_stream_request(
                 error_msg=stream_error,
                 finish_reason=finish_reason,
                 api_key_id=api_key_id,
+                client_ip=client_ip,
                 request_headers={k: v for k, v in headers.items() if k.lower() not in ("authorization", "x-api-key")},
                 response_headers=resp_headers,
                 request_body=upstream_data,

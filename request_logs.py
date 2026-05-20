@@ -111,6 +111,7 @@ def _base_item_from_mapping(row: dict[str, Any]) -> dict[str, Any]:
         "channel_id": row["channel_id"],
         "channel_name": row["channel_name"],
         "api_key_id": row.get("api_key_id"),
+        "client_ip": row.get("client_ip"),
         "is_stream": row["is_stream"],
         "input_tokens": row["input_tokens"],
         "output_tokens": row["output_tokens"],
@@ -147,6 +148,7 @@ class _BaseRequestLogBackend:
         end: datetime | None = None,
         success: bool | None = None,
         api_key_id: str | None = None,
+        client_ip: str | None = None,
         is_stream: bool | None = None,
         page: int = 1,
         page_size: int = 10,
@@ -189,6 +191,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
                     channel_id TEXT NOT NULL,
                     channel_name TEXT NOT NULL,
                     api_key_id TEXT,
+                    client_ip TEXT,
                     is_stream INTEGER NOT NULL,
                     input_tokens INTEGER NOT NULL DEFAULT 0,
                     output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -207,6 +210,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
                 CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
                 CREATE INDEX IF NOT EXISTS idx_request_logs_channel ON request_logs(channel_id, channel_name);
                 CREATE INDEX IF NOT EXISTS idx_request_logs_api_key ON request_logs(api_key_id);
+                CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip);
                 """
             )
 
@@ -221,11 +225,11 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
             conn.execute(
                 """
                 INSERT INTO request_logs
-                (timestamp, model, channel_id, channel_name, api_key_id, is_stream,
+                (timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
                  input_tokens, output_tokens, latency_ms, lag_ms, finish_reason,
                  success, error_msg, request_headers, response_headers,
                  request_body, response_body)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     _to_iso(record.get("timestamp")),
@@ -233,6 +237,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
                     record["channel_id"],
                     record["channel_name"],
                     record.get("api_key_id"),
+                    record.get("client_ip"),
                     1 if record["is_stream"] else 0,
                     int(record.get("input_tokens") or 0),
                     int(record.get("output_tokens") or 0),
@@ -259,6 +264,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         end: datetime | None = None,
         success: bool | None = None,
         api_key_id: str | None = None,
+        client_ip: str | None = None,
         is_stream: bool | None = None,
         page: int = 1,
         page_size: int = 10,
@@ -288,6 +294,9 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         if api_key_id:
             conditions.append("api_key_id = ?")
             args.append(api_key_id)
+        if client_ip:
+            conditions.append("client_ip LIKE ? ESCAPE '\\'")
+            args.append(f"%{_escape_like(client_ip)}%")
         if is_stream is not None:
             conditions.append("is_stream = ?")
             args.append(1 if is_stream else 0)
@@ -301,8 +310,8 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
             rows = conn.execute(
                 f"""
                 SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                       is_stream, input_tokens, output_tokens, latency_ms, lag_ms,
-                       finish_reason, success, error_msg
+                       client_ip, is_stream, input_tokens, output_tokens, latency_ms,
+                       lag_ms, finish_reason, success, error_msg
                 FROM request_logs
                 WHERE {where_clause}
                 ORDER BY timestamp DESC, id DESC
@@ -326,6 +335,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         end: datetime | None = None,
         success: bool | None = None,
         api_key_id: str | None = None,
+        client_ip: str | None = None,
         is_stream: bool | None = None,
         page: int = 1,
         page_size: int = 10,
@@ -338,6 +348,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
             end,
             success,
             api_key_id,
+            client_ip,
             is_stream,
             page,
             page_size,
@@ -384,6 +395,7 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
                     channel_id TEXT NOT NULL,
                     channel_name TEXT NOT NULL,
                     api_key_id TEXT,
+                    client_ip TEXT,
                     is_stream BOOLEAN NOT NULL,
                     input_tokens INTEGER NOT NULL DEFAULT 0,
                     output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -402,6 +414,7 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
                 CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
                 CREATE INDEX IF NOT EXISTS idx_request_logs_channel ON request_logs(channel_id, channel_name);
                 CREATE INDEX IF NOT EXISTS idx_request_logs_api_key ON request_logs(api_key_id);
+                CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip);
                 """
             )
 
@@ -429,18 +442,19 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
             await conn.execute(
                 """
                 INSERT INTO request_logs
-                (timestamp, model, channel_id, channel_name, api_key_id, is_stream,
+                (timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
                  input_tokens, output_tokens, latency_ms, lag_ms, finish_reason,
                  success, error_msg, request_headers, response_headers,
                  request_body, response_body)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                        $12, $13, $14, $15, $16, $17)
+                        $12, $13, $14, $15, $16, $17, $18)
                 """,
                 record.get("timestamp") or _utc_now(),
                 record["model"],
                 record["channel_id"],
                 record["channel_name"],
                 record.get("api_key_id"),
+                record.get("client_ip"),
                 bool(record["is_stream"]),
                 int(record.get("input_tokens") or 0),
                 int(record.get("output_tokens") or 0),
@@ -468,6 +482,7 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
         end: datetime | None = None,
         success: bool | None = None,
         api_key_id: str | None = None,
+        client_ip: str | None = None,
         is_stream: bool | None = None,
         page: int = 1,
         page_size: int = 10,
@@ -496,6 +511,10 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
             conditions.append(f"success = {self._placeholder(args, bool(success))}")
         if api_key_id:
             conditions.append(f"api_key_id = {self._placeholder(args, api_key_id)}")
+        if client_ip:
+            conditions.append(
+                f"client_ip ILIKE {self._placeholder(args, f'%{_escape_like(client_ip)}%')} ESCAPE '\\'"
+            )
         if is_stream is not None:
             conditions.append(f"is_stream = {self._placeholder(args, bool(is_stream))}")
 
@@ -510,8 +529,8 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
             rows = await conn.fetch(
                 f"""
                 SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                       is_stream, input_tokens, output_tokens, latency_ms, lag_ms,
-                       finish_reason, success, error_msg
+                       client_ip, is_stream, input_tokens, output_tokens, latency_ms,
+                       lag_ms, finish_reason, success, error_msg
                 FROM request_logs
                 WHERE {where_clause}
                 ORDER BY timestamp DESC, id DESC
@@ -745,6 +764,7 @@ def record_request(
     success: bool,
     error_msg: str | None = None,
     api_key_id: str | None = None,
+    client_ip: str | None = None,
     request_headers: dict[str, str] | None = None,
     response_headers: dict[str, str] | None = None,
     request_body: dict | None = None,
@@ -771,6 +791,7 @@ def record_request(
         "success": success,
         "error_msg": error_msg,
         "api_key_id": api_key_id,
+        "client_ip": client_ip,
         "request_headers": _filtered_raw_value(flags, "save_request_headers", request_headers),
         "response_headers": _filtered_raw_value(flags, "save_response_headers", response_headers),
         "request_body": _filtered_raw_value(flags, "save_request_body", request_body),
@@ -835,6 +856,7 @@ async def list_requests(
     end: datetime | None = None,
     success: bool | None = None,
     api_key_id: str | None = None,
+    client_ip: str | None = None,
     is_stream: bool | None = None,
     page: int = 1,
     page_size: int = 10,
@@ -850,6 +872,7 @@ async def list_requests(
             end=end,
             success=success,
             api_key_id=api_key_id,
+            client_ip=client_ip,
             is_stream=is_stream,
             page=page,
             page_size=page_size,

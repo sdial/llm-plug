@@ -75,11 +75,13 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
         client_headers = dict(request.headers)
 
         api_key_id = getattr(request.state, 'api_key_id', None)
+        client_ip = request.client.host if request.client else None
         try:
             result, _channel = await proxy_request(
                 model, body, api_type, is_stream,
                 query_string=query_string, client_headers=client_headers,
                 api_key_id=api_key_id,
+                client_ip=client_ip,
             )
             request.state.selected_channel_name = _channel.name
             if is_stream:
