@@ -647,6 +647,14 @@
               </select>
               <p class="text-xs text-ink-400 mt-1">DEBUG 会输出更多代理细节；生产环境通常使用 INFO 或 WARNING。</p>
             </div>
+            <div class="mt-5">
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-sm font-medium text-ink-900">统计时区</span>
+                <span class="pill pill-success">热更新</span>
+              </div>
+              <input type="text" id="set_aggregation_timezone" data-section="logs" placeholder="留空=使用服务器时区，例如 Asia/Shanghai / UTC / America/Los_Angeles" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white font-mono">
+              <p class="text-xs text-ink-400 mt-1">用于决定日聚合切日和"今日"边界。IANA 时区名（参考 wikipedia.org/wiki/List_of_tz_database_time_zones）。留空则使用服务器系统时区。</p>
+            </div>
           </div>
         </div>
 
@@ -1048,8 +1056,8 @@
                     const params = new URLSearchParams(queryString);
                     document.getElementById('reqFilterModel').value = params.get('model') || '';
                     pendingChannelRestore = params.get('channel') || '';
- document.getElementById('reqFilterStart').value = params.get('start') || '';
- document.getElementById('reqFilterEnd').value = params.get('end') || '';
+ document.getElementById('reqFilterStart').value = utcIsoToLocalInput(params.get('start'));
+ document.getElementById('reqFilterEnd').value = utcIsoToLocalInput(params.get('end'));
  document.getElementById('reqFilterSuccess').value = params.get('success') || '';
  document.getElementById('reqFilterApiKeyId').value = params.get('api_key_id') || '';
  if (!params.get('start') && !params.get('end')) setDefaultRequestTimeRange();
@@ -1789,9 +1797,9 @@ function renderStats(data) {
             if (model) params.set('model', model);
             const channel = document.getElementById('reqFilterChannel').value;
             if (channel) params.set('channel', channel);
-            const start = document.getElementById('reqFilterStart').value;
+            const start = localInputToUtcIso(document.getElementById('reqFilterStart').value);
             if (start) params.set('start', start);
-            const end = document.getElementById('reqFilterEnd').value;
+            const end = localInputToUtcIso(document.getElementById('reqFilterEnd').value);
             if (end) params.set('end', end);
             const success = document.getElementById('reqFilterSuccess').value;
             if (success) params.set('success', success);
@@ -1881,6 +1889,40 @@ function renderStats(data) {
  document.getElementById('reqFilterEnd').value = fmt(now);
 }
 
+// 把 datetime-local 控件值（浏览器本地时间）转成 UTC ISO 字符串，用于 URL 参数和后端查询。
+function localInputToUtcIso(v) {
+ if (!v) return '';
+ const d = new Date(v);
+ if (isNaN(d.getTime())) return '';
+ return d.toISOString();
+}
+
+// 把 URL 中的 UTC ISO 字符串还原成 datetime-local 控件需要的浏览器本地格式。
+function utcIsoToLocalInput(v) {
+ if (!v) return '';
+ const d = new Date(v);
+ if (isNaN(d.getTime())) return '';
+ const pad = n => String(n).padStart(2, '0');
+ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// 把 datetime-local 控件值（浏览器本地时间）转成 UTC ISO 字符串，用于 URL 参数和后端查询。
+function localInputToUtcIso(v) {
+ if (!v) return '';
+ const d = new Date(v);
+ if (isNaN(d.getTime())) return '';
+ return d.toISOString();
+}
+
+// 把 URL 中的 UTC ISO 字符串还原成 datetime-local 控件需要的浏览器本地格式。
+function utcIsoToLocalInput(v) {
+ if (!v) return '';
+ const d = new Date(v);
+ if (isNaN(d.getTime())) return '';
+ const pad = n => String(n).padStart(2, '0');
+ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
         function searchRequests() {
             requestPage = 1;
             requestLogSource = 'request_logs';
@@ -1906,9 +1948,9 @@ function resetRequestFilters() {
             if (model) params.set('model', model);
             const channel = document.getElementById('reqFilterChannel').value;
             if (channel) params.set('channel', channel);
-            const start = document.getElementById('reqFilterStart').value;
+            const start = localInputToUtcIso(document.getElementById('reqFilterStart').value);
             if (start) params.set('start', start);
-            const end = document.getElementById('reqFilterEnd').value;
+            const end = localInputToUtcIso(document.getElementById('reqFilterEnd').value);
             if (end) params.set('end', end);
             const success = document.getElementById('reqFilterSuccess').value;
             if (success) params.set('success', success);
@@ -2080,6 +2122,8 @@ async function loadSettings() {
     document.getElementById('set_request_timeout').value = data.request_timeout ?? 300;
     document.getElementById('set_max_body_size').value = data.max_body_size_mb ?? 10;
     document.getElementById('set_log_level').value = (data.log_level || 'INFO').toUpperCase();
+    document.getElementById('set_aggregation_timezone').value = data.aggregation_timezone || '';
+    document.getElementById('set_aggregation_timezone').value = data.aggregation_timezone || '';
     document.getElementById('set_request_log_db_type').value = data.request_log_db_type || 'sqlite';
     document.getElementById('set_request_log_sqlite_path').value = data.request_log_sqlite_path || '';
     document.getElementById('set_request_log_database_url').value = data.request_log_database_url_masked || '';
@@ -2111,6 +2155,10 @@ async function saveSettings() {
   if (maxBodyMB !== origMaxBodyMB) data.max_body_size = maxBodyMB * 1024 * 1024;
   const newLogLevel = document.getElementById('set_log_level').value;
   if (newLogLevel !== (orig.log_level || 'INFO').toUpperCase()) data.log_level = newLogLevel;
+  const newAggTz = document.getElementById('set_aggregation_timezone').value.trim();
+  if (newAggTz !== (orig.aggregation_timezone || '')) data.aggregation_timezone = newAggTz;
+  const newAggTz = document.getElementById('set_aggregation_timezone').value.trim();
+  if (newAggTz !== (orig.aggregation_timezone || '')) data.aggregation_timezone = newAggTz;
   const requestLogDbType = document.getElementById('set_request_log_db_type').value;
   if (requestLogDbType !== (orig.request_log_db_type || 'sqlite')) data.request_log_db_type = requestLogDbType;
   const requestLogDbUrl = document.getElementById('set_request_log_database_url').value;

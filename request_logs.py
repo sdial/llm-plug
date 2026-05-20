@@ -60,6 +60,18 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _normalize_to_utc_aware(value: datetime) -> datetime:
+    """naive 输入按 UTC 解释；aware 转 UTC。返回 aware UTC datetime。"""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _normalize_to_utc_naive(value: datetime) -> datetime:
+    """返回 naive UTC datetime（SQLite TEXT 时间戳比较用）。"""
+    return _normalize_to_utc_aware(value).replace(tzinfo=None)
+
+
 def _to_iso(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat(sep=" ", timespec="microseconds")
@@ -266,10 +278,10 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
             args.extend([escaped, escaped])
         if start:
             conditions.append("timestamp >= ?")
-            args.append(_to_iso(start))
+            args.append(_to_iso(_normalize_to_utc_naive(start)))
         if end:
             conditions.append("timestamp < ?")
-            args.append(_to_iso(end))
+            args.append(_to_iso(_normalize_to_utc_naive(end)))
         if success is not None:
             conditions.append("success = ?")
             args.append(1 if success else 0)
@@ -477,9 +489,9 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
                 f"OR channel_id ILIKE {id_param} ESCAPE '\\')"
             )
         if start:
-            conditions.append(f"timestamp >= {self._placeholder(args, start)}")
+            conditions.append(f"timestamp >= {self._placeholder(args, _normalize_to_utc_aware(start))}")
         if end:
-            conditions.append(f"timestamp < {self._placeholder(args, end)}")
+            conditions.append(f"timestamp < {self._placeholder(args, _normalize_to_utc_aware(end))}")
         if success is not None:
             conditions.append(f"success = {self._placeholder(args, bool(success))}")
         if api_key_id:
