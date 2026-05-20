@@ -1582,13 +1582,17 @@ async function loadStats() {
         const timezone = _settingsOriginal?.aggregation_timezone;
         const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
         if (timezone) options.timeZone = timezone;
-        cutoffTimeValue.textContent = dt.toLocaleString('zh-CN', options);
+        const timeStr = dt.toLocaleString('zh-CN', options);
+        const tzDisplay = timezone || '本地时区';
+        cutoffTimeValue.textContent = `${timeStr} (${tzDisplay})`;
       } else {
         const now = new Date();
         const timezone = _settingsOriginal?.aggregation_timezone;
         const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
         if (timezone) options.timeZone = timezone;
-        cutoffTimeValue.textContent = now.toLocaleString('zh-CN', options);
+        const timeStr = now.toLocaleString('zh-CN', options);
+        const tzDisplay = timezone || '本地时区';
+        cutoffTimeValue.textContent = `${timeStr} (${tzDisplay})`;
       }
       cutoffTimeEl.classList.remove('hidden');
     } else {
