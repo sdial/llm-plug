@@ -12,6 +12,11 @@ RUN uv sync --no-dev --frozen
 # ===== Stage 2: Runtime =====
 FROM python:3.12-slim
 
+# 安装时区数据库
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends tzdata && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
