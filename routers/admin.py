@@ -1,6 +1,6 @@
 import secrets
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -460,7 +460,7 @@ async def get_stats(days: Annotated[int, Query(ge=1)] = 7):
         "overall": overall,
         "daily": daily,
         "_debug": {
-            "server_now": datetime.now().isoformat(),
+            "server_now": datetime.now(timezone.utc).isoformat(),
             "query_days": days,
             "raw_daily_count": len(raw_daily),
             "fallback_used": fallback_used,
@@ -476,7 +476,7 @@ async def get_stats_today():
         "overall": data["overall"],
         "daily": data["daily"],
         "_debug": {
-            "server_now": datetime.now().isoformat(),
+            "server_now": datetime.now(timezone.utc).isoformat(),
             "mode": "today_realtime",
         },
     }
