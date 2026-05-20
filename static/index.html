@@ -458,6 +458,7 @@
                     <colgroup>
                         <col style="width:110px">
                         <col style="width:90px">
+                        <col style="width:100px">
                         <col style="width:130px">
                         <col style="width:70px">
                         <col style="width:70px">
@@ -471,6 +472,7 @@
                         <tr class="border-b border-surface-200">
                             <th class="text-left py-3 px-3 text-xs text-ink-600 font-semibold uppercase tracking-wider">时间</th>
                             <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">渠道</th>
+                            <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">客户端IP</th>
                             <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">模型</th>
                             <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">输入Tkn</th>
                             <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">输出Tkn</th>
@@ -482,7 +484,7 @@
                         </tr>
                     </thead>
                     <tbody id="requestsTbody">
-                        <tr><td colspan="10" class="py-4 text-center text-ink-400 text-sm">加载中...</td></tr>
+                        <tr><td colspan="11" class="py-4 text-center text-ink-400 text-sm">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -1761,7 +1763,7 @@ function renderStats(data) {
                         requestsData = [];
                         requestTotal = 0;
                         renderRequestPagination();
-                        document.getElementById('requestsTbody').innerHTML = `<tr><td colspan="10" class="py-6 text-center text-sm text-ink-600">请求记录库不可用：${esc(err.detail || '未知错误')} <button onclick="loadStatsRequestLogs()" class="pill pill-brand ml-2 cursor-pointer">查看轻量请求记录</button></td></tr>`;
+                        document.getElementById('requestsTbody').innerHTML = `<tr><td colspan="11" class="py-6 text-center text-sm text-ink-600">请求记录库不可用:${esc(err.detail || '未知错误')} <button onclick="loadStatsRequestLogs()" class="pill pill-brand ml-2 cursor-pointer">查看轻量请求记录</button></td></tr>`;
                         return;
                     }
                     throw new Error('HTTP ' + resp.status);
@@ -1776,7 +1778,7 @@ function renderStats(data) {
                 renderRequestPagination();
             } catch (e) {
                 console.error('加载请求记录失败:', e);
-                document.getElementById('requestsTbody').innerHTML = '<tr><td colspan="10" class="py-4 text-center text-ink-400 text-sm">加载失败</td></tr>';
+                document.getElementById('requestsTbody').innerHTML = '<tr><td colspan="11" class="py-4 text-center text-ink-400 text-sm">加载失败</td></tr>';
             }
         }
 
@@ -1818,7 +1820,7 @@ function renderStats(data) {
         function renderRequests() {
             const tbody = document.getElementById('requestsTbody');
             if (!requestsData.length) {
-                tbody.innerHTML = '<tr><td colspan="10" class="py-4 text-center text-ink-400 text-sm">暂无请求记录</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="11" class="py-4 text-center text-ink-400 text-sm">暂无请求记录</td></tr>';
                 return;
             }
             tbody.innerHTML = requestsData.map(req => {
@@ -1834,6 +1836,7 @@ function renderStats(data) {
                 <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150 cursor-pointer" onclick="openRequestDetail(${req.id})">
                     <td data-label="时间" class="py-3 px-3 text-sm text-ink-900 whitespace-nowrap">${formatTimestamp(req.timestamp)}</td>
                     <td data-label="渠道" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.channel_name)}">${esc(req.channel_name)}</td>
+                    <td data-label="客户端IP" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
                     <td data-label="模型" class="py-3 px-2 text-sm text-ink-900 truncate" title="${esc(req.model)}">${esc(req.model)}</td>
                     <td data-label="输入Tkn" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${req.input_tokens || 0}</td>
                     <td data-label="输出Tkn" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${outTokens}</td>
