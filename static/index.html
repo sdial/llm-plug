@@ -1579,13 +1579,15 @@ async function loadStats() {
       if (serverNow) {
         const dt = new Date(serverNow);
         // 使用设置中的统计时区来显示时间
-        const timezone = _settingsOriginal?.aggregation_timezone || undefined;
-        const options = { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: timezone };
+        const timezone = _settingsOriginal?.aggregation_timezone;
+        const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+        if (timezone) options.timeZone = timezone;
         cutoffTimeValue.textContent = dt.toLocaleString('zh-CN', options);
       } else {
         const now = new Date();
-        const timezone = _settingsOriginal?.aggregation_timezone || undefined;
-        const options = { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: timezone };
+        const timezone = _settingsOriginal?.aggregation_timezone;
+        const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+        if (timezone) options.timeZone = timezone;
         cutoffTimeValue.textContent = now.toLocaleString('zh-CN', options);
       }
       cutoffTimeEl.classList.remove('hidden');
