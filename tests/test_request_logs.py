@@ -233,3 +233,104 @@ async def test_postgres_backend_smoke(monkeypatch):
         }
     finally:
         await request_logs.close_backend()
+
+
+async def test_cleanup_nullifies_raw_fields_after_raw_retention(sqlite_request_logs, monkeypatch):
+    """raw_retention_days=1, retention_days=365: old row's BLOB columns become NULL but row survives."""
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setattr(
+        request_logs,
+        "_get_save_flags",
+        lambda: {
+            "save_request_headers": True,
+            "save_response_headers": True,
+            "save_request_body": True,
+            "save_response_body": True,
+        },
+    )
+
+    # Write a record with BLOBs, then backdated 8 days ago
+    _sample_record(channel_id="ch_x", channel_name="X", model="gpt-x")
+    await request_logs.drain_queue()
+
+    import sqlite3
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat(sep=" ", timespec="microseconds")
+    conn = sqlite3.connect(str(sqlite_request_logs))
+    conn.execute("UPDATE request_logs SET timestamp = ?", (old_ts,))
+    conn.commit()
+    conn.close()
+
+    result = await request_logs.cleanup_old_records(retention_days=365, raw_retention_days=1)
+    assert result["raw_fields_cleared"] == 1
+    assert result["rows_deleted"] == 0
+
+    # Row still exists but BLOB columns are NULL
+    field = await request_logs.get_request_field(1, "request_body")
+    assert field == {"data": None}
+
+
+async def test_cleanup_deletes_rows_after_retention(sqlite_request_logs):
+    """retention_days=1: rows older than 1 day are deleted."""
+    from datetime import datetime, timedelta, timezone
+
+    _sample_record(channel_id="ch_old", channel_name="Old", model="gpt-old")
+    await request_logs.drain_queue()
+
+    import sqlite3
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(sep=" ", timespec="microseconds")
+    conn = sqlite3.connect(str(sqlite_request_logs))
+    conn.execute("UPDATE request_logs SET timestamp = ?", (old_ts,))
+    conn.commit()
+    conn.close()
+
+    result = await request_logs.cleanup_old_records(retention_days=1, raw_retention_days=0)
+    assert result["rows_deleted"] == 1
+    assert result["raw_fields_cleared"] == 0
+
+    listing = await request_logs.list_requests()
+    assert listing["total"] == 0
+
+
+async def test_cleanup_skips_raw_nullification_when_raw_days_ge_retention_days(sqlite_request_logs, monkeypatch):
+    """When raw_retention_days >= retention_days, Phase 1 is skipped (rows just get deleted)."""
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setattr(
+        request_logs,
+        "_get_save_flags",
+        lambda: {
+            "save_request_headers": True,
+            "save_response_headers": True,
+            "save_request_body": True,
+            "save_response_body": True,
+        },
+    )
+
+    _sample_record(channel_id="ch_x", channel_name="X", model="gpt-x")
+    await request_logs.drain_queue()
+
+    import sqlite3
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat(sep=" ", timespec="microseconds")
+    conn = sqlite3.connect(str(sqlite_request_logs))
+    conn.execute("UPDATE request_logs SET timestamp = ?", (old_ts,))
+    conn.commit()
+    conn.close()
+
+    # raw_days == retention_days → Phase 1 skipped, Phase 2 deletes
+    result = await request_logs.cleanup_old_records(retention_days=7, raw_retention_days=7)
+    assert result["raw_fields_cleared"] == 0
+    assert result["rows_deleted"] == 1
+
+
+async def test_cleanup_zero_days_is_noop(sqlite_request_logs):
+    """Both days=0 means no cleanup."""
+    _sample_record(channel_id="ch_x", channel_name="X", model="gpt-x")
+    await request_logs.drain_queue()
+
+    result = await request_logs.cleanup_old_records(retention_days=0, raw_retention_days=0)
+    assert result["raw_fields_cleared"] == 0
+    assert result["rows_deleted"] == 0
+
+    listing = await request_logs.list_requests()
+    assert listing["total"] == 1
