@@ -133,6 +133,21 @@ def test_check_exact_ip_host_bits():
     assert ok is True
 
 
+def test_ipv4_mapped_ipv6_does_not_match_ipv4_network():
+    # Python's ipaddress module does not coerce IPv4-mapped IPv6 addresses
+    # (e.g. ::ffff:10.1.1.50) when checking membership in an IPv4Network.
+    # The check raises TypeError, which check_request treats as a non-match
+    # (fails closed — denies access). This test pins that safe-fail behavior.
+    rule = wl.WhitelistRule(
+        path_pattern="/admin/*",
+        methods=frozenset(),
+        network=ipaddress.IPv4Network("10.0.0.0/8"),
+        description="内网",
+    )
+    ok, _ = wl.check_request([rule], "/admin/foo", "GET", "::ffff:10.1.1.50")
+    assert ok is False
+
+
 # ─── validate_rules_text ───
 
 def test_validate_empty_text():
