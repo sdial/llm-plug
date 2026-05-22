@@ -1,6 +1,6 @@
 import secrets
 import time
-from datetime import date, datetime, timezone, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -14,6 +14,7 @@ from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from models.model_group import LBConfig, ModelGroup, ModelGroupCreate, ModelGroupUpdate
 from proxy_core import _get_upstream_url
+import whitelist as _whitelist_mod
 from stats import (
     aggregate_daily_stats,
     get_daily_stats,
@@ -717,8 +718,6 @@ async def restart_server(body: dict):
 
 
 # ============ IP 白名单 ============
-
-import whitelist as _whitelist_mod
 
 
 @router.get("/whitelist")
