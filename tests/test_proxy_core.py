@@ -828,6 +828,7 @@ class TestDoRequest:
                     query_string=None,
                     client_headers=None,
                     api_key_id=None,
+                    client_ip=None,
                 )
 
         assert exc_info.value.response.status_code == 400
@@ -1216,6 +1217,7 @@ class TestDoStreamRequest:
                 query_string=None,
                 client_headers=None,
                 api_key_id=None,
+            client_ip=None,
             )
             outputs = [chunk async for chunk in stream]
 
@@ -1375,6 +1377,7 @@ class TestAnthropicSameTypeFailoverEarly:
                 query_string=None,
                 client_headers=None,
                 api_key_id=None,
+            client_ip=None,
             )
 
         assert selected.id == "ch_anthropic_2"
@@ -1478,6 +1481,7 @@ class TestAnthropicSameTypeFailoverEarly:
                 query_string=None,
                 client_headers=None,
                 api_key_id=None,
+            client_ip=None,
             )
             outputs = [chunk async for chunk in stream]
 
@@ -1596,6 +1600,7 @@ class TestAnthropicSameTypeFailoverEarly:
                 query_string=None,
                 client_headers=None,
                 api_key_id=None,
+            client_ip=None,
             )
             outputs = [chunk async for chunk in stream]
 
@@ -1874,6 +1879,7 @@ class TestFailoverOn401:
                     query_string=None,
                     client_headers=None,
                     api_key_id=None,
+                client_ip=None,
                 )
 
         assert exc_info.value.response.status_code == 401
@@ -1964,6 +1970,7 @@ class TestFailoverOn401:
                     query_string=None,
                     client_headers=None,
                     api_key_id=None,
+                client_ip=None,
                 )
 
         assert exc_info.value.response.status_code == 403
@@ -2052,6 +2059,7 @@ class TestFailoverOn401:
                 query_string=None,
                 client_headers=None,
                 api_key_id=None,
+            client_ip=None,
             )
 
         assert selected.id == "ch_fallback"
@@ -2109,6 +2117,7 @@ class TestFailoverOn401:
                     query_string=None,
                     client_headers=None,
                     api_key_id=None,
+                client_ip=None,
                 )
 
         assert exc_info.value.response.status_code == 401
@@ -2207,6 +2216,7 @@ class TestConverterErrorFailover:
                 query_string=None,
                 client_headers=None,
                 api_key_id=None,
+            client_ip=None,
             )
 
         assert selected.id == "ch_fallback"
@@ -2543,6 +2553,7 @@ class TestEmptyStreamFailover:
                 query_string=None,
                 client_headers=None,
                 api_key_id=None,
+            client_ip=None,
             )
             outputs = [chunk async for chunk in stream]
 
@@ -2702,6 +2713,7 @@ class TestAnthropicSameTypeFailover:
                 query_string=None,
                 client_headers=None,
                 api_key_id=None,
+            client_ip=None,
             )
 
         assert selected.id == "ch_anthropic_2"
@@ -2805,6 +2817,7 @@ class TestAnthropicSameTypeFailover:
                 query_string=None,
                 client_headers=None,
                 api_key_id=None,
+            client_ip=None,
             )
             outputs = [chunk async for chunk in stream]
 
@@ -2923,6 +2936,7 @@ class TestAnthropicSameTypeFailover:
                 query_string=None,
                 client_headers=None,
                 api_key_id=None,
+            client_ip=None,
             )
             outputs = [chunk async for chunk in stream]
 

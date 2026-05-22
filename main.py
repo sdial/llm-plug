@@ -12,6 +12,7 @@ from loguru import logger
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import request_logs
+import whitelist as _whitelist
 from client import cleanup_stale_clients, close_all_clients
 from config import HOST, MAX_BODY_SIZE, PORT, get_setting, init_settings
 from response_state import get_responses_store, reload_responses_store
@@ -108,6 +109,9 @@ async def lifespan(app):
 
 _PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")
 
+_DATA_DIR = Path(__file__).parent / "data"
+_whitelist_cache = _whitelist.WhitelistCache(str(_DATA_DIR / "whitelist.csv"))
+
 
 _api_key_index: dict[str, dict] | None = None
 _api_key_index_lock = asyncio.Lock()
@@ -151,6 +155,14 @@ class CombinedMiddleware:
 
         method = scope["method"]
         path = scope["path"]
+
+        # IP 白名单检查（对所有 HTTP 请求生效）
+        client_ip = (scope.get("client") or ("", 0))[0]
+        _wl_rules = _whitelist_cache.get_rules()
+        _wl_allowed, _wl_reason = _whitelist.check_request(_wl_rules, path, method, client_ip)
+        if not _wl_allowed:
+            await self._send_error(send, 403, _wl_reason, "ip_whitelist_error")
+            return
 
         # Only process proxy API requests
         if method != "POST" or path not in _PROXY_PATHS:
@@ -280,8 +292,8 @@ class CombinedMiddleware:
         logger.info(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}")
         logger.info(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s)")
 
-    async def _send_error(self, send: Send, status: int, message: str) -> None:
-        error_body = json.dumps({"error": {"message": message, "type": "auth_error"}}).encode()
+    async def _send_error(self, send: Send, status: int, message: str, error_type: str = "auth_error") -> None:
+        error_body = json.dumps({"error": {"message": message, "type": error_type}}).encode()
         await send({
             "type": "http.response.start",
             "status": status,
