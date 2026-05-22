@@ -287,3 +287,14 @@ class TestSettingsEndpoint:
 
         assert resp.status_code == 200
         assert calls == ["reload"]
+
+
+async def test_cleanup_request_logs_endpoint_returns_zero_when_nothing_old(client):
+    """POST /admin/request-logs/cleanup returns 200 with stats dict when nothing to clean."""
+    resp = await client.post("/admin/request-logs/cleanup")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "raw_fields_cleared" in body
+    assert "rows_deleted" in body
+    assert body["raw_fields_cleared"] == 0
+    assert body["rows_deleted"] == 0

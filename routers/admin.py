@@ -582,6 +582,12 @@ async def get_request_field_endpoint(request_id: int, field_name: str):
     return result
 
 
+@router.post("/request-logs/cleanup")
+async def cleanup_request_logs_endpoint():
+    """手动触发请求记录 TTL 清理（按 settings 中的保留天数执行）"""
+    return await request_logs.cleanup_old_records()
+
+
 # ============ 模型组 CRUD ============
 
 
