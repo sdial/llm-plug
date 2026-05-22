@@ -158,6 +158,9 @@ class _BaseRequestLogBackend:
     async def get_request_field(self, request_id: int, field: str) -> dict | None:
         raise NotImplementedError
 
+    async def cleanup_old_records(self, retention_days: int, raw_retention_days: int) -> dict:
+        raise NotImplementedError
+
 
 class SQLiteRequestLogBackend(_BaseRequestLogBackend):
     def __init__(self, db_path: str):
@@ -369,6 +372,37 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
     async def get_request_field(self, request_id: int, field: str) -> dict | None:
         return await asyncio.to_thread(self._get_request_field_sync, request_id, field)
 
+    def _cleanup_old_records_sync(self, retention_days: int, raw_retention_days: int) -> dict:
+        result = {"raw_fields_cleared": 0, "rows_deleted": 0}
+        with self._connect() as conn:
+            if raw_retention_days > 0 and (retention_days == 0 or raw_retention_days < retention_days):
+                cur = conn.execute(
+                    """
+                    UPDATE request_logs
+                    SET request_headers = NULL,
+                        response_headers = NULL,
+                        request_body = NULL,
+                        response_body = NULL
+                    WHERE timestamp < datetime('now', ?)
+                      AND (request_headers IS NOT NULL
+                           OR response_headers IS NOT NULL
+                           OR request_body IS NOT NULL
+                           OR response_body IS NOT NULL)
+                    """,
+                    (f"-{raw_retention_days} days",),
+                )
+                result["raw_fields_cleared"] = cur.rowcount
+            if retention_days > 0:
+                cur = conn.execute(
+                    "DELETE FROM request_logs WHERE timestamp < datetime('now', ?)",
+                    (f"-{retention_days} days",),
+                )
+                result["rows_deleted"] = cur.rowcount
+        return result
+
+    async def cleanup_old_records(self, retention_days: int, raw_retention_days: int) -> dict:
+        return await asyncio.to_thread(self._cleanup_old_records_sync, retention_days, raw_retention_days)
+
 
 class PostgresRequestLogBackend(_BaseRequestLogBackend):
     def __init__(self, database_url: str):
@@ -563,6 +597,35 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
         if isinstance(data, str):
             data = json.loads(data)
         return {"data": data}
+
+    async def cleanup_old_records(self, retention_days: int, raw_retention_days: int) -> dict:
+        pool = self._require_pool()
+        result = {"raw_fields_cleared": 0, "rows_deleted": 0}
+        async with pool.acquire() as conn:
+            if raw_retention_days > 0 and (retention_days == 0 or raw_retention_days < retention_days):
+                tag = await conn.execute(
+                    """
+                    UPDATE request_logs
+                    SET request_headers = NULL,
+                        response_headers = NULL,
+                        request_body = NULL,
+                        response_body = NULL
+                    WHERE timestamp < NOW() - $1 * INTERVAL '1 day'
+                      AND (request_headers IS NOT NULL
+                           OR response_headers IS NOT NULL
+                           OR request_body IS NOT NULL
+                           OR response_body IS NOT NULL)
+                    """,
+                    raw_retention_days,
+                )
+                result["raw_fields_cleared"] = int(tag.split()[-1])
+            if retention_days > 0:
+                tag = await conn.execute(
+                    "DELETE FROM request_logs WHERE timestamp < NOW() - $1 * INTERVAL '1 day'",
+                    retention_days,
+                )
+                result["rows_deleted"] = int(tag.split()[-1])
+        return result
 
 
 def _build_backend(settings: dict | None = None) -> _BaseRequestLogBackend:
@@ -896,3 +959,26 @@ async def get_request_field(request_id: int, field: str) -> dict | None:
     except Exception as exc:
         logger.warning(f"Request log field read failed: {exc}")
         return None
+
+
+async def cleanup_old_records(
+    retention_days: int | None = None,
+    raw_retention_days: int | None = None,
+) -> dict[str, Any]:
+    backend = _backend
+    if backend is None:
+        return {"error": _backend_error, "raw_fields_cleared": 0, "rows_deleted": 0}
+    r_days = retention_days if retention_days is not None else int(config.get_setting("request_log_retention_days") or 0)
+    raw_days = raw_retention_days if raw_retention_days is not None else int(config.get_setting("request_log_raw_retention_days") or 0)
+    try:
+        result = await backend.cleanup_old_records(r_days, raw_days)
+        if result.get("raw_fields_cleared") or result.get("rows_deleted"):
+            logger.info(
+                f"Request log cleanup: cleared raw fields for {result['raw_fields_cleared']} rows, "
+                f"deleted {result['rows_deleted']} rows "
+                f"(raw_retention={raw_days}d, retention={r_days}d)"
+            )
+        return result
+    except Exception as exc:
+        logger.warning(f"Request log cleanup failed: {exc}")
+        return {"error": str(exc), "raw_fields_cleared": 0, "rows_deleted": 0}
