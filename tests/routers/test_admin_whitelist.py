@@ -125,3 +125,58 @@ class TestWhitelistMiddleware:
         )
         assert resp.status_code == 403
         assert resp.json()["error"]["type"] == "ip_whitelist_error"
+
+
+class TestWhitelistAPI:
+    @pytest_asyncio.fixture(autouse=True)
+    async def patch_whitelist_path(self, tmp_path, monkeypatch):
+        """每个测试使用独立临时目录，白名单检查全部放行"""
+        import routers.admin as admin_router
+        import main
+        monkeypatch.setattr(admin_router, "WHITELIST_PATH", tmp_path / "whitelist.csv")
+        monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: [])
+
+    async def test_get_whitelist_no_file(self, client):
+        resp = await client.get("/admin/whitelist")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["content"] == ""
+        assert data["rule_count"] == 0
+
+    async def test_put_whitelist_saves_and_returns_count(self, client):
+        content = (
+            "path_pattern,methods,ip_cidr,description\n"
+            "/admin/*,*,10.1.1.0/24,内网\n"
+            "/admin/*,*,127.0.0.1,本机\n"
+        )
+        resp = await client.put("/admin/whitelist", json={"content": content})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["rule_count"] == 2
+
+    async def test_get_whitelist_returns_saved_content(self, client):
+        content = "# comment\n/admin/*,*,127.0.0.1,本机\n"
+        await client.put("/admin/whitelist", json={"content": content})
+        resp = await client.get("/admin/whitelist")
+        assert resp.json()["content"] == content
+        assert resp.json()["rule_count"] == 1
+
+    async def test_put_whitelist_invalid_cidr_returns_400(self, client):
+        resp = await client.put(
+            "/admin/whitelist", json={"content": "/admin/*,*,not-an-ip,test\n"}
+        )
+        assert resp.status_code == 400
+        assert "not-an-ip" in resp.json()["detail"]
+
+    async def test_put_whitelist_bad_column_count_returns_400(self, client):
+        resp = await client.put(
+            "/admin/whitelist", json={"content": "/admin/*,*\n"}
+        )
+        assert resp.status_code == 400
+        assert "4 列" in resp.json()["detail"]
+
+    async def test_put_whitelist_empty_clears_rules(self, client):
+        await client.put("/admin/whitelist", json={"content": "/admin/*,*,127.0.0.1,test\n"})
+        resp = await client.put("/admin/whitelist", json={"content": ""})
+        assert resp.status_code == 200
+        assert resp.json()["rule_count"] == 0
