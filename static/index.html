@@ -664,14 +664,9 @@
         <div id="settings_database" class="settings-section hidden">
           <div class="mb-5">
             <h2 class="text-base font-semibold text-ink-900">请求记录数据库</h2>
-            <p class="text-sm text-ink-600 mt-0.5">请求记录用于排查代理行为，保存后立即生效；切换数据库不会迁移已有 RAW 信息。</p>
-            <p class="text-sm text-ink-600 mt-0.5">统计聚合单独保存在 <span class="font-mono">data/stats.db</span>，请求记录默认保存在 <span class="font-mono">data/request_logs.db</span>。</p>
-          </div>
-          <div class="card p-5 mb-4">
-            <div class="text-sm font-medium text-ink-900 mb-2">存储边界</div>
-            <div class="text-sm text-ink-600 leading-6">
-              渠道配置写入 <span class="font-mono">data/channels.json</span>，API Key 写入 <span class="font-mono">data/api_keys.json</span>，系统设置写入 <span class="font-mono">data/settings.json</span>。这些文件由前端和管理 API 维护，不需要手动编辑。
-            </div>
+            <p class="text-sm text-ink-600 mt-1.5">每次请求都会自动记录基础统计（渠道、模型、耗时、Token 用量、状态码等），无需任何配置。</p>
+            <p class="text-sm text-ink-600 mt-1">如需记录完整的消息内容（Header、Body），在下方「原始信息保存」中按需开启。这部分数据体积大，默认关闭。</p>
+            <p class="text-sm text-ink-600 mt-1">首页图表使用的聚合统计单独保存在 <span class="font-mono">data/stats.db</span>，不受此处设置影响。</p>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="card p-5">
@@ -680,29 +675,48 @@
                 <option value="sqlite">SQLite</option>
                 <option value="postgres">PostgreSQL</option>
               </select>
+              <p class="text-xs text-ink-400 mt-1.5">SQLite 适合单机部署，开箱即用；PostgreSQL 适合多实例共享或需要外部访问的场景。切换后立即生效，已有记录不会迁移。</p>
             </div>
             <div class="card p-5">
-              <div class="text-sm font-medium text-ink-900 mb-1.5">SQLite 路径</div>
+              <div class="text-sm font-medium text-ink-900 mb-1.5">SQLite 文件路径</div>
               <input type="text" id="set_request_log_sqlite_path" readonly data-section="database" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none bg-surface-50 text-ink-500 font-mono cursor-not-allowed">
+              <p class="text-xs text-ink-400 mt-1.5">路径固定，不可修改。如需备份或迁移，直接复制此文件即可。</p>
             </div>
           </div>
           <div class="card p-5 mt-4">
             <div class="flex items-center gap-2 mb-1.5">
-              <span class="text-sm font-medium text-ink-900">PostgreSQL URL</span>
+              <span class="text-sm font-medium text-ink-900">PostgreSQL 连接串</span>
               <span class="pill pill-success">热更新</span>
             </div>
             <input type="text" id="set_request_log_database_url" data-section="database" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white font-mono" placeholder="留空保持不变">
-            <p class="text-xs text-ink-400 mt-1">包含密码的连接串，仅展示脱敏值，修改时输入完整值，如: postgresql://user:pass@host:5432/db</p>
+            <p class="text-xs text-ink-400 mt-1">格式：<span class="font-mono">postgresql://用户名:密码@主机:端口/数据库名</span>。出于安全考虑，页面只展示脱敏后的值，修改时需重新输入完整连接串。</p>
           </div>
           <div class="card p-5 mt-4">
-            <div class="text-sm font-medium text-ink-900 mb-3">原始信息保存</div>
-            <p class="text-xs text-ink-400 mb-3">默认只保存轻量统计。开启 Header 或 Body 会增加存储量，也可能记录敏感内容；只在需要审计或调试时打开。</p>
+            <div class="text-sm font-medium text-ink-900 mb-2">原始信息保存</div>
+            <p class="text-xs text-ink-600 mb-1">系统默认只记录基础统计，不保存消息内容。下方四项按需开启：</p>
+            <ul class="text-xs text-ink-400 mb-3 space-y-0.5 pl-3 list-disc">
+              <li><span class="text-ink-600 font-medium">请求 Header</span>：客户端发来的 HTTP 头，含鉴权 Key、客户端类型等，可用于追踪调用来源。</li>
+              <li><span class="text-ink-600 font-medium">返回 Header</span>：上游 API 返回的 HTTP 头，含速率限制剩余次数等调试信息。</li>
+              <li><span class="text-ink-600 font-medium">请求 Body</span>：完整的消息列表（messages）及所有参数，体积最大，审计时最有价值。</li>
+              <li><span class="text-ink-600 font-medium">返回 Body</span>：上游返回的完整响应，包含模型输出的所有内容。</li>
+            </ul>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-ink-700">
               <label class="flex items-center gap-2"><input type="checkbox" id="set_save_request_headers" data-section="database" class="settings-input rounded border-surface-200">请求 Header</label>
               <label class="flex items-center gap-2"><input type="checkbox" id="set_save_response_headers" data-section="database" class="settings-input rounded border-surface-200">返回 Header</label>
               <label class="flex items-center gap-2"><input type="checkbox" id="set_save_request_body" data-section="database" class="settings-input rounded border-surface-200">请求 Body</label>
               <label class="flex items-center gap-2"><input type="checkbox" id="set_save_response_body" data-section="database" class="settings-input rounded border-surface-200">返回 Body</label>
             </div>
+          </div>
+          <div class="card p-5 mt-4">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-sm font-medium text-ink-900">Body 截断限制</span>
+              <span class="pill pill-success">热更新</span>
+            </div>
+            <input type="number" id="set_max_log_body_size_kb" min="0" data-section="database" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+            <p class="text-xs text-ink-600 mt-2">单位：KB。仅在开启 Body 保存时生效。</p>
+            <p class="text-xs text-ink-400 mt-1">当请求或响应的 Body 超过此大小时，数据库中不会存储完整内容，而是替换为一个摘要对象，例如：</p>
+            <pre class="text-xs text-ink-500 bg-surface-50 rounded-lg px-3 py-2 mt-1.5 font-mono overflow-x-auto">{"_truncated": true, "_original_bytes": 126400, "_limit_bytes": 65536, "_preview": "消息开头内容..."}</pre>
+            <p class="text-xs text-ink-400 mt-1.5">这样可以防止长对话（大 context）消耗过多存储空间。<span class="text-ink-600 font-medium">0 表示不限制，完整保存所有内容</span>，默认 64 KB。</p>
           </div>
         </div>
 
@@ -2087,6 +2101,8 @@ function _detectSettingsDirty() {
     const el = document.getElementById('set_' + key);
     if (el && el.checked !== Boolean(orig[key])) _settingsDirtySections.add('database');
   });
+  const maxLogBodySizeKb = parseInt(document.getElementById('set_max_log_body_size_kb').value);
+  if (!isNaN(maxLogBodySizeKb) && maxLogBodySizeKb !== (orig.max_log_body_size_kb ?? 64)) _settingsDirtySections.add('database');
   _updateSettingsDirtyIndicators();
 }
 
@@ -2145,6 +2161,7 @@ async function loadSettings() {
     document.getElementById('set_save_response_headers').checked = Boolean(data.save_response_headers);
     document.getElementById('set_save_request_body').checked = Boolean(data.save_request_body);
     document.getElementById('set_save_response_body').checked = Boolean(data.save_response_body);
+    document.getElementById('set_max_log_body_size_kb').value = data.max_log_body_size_kb ?? 64;
     document.getElementById('set_max_fail_count').value = data.max_fail_count ?? 5;
     document.getElementById('set_cooldown_seconds').value = data.cooldown_seconds ?? 60;
     document.getElementById('restartBtn').classList.add('hidden');
@@ -2178,6 +2195,8 @@ async function saveSettings() {
     const el = document.getElementById('set_' + key);
     if (el && el.checked !== Boolean(orig[key])) data[key] = el.checked;
   });
+  const maxLogBodySizeKb = parseInt(document.getElementById('set_max_log_body_size_kb').value);
+  if (!isNaN(maxLogBodySizeKb) && maxLogBodySizeKb !== (orig.max_log_body_size_kb ?? 64)) data.max_log_body_size = maxLogBodySizeKb * 1024;
   const maxFailCount = parseInt(document.getElementById('set_max_fail_count').value) || 5;
   if (maxFailCount !== (orig.max_fail_count ?? 5)) data.max_fail_count = maxFailCount;
   const cooldownSeconds = parseInt(document.getElementById('set_cooldown_seconds').value) || 60;
