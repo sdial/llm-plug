@@ -744,7 +744,7 @@
       <div class="max-w-2xl">
         <div class="mb-5">
           <h2 class="text-base font-semibold text-ink-900">IP 白名单</h2>
-          <p class="text-sm text-ink-600 mt-0.5">控制哪些 IP 可以访问管理接口。白名单为空时，不做任何限制。</p>
+          <p class="text-sm text-ink-600 mt-0.5">控制哪些 IP 可以访问任意路径（管理接口与代理接口均受保护）。白名单为空时，不做任何限制。</p>
         </div>
 
         <!-- 规则说明（界面即文档） -->
@@ -766,7 +766,7 @@
                   <tr>
                     <td class="px-3 py-2 font-mono text-ink-900">path_pattern</td>
                     <td class="px-3 py-2 font-mono text-ink-700">/admin/*</td>
-                    <td class="px-3 py-2 text-ink-600">路径，支持 <code class="font-mono bg-surface-100 px-0.5 rounded">*</code> 通配符，<code class="font-mono bg-surface-100 px-0.5 rounded">/admin/*</code> 覆盖所有管理接口</td>
+                    <td class="px-3 py-2 text-ink-600">路径，支持 <code class="font-mono bg-surface-100 px-0.5 rounded">*</code> 通配符；<code class="font-mono bg-surface-100 px-0.5 rounded">/admin/*</code> 覆盖管理接口，<code class="font-mono bg-surface-100 px-0.5 rounded">/v1/*</code> 覆盖代理接口</td>
                   </tr>
                   <tr>
                     <td class="px-3 py-2 font-mono text-ink-900">methods</td>
