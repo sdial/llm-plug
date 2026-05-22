@@ -2,8 +2,6 @@ import ipaddress
 import os
 import time
 
-import pytest
-
 import whitelist as wl
 
 
@@ -38,7 +36,7 @@ def test_load_rules_parses_wildcard_method(tmp_path):
     assert len(rules) == 1
     r = rules[0]
     assert r.path_pattern == "/admin/*"
-    assert r.methods == set()          # * → empty set means all
+    assert r.methods == frozenset()          # * → empty set means all
     assert str(r.network) == "10.0.0.0/8"
     assert r.description == "内网"
 
@@ -47,7 +45,7 @@ def test_load_rules_parses_method_filter(tmp_path):
     f = tmp_path / "whitelist.csv"
     f.write_text("/admin/*,GET|POST,127.0.0.1,本机\n")
     rules = wl.load_rules(str(f))
-    assert rules[0].methods == {"GET", "POST"}
+    assert rules[0].methods == frozenset({"GET", "POST"})
 
 
 def test_load_rules_skips_invalid_cidr(tmp_path):
@@ -76,13 +74,13 @@ def _make_rules():
     return [
         wl.WhitelistRule(
             path_pattern="/admin/*",
-            methods=set(),
+            methods=frozenset(),
             network=ipaddress.ip_network("10.1.1.0/24"),
             description="内网",
         ),
         wl.WhitelistRule(
             path_pattern="/admin/stats",
-            methods={"GET"},
+            methods=frozenset({"GET"}),
             network=ipaddress.ip_network("203.0.113.5/32"),
             description="公司只读",
         ),
@@ -126,7 +124,7 @@ def test_check_exact_ip_host_bits():
     rules = [
         wl.WhitelistRule(
             path_pattern="/admin/*",
-            methods=set(),
+            methods=frozenset(),
             network=ipaddress.ip_network("192.168.1.0/24"),
             description="test",
         )
