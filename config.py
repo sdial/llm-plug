@@ -67,6 +67,16 @@ _CONFIG_SCHEMA = {
     "response_state_ttl_minutes": {"type": "int", "default": 60, "requires_restart": False},
     "response_state_cleanup_interval_minutes": {"type": "int", "default": 30, "requires_restart": False},
     "aggregation_timezone": {"type": "str", "default": "", "requires_restart": False},
+    "request_log_retention_days": {
+        "type": "int",
+        "default": 0,
+        "requires_restart": False,
+    },
+    "request_log_raw_retention_days": {
+        "type": "int",
+        "default": 0,
+        "requires_restart": False,
+    },
 }
 
 _settings: dict = {}
@@ -96,6 +106,8 @@ _CONFIG_CONSTRAINTS: dict[str, dict] = {
     "log_level": {"choices": ("trace", "debug", "info", "warning", "error", "critical")},
     "request_log_db_type": {"choices": ("sqlite", "postgres")},
     "aggregation_timezone": {"validator": "iana_timezone"},
+    "request_log_retention_days": {"min": 0},
+    "request_log_raw_retention_days": {"min": 0},
 }
 
 
