@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 
 
-@dataclass
+@dataclass(frozen=True)
 class WhitelistRule:
     path_pattern: str
-    methods: set[str]   # 空集合 = 允许所有方法
+    methods: frozenset[str]   # 空集合 = 允许所有方法
     network: ipaddress.IPv4Network | ipaddress.IPv6Network
     description: str
 
@@ -22,7 +22,7 @@ class WhitelistCache:
     def get_rules(self) -> list[WhitelistRule]:
         try:
             mtime = os.stat(self._path).st_mtime
-        except FileNotFoundError:
+        except OSError:
             self._rules = []
             self._mtime = -1.0
             return self._rules
@@ -39,7 +39,7 @@ def load_rules(path: str) -> list[WhitelistRule]:
     except FileNotFoundError:
         return []
 
-    filtered = [l for l in lines if l.strip() and not l.strip().startswith("#")]
+    filtered = [line for line in lines if line.strip() and not line.strip().startswith("#")]
     rules: list[WhitelistRule] = []
     reader = csv.reader(filtered)
     for row in reader:
@@ -50,9 +50,9 @@ def load_rules(path: str) -> list[WhitelistRule]:
             continue
         if not path_pat or not ip_cidr:
             continue
-        methods: set[str] = set()
+        methods: frozenset[str] = frozenset()
         if methods_str and methods_str != "*":
-            methods = {m.strip().upper() for m in methods_str.split("|")}
+            methods = frozenset(m.strip().upper() for m in methods_str.split("|"))
         try:
             network = ipaddress.ip_network(ip_cidr, strict=False)
         except ValueError:
@@ -68,7 +68,7 @@ def load_rules(path: str) -> list[WhitelistRule]:
 
 def validate_rules_text(text: str) -> tuple[bool, str, list[WhitelistRule]]:
     """校验并解析 CSV 文本。返回 (valid, error_message, parsed_rules)。"""
-    lines = [l for l in text.splitlines() if l.strip() and not l.strip().startswith("#")]
+    lines = [line for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
     rules: list[WhitelistRule] = []
     reader = csv.reader(lines)
     for i, row in enumerate(reader):
@@ -85,9 +85,9 @@ def validate_rules_text(text: str) -> tuple[bool, str, list[WhitelistRule]]:
             network = ipaddress.ip_network(ip_cidr, strict=False)
         except ValueError:
             return False, f"第 {i + 1} 行：无效的 IP 或 CIDR：{ip_cidr!r}", []
-        methods: set[str] = set()
+        methods: frozenset[str] = frozenset()
         if methods_str and methods_str != "*":
-            methods = {m.strip().upper() for m in methods_str.split("|")}
+            methods = frozenset(m.strip().upper() for m in methods_str.split("|"))
         rules.append(WhitelistRule(
             path_pattern=path_pat,
             methods=methods,
@@ -111,6 +111,8 @@ def check_request(
         addr = ipaddress.ip_address(client_ip)
     except ValueError:
         return False, "无法确定客户端 IP 地址"
+    # IPv4-mapped IPv6 (e.g. ::ffff:10.1.1.50) won't match an IPv4Network.
+    # Users on dual-stack servers should whitelist the IPv6 address form as well.
     ip_rules = [r for r in path_rules if addr in r.network]
     if not ip_rules:
         return False, "不在 IP 白名单范围内"
