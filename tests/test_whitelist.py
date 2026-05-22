@@ -161,6 +161,13 @@ def test_validate_bad_cidr():
     assert "bad-ip" in err
 
 
+def test_validate_line_number_with_preceding_comments():
+    text = "# comment 1\n# comment 2\n\n/admin/*,*,10.0.0.0/8\n"
+    ok, err, _ = wl.validate_rules_text(text)
+    assert ok is False
+    assert "第 4 行" in err   # actual line 4 in the file
+
+
 # ─── WhitelistCache ───
 
 def test_cache_missing_file():
