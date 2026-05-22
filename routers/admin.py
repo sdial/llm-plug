@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 import request_logs
@@ -721,13 +721,14 @@ async def restart_server(body: dict):
 
 
 @router.get("/whitelist")
-async def get_whitelist():
+async def get_whitelist(request: Request):
     """获取白名单 CSV 原始文本及有效规则数"""
+    client_ip = request.client.host if request.client else ""
     if not WHITELIST_PATH.exists():
-        return {"content": "", "rule_count": 0}
+        return {"content": "", "rule_count": 0, "client_ip": client_ip}
     content = WHITELIST_PATH.read_text(encoding="utf-8")
     rules = _whitelist_mod.load_rules(str(WHITELIST_PATH))
-    return {"content": content, "rule_count": len(rules)}
+    return {"content": content, "rule_count": len(rules), "client_ip": client_ip}
 
 
 @router.put("/whitelist")
@@ -740,5 +741,7 @@ async def update_whitelist(body: dict):
     if not valid:
         raise HTTPException(status_code=400, detail=error)
     WHITELIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    WHITELIST_PATH.write_text(content, encoding="utf-8")
+    tmp = WHITELIST_PATH.with_suffix(".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(WHITELIST_PATH)
     return {"message": f"已保存 {len(rules)} 条规则", "rule_count": len(rules)}

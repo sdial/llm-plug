@@ -2,7 +2,7 @@ import csv
 import ipaddress
 import os
 from dataclasses import dataclass
-from fnmatch import fnmatch
+from fnmatch import fnmatchcase
 
 
 @dataclass(frozen=True)
@@ -68,29 +68,35 @@ def load_rules(path: str) -> list[WhitelistRule]:
 
 def validate_rules_text(text: str) -> tuple[bool, str, list[WhitelistRule]]:
     """校验并解析 CSV 文本。返回 (valid, error_message, parsed_rules)。"""
-    lines = [line for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
     rules: list[WhitelistRule] = []
-    reader = csv.reader(lines)
-    for i, row in enumerate(reader):
+    raw_lines = text.splitlines()
+    data_lines: list[tuple[int, str]] = []
+    for lineno, raw in enumerate(raw_lines, start=1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        data_lines.append((lineno, raw))
+    reader = csv.reader(line for _, line in data_lines)
+    for (lineno, _), row in zip(data_lines, reader):
         if not row or row[0].strip() == "path_pattern":
             continue
         if len(row) < 4:
-            return False, f"第 {i + 1} 行格式错误：需要 4 列，实际 {len(row)} 列", []
+            return False, f"第 {lineno} 行格式错误：需要 4 列，实际 {len(row)} 列", []
         path_pat, methods_str, ip_cidr, description = (col.strip() for col in row[:4])
         if not path_pat:
-            return False, f"第 {i + 1} 行：path_pattern 不能为空", []
+            return False, f"第 {lineno} 行：path_pattern 不能为空", []
         if not ip_cidr:
-            return False, f"第 {i + 1} 行：ip_cidr 不能为空", []
+            return False, f"第 {lineno} 行：ip_cidr 不能为空", []
         try:
             network = ipaddress.ip_network(ip_cidr, strict=False)
         except ValueError:
-            return False, f"第 {i + 1} 行：无效的 IP 或 CIDR：{ip_cidr!r}", []
-        methods: frozenset[str] = frozenset()
+            return False, f"第 {lineno} 行：无效的 IP 或 CIDR：{ip_cidr!r}", []
+        methods: set[str] = set()
         if methods_str and methods_str != "*":
-            methods = frozenset(m.strip().upper() for m in methods_str.split("|"))
+            methods = {m.strip().upper() for m in methods_str.split("|")}
         rules.append(WhitelistRule(
             path_pattern=path_pat,
-            methods=methods,
+            methods=frozenset(methods),
             network=network,
             description=description,
         ))
@@ -104,7 +110,7 @@ def check_request(
     client_ip: str,
 ) -> tuple[bool, str]:
     """检查请求是否通过白名单。返回 (allow, reason)；允许时 reason 为空字符串。"""
-    path_rules = [r for r in rules if fnmatch(path, r.path_pattern)]
+    path_rules = [r for r in rules if fnmatchcase(path, r.path_pattern)]
     if not path_rules:
         return True, ""
     try:

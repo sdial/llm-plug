@@ -802,6 +802,7 @@ path_pattern,methods,ip_cidr,description
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm font-semibold text-ink-900">编辑规则</h3>
             <span id="whitelist_rule_count" class="text-xs text-ink-400"></span>
+            <span id="whitelist_client_ip" class="text-xs text-ink-400"></span>
           </div>
           <textarea id="whitelist_content"
             class="w-full font-mono text-sm border border-surface-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 resize-y"
@@ -2528,6 +2529,10 @@ async function restartServer() {
             document.getElementById('whitelist_content').value = data.content || '';
             const countEl = document.getElementById('whitelist_rule_count');
             countEl.textContent = data.rule_count > 0 ? `${data.rule_count} 条有效规则` : '暂无规则';
+            const ipEl = document.getElementById('whitelist_client_ip');
+            if (ipEl && data.client_ip) {
+              ipEl.textContent = `当前 IP：${data.client_ip}`;
+            }
           } catch (e) {
             console.error('loadWhitelist error', e);
           }
@@ -2551,6 +2556,16 @@ async function restartServer() {
               errorEl.classList.remove('hidden');
               return;
             }
+          }
+
+          // 检查是否可能把自己锁出去
+          const ipEl = document.getElementById('whitelist_client_ip');
+          const myIp = ipEl ? ipEl.textContent.replace('当前 IP：', '').trim() : '';
+          if (myIp && content.trim() && !content.trim().split('\n').every(l => l.trim().startsWith('#') || !l.trim())) {
+            // There are actual rules — check if any could cover our IP (rough check)
+            // We let the backend decide; just remind the user
+            const confirmed = confirm(`保存后，只有白名单内的 IP 才能访问管理界面。\n\n您当前 IP：${myIp}\n\n请确认已将此 IP 添加到规则中，否则您将无法访问管理界面。\n\n确认保存？`);
+            if (!confirmed) return;
           }
 
           btn.disabled = true;
