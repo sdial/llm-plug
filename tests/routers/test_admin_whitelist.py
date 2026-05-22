@@ -106,3 +106,22 @@ class TestWhitelistMiddleware:
         # 根路径重定向，不应被 403
         resp = await client.get("/", follow_redirects=False)
         assert resp.status_code != 403
+
+    async def test_whitelist_blocks_proxy_path(self, client, monkeypatch):
+        """白名单可阻断代理路径（/v1/chat/completions 等）"""
+        import main
+        rules = [
+            wl.WhitelistRule(
+                path_pattern="/v1/*",
+                methods=frozenset(),
+                network=ipaddress.ip_network("10.0.0.0/8"),
+                description="内网代理",
+            )
+        ]
+        monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: rules)
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error"]["type"] == "ip_whitelist_error"
