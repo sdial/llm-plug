@@ -47,6 +47,8 @@ request_log_get_request_field = request_logs.get_request_field
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 STATIC_DIR = Path(__file__).parent.parent / "static"
+DATA_DIR = Path(__file__).parent.parent / "data"
+WHITELIST_PATH = DATA_DIR / "whitelist.csv"
 
 router = APIRouter(prefix="/admin", tags=["管理"])
 
@@ -712,3 +714,32 @@ async def restart_server(body: dict):
     _logger.info("配置变更触发重启")
     import os
     os._exit(0)
+
+
+# ============ IP 白名单 ============
+
+import whitelist as _whitelist_mod
+
+
+@router.get("/whitelist")
+async def get_whitelist():
+    """获取白名单 CSV 原始文本及有效规则数"""
+    if not WHITELIST_PATH.exists():
+        return {"content": "", "rule_count": 0}
+    content = WHITELIST_PATH.read_text(encoding="utf-8")
+    rules = _whitelist_mod.load_rules(str(WHITELIST_PATH))
+    return {"content": content, "rule_count": len(rules)}
+
+
+@router.put("/whitelist")
+async def update_whitelist(body: dict):
+    """校验并保存白名单 CSV，热重载自动生效"""
+    content = body.get("content", "")
+    if not isinstance(content, str):
+        raise HTTPException(status_code=400, detail="content 必须是字符串")
+    valid, error, rules = _whitelist_mod.validate_rules_text(content)
+    if not valid:
+        raise HTTPException(status_code=400, detail=error)
+    WHITELIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    WHITELIST_PATH.write_text(content, encoding="utf-8")
+    return {"message": f"已保存 {len(rules)} 条规则", "rule_count": len(rules)}
