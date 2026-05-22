@@ -665,6 +665,11 @@ async def get_settings_endpoint():
         settings["max_body_size_mb"] = settings["max_body_size"] // (1024 * 1024)
     else:
         settings["max_body_size_mb"] = _config._CONFIG_SCHEMA["max_body_size"]["default"] // (1024 * 1024)
+    # max_log_body_size 转换为 KB 单位（0 表示不限制）
+    raw = settings.get("max_log_body_size")
+    if raw is None:
+        raw = _config._CONFIG_SCHEMA["max_log_body_size"]["default"]
+    settings["max_log_body_size_kb"] = raw // 1024
     return settings
 
 
