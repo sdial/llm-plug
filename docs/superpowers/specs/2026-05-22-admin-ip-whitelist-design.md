@@ -47,6 +47,42 @@ path_pattern,methods,ip_cidr,description
 | 路径匹配，但 IP 不在任何匹配规则的 CIDR 中 | 403，原因：`不在 IP 白名单范围内` |
 | 路径匹配，IP 匹配，但方法不允许 | 403，原因：`该 IP 不允许使用 {METHOD} 方法` |
 
+## 源 IP 的获取
+
+白名单比对的 IP 来自以下优先级逻辑：
+
+### 阶段一：直连模式（当前实现）
+
+从 ASGI `scope["client"][0]` 读取，即 TCP 连接的对端地址（等价于 WSGI 的 `REMOTE_ADDR`）。
+
+- **优点**：无法被客户端伪造，100% 可信
+- **适用场景**：本机访问（127.0.0.1）、内网直连（无反向代理）
+- **局限**：部署在 nginx/caddy 后面时，所有请求的 `REMOTE_ADDR` 都是 `127.0.0.1`（代理本身），白名单无法区分真实来源 IP
+
+### 阶段二：反向代理模式（公网部署时补充）
+
+公网部署时 nginx/caddy 会将真实客户端 IP 写入请求头，需要从头部读取：
+
+| 常见头部 | 说明 |
+|---------|------|
+| `X-Forwarded-For: <client>, <proxy1>, <proxy2>` | 取**第一项**（最左）为原始客户端 IP |
+| `X-Real-IP: <client>` | nginx 常见配置，直接是客户端 IP |
+
+**安全前提**：nginx/caddy 必须在转发前**覆盖或删除**客户端自带的 `X-Forwarded-For`，否则攻击者可自填任意 IP 绕过白名单。正确的 nginx 配置示例：
+
+```nginx
+proxy_set_header X-Forwarded-For $remote_addr;   # 覆盖，不信任客户端传入值
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+**实现方式**：在 `data/settings.json` 中增加 `trusted_proxy` 布尔开关（默认 `false`）。开启后从 `X-Forwarded-For` 首项或 `X-Real-IP` 读取 IP；关闭时始终使用 `REMOTE_ADDR`。此开关留到公网部署阶段实现，当前阶段仅使用 `REMOTE_ADDR`。
+
+### 管理后台 UI 中的提示
+
+「IP 白名单」界面应在说明区注明当前 IP 来源模式，提醒用户：
+
+> **注意**：系统当前使用直连 IP（REMOTE_ADDR）进行匹配。若服务部署在反向代理（nginx/caddy）后面，需在「设置」中开启「信任代理 IP 头」，并确保代理已正确配置 `X-Forwarded-For` 覆盖，否则白名单将失效。
+
 ## 模块设计
 
 ### 新增 `whitelist.py`
@@ -79,7 +115,9 @@ check_request(rules, path, method, client_ip) -> tuple[bool, str]
 在现有逻辑最前面插入白名单检查：
 
 ```
-1. 获取 client_ip（REMOTE_ADDR；若启用 trusted_proxy 则读 X-Forwarded-For 首项）
+1. 获取 client_ip
+   - 当前阶段：scope["client"][0]（REMOTE_ADDR，直连 IP，不可伪造）
+   - 公网部署阶段（trusted_proxy=true）：读 X-Forwarded-For 首项或 X-Real-IP
 2. 调用 whitelist_cache.get_rules()
 3. 若规则非空：调用 check_request()，不通过则返回 403 JSON
 4. 继续现有 proxy auth 流程（仅对代理路径）
