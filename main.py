@@ -62,6 +62,21 @@ async def _session_cleanup_loop():
             logger.warning(f"Session cleanup failed: {e}")
 
 
+async def _request_log_cleanup_loop():
+    """清理过期请求日志记录"""
+    await asyncio.sleep(10)
+    try:
+        await request_logs.cleanup_old_records()
+    except Exception as e:
+        logger.warning(f"request log cleanup error on startup: {e}")
+    while True:
+        await asyncio.sleep(86400)
+        try:
+            await request_logs.cleanup_old_records()
+        except Exception as e:
+            logger.warning(f"request log cleanup error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app):
     await init_settings()
@@ -87,6 +102,7 @@ async def lifespan(app):
 
     cleanup_task = asyncio.create_task(_client_cleanup_loop())
     session_cleanup_task = asyncio.create_task(_session_cleanup_loop())
+    request_log_cleanup_task = asyncio.create_task(_request_log_cleanup_loop())
     try:
         yield
     except asyncio.CancelledError:
@@ -94,12 +110,17 @@ async def lifespan(app):
     finally:
         cleanup_task.cancel()
         session_cleanup_task.cancel()
+        request_log_cleanup_task.cancel()
         try:
             await cleanup_task
         except asyncio.CancelledError:
             pass
         try:
             await session_cleanup_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await request_log_cleanup_task
         except asyncio.CancelledError:
             pass
         await stop_stats_workers()
