@@ -564,7 +564,7 @@
           </div>
           <div class="card p-5">
             <div class="mb-4 rounded-lg border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-ink-700">
-              首次启动会使用内置默认值，并把可调整的业务设置保存到 <span class="font-mono text-ink-900">data/settings.json</span>。只要持久化 <span class="font-mono text-ink-900">data/</span> 目录，渠道、API Key、统计和设置都会随容器重建保留。
+              首次启动会使用内置默认值，渠道配置写入 <span class="font-mono text-ink-900">data/channels.json</span>，API Key 写入 <span class="font-mono text-ink-900">data/api_keys.json</span>，系统设置写入 <span class="font-mono text-ink-900">data/settings.json</span>。只要持久化 <span class="font-mono text-ink-900">data/</span> 目录，渠道、API Key、统计和设置都会随容器重建保留。
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div>
@@ -668,7 +668,7 @@
             <h2 class="text-base font-semibold text-ink-900">请求记录数据库</h2>
             <p class="text-sm text-ink-600 mt-1.5">每次请求都会自动记录基础统计（渠道、模型、耗时、Token 用量、状态码等），无需任何配置。</p>
             <p class="text-sm text-ink-600 mt-1">如需记录完整的消息内容（Header、Body），在下方「原始信息保存」中按需开启。这部分数据体积大，默认关闭。</p>
-            <p class="text-sm text-ink-600 mt-1">首页图表使用的聚合统计单独保存在 <span class="font-mono">data/stats.db</span>，不受此处设置影响。</p>
+            <p class="text-sm text-ink-600 mt-1">首页图表使用的聚合统计单独保存在 <span class="font-mono">data/stats.db</span>，请求记录默认保存在 <span class="font-mono">data/request_logs.db</span>，不受此处设置影响。</p>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="card p-5">
