@@ -7,6 +7,14 @@ from typing import Annotated
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+
+class FetchModelsRequest(BaseModel):
+    base_url: str
+    api_key: str | None = None
+    api_type: str
+
 
 import request_logs
 from client import get_upstream_headers, remove_channel_client
@@ -387,6 +395,34 @@ async def test_channel(channel_id: str, model: Annotated[str | None, Query()] = 
         }
     finally:
         await test_client.aclose()
+
+
+@router.post("/channels/fetch-models")
+async def fetch_models(body: FetchModelsRequest):
+    """从上游 API 获取模型列表（代理请求，避免浏览器跨域）"""
+    base = body.base_url.rstrip("/")
+    headers = {"Content-Type": "application/json"}
+    if body.api_key:
+        if body.api_type == "anthropic":
+            headers["x-api-key"] = body.api_key
+        else:
+            headers["Authorization"] = f"Bearer {body.api_key}"
+
+    # 确定上游 models 端点
+    models_url = f"{base}/v1/models"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(models_url, headers=headers)
+            if resp.status_code != 200:
+                return {"error": f"上游返回 {resp.status_code}: {resp.text[:200]}"}
+            data = resp.json()
+            models = [m.get("id", m.get("name", "")) for m in data.get("data", data.get("models", []))]
+            return {"models": sorted(set(filter(None, models)))}
+    except httpx.Timeout:
+        return {"error": "请求上游超时"}
+    except Exception as e:
+        return {"error": f"请求失败: {str(e)}"}
 
 
 # ============ Logs API ============
