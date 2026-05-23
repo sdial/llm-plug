@@ -3,6 +3,7 @@
 """
 import asyncio
 import json
+import secrets
 import time
 from datetime import datetime
 from typing import Any
@@ -347,7 +348,6 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
                 completion_details = cd
 
     if not response_id:
-        import secrets
         response_id = f"chatcmpl-{secrets.token_hex(12)}"
 
     message: dict = {
@@ -1213,8 +1213,7 @@ async def _do_stream_request(
                     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
                 except Exception as sse_err:
                     logger.error(f"[FORMAT SSE ERROR] {type(sse_err).__name__}: {sse_err} data={data}")
-                    import traceback
-                    logger.error(traceback.format_exc())
+                    logger.exception("[FORMAT SSE ERROR TRACEBACK]")
                     raise
 
             def _yield_extra_events(converted: dict):
@@ -1243,8 +1242,7 @@ async def _do_stream_request(
                             results.append(sse)
                 except Exception as format_err:
                     logger.error(f"[FORMAT EXTRA ERROR] {type(format_err).__name__}: {format_err}")
-                    import traceback
-                    logger.error(traceback.format_exc())
+                    logger.exception("[FORMAT EXTRA ERROR TRACEBACK]")
                     raise
                 return results
 
@@ -1342,8 +1340,7 @@ async def _do_stream_request(
                             yield "data: [DONE]\n\n"
                     except Exception as done_err:
                         logger.error(f"[STREAM DONE ERROR] model={model} error={type(done_err).__name__}: {done_err}")
-                        import traceback
-                        logger.error(traceback.format_exc())
+                        logger.exception("[STREAM DONE ERROR TRACEBACK]")
                         raise
                     continue
 
@@ -1501,9 +1498,8 @@ async def _do_stream_request(
     except Exception as e:
         stream_error = str(e)
         err_body = ""
-        import traceback
         logger.error(f"[STREAM ERROR TRACEBACK] model={model} url={url}")
-        logger.error(traceback.format_exc())
+        logger.exception("[STREAM ERROR]")
         if isinstance(e, httpx.HTTPStatusError):
             try:
                 await e.response.aread()

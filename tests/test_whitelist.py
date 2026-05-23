@@ -31,7 +31,7 @@ def test_load_rules_skips_header(tmp_path):
 
 def test_load_rules_parses_wildcard_method(tmp_path):
     f = tmp_path / "whitelist.csv"
-    f.write_text("path_pattern,methods,ip_cidr,description\n/admin/*,*,10.0.0.0/8,内网\n")
+    f.write_text("path_pattern,methods,ip_cidr,description\n/admin/*,*,10.0.0.0/8,内网\n", encoding="utf-8")
     rules = wl.load_rules(str(f))
     assert len(rules) == 1
     r = rules[0]
@@ -43,7 +43,7 @@ def test_load_rules_parses_wildcard_method(tmp_path):
 
 def test_load_rules_parses_method_filter(tmp_path):
     f = tmp_path / "whitelist.csv"
-    f.write_text("/admin/*,GET|POST,127.0.0.1,本机\n")
+    f.write_text("/admin/*,GET|POST,127.0.0.1,本机\n", encoding="utf-8")
     rules = wl.load_rules(str(f))
     assert rules[0].methods == frozenset({"GET", "POST"})
 
@@ -62,7 +62,8 @@ def test_load_rules_multiple_with_comments(tmp_path):
         "/admin/*,*,10.1.1.0/24,内网\n"
         "\n"
         "# another comment\n"
-        "/admin/stats,GET,203.0.113.5,公司\n"
+        "/admin/stats,GET,203.0.113.5,公司\n",
+        encoding="utf-8",
     )
     rules = wl.load_rules(str(f))
     assert len(rules) == 2
@@ -192,7 +193,7 @@ def test_cache_missing_file():
 
 def test_cache_hot_reload(tmp_path):
     f = tmp_path / "whitelist.csv"
-    f.write_text("/admin/*,*,10.0.0.0/8,内网\n")
+    f.write_text("/admin/*,*,10.0.0.0/8,内网\n", encoding="utf-8")
     cache = wl.WhitelistCache(str(f))
 
     rules1 = cache.get_rules()
@@ -209,7 +210,7 @@ def test_cache_hot_reload(tmp_path):
 
 def test_cache_no_reload_if_mtime_unchanged(tmp_path):
     f = tmp_path / "whitelist.csv"
-    f.write_text("/admin/*,*,10.0.0.0/8,内网\n")
+    f.write_text("/admin/*,*,10.0.0.0/8,内网\n", encoding="utf-8")
     cache = wl.WhitelistCache(str(f))
     rules1 = cache.get_rules()
     rules2 = cache.get_rules()

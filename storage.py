@@ -284,12 +284,9 @@ async def get_model_group_by_name(name: str) -> ModelGroup | None:
 
 
 async def save_model_groups(groups: list[ModelGroup]) -> None:
-    global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
     data = await load_data()
     data["model_groups"] = [g.model_dump() for g in groups]
     await save_data(data)
-    _MODEL_GROUPS_CACHE = groups
-    _MODEL_GROUPS_CACHE_TS = time.time()
 
 
 async def add_model_group(group: ModelGroup) -> ModelGroup:

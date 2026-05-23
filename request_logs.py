@@ -8,12 +8,14 @@ import json
 import os
 import sqlite3
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import asyncpg
 from loguru import logger
 
 import config
+
+if TYPE_CHECKING:
+    import asyncpg
 
 _RAW_FIELDS = {
     "request_headers",
@@ -175,6 +177,8 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-64000")
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -410,6 +414,7 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
         self.pool: asyncpg.Pool | None = None
 
     async def init(self) -> None:
+        import asyncpg
         if not self.database_url:
             raise ValueError("request_log_database_url is required for postgres request logs")
         self.pool = await asyncpg.create_pool(

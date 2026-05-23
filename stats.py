@@ -103,6 +103,8 @@ def _connect() -> sqlite3.Connection:
         raise RuntimeError("stats database is not initialized")
     conn = sqlite3.connect(_DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES)
     conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-64000")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -831,13 +833,6 @@ async def get_api_key_stats() -> dict[str, dict[str, int]]:
 async def get_request_field(request_id: int, field: str) -> dict | None:  # noqa: ARG001
     """统计库不保存 headers/body，始终返回 None。"""
     return None
-
-
-def _to_db_utc_iso(value: datetime) -> str:
-    """将任意 datetime（aware/naive）归一为 naive UTC ISO，与 DB 中的 timestamp 字符串可比。"""
-    if value.tzinfo is not None:
-        value = value.astimezone(timezone.utc).replace(tzinfo=None)
-    return _to_iso(value)
 
 
 def _to_db_utc_iso(value: datetime) -> str:
