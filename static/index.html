@@ -252,6 +252,56 @@
   /* tab 横向滚动备用样式（select 下拉时不需要） */
   .mobile-no-truncate { white-space: normal !important; }
 }
+
+/* TagInput styles */
+.tag-input-container {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--surface-200, #e5e7eb);
+    border-radius: 0.5rem;
+    background: white;
+    min-height: 38px;
+    cursor: text;
+}
+.tag-input-container:focus-within {
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+    border-color: #4f46e5;
+}
+.tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: #eef2ff;
+    color: #4338ca;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+.tag-chip-remove {
+    cursor: pointer;
+    opacity: 0.6;
+    font-size: 14px;
+    line-height: 1;
+}
+.tag-chip-remove:hover {
+    opacity: 1;
+    color: #dc2626;
+}
+.tag-input-field {
+    border: none;
+    outline: none;
+    flex: 1;
+    min-width: 80px;
+    font-size: 0.875rem;
+    background: transparent;
+}
+.tag-input-field::placeholder {
+    color: #9ca3af;
+}
     </style>
 </head>
 <body class="min-h-screen">
@@ -917,7 +967,12 @@ path_pattern,methods,ip_cidr,description
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-ink-900 mb-1">模型列表 <span class="text-ink-400 font-normal">(逗号分隔)</span></label>
-                        <input type="text" id="f_models" placeholder="gpt-4o, gpt-4o-mini" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                        <input type="hidden" id="f_models">
+                        <div class="flex gap-2">
+                            <div id="f_models_container" class="flex-1"></div>
+                            <button type="button" onclick="fetchModelsForChannel()" class="btn-secondary text-sm px-3 py-2 font-medium whitespace-nowrap">获取模型</button>
+                        </div>
+                        <div id="modelSelectPanel" class="hidden mt-2 p-3 border border-surface-200 rounded-lg bg-surface-50 max-h-48 overflow-y-auto"></div>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
@@ -1004,7 +1059,8 @@ path_pattern,methods,ip_cidr,description
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-ink-900 mb-1">允许模型 <span class="text-ink-400 font-normal">(逗号分隔，留空表示允许全部模型)</span></label>
-                        <input type="text" id="fk_models" placeholder="gpt-4o, gpt-4o-mini" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                        <input type="hidden" id="fk_models">
+                        <div id="fk_models_container"></div>
                     </div>
                     <div class="flex justify-end gap-3 pt-4 border-t border-surface-100">
                         <button type="button" onclick="closeKeyModal()" class="btn-secondary px-4 py-2 text-sm font-medium">取消</button>
@@ -1131,6 +1187,8 @@ path_pattern,methods,ip_cidr,description
 
     <script>
         const API = '/admin/channels';
+        let tagInputChannel = null;  // TagInput 实例: 渠道模型
+        let tagInputKey = null;      // TagInput 实例: API Key 允许模型
         // API类型简写映射
         const API_TYPE_MAP = {
             'openai-chat-completions': { short: 'C', color: 'bg-violet-100 text-violet-700', title: 'Chat Completions' },
@@ -1144,6 +1202,100 @@ path_pattern,methods,ip_cidr,description
         const API_KEYS = '/admin/api-keys';
         let channels = [];
         let apiKeys = [];
+
+// ── TagInput 组件 ─────────────────────────────────────────
+class TagInput {
+    constructor(containerId, hiddenInputId, placeholder = '输入模型名称') {
+        this.container = document.getElementById(containerId);
+        this.hiddenInput = document.getElementById(hiddenInputId);
+        this.tags = [];
+        this.placeholder = placeholder;
+        this._input = null;
+        // Click-to-focus listener added once
+        if (this.container) {
+            this.container.addEventListener('click', () => this._input?.focus());
+        }
+        this.render();
+    }
+
+    setTags(tags) {
+        this.tags = Array.isArray(tags) ? [...tags] : [];
+        this.syncHidden();
+        this.render();
+    }
+
+    getTags() {
+        return [...this.tags];
+    }
+
+    addTag(tag) {
+        const t = tag?.trim();
+        if (t && !this.tags.includes(t)) {
+            this.tags.push(t);
+            this.syncHidden();
+            this.render();
+        }
+    }
+
+    removeTag(tag) {
+        this.tags = this.tags.filter(t => t !== tag);
+        this.syncHidden();
+        this.render();
+    }
+
+    syncHidden() {
+        if (this.hiddenInput) {
+            this.hiddenInput.value = this.tags.join(', ');
+        }
+    }
+
+    render() {
+        if (!this.container) return;
+        this.container.innerHTML = '';
+        this.container.className = 'tag-input-container';
+
+        // 渲染现有 tags
+        this.tags.forEach(tag => {
+            const chip = document.createElement('span');
+            chip.className = 'tag-chip';
+            chip.innerHTML = `${this._esc(tag)}<span class="tag-chip-remove" data-tag="${this._esc(tag)}">&times;</span>`;
+            chip.querySelector('.tag-chip-remove').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.removeTag(tag);
+            });
+            this.container.appendChild(chip);
+        });
+
+        // 输入框
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'tag-input-field';
+        input.placeholder = this.tags.length ? '' : this.placeholder;
+        input.addEventListener('keydown', (e) => this._onKeydown(e, input));
+        this._input = input;
+        this.container.appendChild(input);
+    }
+
+    _onKeydown(e, input) {
+        const value = input.value.trim();
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            if (value) {
+                this.addTag(value);
+                input.value = '';
+            }
+        } else if (e.key === 'Backspace' && !value && this.tags.length) {
+            e.preventDefault();
+            this.tags.pop();
+            this.syncHidden();
+            this.render();
+        }
+    }
+
+    _esc(s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+}
         let currentTab = 'channels';
         let pendingCopyKey = '';
         const API_REQUESTS = '/admin/requests';
@@ -1393,7 +1545,7 @@ path_pattern,methods,ip_cidr,description
             document.getElementById('f_base_url').value = channel ? channel.base_url : '';
             document.getElementById('f_api_key').value = '';
             document.getElementById('f_api_key').placeholder = channel ? '已设置，留空则不修改' : '';
-            document.getElementById('f_models').value = channel ? channel.models.join(', ') : '';
+            tagInputChannel.setTags(channel ? channel.models : []);
             document.getElementById('f_weight').value = channel ? channel.weight : 1;
             document.getElementById('f_priority').value = channel ? channel.priority : 1;
             document.getElementById('f_socks5_proxy').value = channel ? (channel.socks5_proxy || '') : '';
@@ -1543,7 +1695,7 @@ path_pattern,methods,ip_cidr,description
             document.getElementById('keyEditId').value = '';
             document.getElementById('fk_name').value = '';
             document.getElementById('fk_notes').value = '';
-            document.getElementById('fk_models').value = '';
+            tagInputKey.setTags([]);
             document.getElementById('fk_key').value = '';
             document.getElementById('fk_key').disabled = false;
             document.getElementById('fk_key').placeholder = '留空自动生成，或手动输入自定义 Key';
@@ -1557,7 +1709,7 @@ path_pattern,methods,ip_cidr,description
             document.getElementById('keyEditId').value = id;
             document.getElementById('fk_name').value = key.name || '';
             document.getElementById('fk_notes').value = key.notes || '';
-            document.getElementById('fk_models').value = (key.allowed_models || []).join(', ');
+            tagInputKey.setTags(key.allowed_models || []);
             document.getElementById('fk_key').value = '';
             document.getElementById('fk_key').disabled = false;
             document.getElementById('fk_key').placeholder = '留空保持不变，或输入新 Key';
@@ -2573,6 +2725,9 @@ async function restartServer() {
         // 初始化
         loadSettings();  // 先加载设置,确保时区等配置可用
         loadChannels();
+        // 初始化 TagInput 实例
+        tagInputChannel = new TagInput('f_models_container', 'f_models', '输入模型名称');
+        tagInputKey = new TagInput('fk_models_container', 'fk_models', '输入模型名称');
         initTabFromHash();
 
         // ========== IP 白名单 ==========
