@@ -64,8 +64,9 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
             return err_unauth()
 
         try:
-            body = await request.json()
-        except json.JSONDecodeError as e:
+            body_bytes = getattr(request.state, "body_bytes", None)
+            body = json.loads(body_bytes) if body_bytes else await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
             return err_invalid(f"Invalid JSON: {e}")
 
         model = body.get("model", "")

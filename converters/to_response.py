@@ -6,6 +6,8 @@ import secrets
 import time
 from typing import Any
 
+from loguru import logger
+
 from converters.base import BaseConverter, thinking_budget_to_effort
 from converters.usage import anthropic_to_openai_response
 
@@ -457,7 +459,6 @@ class ToResponseConverter(BaseConverter):
         return events
 
     def _chat_stream_chunk_to_response(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
-        from loguru import logger
         if self._stream_state is None:
             self._reset_stream_state()
             logger.debug("[CHUNK] reset stream_state for first chunk")
@@ -848,7 +849,6 @@ class ToResponseConverter(BaseConverter):
         return chunk
 
     def get_extra_events(self, chunk: dict[str, Any]) -> list[dict[str, Any]]:
-        from loguru import logger
         # 从实例变量获取额外事件
         events = self._pending_extra_events
         self._pending_extra_events = []  # 清空，避免重复发送
@@ -870,7 +870,6 @@ class ToResponseConverter(BaseConverter):
         return events
 
     def finalize_stream(self, source_type: str = "") -> list[dict[str, Any]]:
-        from loguru import logger
         logger.debug(f"[FINALIZE] source_type={source_type} stream_state={self._stream_state is not None}")
         if source_type != "openai-chat-completions" or self._stream_state is None:
             return []
