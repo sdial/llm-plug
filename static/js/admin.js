@@ -59,6 +59,11 @@ function initTabFromHash() {
     }
 }
 
+async function logoutAdmin() {
+    await fetch('/admin/auth/logout', { method: 'POST' });
+    window.location.href = '/admin/login';
+}
+
 window.addEventListener('hashchange', () => {
     initTabFromHash();
 });
@@ -71,5 +76,6 @@ initTabFromHash();
 
 window.switchTab = switchTab;
 window.initTabFromHash = initTabFromHash;
+window.logoutAdmin = logoutAdmin;
 
 })();

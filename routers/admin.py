@@ -6,9 +6,10 @@ from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from pydantic import BaseModel
 
+import admin_auth
 import request_logs
 from client import get_upstream_headers, remove_channel_client
 from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
@@ -50,6 +51,14 @@ class FetchModelsRequest(BaseModel):
     api_key: str | None = None
     api_type: str
 
+
+class AdminPasswordSetup(BaseModel):
+    password: str
+
+
+class AdminLoginRequest(BaseModel):
+    password: str
+
 request_log_list_requests = request_logs.list_requests
 request_log_get_request_field = request_logs.get_request_field
 
@@ -60,6 +69,45 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 WHITELIST_PATH = DATA_DIR / "whitelist.csv"
 
 router = APIRouter(prefix="/admin", tags=["管理"])
+
+
+@router.get("/auth/status")
+async def auth_status():
+    return {
+        "configured": await admin_auth.is_admin_password_configured(),
+    }
+
+
+@router.post("/auth/setup")
+async def auth_setup(body: AdminPasswordSetup):
+    if await admin_auth.is_admin_password_configured():
+        raise HTTPException(status_code=409, detail="管理员密码已设置")
+    try:
+        await admin_auth.setup_admin_password(body.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "管理员密码已设置"}
+
+
+@router.post("/auth/login")
+async def auth_login(body: AdminLoginRequest):
+    if not await admin_auth.is_admin_password_configured():
+        raise HTTPException(status_code=401, detail="管理员密码尚未设置")
+    if not await admin_auth.verify_admin_password(body.password):
+        raise HTTPException(status_code=401, detail="密码错误")
+    token = await admin_auth.create_admin_session()
+    response = JSONResponse({"message": "登录成功"})
+    response.headers["Set-Cookie"] = admin_auth.build_session_cookie(token)
+    return response
+
+
+@router.post("/auth/logout")
+async def auth_logout(request: Request):
+    cookie_token = request.cookies.get(admin_auth.get_session_cookie_name())
+    await admin_auth.clear_admin_session(cookie_token)
+    response = JSONResponse({"message": "已退出登录"})
+    response.headers["Set-Cookie"] = admin_auth.build_cleared_session_cookie()
+    return response
 
 
 async def _get_channels() -> list[Channel]:

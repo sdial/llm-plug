@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+    <title>管理员登录</title>
+    <script src="/static/js/tailwind-config.js"></script>
+    <script src="/static/tailwind.min.js"></script>
+</head>
+<body class="min-h-screen bg-surface-50 flex items-center justify-center px-4">
+    <div class="w-full max-w-md bg-white border border-surface-200 rounded-2xl p-6 shadow-sm">
+        <h1 class="text-xl font-bold text-ink-900">管理员登录</h1>
+        <p class="text-sm text-ink-500 mt-1">仅用于后台管理，不影响 LLM API 请求鉴权。</p>
+
+        <div id="setupHint" class="hidden mt-4 text-sm rounded-lg bg-amber-50 border border-amber-200 p-3 text-amber-900">
+            首次使用请先设置管理员密码。
+        </div>
+
+        <form id="loginForm" class="mt-5 space-y-4">
+            <div>
+                <label id="passwordLabel" class="block text-sm font-medium text-ink-900 mb-1">管理员密码</label>
+                <input id="password" type="password" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm" autocomplete="current-password">
+            </div>
+            <button id="submitBtn" type="submit" class="w-full bg-brand-600 text-white rounded-lg px-4 py-2.5 text-sm font-medium">登录</button>
+        </form>
+
+        <p id="message" class="mt-4 text-sm text-rose-600"></p>
+    </div>
+
+    <script>
+    async function loadStatus() {
+        const resp = await fetch('/admin/auth/status');
+        const data = await resp.json();
+        const setupHint = document.getElementById('setupHint');
+        const password = document.getElementById('password');
+        if (!data.configured) {
+            setupHint.classList.remove('hidden');
+            document.getElementById('passwordLabel').textContent = '设置管理员密码';
+            document.getElementById('submitBtn').textContent = '设置并登录';
+            password.autocomplete = 'new-password';
+        }
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const message = document.getElementById('message');
+        message.textContent = '';
+        const password = document.getElementById('password').value;
+        try {
+            const statusResp = await fetch('/admin/auth/status');
+            const status = await statusResp.json();
+            if (!status.configured) {
+                const setupResp = await fetch('/admin/auth/setup', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({password}),
+                });
+                if (!setupResp.ok) {
+                    throw new Error((await setupResp.json()).detail || '初始化失败');
+                }
+            }
+            const loginResp = await fetch('/admin/auth/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({password}),
+            });
+            if (!loginResp.ok) {
+                throw new Error((await loginResp.json()).detail || '登录失败');
+            }
+            window.location.href = '/';
+        } catch (err) {
+            message.textContent = err.message || String(err);
+        }
+    });
+
+    loadStatus();
+    </script>
+</body>
+</html>
