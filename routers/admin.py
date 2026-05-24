@@ -6,15 +6,8 @@ from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
-
-
-class FetchModelsRequest(BaseModel):
-    base_url: str
-    api_key: str | None = None
-    api_type: str
-
 
 import request_logs
 from client import get_upstream_headers, remove_channel_client
@@ -51,11 +44,18 @@ from storage import (
     update_model_group,
 )
 
+
+class FetchModelsRequest(BaseModel):
+    base_url: str
+    api_key: str | None = None
+    api_type: str
+
 request_log_list_requests = request_logs.list_requests
 request_log_get_request_field = request_logs.get_request_field
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 STATIC_DIR = Path(__file__).parent.parent / "static"
+ADMIN_FRAGMENT_DIR = STATIC_DIR / "fragments" / "admin"
 DATA_DIR = Path(__file__).parent.parent / "data"
 WHITELIST_PATH = DATA_DIR / "whitelist.csv"
 
@@ -85,6 +85,27 @@ async def list_channels():
             d["api_key"] = key[:4] + "***" if len(key) > 4 else "***"
         result.append(d)
     return result
+
+
+@router.get("/ui/{section}")
+async def admin_ui_fragment(section: str):
+    """返回管理页局部片段，供 htmx 局部刷新使用"""
+    fragment_map = {
+        "channels": "channels.html",
+        "apikeys": "apikeys.html",
+        "stats": "stats.html",
+        "requests": "requests.html",
+        "settings": "settings.html",
+        "whitelist": "whitelist.html",
+        "lb": "model-groups.html",
+    }
+    filename = fragment_map.get(section)
+    if not filename:
+        raise HTTPException(status_code=404, detail="片段不存在")
+    fragment_path = ADMIN_FRAGMENT_DIR / filename
+    if not fragment_path.exists():
+        raise HTTPException(status_code=404, detail="片段文件不存在")
+    return HTMLResponse(fragment_path.read_text(encoding="utf-8"))
 
 
 @router.post("/channels", response_model=Channel)

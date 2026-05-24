@@ -1,0 +1,80 @@
+<!-- ======== IP 白名单 Tab ======== -->
+    <div id="whitelistTab">
+      <div class="max-w-5xl">
+        <div class="mb-5">
+          <h2 class="text-base font-semibold text-ink-900">IP 白名单</h2>
+          <p class="text-sm text-ink-600 mt-0.5">控制哪些 IP 可以访问任意路径（管理接口与代理接口均受保护）。白名单为空时，不做任何限制。</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          <!-- 左侧：规则说明 -->
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold text-ink-900 mb-3">规则格式说明</h3>
+            <div class="space-y-3 text-sm text-ink-700 leading-6">
+              <p>每行一条规则，用 <span class="font-mono bg-surface-100 px-1 rounded text-xs">,</span> 分隔 <strong>4 列</strong>。<span class="font-mono bg-surface-100 px-1 rounded text-xs">#</span> 开头的行为注释，空行忽略。</p>
+              <p>多行之间是「或」关系：请求命中<strong>任意一行</strong>即放行。同一行内路径、方法、IP 三者<strong>同时满足</strong>才算命中。</p>
+              <div class="overflow-x-auto rounded-lg border border-surface-200">
+                <table class="w-full text-xs">
+                  <thead class="bg-surface-50">
+                    <tr>
+                      <th class="px-3 py-2 text-left font-medium text-ink-600 border-b border-surface-200">列</th>
+                      <th class="px-3 py-2 text-left font-medium text-ink-600 border-b border-surface-200">示例</th>
+                      <th class="px-3 py-2 text-left font-medium text-ink-600 border-b border-surface-200">说明</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-surface-100">
+                    <tr>
+                      <td class="px-3 py-2 font-mono text-ink-900">path_pattern</td>
+                      <td class="px-3 py-2 font-mono text-ink-700">/admin/*</td>
+                      <td class="px-3 py-2 text-ink-600">路径，支持 <code class="font-mono bg-surface-100 px-0.5 rounded">*</code> 通配符；<code class="font-mono bg-surface-100 px-0.5 rounded">/admin/*</code> 覆盖管理接口，<code class="font-mono bg-surface-100 px-0.5 rounded">/v1/*</code> 覆盖代理接口</td>
+                    </tr>
+                    <tr>
+                      <td class="px-3 py-2 font-mono text-ink-900">methods</td>
+                      <td class="px-3 py-2 font-mono text-ink-700">* 或 GET|POST</td>
+                      <td class="px-3 py-2 text-ink-600"><code class="font-mono bg-surface-100 px-0.5 rounded">*</code> 表示不限方法；多个方法用竖线 <code class="font-mono bg-surface-100 px-0.5 rounded">|</code> 分隔</td>
+                    </tr>
+                    <tr>
+                      <td class="px-3 py-2 font-mono text-ink-900">ip_cidr</td>
+                      <td class="px-3 py-2 font-mono text-ink-700">192.168.1.0/24</td>
+                      <td class="px-3 py-2 text-ink-600">精确 IP 或 CIDR 网段，支持 IPv4 和 IPv6</td>
+                    </tr>
+                    <tr>
+                      <td class="px-3 py-2 font-mono text-ink-900">description</td>
+                      <td class="px-3 py-2 font-mono text-ink-700">家庭内网</td>
+                      <td class="px-3 py-2 text-ink-600">备注说明，会出现在 403 错误信息中</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <pre class="bg-surface-50 border border-surface-200 rounded-lg p-3 text-xs font-mono overflow-x-auto leading-5"># 注释：以 # 开头的行会被忽略
+path_pattern,methods,ip_cidr,description
+/admin/*,*,10.1.1.0/24,家庭内网
+/admin/*,*,127.0.0.1,本机
+/admin/stats,GET,203.0.113.5,公司只读</pre>
+              <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-ink-700 leading-5">
+                <span class="font-semibold">注意：</span>系统当前使用直连 IP（TCP 连接地址）进行匹配。若服务部署在 nginx/caddy 等反向代理后面，所有请求的来源 IP 都会是代理本身（通常 127.0.0.1），白名单将以代理 IP 为准。请在代理层做访问控制，或等后续版本支持 <code class="font-mono bg-amber-100 px-0.5 rounded">X-Forwarded-For</code> 后再在此配置。
+              </div>
+            </div>
+          </div>
+
+          <!-- 右侧：编辑区 -->
+          <div class="card p-5">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-sm font-semibold text-ink-900">编辑规则</h3>
+              <div class="flex items-center gap-3">
+                <span id="whitelist_rule_count" class="text-xs text-ink-400"></span>
+                <span id="whitelist_client_ip" class="text-xs text-ink-400"></span>
+              </div>
+            </div>
+            <textarea id="whitelist_content"
+              class="w-full font-mono text-sm border border-surface-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 resize-y"
+              rows="16"
+              placeholder="# 暂无规则，白名单为空时不做任何限制&#10;path_pattern,methods,ip_cidr,description&#10;/admin/*,*,127.0.0.1,本机"></textarea>
+            <div id="whitelist_error" class="hidden mt-2 text-sm text-red-600 rounded-lg bg-red-50 px-3 py-2"></div>
+            <div class="flex justify-end mt-3">
+              <button onclick="saveWhitelist()" id="whitelist_save_btn" class="btn-primary text-sm px-4 py-2">保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
