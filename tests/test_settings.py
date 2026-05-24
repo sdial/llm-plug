@@ -168,6 +168,7 @@ def test_settings_page_has_no_debug_mode_controls():
 def test_settings_page_has_request_log_db_controls():
     """Settings page exposes request-log DB switching and lightweight fallback."""
     html = Path("static/index.html").read_text(encoding="utf-8")
+    requests_js = Path("static/js/requests.js").read_text(encoding="utf-8")
 
     assert "set_request_log_db_type" in html
     assert "set_request_log_sqlite_path" in html
@@ -178,8 +179,8 @@ def test_settings_page_has_request_log_db_controls():
     assert "set_save_response_headers" in html
     assert "set_save_request_body" in html
     assert "set_save_response_body" in html
-    assert "loadStatsRequestLogs" in html
-    assert "params.set('source', 'stats')" in html
+    assert "loadStatsRequestLogs" in requests_js
+    assert "params.set('source', 'stats')" in requests_js
 
 
 def test_settings_page_explains_zero_config_runtime():
