@@ -424,6 +424,37 @@ class TestChatToResponseStream:
         assert result["usage"]["input_tokens_details"]["cached_tokens"] == 7
         assert result["usage"]["output_tokens_details"]["reasoning_tokens"] == 3
 
+    def test_non_stream_chat_reasoning_precedes_text_like_streaming(self):
+        """非流式 Chat→Response 输出顺序应与流式一致：reasoning 在 message 前。"""
+        converter = ToResponseConverter()
+        result = converter.convert_response(
+            {
+                "id": "chatcmpl_1",
+                "created": 123,
+                "model": "o3",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Final answer",
+                            "reasoning_content": "Think first",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
+            },
+            "openai-chat-completions",
+        )
+
+        assert [item["type"] for item in result["output"]] == ["reasoning", "message"]
+        assert result["output"][0]["content"][0]["text"] == "Think first"
+        assert result["output"][1]["content"][0]["text"] == "Final answer"
+
     def test_multiple_tool_calls_output_index(self):
         """多个 tool_call 应有递增的 output_index"""
         converter = ToResponseConverter()
@@ -1500,6 +1531,26 @@ class TestAnthropicToResponseCacheTokens:
 
 class TestAnthropicToResponseStreamIndexes:
     """Anthropic→Response 流式事件的索引字段回归测试。"""
+
+    def test_response_completed_keeps_response_id_from_message_start(self):
+        converter = ToResponseConverter()
+        events = [
+            {"type": "message_start", "message": {"id": "msg_stream", "model": "claude-opus-4-7"}},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 1},
+            },
+        ]
+
+        outputs = []
+        for event in events:
+            out = converter.convert_stream_chunk(event, "anthropic")
+            if out is not None:
+                outputs.append(out)
+
+        completed = [event for event in outputs if event.get("type") == "response.completed"][0]
+        assert completed["response"]["id"] == "resp_msg_stream"
 
     def test_delta_events_include_response_indexes(self):
         converter = ToResponseConverter()
