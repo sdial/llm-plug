@@ -17,6 +17,7 @@ function esc(s) {
 
 async function loadRequests() {
     try {
+        if (!document.getElementById('requestsTbody')) return;
         if (window.adminChannels.getChannels().length === 0) {
             await window.adminChannels.loadChannels();
         }
@@ -62,6 +63,7 @@ function loadStatsRequestLogs() {
 
 function populateRequestChannelFilter() {
     const select = document.getElementById('reqFilterChannel');
+    if (!select) return;
     const currentVal = select.value;
     select.innerHTML = '<option value="">全部渠道</option>';
     window.adminChannels.getChannels().forEach(ch => {
@@ -91,6 +93,7 @@ function buildRequestQuery() {
 
 function renderRequests() {
     const tbody = document.getElementById('requestsTbody');
+    if (!tbody) return;
     if (!requestsData.length) {
         tbody.innerHTML = '<tr><td colspan="11" class="py-4 text-center text-ink-400 text-sm">暂无请求记录</td></tr>';
         return;
@@ -129,10 +132,15 @@ function formatTimestamp(ts) {
 }
 
 function renderRequestPagination() {
-    document.getElementById('reqTotal').textContent = requestTotal;
-    document.getElementById('reqPage').textContent = requestPage;
-    document.getElementById('reqPrevBtn').disabled = requestPage <= 1;
-    document.getElementById('reqNextBtn').disabled = requestPage * requestPageSize >= requestTotal;
+    const totalEl = document.getElementById('reqTotal');
+    const pageEl = document.getElementById('reqPage');
+    const prevBtn = document.getElementById('reqPrevBtn');
+    const nextBtn = document.getElementById('reqNextBtn');
+    if (!totalEl || !pageEl || !prevBtn || !nextBtn) return;
+    totalEl.textContent = requestTotal;
+    pageEl.textContent = requestPage;
+    prevBtn.disabled = requestPage <= 1;
+    nextBtn.disabled = requestPage * requestPageSize >= requestTotal;
 }
 
 function prevRequestPage() {

@@ -18,6 +18,7 @@ let channels = [];
 let fetchedModelsCache = [];
 let pendingTestChannelId = null;
 let pendingConfirmAction = null;
+let lastChannelsInitRoot = null;
 
 function esc(s) {
     const d = document.createElement('div');
@@ -126,6 +127,7 @@ function applyFilters() {
 
 function renderChannels() {
     const container = document.getElementById('channelList');
+    if (!container) return;
     const apiType = document.getElementById('filterApiType').value;
     const model = document.getElementById('filterModel').value.trim().toLowerCase();
 
@@ -364,6 +366,9 @@ async function saveChannel(e) {
 }
 
 function initChannels() {
+    const root = document.getElementById('f_models_container');
+    if (!root || root === lastChannelsInitRoot) return;
+    lastChannelsInitRoot = root;
     tagInputChannel = new window.TagInput('f_models_container', 'f_models', '输入模型名称');
     document.getElementById('f_api_type')?.addEventListener('change', updateAnthropicConfigVisibility);
 }

@@ -4,6 +4,7 @@ const API_KEYS = '/admin/api-keys';
 let apiKeys = [];
 let tagInputKey = null;      // TagInput 实例: API Key 允许模型
 let pendingCopyKey = '';
+let lastApiKeysInitRoot = null;
 
 function esc(s) {
     const d = document.createElement('div');
@@ -24,6 +25,7 @@ async function loadApiKeys() {
 
 function renderApiKeys() {
     const container = document.getElementById('apiKeyList');
+    if (!container) return;
     if (!apiKeys.length) {
         container.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">暂无 API Key，未设置APIKEY时，则任意APIKEY均放行</p>';
         return;
@@ -180,6 +182,9 @@ async function doCopyKey() {
 }
 
 function initApiKeys() {
+    const root = document.getElementById('fk_models_container');
+    if (!root || root === lastApiKeysInitRoot) return;
+    lastApiKeysInitRoot = root;
     tagInputKey = new window.TagInput('fk_models_container', 'fk_models', '输入模型名称');
 }
 
