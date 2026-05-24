@@ -186,6 +186,13 @@ class ToResponseConverter(BaseConverter):
         upstream_id = data.get("id", "")
         response_id = self._make_response_id(upstream_id)
         output = []
+        if reasoning_content:
+            output.append({
+                "type": "reasoning",
+                "id": f"rs_{response_id.removeprefix('resp_')}",
+                "summary": [],
+                "content": [{"type": "reasoning_text", "text": reasoning_content}],
+            })
         if text or refusal:
             content = []
             if text:
@@ -198,13 +205,6 @@ class ToResponseConverter(BaseConverter):
                 "status": "completed",
                 "role": "assistant",
                 "content": content,
-            })
-        if reasoning_content:
-            output.append({
-                "type": "reasoning",
-                "id": f"rs_{response_id.removeprefix('resp_')}",
-                "summary": [],
-                "content": [{"type": "reasoning_text", "text": reasoning_content}],
             })
         if tool_calls:
             for tc in tool_calls:
@@ -917,6 +917,8 @@ class ToResponseConverter(BaseConverter):
             return {
                 "type": "response.completed",
                 "response": {
+                    "id": self._stream_state["response_id"],
+                    "object": "response",
                     "status": status,
                     "usage": final_usage,
                 },

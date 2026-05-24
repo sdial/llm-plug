@@ -43,6 +43,38 @@ def anthropic_to_openai_chat(usage: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def openai_response_to_chat(usage: dict[str, Any] | None) -> dict[str, Any]:
+    """OpenAI Response usage → OpenAI Chat Completions usage."""
+    if not isinstance(usage, dict):
+        usage = {}
+    prompt = _read_int(usage, "input_tokens")
+    completion = _read_int(usage, "output_tokens")
+    total = usage.get("total_tokens")
+    if total is None:
+        total = prompt + completion
+    try:
+        total = int(total or 0)
+    except (TypeError, ValueError):
+        total = prompt + completion
+
+    result = {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": total,
+    }
+    input_details = usage.get("input_tokens_details")
+    if isinstance(input_details, dict):
+        result["prompt_tokens_details"] = {
+            "cached_tokens": _read_int(input_details, "cached_tokens"),
+        }
+    output_details = usage.get("output_tokens_details")
+    if isinstance(output_details, dict):
+        result["completion_tokens_details"] = {
+            "reasoning_tokens": _read_int(output_details, "reasoning_tokens"),
+        }
+    return result
+
+
 def anthropic_to_openai_response(usage: dict[str, Any] | None) -> dict[str, Any]:
     """Anthropic usage → OpenAI Response usage."""
     if not isinstance(usage, dict):

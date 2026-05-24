@@ -8,7 +8,7 @@ from typing import Any
 from loguru import logger
 
 from converters.base import BaseConverter, thinking_budget_to_effort
-from converters.usage import anthropic_to_openai_chat
+from converters.usage import anthropic_to_openai_chat, openai_response_to_chat
 
 HOSTED_RESPONSE_TOOL_TYPES = {
     "web_search",
@@ -778,12 +778,20 @@ class ToChatCompletionsConverter(BaseConverter):
     def _response_response_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:
         output_items = data.get("output", [])
         message_content = ""
+        reasoning_content = ""
         tool_calls = []
         for item in output_items:
             if item.get("type") == "message":
                 for content in item.get("content", []):
                     if content.get("type") == "output_text":
                         message_content += content.get("text", "")
+            elif item.get("type") == "reasoning":
+                for content in item.get("content", []):
+                    if content.get("type") in ("reasoning_text", "summary_text"):
+                        reasoning_content += content.get("text", "")
+                for summary in item.get("summary", []):
+                    if isinstance(summary, dict):
+                        reasoning_content += summary.get("text", "")
             elif item.get("type") == "function_call":
                 tool_calls.append({
                     "id": item.get("call_id", item.get("id", "")),
@@ -795,6 +803,8 @@ class ToChatCompletionsConverter(BaseConverter):
                 })
 
         message = {"role": "assistant", "content": message_content or None}
+        if reasoning_content:
+            message["reasoning_content"] = reasoning_content
         if tool_calls:
             message["tool_calls"] = tool_calls
 
@@ -812,7 +822,7 @@ class ToChatCompletionsConverter(BaseConverter):
                 "message": message,
                 "finish_reason": finish_reason,
             }],
-            "usage": anthropic_to_openai_chat(data.get("usage")),
+            "usage": openai_response_to_chat(data.get("usage")),
         }
         return result
 
@@ -883,6 +893,15 @@ class ToChatCompletionsConverter(BaseConverter):
                     if item.get("type") == "function_call":
                         finish_reason = "tool_calls"
                         break
+            if self._stream_include_usage:
+                return {
+                    "id": self._stream_state["msg_id"],
+                    "object": "chat.completion.chunk",
+                    "created": 0,
+                    "model": self._stream_state["model"],
+                    "choices": [],
+                    "usage": openai_response_to_chat(resp.get("usage")),
+                }
             return {
                 "id": self._stream_state["msg_id"],
                 "object": "chat.completion.chunk",

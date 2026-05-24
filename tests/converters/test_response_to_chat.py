@@ -819,6 +819,39 @@ class TestResponseResponseToChat:
         # 应优先使用 call_id
         assert tc["id"] == "call_def456"
 
+    def test_response_reasoning_output_maps_to_reasoning_content(self):
+        """Responses reasoning 输出项应转换为 Chat reasoning_content。"""
+        response = {
+            "id": "resp_reasoning",
+            "object": "response",
+            "created_at": 1234567890,
+            "model": "o3",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [],
+                    "content": [
+                        {"type": "reasoning_text", "text": "I should compare the options."}
+                    ],
+                },
+                {
+                    "type": "message",
+                    "id": "msg_1",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Use the smaller model."}],
+                },
+            ],
+            "usage": {"input_tokens": 10, "output_tokens": 20},
+        }
+
+        result = self.converter.convert_response(response, APIType.OPENAI_RESPONSE)
+
+        message = result["choices"][0]["message"]
+        assert message["reasoning_content"] == "I should compare the options."
+        assert message["content"] == "Use the smaller model."
+
 
 class TestResponseStreamToChat:
     """Responses API 流式事件 → Chat Completions API 流式 chunk"""
@@ -969,6 +1002,35 @@ class TestResponseStreamToChat:
         result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)
 
         assert result["choices"][0]["finish_reason"] == "length"
+
+    def test_response_completed_emits_usage_chunk_when_include_usage(self):
+        """include_usage=True 时 response.completed 应额外发 Chat usage chunk。"""
+        self.converter.set_stream_include_usage(True)
+        self.converter.convert_stream_chunk(
+            {
+                "type": "response.created",
+                "response": {"id": "resp_usage", "model": "gpt-4o"},
+            },
+            APIType.OPENAI_RESPONSE,
+        )
+
+        result = self.converter.convert_stream_chunk(
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_usage",
+                    "status": "completed",
+                    "output": [],
+                    "usage": {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+                },
+            },
+            APIType.OPENAI_RESPONSE,
+        )
+
+        assert result["choices"] == []
+        assert result["usage"]["prompt_tokens"] == 11
+        assert result["usage"]["completion_tokens"] == 7
+        assert result["usage"]["total_tokens"] == 18
 
     def test_unknown_content_type_gracefully_degrades(self):
         """未知 Responses content 类型应降级为文本，而非抛异常。"""
