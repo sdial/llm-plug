@@ -118,3 +118,37 @@ async def test_login_page_and_static_assets_are_public(admin_auth_files):
     assert page.status_code == 200
     assert "管理员登录" in page.text
     assert asset.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_logout_revokes_existing_session_token(admin_auth_files):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.post(
+            "/admin/auth/setup",
+            json={"password": "correct horse battery staple"},
+        )
+        login_resp = await client.post(
+            "/admin/auth/login",
+            json={"password": "correct horse battery staple"},
+        )
+        session_cookie = login_resp.headers["set-cookie"].split(";", 1)[0]
+        logout_resp = await client.post(
+            "/admin/auth/logout",
+            headers={"Cookie": session_cookie},
+        )
+
+    assert logout_resp.status_code == 200
+    assert "Max-Age=0" in logout_resp.headers["set-cookie"]
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.get(
+            "/admin/channels",
+            headers={"Cookie": session_cookie},
+        )
+
+    assert resp.status_code == 401
+    assert resp.json()["error"]["type"] == "admin_login_required"
