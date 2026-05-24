@@ -15,6 +15,7 @@ class ToAnthropicConverter(BaseConverter):
 
     def __init__(self):
         self._stream_state: dict[str, Any] | None = None
+        self._last_event_type: str | None = None
 
     def _reset_stream_state(self):
         self._stream_state = {

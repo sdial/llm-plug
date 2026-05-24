@@ -24,6 +24,22 @@ from proxy_core import (
 )
 
 
+def test_openai_stream_archive_created_uses_time_time():
+    """OpenAI 流式归档响应的 created 应使用 time.time()。"""
+    chunks = [
+        {
+            "id": "chatcmpl_1",
+            "choices": [{"delta": {"role": "assistant", "content": "hello"}}],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
+        }
+    ]
+
+    with patch("proxy_core.time.time", return_value=1234.9):
+        result = _build_openai_stream_response(chunks, "gpt-4o")
+
+    assert result["created"] == 1234
+
+
 @pytest.fixture(autouse=True)
 def reset_model_cache():
     """每个测试前清理模型渠道缓存。"""
@@ -94,6 +110,52 @@ class TestGetChannelsForModel:
         ):
             channels = await _get_channels_for_model("gpt-4")
             assert channels == []
+
+    @pytest.mark.anyio
+    async def test_save_data_invalidates_model_channels_cache_immediately(self):
+        import proxy_core
+        import storage
+
+        old_payload = {
+            "channels": [
+                {
+                    "id": "ch_old",
+                    "name": "Old",
+                    "api_type": "openai-chat-completions",
+                    "base_url": "https://old.example",
+                    "api_key": "sk-old",
+                    "models": ["gpt-4"],
+                    "enabled": True,
+                    "weight": 1,
+                    "priority": 1,
+                }
+            ]
+        }
+        new_payload = {
+            "channels": [
+                {
+                    "id": "ch_new",
+                    "name": "New",
+                    "api_type": "openai-chat-completions",
+                    "base_url": "https://new.example",
+                    "api_key": "sk-new",
+                    "models": ["gpt-4"],
+                    "enabled": True,
+                    "weight": 1,
+                    "priority": 1,
+                }
+            ]
+        }
+
+        await storage.save_data(old_payload)
+        channels = await _get_channels_for_model("gpt-4")
+        assert [ch.id for ch in channels] == ["ch_old"]
+
+        await storage.save_data(new_payload)
+        assert proxy_core._model_channels_cache is None
+
+        channels = await _get_channels_for_model("gpt-4")
+        assert [ch.id for ch in channels] == ["ch_new"]
 
 
 class TestChannelConfigError:

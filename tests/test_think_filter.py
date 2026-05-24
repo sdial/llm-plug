@@ -96,6 +96,22 @@ class TestThinkFilter:
         assert filter.feed("nk>thought</think>answer") == "answer"
         assert filter.flush() == ""
 
+    def test_single_unpaired_emoji_streams_as_normal_text_on_flush(self):
+        """未配对的 emoji 不应吞掉后续普通内容"""
+        filter = ThinkFilter()
+
+        assert filter.feed("Hello 💭") == "Hello "
+        assert filter.feed("visible") == ""
+        assert filter.flush() == "💭visible"
+
+    def test_paired_emoji_think_block_streaming(self):
+        """配对 emoji 内的 think 内容应被过滤"""
+        filter = ThinkFilter()
+
+        assert filter.feed("Hello 💭hidden") == "Hello "
+        assert filter.feed("💭visible") == "visible"
+        assert filter.flush() == ""
+
     def test_simple_think_block_streaming(self):
         """流式 think 块应被过滤"""
         filter = ThinkFilter()

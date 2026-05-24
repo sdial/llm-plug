@@ -340,6 +340,41 @@ class TestChatToResponseStream:
         assert function_call["status"] == "completed"
         assert result["output_text"] == ""
 
+    def test_chat_tool_call_boundary_id_call_prefix_only_is_stable(self):
+        """call_ 边界值应稳定映射为 fc_，不能随机替换。"""
+        converter = ToResponseConverter()
+        result = converter.convert_response(
+            {
+                "id": "chatcmpl_1",
+                "created": 123,
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call_",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "search",
+                                        "arguments": "{}",
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+            },
+            "openai-chat-completions",
+        )
+
+        function_call = result["output"][0]
+        assert function_call["id"] == "fc_"
+        assert function_call["call_id"] == "call_"
+
     def test_non_stream_chat_length_finish_reason_sets_incomplete_details(self):
         converter = ToResponseConverter()
         result = converter.convert_response(

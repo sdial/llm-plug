@@ -323,11 +323,11 @@ async def invalidate_model_groups_cache() -> None:
         _MODEL_GROUPS_CACHE_TS = 0
 
 
-# 注册缓存失效回调
-register_save_callback(lambda: asyncio.create_task(_async_invalidate_model_groups_cache()))
-
-
-async def _async_invalidate_model_groups_cache() -> None:
+def _invalidate_model_groups_cache_sync() -> None:
     global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
     _MODEL_GROUPS_CACHE = None
     _MODEL_GROUPS_CACHE_TS = 0
+
+
+# 注册缓存失效回调
+register_save_callback(_invalidate_model_groups_cache_sync)

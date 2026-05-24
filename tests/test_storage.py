@@ -133,6 +133,17 @@ class TestSaveData:
             on_disk = json.load(f)
         assert on_disk == valid
 
+    @pytest.mark.anyio
+    async def test_save_invalidates_model_groups_cache_without_running_loop_task(self):
+        cached_group = storage.ModelGroup(name="old", models=["gpt-old"])
+        storage._MODEL_GROUPS_CACHE = [cached_group]
+        storage._MODEL_GROUPS_CACHE_TS = time.time()
+
+        await storage.save_data({"channels": [], "model_groups": []})
+
+        assert storage._MODEL_GROUPS_CACHE is None
+        assert storage._MODEL_GROUPS_CACHE_TS == 0
+
 
 class TestInvalidateCache:
     @pytest.mark.anyio
