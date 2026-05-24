@@ -48,6 +48,7 @@ class ToResponseConverter(BaseConverter):
             "waiting_for_usage_after_finish": False,
             # Anthropic usage accumulation for cache-aware mapping
             "anthropic_usage": {},
+            "anthropic_content_blocks": {},
         }
         self._pending_extra_events = []
         self._need_in_progress = False
@@ -718,6 +719,8 @@ class ToResponseConverter(BaseConverter):
         if event_type == "message_start":
             msg = chunk.get("message", {})
             self._stream_state["message_id"] = msg.get("id", "")
+            self._stream_state["response_id"] = f"resp_{msg.get('id', '')}"
+            self._stream_state["model"] = msg.get("model", "")
             # Accumulate usage from message_start (input_tokens, cache_creation_input_tokens, cache_read_input_tokens)
             msg_usage = msg.get("usage")
             if isinstance(msg_usage, dict):
@@ -739,37 +742,127 @@ class ToResponseConverter(BaseConverter):
 
         elif event_type == "content_block_start":
             content_block = chunk.get("content_block", {})
+            block_index = chunk.get("index", 0)
+            if content_block.get("type") == "text":
+                item_id = self._stream_state["message_id"]
+                if not item_id.startswith("msg_"):
+                    item_id = self._make_message_id(self._stream_state["response_id"] or "resp_stream", item_id)
+                idx = self._stream_state["output_index"]
+                self._stream_state["output_index"] = idx + 1
+                self._stream_state["anthropic_content_blocks"][block_index] = {
+                    "type": "text",
+                    "item_id": item_id,
+                    "output_index": idx,
+                    "content_index": 0,
+                }
+                self._stream_state["active_text_item_id"] = item_id
+                self._stream_state["active_text_output_index"] = idx
+                self._stream_state["output_items"].append({
+                    "type": "message",
+                    "output_index": idx,
+                    "item_id": item_id,
+                })
+                return None
             if content_block.get("type") == "tool_use":
+                idx = self._stream_state["output_index"]
+                self._stream_state["output_index"] = idx + 1
+                call_id = content_block.get("id", "")
+                item_id = self._make_function_call_id(call_id)
+                self._stream_state["anthropic_content_blocks"][block_index] = {
+                    "type": "tool_use",
+                    "item_id": item_id,
+                    "call_id": call_id,
+                    "output_index": idx,
+                }
+                self._stream_state["tool_calls"][call_id] = {
+                    "name": content_block.get("name", ""),
+                    "arguments": "",
+                    "output_index": idx,
+                }
+                self._stream_state["output_items"].append({
+                    "type": "function_call",
+                    "output_index": idx,
+                    "call_id": call_id,
+                })
                 return {
                     "type": "response.output_item.added",
-                    "output_index": chunk.get("index", 0),
+                    "output_index": idx,
                     "item": {
                         "type": "function_call",
+                        "id": item_id,
                         "call_id": content_block.get("id", ""),
                         "name": content_block.get("name", ""),
                         "arguments": "",
+                        "status": "in_progress",
+                    },
+                }
+            if content_block.get("type") == "thinking":
+                idx = self._stream_state["output_index"]
+                self._stream_state["output_index"] = idx + 1
+                reasoning_id = f"rs_{self._stream_state['message_id']}"
+                self._stream_state["reasoning_started"] = True
+                self._stream_state["reasoning_id"] = reasoning_id
+                self._stream_state["anthropic_content_blocks"][block_index] = {
+                    "type": "thinking",
+                    "item_id": reasoning_id,
+                    "output_index": idx,
+                    "content_index": 0,
+                }
+                self._stream_state["output_items"].append({
+                    "type": "reasoning",
+                    "output_index": idx,
+                    "id": reasoning_id,
+                })
+                return {
+                    "type": "response.output_item.added",
+                    "output_index": idx,
+                    "item": {
+                        "type": "reasoning",
+                        "id": reasoning_id,
+                        "summary": [],
                     },
                 }
             return None
 
         elif event_type == "content_block_delta":
             delta = chunk.get("delta", {})
+            block = self._stream_state["anthropic_content_blocks"].get(chunk.get("index", 0), {})
             if delta.get("type") == "text_delta":
+                text = delta.get("text", "")
+                self._stream_state["accumulated_text"] += text
                 return {
                     "type": "response.output_text.delta",
-                    "delta": delta.get("text", ""),
+                    "item_id": block.get("item_id", self._stream_state["message_id"]),
+                    "output_index": block.get("output_index", chunk.get("index", 0)),
+                    "content_index": block.get("content_index", 0),
+                    "delta": text,
                 }
             elif delta.get("type") == "input_json_delta":
+                partial_json = delta.get("partial_json", "")
+                call_id = block.get("call_id", "")
+                if call_id in self._stream_state["tool_calls"]:
+                    self._stream_state["tool_calls"][call_id]["arguments"] += partial_json
                 return {
                     "type": "response.function_call_arguments.delta",
-                    "delta": delta.get("partial_json", ""),
+                    "item_id": block.get("item_id", self._make_function_call_id(call_id)),
+                    "output_index": block.get("output_index", chunk.get("index", 0)),
+                    "delta": partial_json,
                 }
             elif delta.get("type") == "thinking_delta":
+                thinking = delta.get("thinking", "")
+                self._stream_state["reasoning_content"] += thinking
                 if not self._stream_state["reasoning_started"]:
                     self._stream_state["reasoning_started"] = True
                     self._stream_state["reasoning_id"] = f"rs_{self._stream_state['message_id']}"
                     idx = self._stream_state["output_index"]
                     self._stream_state["output_index"] = idx + 1
+                    block = {
+                        "type": "thinking",
+                        "item_id": self._stream_state["reasoning_id"],
+                        "output_index": idx,
+                        "content_index": 0,
+                    }
+                    self._stream_state["anthropic_content_blocks"][chunk.get("index", 0)] = block
                     result = {
                         "type": "response.output_item.added",
                         "output_index": idx,
@@ -781,13 +874,19 @@ class ToResponseConverter(BaseConverter):
                     }
                     delta_event = {
                         "type": "response.reasoning_summary_text.delta",
-                        "delta": delta.get("thinking", ""),
+                        "item_id": block["item_id"],
+                        "output_index": block["output_index"],
+                        "content_index": block["content_index"],
+                        "delta": thinking,
                     }
                     self._pending_extra_events = [delta_event]
                     return result
                 return {
                     "type": "response.reasoning_summary_text.delta",
-                    "delta": delta.get("thinking", ""),
+                    "item_id": block.get("item_id", self._stream_state["reasoning_id"]),
+                    "output_index": block.get("output_index", 0),
+                    "content_index": block.get("content_index", 0),
+                    "delta": thinking,
                 }
             return None
 

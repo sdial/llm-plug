@@ -1449,6 +1449,54 @@ class TestAnthropicToResponseCacheTokens:
         assert usage["input_tokens_details"]["cached_tokens"] == 1000
 
 
+class TestAnthropicToResponseStreamIndexes:
+    """Anthropic→Response 流式事件的索引字段回归测试。"""
+
+    def test_delta_events_include_response_indexes(self):
+        converter = ToResponseConverter()
+        events = [
+            {"type": "message_start", "message": {"id": "msg_idx", "model": "claude-opus-4-7"}},
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "plan"}},
+            {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "tool_use", "id": "toolu_idx", "name": "lookup", "input": {}},
+            },
+            {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"q":'}},
+            {"type": "content_block_start", "index": 2, "content_block": {"type": "text", "text": ""}},
+            {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "hello"}},
+        ]
+
+        outputs = []
+        for event in events:
+            out = converter.convert_stream_chunk(event, "anthropic")
+            if out is not None:
+                outputs.append(out)
+                outputs.extend(converter.get_extra_events(out))
+
+        deltas = {
+            event["type"]: event
+            for event in outputs
+            if event.get("type") in {
+                "response.reasoning_summary_text.delta",
+                "response.function_call_arguments.delta",
+                "response.output_text.delta",
+            }
+        }
+
+        assert deltas["response.reasoning_summary_text.delta"]["item_id"] == "rs_msg_idx"
+        assert deltas["response.reasoning_summary_text.delta"]["output_index"] == 0
+        assert deltas["response.reasoning_summary_text.delta"]["content_index"] == 0
+
+        assert deltas["response.function_call_arguments.delta"]["item_id"] == "fc_toolu_idx"
+        assert deltas["response.function_call_arguments.delta"]["output_index"] == 1
+
+        assert deltas["response.output_text.delta"]["item_id"] == "msg_idx"
+        assert deltas["response.output_text.delta"]["output_index"] == 2
+        assert deltas["response.output_text.delta"]["content_index"] == 0
+
+
 class TestReviewBugFixes:
     """REVIEW1.md C12-C16 五个流式转换 bug 的回归测试。"""
 
