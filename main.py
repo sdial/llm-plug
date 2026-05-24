@@ -251,6 +251,7 @@ class CombinedMiddleware:
             total_size += len(chunk)
             if total_size > MAX_BODY_SIZE:
                 await self._send_error(send, 413, "Request body too large")
+                self._log_request(ts_start, method, path, query, "", False, "", 413, start)
                 return
             more_body = message.get("more_body", False)
         body_bytes = b"".join(body_parts)

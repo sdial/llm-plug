@@ -77,6 +77,20 @@ class TestChatToAnthropic:
         assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
         assert assistant_msg["content"][0]["input"] == {}
 
+    def test_assistant_empty_string_content_is_preserved(self):
+        """OpenAI content: "" 应保留为空文本块，而不是被当成 None 丢弃。"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "assistant", "content": ""},
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+
+        assistant_msg = result["messages"][0]
+        assert assistant_msg["content"] == [{"type": "text", "text": ""}]
+
     def test_non_data_image_url_fallback_text(self):
         """HTTP URL 图片应直接转为 Anthropic URL source，避免同步下载阻塞"""
         request = {
@@ -407,7 +421,7 @@ class TestChatToAnthropic:
         assert result["usage"]["cache_creation_input_tokens"] == 0
 
     def test_chat_to_anthropic_stream_cache_read_from_cached_tokens(self):
-        """Chat 流式 chunk 的 prompt_tokens_details.cached_tokens 应转为 cache_read_input_tokens"""
+        """Chat 流式 message_delta 的 usage 只包含增量 output_tokens。"""
         chunks = [
             {"id": "chatcmpl-a", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "hi"}, "finish_reason": None}]},
             {"id": "chatcmpl-a", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
@@ -420,8 +434,7 @@ class TestChatToAnthropic:
         delta_events = [e for e in events if e[0] == "message_delta"]
         assert delta_events, "expected message_delta"
         md = delta_events[-1][1]
-        assert md["usage"]["cache_read_input_tokens"] == 900
-        assert md["usage"]["cache_creation_input_tokens"] == 0
+        assert md["usage"] == {"output_tokens": 50}
 
     def test_response_to_anthropic_nonstream_uses_input_tokens_details(self):
         """Response 响应的 input_tokens_details.cached_tokens 应转为 cache_read_input_tokens"""
@@ -453,7 +466,7 @@ class TestChatToAnthropic:
         assert result["usage"]["cache_creation_input_tokens"] == 0
 
     def test_response_to_anthropic_stream_uses_input_tokens_details(self):
-        """Response 流式 chunk 的 input_tokens_details.cached_tokens 应转为 cache_read_input_tokens"""
+        """Response 流式 message_delta 的 usage 只包含增量 output_tokens。"""
         chunks = [
             {"type": "response.created", "response": {"id": "resp_a", "model": "gpt-4o", "status": "in_progress"}},
             {"type": "response.output_text.delta", "delta": "hi"},
@@ -482,6 +495,28 @@ class TestChatToAnthropic:
         delta_events = [e for e in all_events if e[0] == "message_delta"]
         assert delta_events, "expected message_delta"
         md = delta_events[-1][1]
-        assert md["usage"]["cache_read_input_tokens"] == 900
-        assert md["usage"]["cache_creation_input_tokens"] == 0
-        assert md["usage"]["output_tokens"] == 50
+        assert md["usage"] == {"output_tokens": 50}
+
+    def test_response_to_anthropic_stream_thinking_start_has_signature(self):
+        """Response reasoning 流式块应带空 signature，与 Chat reasoning 路径一致。"""
+        chunks = [
+            {"type": "response.created", "response": {"id": "resp_a", "model": "gpt-4o", "status": "in_progress"}},
+            {
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {"type": "reasoning", "id": "rs_1"},
+            },
+            {"type": "response.reasoning_text.delta", "delta": "thinking"},
+        ]
+
+        all_events: list[tuple[str, dict]] = []
+        for c in chunks:
+            all_events.extend(self.converter._response_stream_chunk_to_anthropic(c))
+
+        thinking_start = [
+            event
+            for event_type, event in all_events
+            if event_type == "content_block_start"
+            and event["content_block"]["type"] == "thinking"
+        ][0]
+        assert thinking_start["content_block"]["signature"] == ""

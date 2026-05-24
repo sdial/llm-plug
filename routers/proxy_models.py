@@ -54,22 +54,26 @@ async def list_models_anthropic(
     anthropic_models = [m for m in models if m["api_type"] == APIType.ANTHROPIC.value]
 
     start = 0
+    end = len(anthropic_models)
     if after:
         for i, m in enumerate(anthropic_models):
             if m["id"] == after:
                 start = i + 1
                 break
     if before:
-        end_idx = len(anthropic_models)
         for i, m in enumerate(anthropic_models):
             if m["id"] == before:
-                end_idx = i
+                end = i
                 break
+
+    window = anthropic_models[start:end]
+    if before and not after:
+        page_start = max(0, len(window) - limit)
+        page = window[page_start:]
+        has_more = page_start > 0
     else:
-        end_idx = len(anthropic_models)
-    page = anthropic_models[start:start + limit]
-    if before:
-        page = anthropic_models[max(0, end_idx - limit):end_idx]
+        page = window[:limit]
+        has_more = len(window) > limit
 
     data = [
         {
@@ -80,5 +84,4 @@ async def list_models_anthropic(
         }
         for m in page
     ]
-    has_more = end_idx < len(anthropic_models)
     return {"data": data, "has_more": has_more, "first_id": page[0]["id"] if page else "", "last_id": page[-1]["id"] if page else ""}

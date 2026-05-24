@@ -823,9 +823,15 @@ async def restart_server(body: dict):
     if not body.get("confirm"):
         raise HTTPException(status_code=400, detail="需要 confirm=true 确认重启")
     from loguru import logger as _logger
+    import asyncio
+
+    async def _shutdown_after_response() -> None:
+        await asyncio.sleep(0.1)
+        raise SystemExit(0)
+
     _logger.info("配置变更触发重启")
-    import os
-    os._exit(0)
+    asyncio.create_task(_shutdown_after_response())
+    return {"message": "服务正在重启"}
 
 
 # ============ IP 白名单 ============

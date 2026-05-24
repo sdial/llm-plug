@@ -225,6 +225,42 @@ def test_content_length_over_limit_is_rejected_before_body_read():
     load_api_keys.assert_not_awaited()
 
 
+def test_body_stream_over_limit_is_logged_as_413():
+    """分块读取时超限也应记录 413 日志。"""
+    logged = []
+    from config import MAX_BODY_SIZE
+
+    async def receive():
+        return {"type": "http.request", "body": b"x" * (MAX_BODY_SIZE + 1), "more_body": False}
+
+    async def send(message):
+        pass
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": [(b"authorization", b"Bearer sk-test")],
+        "query_string": b"",
+    }
+
+    from main import CombinedMiddleware
+
+    async def downstream(scope, receive, send):
+        raise AssertionError("downstream app should not be called")
+
+    middleware = CombinedMiddleware(downstream)
+    with (
+        patch("main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}),
+        patch.object(middleware, "_log_request", side_effect=lambda *args: logged.append(args)),
+    ):
+        import anyio
+
+        anyio.run(middleware, scope, receive, send)
+
+    assert logged and logged[0][7] == 413
+
+
 def test_exception_before_response_start_is_logged_as_500():
     """下游异常且未发 response.start 时，日志状态不应默认为 200。"""
     sent = []

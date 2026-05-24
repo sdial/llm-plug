@@ -38,7 +38,11 @@ def setup_channels(tmp_path, monkeypatch):
                 "api_type": "anthropic",
                 "base_url": "https://api.anthropic.com",
                 "api_key": "test-key",
-                "models": ["claude-sonnet-4-20250514"],
+                "models": [
+                    "claude-haiku-4-20250514",
+                    "claude-sonnet-4-20250514",
+                    "claude-opus-4-20250514",
+                ],
                 "enabled": True,
                 "weight": 1,
                 "priority": 1,
@@ -108,3 +112,33 @@ class TestAnthropicModelsEndpoint:
             resp = client.get("/v1/anthropic/models")
             assert resp.status_code == 200
             assert len(resp.json()["data"]) > 0
+
+    def test_supports_after_and_before_pagination(self):
+        """Anthropic 分页应正确处理 after / before / has_more。"""
+        from main import app
+
+        with TestClient(app) as client:
+            first = client.get("/v1/anthropic/models?limit=1")
+            assert first.status_code == 200
+            first_data = first.json()
+            assert first_data["has_more"] is True
+            first_id = first_data["data"][0]["id"]
+
+            after = client.get(f"/v1/anthropic/models?limit=1&after={first_id}")
+            assert after.status_code == 200
+            after_data = after.json()
+            assert after_data["has_more"] is True
+            assert after_data["first_id"] != first_id
+
+            before = client.get(f"/v1/anthropic/models?limit=1&before={after_data['data'][0]['id']}")
+            assert before.status_code == 200
+            before_data = before.json()
+            assert before_data["has_more"] is False
+            assert before_data["data"][0]["id"] == first_id
+
+            bounded = client.get(
+                f"/v1/anthropic/models?limit=1&after={first_id}&before=claude-opus-4-20250514"
+            )
+            assert bounded.status_code == 200
+            bounded_data = bounded.json()
+            assert [m["id"] for m in bounded_data["data"]] == [after_data["data"][0]["id"]]
