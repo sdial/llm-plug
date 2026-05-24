@@ -970,6 +970,14 @@ class TestResponseStreamToChat:
 
         assert result["choices"][0]["finish_reason"] == "length"
 
+    def test_unknown_content_type_gracefully_degrades(self):
+        """未知 Responses content 类型应降级为文本，而非抛异常。"""
+        result = self.converter._response_content_to_chat_content(
+            [{"type": "mystery", "text": "fallback"}]
+        )
+
+        assert result == "fallback"
+
     def test_multiple_function_calls_output_index(self):
         """多个 function_call 的 output_index 正确映射到 tool_calls index"""
         self.converter._reset_stream_state()

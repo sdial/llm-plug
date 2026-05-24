@@ -553,7 +553,7 @@ def _is_retryable_exception(exc: BaseException) -> bool:
 def _is_channel_config_error(exc: BaseException) -> bool:
     """检查是否为渠道配置错误（如认证失败、路径错误等）"""
     if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code == 404
+        return exc.response.status_code in (401, 403, 404)
     return False
 
 

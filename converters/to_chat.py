@@ -683,7 +683,8 @@ class ToChatCompletionsConverter(BaseConverter):
             elif "text" in part:
                 text_parts.append(part.get("text", ""))
             else:
-                raise ValueError(f"Unsupported Responses content block type for Chat Completions upstream: {part_type}")
+                logger.debug("Unsupported Responses content block type %r, degrading to text", part_type)
+                text_parts.append(f"[Unsupported content type: {part_type}]")
 
         if chat_parts:
             _flush_text_parts()

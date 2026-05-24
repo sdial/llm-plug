@@ -486,6 +486,16 @@ class ToResponseConverter(BaseConverter):
             self._stream_state["input_tokens"] = usage.get("prompt_tokens", self._stream_state["input_tokens"])
             self._stream_state["output_tokens"] = usage.get("completion_tokens", self._stream_state["output_tokens"])
             self._stream_state["total_tokens"] = usage.get("total_tokens", self._stream_state["total_tokens"])
+            prompt_details = usage.get("prompt_tokens_details")
+            if isinstance(prompt_details, dict):
+                self._stream_state["input_tokens_details"] = {
+                    "cached_tokens": prompt_details.get("cached_tokens", 0),
+                }
+            completion_details = usage.get("completion_tokens_details")
+            if isinstance(completion_details, dict):
+                self._stream_state["output_tokens_details"] = {
+                    "reasoning_tokens": completion_details.get("reasoning_tokens", 0),
+                }
 
         choices = chunk.get("choices", [])
         if not choices:
@@ -721,7 +731,6 @@ class ToResponseConverter(BaseConverter):
             self._stream_state["message_id"] = msg.get("id", "")
             self._stream_state["response_id"] = f"resp_{msg.get('id', '')}"
             self._stream_state["model"] = msg.get("model", "")
-            # Accumulate usage from message_start (input_tokens, cache_creation_input_tokens, cache_read_input_tokens)
             msg_usage = msg.get("usage")
             if isinstance(msg_usage, dict):
                 existing = self._stream_state["anthropic_usage"]
@@ -895,13 +904,10 @@ class ToResponseConverter(BaseConverter):
 
         elif event_type == "message_delta":
             # Accumulate output_tokens from message_delta (only output_tokens is incremental)
-            # cache fields in message_delta are duplicates of message_start values, not increments
             delta_usage = chunk.get("usage")
-            if isinstance(delta_usage, dict):
+            if isinstance(delta_usage, dict) and "output_tokens" in delta_usage:
                 existing = self._stream_state["anthropic_usage"]
-                # Only output_tokens is incremental; update it
-                if "output_tokens" in delta_usage:
-                    existing["output_tokens"] = existing.get("output_tokens", 0) + delta_usage["output_tokens"]
+                existing["output_tokens"] = existing.get("output_tokens", 0) + delta_usage["output_tokens"]
             stop_reason = chunk.get("delta", {}).get("stop_reason")
             status = "completed"
             if stop_reason == "max_tokens":
@@ -1044,6 +1050,10 @@ class ToResponseConverter(BaseConverter):
             "output_tokens": self._stream_state["output_tokens"],
             "total_tokens": self._stream_state["total_tokens"],
         }
+        if self._stream_state.get("input_tokens_details"):
+            usage_data["input_tokens_details"] = self._stream_state["input_tokens_details"]
+        if self._stream_state.get("output_tokens_details"):
+            usage_data["output_tokens_details"] = self._stream_state["output_tokens_details"]
         completed_event = {
             "type": "response.completed",
             "response": {
@@ -1114,11 +1124,15 @@ class ToResponseConverter(BaseConverter):
             return []
         completed = pending[-1]
         if completed.get("type") == "response.completed":
-            completed["response"]["usage"] = {
-                "input_tokens": self._stream_state["input_tokens"],
-                "output_tokens": self._stream_state["output_tokens"],
-                "total_tokens": self._stream_state["total_tokens"],
-            }
+            usage = completed["response"].get("usage", {})
+            usage["input_tokens"] = self._stream_state["input_tokens"]
+            usage["output_tokens"] = self._stream_state["output_tokens"]
+            usage["total_tokens"] = self._stream_state["total_tokens"]
+            if self._stream_state.get("input_tokens_details"):
+                usage["input_tokens_details"] = self._stream_state["input_tokens_details"]
+            if self._stream_state.get("output_tokens_details"):
+                usage["output_tokens_details"] = self._stream_state["output_tokens_details"]
+            completed["response"]["usage"] = usage
         self._stream_state["pending_final_events"] = []
         self._stream_state["waiting_for_usage_after_finish"] = False
         self._stream_state["completed_sent"] = True

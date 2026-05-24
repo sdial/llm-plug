@@ -155,7 +155,7 @@ class ToAnthropicConverter(BaseConverter):
                         "signature": "",
                     })
                 text_content = msg.get("content")
-                if text_content:
+                if text_content is not None:
                     if isinstance(text_content, str):
                         content_parts.append({"type": "text", "text": text_content})
                     elif isinstance(text_content, list):
@@ -394,11 +394,7 @@ class ToAnthropicConverter(BaseConverter):
             ("message_delta", {
                 "type": "message_delta",
                 "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                "usage": {
-                    "output_tokens": usage_output,
-                    "cache_creation_input_tokens": 0,
-                    "cache_read_input_tokens": (usage or {}).get("prompt_tokens_details", {}).get("cached_tokens", 0),
-                },
+                "usage": {"output_tokens": usage_output},
             }),
             ("message_stop", {"type": "message_stop"}),
         ]
@@ -796,7 +792,7 @@ class ToAnthropicConverter(BaseConverter):
                     ("content_block_start", {
                         "type": "content_block_start",
                         "index": self._stream_state["content_block_index"],
-                        "content_block": {"type": "thinking", "thinking": ""},
+                        "content_block": {"type": "thinking", "thinking": "", "signature": ""},
                     })
                 )
             elif item.get("type") == "message":
@@ -818,7 +814,7 @@ class ToAnthropicConverter(BaseConverter):
                     ("content_block_start", {
                         "type": "content_block_start",
                         "index": self._stream_state["content_block_index"],
-                        "content_block": {"type": "thinking", "thinking": ""},
+                        "content_block": {"type": "thinking", "thinking": "", "signature": ""},
                     })
                 )
             if text:
@@ -888,16 +884,11 @@ class ToAnthropicConverter(BaseConverter):
                         break
             resp_usage = resp.get("usage") or {}
             usage_output = resp_usage.get("output_tokens", 0)
-            cached = (resp_usage.get("input_tokens_details") or {}).get("cached_tokens", 0)
             events.append(
                 ("message_delta", {
                     "type": "message_delta",
                     "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                    "usage": {
-                        "output_tokens": usage_output,
-                        "cache_creation_input_tokens": 0,
-                        "cache_read_input_tokens": cached,
-                    },
+                    "usage": {"output_tokens": usage_output},
                 })
             )
             events.append(("message_stop", {"type": "message_stop"}))

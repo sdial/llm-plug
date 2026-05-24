@@ -1038,6 +1038,55 @@ class TestChatToResponseStream:
             "total_tokens": 9,
         }
 
+    def test_usage_only_chunk_after_finish_preserves_usage_details(self):
+        """释放 pending response.completed 时应保留 cached/reasoning 等 usage 详细字段。"""
+        converter = ToResponseConverter()
+        events = [
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"content": "Hi"}}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "stop"}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": 7,
+                    "completion_tokens": 2,
+                    "total_tokens": 9,
+                    "prompt_tokens_details": {"cached_tokens": 5},
+                    "completion_tokens_details": {"reasoning_tokens": 1},
+                },
+            },
+        ]
+
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                outputs.extend(converter.get_extra_events(result or {}))
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
+
+        completed = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ][0]
+        assert completed["response"]["usage"] == {
+            "input_tokens": 7,
+            "output_tokens": 2,
+            "total_tokens": 9,
+            "input_tokens_details": {"cached_tokens": 5},
+            "output_tokens_details": {"reasoning_tokens": 1},
+        }
+
     def test_finish_without_usage_only_chunk_finalizes_completed_on_done(self):
         """没有 finish 后 usage-only chunk 时，finalize_stream 应释放 response.completed。"""
         converter = ToResponseConverter()
