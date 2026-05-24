@@ -4,11 +4,12 @@ let _settingsOriginal = {};
 let _settingsCurrentSection = 'server';
 let _settingsDirtySections = new Set();
 let _settingsToastTimer = null;
+let _settingsInitRoot = null;
 
 function switchSettingsSection(section) {
   _settingsCurrentSection = section;
   document.querySelectorAll('.settings-section').forEach(el => el.classList.add('hidden'));
-  document.getElementById('settings_' + section).classList.remove('hidden');
+  document.getElementById('settings_' + section)?.classList.remove('hidden');
   document.querySelectorAll('.settings-nav-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.section === section);
   });
@@ -94,8 +95,22 @@ function syncRequestLogDbMode() {
   pgUrlEl.placeholder = usingPostgres ? 'postgresql://user:pass@host:5432/db' : 'SQLite 模式下无需填写';
 }
 
+function initSettings() {
+  const root = document.getElementById('settings_server') || document.getElementById('settings') || document.getElementById('settings_host');
+  if (!root || root === _settingsInitRoot) return;
+  _settingsInitRoot = root;
+  document.querySelectorAll('.settings-input').forEach(el => {
+    if (el.dataset.settingsBound === '1') return;
+    el.dataset.settingsBound = '1';
+    el.addEventListener('input', () => _detectSettingsDirty());
+    el.addEventListener('change', () => _detectSettingsDirty());
+  });
+  syncRequestLogDbMode();
+}
+
 async function loadSettings() {
   try {
+    if (!document.getElementById('set_host')) return;
     const resp = await fetch('/admin/settings');
     const data = await resp.json();
     _settingsOriginal = data;
@@ -125,11 +140,6 @@ async function loadSettings() {
     console.error('加载设置失败:', e);
   }
 }
-
-document.querySelectorAll('.settings-input').forEach(el => {
-  el.addEventListener('input', () => _detectSettingsDirty());
-  el.addEventListener('change', () => _detectSettingsDirty());
-});
 
 async function saveSettings() {
   const data = {};
@@ -198,6 +208,7 @@ async function restartServer() {
   } catch (e) { }
   _showSettingsToast('正在重启，5秒后刷新页面...', 'info');
   setTimeout(() => location.reload(), 5000);
+}
 
 function getOriginalSettings() {
     return _settingsOriginal;
@@ -205,6 +216,7 @@ function getOriginalSettings() {
 
 Object.assign(window, {
     switchSettingsSection,
+    initSettings,
     syncRequestLogDbMode,
     loadSettings,
     saveSettings,

@@ -12,6 +12,7 @@ function esc(s) {
 
 async function loadModelGroups() {
     try {
+        if (!document.getElementById('modelGroupList')) return;
         const resp = await fetch('/admin/model-groups');
         modelGroups = await resp.json();
         renderModelGroups();
@@ -23,6 +24,7 @@ async function loadModelGroups() {
 
 function renderModelGroups() {
     const container = document.getElementById('modelGroupList');
+    if (!container) return;
     if (!modelGroups.length) {
         container.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">暂无模型组，点击上方按钮添加</p>';
         return;
@@ -49,6 +51,7 @@ function renderModelGroups() {
 }
 
 function openModelGroupModal(group = null) {
+    if (!document.getElementById('modelGroupModal')) return;
     editingModelGroupId = group ? group.id : null;
     document.getElementById('modelGroupModalTitle').textContent = group ? '编辑模型组' : '添加模型组';
     document.getElementById('modelGroupId').value = group ? group.id : '';
@@ -71,6 +74,7 @@ function closeModelGroupModal() {
 
 function addModelInput(value = '') {
     const container = document.getElementById('modelGroupModelsContainer');
+    if (!container) return;
     const div = document.createElement('div');
     div.className = 'flex items-center gap-2';
     div.innerHTML = `
@@ -102,7 +106,9 @@ function moveModelInput(btn, dir) {
 }
 
 function refreshModelInputs() {
-    const rows = document.getElementById('modelGroupModelsContainer').children;
+    const container = document.getElementById('modelGroupModelsContainer');
+    if (!container) return;
+    const rows = container.children;
     const total = rows.length;
     for (let i = 0; i < total; i++) {
         const row = rows[i];

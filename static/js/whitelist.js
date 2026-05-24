@@ -2,6 +2,7 @@
 
 async function loadWhitelist() {
   try {
+    if (!document.getElementById('whitelist_content')) return;
     const res = await fetch('/admin/whitelist');
     if (!res.ok) {
       console.error('loadWhitelist failed:', res.status);
@@ -26,10 +27,12 @@ async function loadWhitelist() {
 }
 
 async function saveWhitelist() {
-  const content = document.getElementById('whitelist_content').value;
+  const contentEl = document.getElementById('whitelist_content');
+  if (!contentEl) return;
+  const content = contentEl.value;
   const errorEl = document.getElementById('whitelist_error');
   const btn = document.getElementById('whitelist_save_btn');
-  errorEl.classList.add('hidden');
+  if (errorEl) errorEl.classList.add('hidden');
 
   // 前端格式粗检：非注释非空行必须恰好 4 列
   const rawLines = content.split('\n');
@@ -39,8 +42,10 @@ async function saveWhitelist() {
     if (line.trim().startsWith('path_pattern,')) continue;
     const parts = line.split(',');
     if (parts.length !== 4) {
-      errorEl.textContent = `第 ${i + 1} 行格式错误：需要 4 列，实际 ${parts.length} 列`;
-      errorEl.classList.remove('hidden');
+      if (errorEl) {
+        errorEl.textContent = `第 ${i + 1} 行格式错误：需要 4 列，实际 ${parts.length} 列`;
+        errorEl.classList.remove('hidden');
+      }
       return;
     }
   }
@@ -64,8 +69,10 @@ async function saveWhitelist() {
     });
     const data = await res.json();
     if (!res.ok) {
-      errorEl.textContent = data.detail || '保存失败';
-      errorEl.classList.remove('hidden');
+      if (errorEl) {
+        errorEl.textContent = data.detail || '保存失败';
+        errorEl.classList.remove('hidden');
+      }
       return;
     }
     const countEl = document.getElementById('whitelist_rule_count');
@@ -74,11 +81,14 @@ async function saveWhitelist() {
     btn.textContent = '已保存 ✓';
     setTimeout(() => { btn.textContent = original; }, 1500);
   } catch (e) {
-    errorEl.textContent = '网络错误，请重试';
-    errorEl.classList.remove('hidden');
+    if (errorEl) {
+      errorEl.textContent = '网络错误，请重试';
+      errorEl.classList.remove('hidden');
+    }
   } finally {
     btn.disabled = false;
   }
+}
 
 Object.assign(window, {
     loadWhitelist,
