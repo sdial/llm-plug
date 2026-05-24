@@ -357,21 +357,8 @@ def test_stream_upstream_http_error_before_first_chunk_is_passed_through():
         request=request,
         response=upstream_response,
     )
-    channel = Channel(
-        id="ch_openai",
-        name="OpenAI",
-        api_type=APIType.OPENAI_CHAT,
-        base_url="https://api.openai.com",
-        api_key="sk-test",
-        models=["gpt-4o"],
-    )
-
-    async def stream():
-        raise upstream_error
-        yield ""
-
     async def fake_proxy_request(*args, **kwargs):
-        return stream(), channel
+        raise upstream_error
 
     with (
         TestClient(app) as client,
@@ -388,3 +375,62 @@ def test_stream_upstream_http_error_before_first_chunk_is_passed_through():
 
     assert response.status_code == 400
     assert response.json() == {"error": {"message": "bad stream request"}}
+
+
+def test_stream_response_is_not_primed_again_at_router_layer():
+    """proxy_core 已完成流式预取，路由层不应再次消费首个 chunk。"""
+    import anyio
+    from starlette.requests import Request
+
+    from routers.proxy_base import make_proxy_router
+
+    channel = Channel(
+        id="ch_openai",
+        name="OpenAI",
+        api_type=APIType.OPENAI_CHAT,
+        base_url="https://api.openai.com",
+        api_key="sk-test",
+        models=["gpt-4o"],
+    )
+    consumed_before_response = 0
+
+    async def stream():
+        nonlocal consumed_before_response
+        consumed_before_response += 1
+        yield 'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
+
+    async def fake_proxy_request(*args, **kwargs):
+        return stream(), channel
+
+    async def call_endpoint():
+        body = json.dumps({
+            "model": "gpt-4o",
+            "stream": True,
+            "messages": [{"role": "user", "content": "hello"}],
+        }).encode()
+
+        async def receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/test",
+                "headers": [(b"content-type", b"application/json")],
+                "query_string": b"",
+                "server": ("testserver", 80),
+                "client": ("127.0.0.1", 12345),
+                "scheme": "http",
+                "state": {"proxy_auth_checked": True},
+            },
+            receive=receive,
+        )
+        endpoint = make_proxy_router("/test", APIType.OPENAI_CHAT).routes[0].endpoint
+        with patch("routers.proxy_base.proxy_request", fake_proxy_request):
+            return await endpoint(request)
+
+    response = anyio.run(call_endpoint)
+
+    assert consumed_before_response == 0
+    assert response.media_type == "text/event-stream"

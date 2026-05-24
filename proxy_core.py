@@ -5,7 +5,6 @@ import asyncio
 import json
 import secrets
 import time
-from datetime import datetime
 from typing import Any
 
 import httpx
@@ -377,7 +376,7 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
     return {
         "id": response_id,
         "object": "chat.completion",
-        "created": int(datetime.now().timestamp()),
+        "created": int(time.time()),
         "model": model,
         "choices": [{
             "index": 0,
@@ -405,8 +404,10 @@ async def _invalidate_model_channels_cache() -> None:
 
 
 def _schedule_invalidate_model_channels_cache() -> None:
+    global _model_channels_cache
+    _model_channels_cache = None
     try:
-        task = asyncio.create_task(_invalidate_model_channels_cache())
+        task = asyncio.create_task(_cleanup_removed_channels_after_save())
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
     except RuntimeError:
@@ -414,6 +415,12 @@ def _schedule_invalidate_model_channels_cache() -> None:
 
 
 register_save_callback(_schedule_invalidate_model_channels_cache)
+
+
+async def _cleanup_removed_channels_after_save() -> None:
+    data = await storage.load_data()
+    active_ids = {ch.get("id") for ch in data.get("channels", [])}
+    await load_balancer.cleanup_removed_channels(active_ids)
 
 
 async def _get_channels_for_model(model: str) -> list[Channel]:
@@ -525,10 +532,6 @@ _RETRYABLE_EXCEPTIONS = (
     httpx.ConnectError,
     httpx.ReadError,
     httpx.WriteError,
-    httpx.PoolTimeout,
-    httpx.ConnectTimeout,
-    httpx.ReadTimeout,
-    httpx.WriteTimeout,
 )
 
 
@@ -1246,7 +1249,7 @@ async def _do_stream_request(
                     raise
                 return results
 
-            nonlocal_stream_body = None
+            non_sse_stream_body = None
             _first_line_checked = False
             _line_count = 0
             _done_received = False
@@ -1284,8 +1287,8 @@ async def _do_stream_request(
                             _mark_output()
                             yield passthrough
                             continue
-                        # 非 SSE 内容（如原始 JSON），设置为 nonlocal_stream_body 用于后续处理
-                        nonlocal_stream_body = "\n".join(passthrough_lines)
+                        # 非 SSE 内容（如原始 JSON），设置为 non_sse_stream_body 用于后续处理
+                        non_sse_stream_body = "\n".join(passthrough_lines)
                         break
                     if response_converter:
                         continue
@@ -1431,10 +1434,10 @@ async def _do_stream_request(
 
         logger.debug(f"[STREAM LOOP END] model={model} lines={_line_count} done={_done_received}")
         logger.debug(f"[STREAM ASYNC WITH EXIT] model={model}")
-        if nonlocal_stream_body is not None:
-            logger.debug(f"[STREAM NON-SSE] model={model} body_length={len(nonlocal_stream_body)}")
+        if non_sse_stream_body is not None:
+            logger.debug(f"[STREAM NON-SSE] model={model} body_length={len(non_sse_stream_body)}")
             try:
-                full_response = json.loads(nonlocal_stream_body)
+                full_response = json.loads(non_sse_stream_body)
             except json.JSONDecodeError:
                 full_response = None
                 logger.warning(f"[STREAM NON-SSE JSON ERROR] model={model}")
@@ -1491,7 +1494,7 @@ async def _do_stream_request(
                 if stop_reason:
                     finish_reason = stop_reason
 
-        logger.debug(f"[STREAM FINISH] model={model} done_received={_done_received} nonlocal_body={'yes' if nonlocal_stream_body else 'no'} chunks={len(stream_chunks)}")
+        logger.debug(f"[STREAM FINISH] model={model} done_received={_done_received} non_sse_body={'yes' if non_sse_stream_body else 'no'} chunks={len(stream_chunks)}")
         if stream_error is None:
             stream_success = True
         logger.debug(f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} output_tokens={output_tokens} finish_reason={finish_reason}")

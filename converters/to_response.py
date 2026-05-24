@@ -75,7 +75,10 @@ class ToResponseConverter(BaseConverter):
     def _make_function_call_id(self, call_id: str) -> str:
         if call_id.startswith("fc_"):
             return call_id
-        suffix = call_id.removeprefix("call_") or secrets.token_hex(8)
+        if call_id.startswith("call_"):
+            suffix = call_id.removeprefix("call_")
+        else:
+            suffix = call_id or secrets.token_hex(8)
         return f"fc_{suffix}"
 
     def _chat_usage_to_response_usage(self, usage: dict[str, Any]) -> dict[str, Any]:

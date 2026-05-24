@@ -43,6 +43,7 @@ class ThinkFilter:
     def __init__(self):
         self.buffer = ""
         self.in_think = False
+        self._think_start_tag = ""
 
     def feed(self, chunk: str) -> str:
         """
@@ -71,6 +72,7 @@ class ThinkFilter:
                     return "".join(result_parts)
                 # Found end tag, skip past it
                 self.in_think = False
+                self._think_start_tag = ""
                 i = end_pos
             else:
                 # Look for start tag
@@ -89,8 +91,10 @@ class ThinkFilter:
                 # Output content before start tag
                 if start_pos > i:
                     result_parts.append(self.buffer[i:start_pos])
+                start_tag = self._get_start_tag(self.buffer, start_pos)
                 self.in_think = True
-                i = self._get_start_tag_end(self.buffer, start_pos)
+                self._think_start_tag = start_tag
+                i = start_pos + len(start_tag)
 
         self.buffer = ""
         return "".join(result_parts)
@@ -117,24 +121,24 @@ class ThinkFilter:
                     max_len = max(max_len, length)
         return max_len
 
-    def _get_start_tag_end(self, text: str, pos: int) -> int:
-        """Get position after start tag."""
+    def _get_start_tag(self, text: str, pos: int) -> str:
+        """Get the start tag at position."""
         if text[pos:pos+7] == "<think>":
-            return pos + 7
+            return "<think>"
         if text[pos:pos+1] == "💭":
-            return pos + 1
-        return pos + 1
+            return "💭"
+        return text[pos:pos+1]
 
     def _find_end_tag(self, text: str, start: int) -> int:
         """Find position after end tag, return -1 if not found."""
-        # Check </think>
-        idx = text.find("</think>", start)
-        if idx != -1:
-            return idx + 8
-        # Check emoji
-        idx = text.find("💭", start)
-        if idx != -1:
-            return idx + 1
+        if self._think_start_tag == "<think>":
+            idx = text.find("</think>", start)
+            if idx != -1:
+                return idx + 8
+        elif self._think_start_tag == "💭":
+            idx = text.find("💭", start)
+            if idx != -1:
+                return idx + 1
         return -1
 
     def flush(self) -> str:
@@ -144,8 +148,15 @@ class ThinkFilter:
         If inside think block, discard. Otherwise return buffer.
         """
         if self.in_think:
+            if self._think_start_tag == "💭":
+                result = self._think_start_tag + self.buffer
+                self.buffer = ""
+                self.in_think = False
+                self._think_start_tag = ""
+                return result
             self.buffer = ""
             self.in_think = False
+            self._think_start_tag = ""
             return ""
         result = self.buffer
         self.buffer = ""
@@ -155,3 +166,4 @@ class ThinkFilter:
         """Reset filter state."""
         self.buffer = ""
         self.in_think = False
+        self._think_start_tag = ""

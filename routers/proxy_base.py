@@ -29,24 +29,6 @@ async def _closeable_stream(gen: AsyncGenerator):
         await gen.aclose()
 
 
-async def _prime_stream(gen: AsyncGenerator) -> AsyncGenerator:
-    """在发送 HTTP 响应头前取到首个 chunk，便于透传首包前错误。"""
-    try:
-        first_chunk = await anext(gen)
-    except StopAsyncIteration:
-        return gen
-
-    async def _replay():
-        try:
-            yield first_chunk
-            async for chunk in gen:
-                yield chunk
-        finally:
-            await gen.aclose()
-
-    return _replay()
-
-
 def _pick_error_helpers(api_type: APIType):
     """根据 API 类型选择对应格式的错误响应函数"""
     if api_type == APIType.ANTHROPIC:
@@ -85,8 +67,6 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
                 client_ip=client_ip,
             )
             request.state.selected_channel_name = _channel.name
-            if is_stream:
-                result = await _prime_stream(result)
         except ValueError as e:
             logger.error(f"{path} ValueError: {e}")
             return err_invalid(str(e))
