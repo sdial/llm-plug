@@ -6,6 +6,7 @@ import pytest
 import config
 import storage
 from main import app
+from tests.admin_auth_utils import login_admin
 
 
 @pytest.fixture
@@ -14,6 +15,7 @@ def channels_file(tmp_path, monkeypatch):
     data_dir.mkdir()
     channels_path = data_dir / "channels.json"
     keys_path = data_dir / "api_keys.json"
+    settings_path = data_dir / "settings.json"
 
     channels_path.write_text(
         json.dumps(
@@ -38,10 +40,15 @@ def channels_file(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     keys_path.write_text(json.dumps({"api_keys": []}), encoding="utf-8")
+    settings_path.write_text(json.dumps({}), encoding="utf-8")
 
     monkeypatch.setattr(config, "DATA_DIR", str(data_dir))
     monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_path))
     monkeypatch.setattr(config, "API_KEYS_FILE", str(keys_path))
+    monkeypatch.setattr(config, "_SETTINGS_FILE", str(settings_path))
+    config._init_settings_sync()
+    import main
+    monkeypatch.setattr(main, "_whitelist_cache", main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")))
     storage._cache = None
     storage._cache_ts = 0
     storage._keys_cache = None
@@ -62,6 +69,7 @@ async def test_update_channel_revalidates_weight(channels_file):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
+        await login_admin(client)
         response = await client.put("/admin/channels/ch_test", json={"weight": 0})
 
     assert response.status_code == 422
@@ -72,6 +80,7 @@ async def test_update_channel_revalidates_priority(channels_file):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
+        await login_admin(client)
         response = await client.put("/admin/channels/ch_test", json={"priority": 0})
 
     assert response.status_code == 422
@@ -90,6 +99,7 @@ async def test_update_channel_accepts_anthropic_header_policy_fields(channels_fi
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
+        await login_admin(client)
         response = await client.put("/admin/channels/ch_test", json=payload)
 
     assert response.status_code == 200
@@ -116,6 +126,7 @@ async def test_create_model_group_uses_storage_helper(channels_file, monkeypatch
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
+        await login_admin(client)
         response = await client.post(
             "/admin/model-groups",
             json={"name": "fallback", "models": ["gpt-4o"]},

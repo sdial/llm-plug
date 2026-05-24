@@ -1,19 +1,47 @@
 import ipaddress
+import json
 
 import pytest
 import pytest_asyncio
 import httpx
 
+import config
 import request_logs
 import stats
+import storage
 import whitelist as wl
 from main import app
+from tests.admin_auth_utils import login_admin
 
 pytestmark = pytest.mark.asyncio
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_test_db(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    channels_path = data_dir / "channels.json"
+    keys_path = data_dir / "api_keys.json"
+    settings_path = data_dir / "settings.json"
+    channels_path.write_text(json.dumps({"channels": []}), encoding="utf-8")
+    keys_path.write_text(json.dumps({"api_keys": []}), encoding="utf-8")
+    settings_path.write_text(json.dumps({}), encoding="utf-8")
+
+    monkeypatch.setattr(config, "DATA_DIR", str(data_dir))
+    monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_path))
+    monkeypatch.setattr(config, "API_KEYS_FILE", str(keys_path))
+    monkeypatch.setattr(config, "_SETTINGS_FILE", str(settings_path))
+    config._init_settings_sync()
+    storage._cache = None
+    storage._cache_ts = 0
+    storage._keys_cache = None
+    storage._keys_cache_ts = 0
+    storage._channels_lock = None
+    storage._keys_lock = None
+
+    import main
+    monkeypatch.setattr(main, "_whitelist_cache", main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")))
+
     await stats.init_db(str(tmp_path / "stats.db"))
     await request_logs.init_backend(
         {
@@ -31,6 +59,7 @@ async def client():
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as c:
+        await login_admin(c)
         yield c
 
 

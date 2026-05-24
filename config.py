@@ -88,6 +88,7 @@ PORT = _CONFIG_SCHEMA["port"]["default"]
 
 CHANNELS_FILE = os.path.join(DATA_DIR, "channels.json")
 API_KEYS_FILE = os.path.join(DATA_DIR, "api_keys.json")
+ADMIN_AUTH_FILE = os.path.join(DATA_DIR, "admin_auth.json")
 
 REQUEST_TIMEOUT = _CONFIG_SCHEMA["request_timeout"]["default"]
 MAX_BODY_SIZE = _CONFIG_SCHEMA["max_body_size"]["default"]

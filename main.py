@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -185,6 +185,41 @@ class CombinedMiddleware:
             await self._send_error(send, 403, _wl_reason, "ip_whitelist_error")
             return
 
+        if path in ("/", "/static/index.html"):
+            from admin_auth import get_session_cookie_name, validate_admin_session
+            session_cookie = None
+            for key, value in scope.get("headers", []):
+                if key.lower() == b"cookie":
+                    cookie_text = value.decode()
+                    for part in cookie_text.split(";"):
+                        name, _, cookie_value = part.strip().partition("=")
+                        if name == get_session_cookie_name():
+                            session_cookie = cookie_value
+                            break
+            if not await validate_admin_session(session_cookie):
+                await self._send_redirect(send, "/admin/login")
+                return
+
+        if path.startswith("/admin") and path not in ("/admin/login",) and not path.startswith("/admin/auth"):
+            from admin_auth import get_session_cookie_name, validate_admin_session
+            session_cookie = None
+            for key, value in scope.get("headers", []):
+                if key.lower() == b"cookie":
+                    cookie_text = value.decode()
+                    for part in cookie_text.split(";"):
+                        name, _, cookie_value = part.strip().partition("=")
+                        if name == get_session_cookie_name():
+                            session_cookie = cookie_value
+                            break
+            if not await validate_admin_session(session_cookie):
+                await self._send_error(
+                    send,
+                    401,
+                    "Admin login required",
+                    "admin_login_required",
+                )
+                return
+
         # Only process proxy API requests
         if method != "POST" or path not in _PROXY_PATHS:
             await self.app(scope, receive, send)
@@ -325,6 +360,17 @@ class CombinedMiddleware:
             "body": error_body,
         })
 
+    async def _send_redirect(self, send: Send, location: str) -> None:
+        await send({
+            "type": "http.response.start",
+            "status": 302,
+            "headers": [[b"location", location.encode("utf-8")]],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"",
+        })
+
 
 app = FastAPI(title="LLM API 转换器", version="0.1.0", lifespan=lifespan)
 
@@ -343,10 +389,21 @@ STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-@app.get("/")
-async def root():
+@app.get("/admin/login")
+async def admin_login_page():
     from fastapi.responses import FileResponse
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "admin-login.html")
+
+
+@app.get("/")
+async def root(request: Request):
+    from fastapi.responses import FileResponse
+    from admin_auth import get_session_cookie_name, validate_admin_session
+
+    session_cookie = request.cookies.get(get_session_cookie_name())
+    if await validate_admin_session(session_cookie):
+        return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "admin-login.html")
 
 
 if __name__ == "__main__":
