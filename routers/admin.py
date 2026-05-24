@@ -1,3 +1,4 @@
+from collections.abc import Callable
 import secrets
 import time
 from datetime import date, datetime, timezone
@@ -7,6 +8,7 @@ from typing import Annotated
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
 import admin_auth
@@ -68,7 +70,34 @@ ADMIN_FRAGMENT_DIR = STATIC_DIR / "fragments" / "admin"
 DATA_DIR = Path(__file__).parent.parent / "data"
 WHITELIST_PATH = DATA_DIR / "whitelist.csv"
 
-router = APIRouter(prefix="/admin", tags=["管理"])
+
+class AdminAuthRoute(APIRoute):
+    """给管理端点增加路由级会话校验，避免只依赖 main.py 中间件。"""
+
+    def get_route_handler(self) -> Callable:
+        original_route_handler = super().get_route_handler()
+
+        async def admin_auth_route_handler(request: Request):
+            if request.url.path.startswith("/admin/auth"):
+                return await original_route_handler(request)
+
+            cookie_token = request.cookies.get(admin_auth.get_session_cookie_name())
+            if not await admin_auth.validate_admin_session(cookie_token):
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": {
+                            "message": "Admin login required",
+                            "type": "admin_login_required",
+                        },
+                    },
+                )
+            return await original_route_handler(request)
+
+        return admin_auth_route_handler
+
+
+router = APIRouter(prefix="/admin", tags=["管理"], route_class=AdminAuthRoute)
 
 
 @router.get("/auth/status")
