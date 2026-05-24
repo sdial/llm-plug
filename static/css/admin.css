@@ -1,0 +1,268 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background-color: #faf9f7;
+    color: #1a1a1a;
+}
+.card {
+    background: #ffffff;
+    border: 1px solid #e8e6e3;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+    transition: box-shadow 0.2s ease-out, transform 0.2s ease-out;
+}
+.card:hover {
+    box-shadow: 0 4px 6px rgba(0,0,0,0.04), 0 2px 4px rgba(0,0,0,0.02);
+}
+.tab-active {
+    color: #635bff;
+    border-bottom: 2px solid #635bff;
+}
+.tab-inactive {
+    color: #6b6b6b;
+}
+.tab-inactive:hover {
+    color: #1a1a1a;
+    background-color: #f5f5f4;
+}
+.btn-primary {
+    background-color: #635bff;
+    color: white;
+    border-radius: 10px;
+    transition: all 0.2s ease-out;
+}
+.btn-primary:hover {
+    background-color: #554ce6;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99,91,255,0.25);
+}
+.btn-secondary {
+    background-color: #f5f5f4;
+    color: #1a1a1a;
+    border-radius: 10px;
+    transition: all 0.2s ease-out;
+}
+.btn-secondary:hover {
+    background-color: #e8e6e3;
+}
+.pill {
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.125rem 0.4rem;
+}
+.pill-brand { background-color: #f0efff; color: #635bff; }
+.pill-success { background-color: #ecfdf5; color: #059669; }
+.pill-warning { background-color: #fffbeb; color: #d97706; }
+.pill-danger { background-color: #fff1f2; color: #e11d48; }
+.pill-muted { background-color: #f5f5f4; color: #6b6b6b; }
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.status-badge:hover {
+    transform: scale(1.02);
+}
+.status-enabled {
+    background-color: #ecfdf5;
+    color: #059669;
+}
+.status-disabled {
+    background-color: #f5f5f4;
+    color: #6b6b6b;
+}
+.type-badge {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+}
+.settings-nav-btn {
+  color: #6b6b6b;
+  position: relative;
+  text-align: left;
+}
+.settings-nav-btn:hover {
+  color: #1a1a1a;
+  background-color: #f5f5f4;
+}
+.settings-nav-btn.active {
+  color: #635bff;
+  background-color: #f0efff;
+}
+.settings-nav-btn.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background-color: #635bff;
+}
+@media (max-width: 767px) {
+  /* 移动端：设置导航横向滚动，激活指示线改到底部 */
+  .settings-nav-btn { width: auto !important; flex-shrink: 0; }
+  .settings-nav-btn.active::before {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 2px;
+  }
+  #settingsNav::-webkit-scrollbar { height: 0; }
+}
+#settingsToastInner.success {
+  background-color: #ecfdf5;
+  color: #059669;
+  border: 1px solid #d1fae5;
+}
+#settingsToastInner.error {
+  background-color: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #ffe4e6;
+}
+#settingsToastInner.info {
+  background-color: #f0efff;
+  color: #635bff;
+  border: 1px solid #e0dfff;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes toast-in {
+  from { transform: translateY(-12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes toast-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(-12px); opacity: 0; }
+}
+
+/* ===== 移动端响应式适配 ===== */
+@media (max-width: 767px) {
+  /* 表格 → 堆叠卡片：用 .responsive-card 标记的表 */
+  table.responsive-card,
+  table.responsive-card thead,
+  table.responsive-card tbody,
+  table.responsive-card tr,
+  table.responsive-card td,
+  table.responsive-card th {
+    display: block;
+    width: 100% !important;
+  }
+  table.responsive-card { table-layout: auto !important; }
+  table.responsive-card colgroup,
+  table.responsive-card col { display: none !important; }
+  table.responsive-card thead { display: none; }
+  table.responsive-card tbody { display: block; }
+  table.responsive-card tr {
+    border: 1px solid #e8e6e3;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  }
+  table.responsive-card tr:last-child { border-bottom: 1px solid #e8e6e3; margin-bottom: 0; }
+  table.responsive-card td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0 !important;
+    text-align: right !important;
+    min-height: 24px;
+    border: none !important;
+  }
+  table.responsive-card td::before {
+    content: attr(data-label);
+    color: #6b6b6b;
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-align: left;
+    flex-shrink: 0;
+    min-width: 70px;
+  }
+  table.responsive-card td:empty,
+  table.responsive-card td:not([data-label])::before { content: ""; }
+  table.responsive-card td.row-title {
+    display: block;
+    text-align: left !important;
+    padding-bottom: 6px !important;
+    margin-bottom: 4px;
+    border-bottom: 1px dashed #f5f5f4 !important;
+    font-weight: 600;
+  }
+  table.responsive-card td.row-title::before { display: none; }
+
+  /* 移动端水平排列的按钮组在卡片表格内右对齐 */
+  table.responsive-card td .flex { justify-content: flex-end; }
+
+  /* 卡片内嵌套表格的 truncate 在堆叠模式下失效，避免裁剪 */
+  table.responsive-card td .truncate { white-space: normal; overflow: visible; text-overflow: clip; }
+
+  /* tab 横向滚动备用样式（select 下拉时不需要） */
+  .mobile-no-truncate { white-space: normal !important; }
+}
+
+/* TagInput styles */
+.tag-input-container {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--surface-200, #e5e7eb);
+    border-radius: 0.5rem;
+    background: white;
+    min-height: 38px;
+    cursor: text;
+}
+.tag-input-container:focus-within {
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+    border-color: #4f46e5;
+}
+.tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: #eef2ff;
+    color: #4338ca;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+.tag-chip-remove {
+    cursor: pointer;
+    opacity: 0.6;
+    font-size: 14px;
+    line-height: 1;
+}
+.tag-chip-remove:hover {
+    opacity: 1;
+    color: #dc2626;
+}
+.tag-input-field {
+    border: none;
+    outline: none;
+    flex: 1;
+    min-width: 80px;
+    font-size: 0.875rem;
+    background: transparent;
+}
+.tag-input-field::placeholder {
+    color: #9ca3af;
+}
