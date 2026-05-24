@@ -28,6 +28,32 @@ def _now() -> float:
     return time.time()
 
 
+def _session_token_digest(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _parse_session_token(token: str) -> tuple[str, str, str] | None:
+    try:
+        expiry_text, nonce, sig = token.split(".", 2)
+    except (ValueError, TypeError):
+        return None
+    return expiry_text, nonce, sig
+
+
+def _clean_revoked_sessions(revoked: dict, now: int | None = None) -> dict[str, int]:
+    if now is None:
+        now = int(_now())
+    cleaned: dict[str, int] = {}
+    for token_digest, expiry in revoked.items():
+        try:
+            expiry_int = int(expiry)
+        except (TypeError, ValueError):
+            continue
+        if expiry_int >= now:
+            cleaned[str(token_digest)] = expiry_int
+    return cleaned
+
+
 def _hash_password(password: str, salt: bytes | None = None) -> str:
     if salt is None:
         salt = secrets.token_bytes(16)
@@ -76,6 +102,20 @@ async def _read_auth_file() -> dict:
         return {}
 
 
+def _normalize_auth_data(data: dict) -> dict:
+    password_hash = str(data.get("password_hash") or "")
+    revoked_sessions = data.get("revoked_sessions") or {}
+    if not isinstance(revoked_sessions, dict):
+        revoked_sessions = {}
+    cleaned_revoked_sessions = _clean_revoked_sessions(revoked_sessions)
+    normalized = {
+        "password_hash": password_hash,
+        "updated_at": int(data.get("updated_at") or 0),
+        "revoked_sessions": cleaned_revoked_sessions,
+    }
+    return normalized
+
+
 async def _write_auth_file(data: dict) -> None:
     path = _auth_file()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,9 +141,19 @@ async def _write_auth_file(data: dict) -> None:
 
 async def get_admin_auth_state() -> dict:
     async with _auth_lock:
-        data = await _read_auth_file()
-        password_hash = str(data.get("password_hash") or "")
-        return {"configured": bool(password_hash), "password_hash": password_hash}
+        path = _auth_file()
+        if not path.exists():
+            return {"configured": False, "password_hash": "", "revoked_sessions": {}}
+        raw_data = await _read_auth_file()
+        data = _normalize_auth_data(raw_data)
+        if raw_data != data:
+            await _write_auth_file(data)
+        password_hash = data["password_hash"]
+        return {
+            "configured": bool(password_hash),
+            "password_hash": password_hash,
+            "revoked_sessions": data["revoked_sessions"],
+        }
 
 
 async def is_admin_password_configured() -> bool:
@@ -118,6 +168,7 @@ async def setup_admin_password(password: str) -> None:
         data = {
             "password_hash": _hash_password(password),
             "updated_at": int(_now()),
+            "revoked_sessions": {},
         }
         await _write_auth_file(data)
 
@@ -147,14 +198,32 @@ async def create_admin_session() -> str:
 
 
 async def clear_admin_session(token: str | None) -> None:
-    return
+    if not token:
+        return
+    parsed = _parse_session_token(token)
+    if parsed is None:
+        return
+    expiry_text, _, _ = parsed
+    try:
+        expiry = int(expiry_text)
+    except (TypeError, ValueError):
+        return
+    async with _auth_lock:
+        data = _normalize_auth_data(await _read_auth_file())
+        revoked_sessions = data["revoked_sessions"]
+        revoked_sessions[_session_token_digest(token)] = expiry
+        data["revoked_sessions"] = _clean_revoked_sessions(revoked_sessions)
+        await _write_auth_file(data)
 
 
 async def validate_admin_session(token: str | None) -> bool:
     if not token:
         return False
+    parsed = _parse_session_token(token)
+    if parsed is None:
+        return False
+    expiry_text, nonce, sig = parsed
     try:
-        expiry_text, nonce, sig = token.split(".", 2)
         expiry = int(expiry_text)
     except (ValueError, TypeError):
         return False
@@ -163,6 +232,8 @@ async def validate_admin_session(token: str | None) -> bool:
     state = await get_admin_auth_state()
     password_hash = state["password_hash"]
     if not password_hash:
+        return False
+    if _session_token_digest(token) in state.get("revoked_sessions", {}):
         return False
     payload = f"{expiry_text}.{nonce}"
     expected = hmac.new(
