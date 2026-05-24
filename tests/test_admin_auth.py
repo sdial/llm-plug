@@ -3,10 +3,12 @@ import json
 
 import httpx
 import pytest
+from fastapi import FastAPI
 
 import config
 import storage
 from main import app
+from routers import admin
 
 
 @pytest.fixture
@@ -102,6 +104,21 @@ async def test_llm_api_key_does_not_authorize_admin(admin_auth_files):
             "/admin/channels",
             headers={"Authorization": "Bearer sk-llm-client"},
         )
+
+    assert resp.status_code == 401
+    assert resp.json()["error"]["type"] == "admin_login_required"
+
+
+@pytest.mark.anyio
+async def test_admin_router_requires_session_without_main_middleware(admin_auth_files):
+    isolated_app = FastAPI()
+    isolated_app.include_router(admin.router)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=isolated_app), base_url="http://test"
+    ) as client:
+        await client.post("/admin/auth/setup", json={"password": "admin-passphrase"})
+        resp = await client.get("/admin/channels")
 
     assert resp.status_code == 401
     assert resp.json()["error"]["type"] == "admin_login_required"
