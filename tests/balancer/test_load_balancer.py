@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 
 import pytest
@@ -100,6 +101,7 @@ async def test_health_mutations_are_async_lock_protected():
     assert inspect.iscoroutinefunction(balancer.record_success)
     assert inspect.iscoroutinefunction(balancer.record_failure)
     assert inspect.iscoroutinefunction(balancer.cleanup_removed_channels)
+    assert inspect.iscoroutinefunction(balancer.update_config)
 
     await balancer.record_failure("ch1")
     assert balancer._health["ch1"].fail_count == 1
@@ -107,3 +109,25 @@ async def test_health_mutations_are_async_lock_protected():
     assert balancer._health["ch1"].fail_count == 0
     await balancer.cleanup_removed_channels(set())
     assert "ch1" not in balancer._health
+
+
+@pytest.mark.anyio
+async def test_update_config_waits_for_balancer_lock():
+    balancer = LoadBalancer()
+
+    await balancer._lock.acquire()
+    try:
+        update_task = asyncio.create_task(
+            balancer.update_config(max_fail_count=2, cooldown_seconds=30)
+        )
+        await asyncio.sleep(0)
+
+        assert not update_task.done()
+        assert balancer._max_fail_count == 5
+        assert balancer._cooldown_seconds == 60.0
+    finally:
+        balancer._lock.release()
+
+    await update_task
+    assert balancer._max_fail_count == 2
+    assert balancer._cooldown_seconds == 30.0

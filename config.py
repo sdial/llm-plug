@@ -199,10 +199,10 @@ def get_settings() -> dict:
     return result
 
 
-def _apply_lb_settings():
+async def _apply_lb_settings():
     try:
         from balancer.load_balancer import load_balancer
-        load_balancer.update_config(
+        await load_balancer.update_config(
             max_fail_count=_settings.get("max_fail_count", 5),
             cooldown_seconds=_settings.get("cooldown_seconds", 60),
         )
@@ -236,7 +236,7 @@ async def _save_settings_to_disk():
 async def init_settings():
     _init_settings_sync()
     await _migrate_lb_config()
-    _apply_lb_settings()
+    await _apply_lb_settings()
 
 
 def _migrate_lb_config_sync(channels_file: str):
@@ -305,7 +305,7 @@ async def update_settings(updates: dict) -> dict:
         if updated_keys:
             await _save_settings_to_disk()
             _sync_module_vars()
-    _apply_lb_settings()
+    await _apply_lb_settings()
     # 如果 request_timeout 变更，清理客户端缓存以应用新超时
     if "request_timeout" in updated_keys:
         try:

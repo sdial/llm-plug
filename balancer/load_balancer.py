@@ -42,10 +42,11 @@ class LoadBalancer:
         self._max_fail_count: int = 5
         self._cooldown_seconds: float = 60.0
 
-    def update_config(self, max_fail_count: int = 5, cooldown_seconds: int = 60):
+    async def update_config(self, max_fail_count: int = 5, cooldown_seconds: int = 60):
         """热更新配置参数"""
-        self._max_fail_count = max_fail_count
-        self._cooldown_seconds = float(cooldown_seconds)
+        async with self._lock:
+            self._max_fail_count = max_fail_count
+            self._cooldown_seconds = float(cooldown_seconds)
 
     async def record_success(self, channel_id: str):
         async with self._lock:
