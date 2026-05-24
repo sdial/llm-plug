@@ -1,0 +1,278 @@
+<!-- 设置 Tab -->
+  <div id="settingsTab">
+    <div class="flex flex-col md:flex-row gap-4 md:gap-6">
+      <!-- 左侧导航 -->
+      <nav class="w-full md:w-48 flex-shrink-0">
+        <ul class="flex md:block gap-1 md:space-y-1 md:sticky md:top-20 overflow-x-auto md:overflow-visible -mx-1 px-1 md:mx-0 md:px-0 whitespace-nowrap md:whitespace-normal" id="settingsNav">
+          <li>
+            <button onclick="switchSettingsSection('server')" data-section="server" class="settings-nav-btn active w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="18" r="1" fill="currentColor"/></svg>
+              <span>服务信息</span>
+              <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+            </button>
+          </li>
+          <li>
+            <button onclick="switchSettingsSection('request')" data-section="request" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span>请求处理</span>
+              <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+            </button>
+          </li>
+          <li>
+            <button onclick="switchSettingsSection('lb')" data-section="lb" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M8 21H3v-5"/><path d="M3 21l7-7"/></svg>
+              <span>负载均衡</span>
+              <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+            </button>
+          </li>
+          <li>
+            <button onclick="switchSettingsSection('logs')" data-section="logs" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
+              <span>日志</span>
+              <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+            </button>
+          </li>
+          <li>
+            <button onclick="switchSettingsSection('database')" data-section="database" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150">
+              <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+              <span>数据库</span>
+              <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- 右侧内容 -->
+      <div class="flex-1 min-w-0">
+        <!-- 服务信息 -->
+        <div id="settings_server" class="settings-section">
+          <div class="mb-5">
+            <h2 class="text-base font-semibold text-ink-900">零配置启动</h2>
+            <p class="text-sm text-ink-600 mt-0.5">服务不需要 .env。容器内固定监听 0.0.0.0:55555，对外访问端口由 Docker 端口映射决定。</p>
+          </div>
+          <div class="card p-5">
+            <div class="mb-4 rounded-lg border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-ink-700">
+              首次启动会使用内置默认值，渠道配置写入 <span class="font-mono text-ink-900">data/channels.json</span>，API Key 写入 <span class="font-mono text-ink-900">data/api_keys.json</span>，系统设置写入 <span class="font-mono text-ink-900">data/settings.json</span>。只要持久化 <span class="font-mono text-ink-900">data/</span> 目录，渠道、API Key、统计和设置都会随容器重建保留。
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">容器监听地址</label>
+                <input type="text" id="set_host" readonly class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 bg-surface-50 text-ink-400 cursor-not-allowed">
+                <p class="text-xs text-ink-400 mt-1">固定监听所有网卡，便于 Docker 映射到宿主机端口。</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">容器内部端口</label>
+                <input type="text" id="set_port" readonly class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 bg-surface-50 text-ink-400 cursor-not-allowed">
+                <p class="text-xs text-ink-400 mt-1">宿主机端口请在 Docker 中映射，例如 8000:55555。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 请求处理 -->
+        <div id="settings_request" class="settings-section hidden">
+          <div class="mb-5">
+            <h2 class="text-base font-semibold text-ink-900">请求处理</h2>
+            <p class="text-sm text-ink-600 mt-0.5">这些设置影响所有代理入口：OpenAI Chat Completions、OpenAI Responses 和 Anthropic Messages。</p>
+          </div>
+          <div class="card p-5">
+            <div class="mb-4 text-sm text-ink-600 leading-6">
+              普通请求和流式请求都会使用同一套超时配置。请求体限制在进入代理前检查，适合防止意外上传超大 payload。
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">请求超时</label>
+                <input type="number" id="set_request_timeout" min="1" data-section="request" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <p class="text-xs text-ink-400 mt-1">单位：秒，超过此时间未响应的请求将被终止</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">最大请求体</label>
+                <input type="number" id="set_max_body_size" min="1" data-section="request" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <p class="text-xs text-ink-400 mt-1">单位：MB，超过此大小的请求将被拒绝</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 负载均衡 -->
+        <div id="settings_lb" class="settings-section hidden">
+          <div class="mb-5">
+            <h2 class="text-base font-semibold text-ink-900">负载均衡</h2>
+            <p class="text-sm text-ink-600 mt-0.5">渠道按优先级分组，再在同组内按权重轮询；故障渠道会暂时避开，冷却后再尝试恢复。</p>
+          </div>
+          <div class="card p-5">
+            <div class="mb-4 text-sm text-ink-600 leading-6">
+              这里是全局健康策略。具体模型、渠道权重、优先级和启停状态在「渠道管理」与「模型分组」中维护。
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">失败次数阈值</label>
+                <input type="number" id="set_max_fail_count" min="1" data-section="lb" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <p class="text-xs text-ink-400 mt-1">渠道连续请求失败达到此次数后将被暂时剔除</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-ink-900 mb-1.5">冷却时间</label>
+                <input type="number" id="set_cooldown_seconds" min="1" data-section="lb" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <p class="text-xs text-ink-400 mt-1">单位：秒，剔除的渠道经过此时间后自动恢复探测</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 日志 -->
+        <div id="settings_logs" class="settings-section hidden">
+          <div class="mb-5">
+            <h2 class="text-base font-semibold text-ink-900">日志</h2>
+            <p class="text-sm text-ink-600 mt-0.5">控制服务端输出级别。配置会写入 settings.json，重启后生效。</p>
+          </div>
+          <div class="card p-5">
+            <div>
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-sm font-medium text-ink-900">日志级别</span>
+                <span class="pill pill-warning">需重启</span>
+              </div>
+              <select id="set_log_level" data-section="logs" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <option value="DEBUG">DEBUG</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+              </select>
+              <p class="text-xs text-ink-400 mt-1">DEBUG 会输出更多代理细节；生产环境通常使用 INFO 或 WARNING。</p>
+            </div>
+            <div class="mt-5">
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-sm font-medium text-ink-900">统计时区</span>
+                <span class="pill pill-success">热更新</span>
+              </div>
+              <input type="text" id="set_aggregation_timezone" data-section="logs" placeholder="留空=使用服务器时区，例如 Asia/Shanghai / UTC / America/Los_Angeles" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white font-mono">
+              <p class="text-xs text-ink-400 mt-1">用于决定日聚合切日和"今日"边界。IANA 时区名（参考 wikipedia.org/wiki/List_of_tz_database_time_zones）。留空则使用服务器系统时区。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 数据库 -->
+        <div id="settings_database" class="settings-section hidden">
+          <div class="mb-5">
+            <h2 class="text-base font-semibold text-ink-900">请求记录数据库</h2>
+            <p class="text-sm text-ink-600 mt-1.5">每次请求都会自动记录基础统计（渠道、模型、耗时、Token 用量、状态码等），无需任何配置。</p>
+            <p class="text-sm text-ink-600 mt-1">如需记录完整的消息内容（Header、Body），在下方「原始信息保存」中按需开启。这部分数据体积大，默认关闭。</p>
+            <p class="text-sm text-ink-600 mt-1">首页图表使用的聚合统计单独保存在 <span class="font-mono">data/stats.db</span>，请求记录默认保存在 <span class="font-mono">data/request_logs.db</span>，不受此处设置影响。</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="card p-5">
+              <div class="text-sm font-medium text-ink-900 mb-1.5">数据库类型</div>
+              <select id="set_request_log_db_type" data-section="database" onchange="syncRequestLogDbMode()" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <option value="sqlite">SQLite</option>
+                <option value="postgres">PostgreSQL</option>
+              </select>
+              <p class="text-xs text-ink-400 mt-1.5">SQLite 适合单机部署，开箱即用；PostgreSQL 适合多实例共享或需要外部访问的场景。切换后立即生效，已有记录不会迁移。</p>
+            </div>
+            <div class="card p-5">
+              <div class="text-sm font-medium text-ink-900 mb-1.5">SQLite 文件路径</div>
+              <input type="text" id="set_request_log_sqlite_path" readonly data-section="database" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none bg-surface-50 text-ink-500 font-mono cursor-not-allowed">
+              <p class="text-xs text-ink-400 mt-1.5">路径固定，不可修改。如需备份或迁移，直接复制此文件即可。</p>
+            </div>
+          </div>
+          <div class="card p-5 mt-4">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-sm font-medium text-ink-900">PostgreSQL 连接串</span>
+              <span class="pill pill-success">热更新</span>
+            </div>
+            <input type="text" id="set_request_log_database_url" data-section="database" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white font-mono" placeholder="留空保持不变">
+            <p class="text-xs text-ink-400 mt-1">格式：<span class="font-mono">postgresql://用户名:密码@主机:端口/数据库名</span>。出于安全考虑，页面只展示脱敏后的值，修改时需重新输入完整连接串。</p>
+          </div>
+          <div class="card p-5 mt-4">
+            <div class="text-sm font-medium text-ink-900 mb-2">原始信息保存</div>
+            <p class="text-xs text-ink-600 mb-1">系统默认只记录基础统计，不保存消息内容。下方四项按需开启：</p>
+            <ul class="text-xs text-ink-400 mb-3 space-y-0.5 pl-3 list-disc">
+              <li><span class="text-ink-600 font-medium">请求 Header</span>：客户端发来的 HTTP 头，含鉴权 Key、客户端类型等，可用于追踪调用来源。</li>
+              <li><span class="text-ink-600 font-medium">返回 Header</span>：上游 API 返回的 HTTP 头，含速率限制剩余次数等调试信息。</li>
+              <li><span class="text-ink-600 font-medium">请求 Body</span>：完整的消息列表（messages）及所有参数，体积最大，审计时最有价值。</li>
+              <li><span class="text-ink-600 font-medium">返回 Body</span>：上游返回的完整响应，包含模型输出的所有内容。</li>
+            </ul>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-ink-700">
+              <label class="flex items-center gap-2"><input type="checkbox" id="set_save_request_headers" data-section="database" class="settings-input rounded border-surface-200">请求 Header</label>
+              <label class="flex items-center gap-2"><input type="checkbox" id="set_save_response_headers" data-section="database" class="settings-input rounded border-surface-200">返回 Header</label>
+              <label class="flex items-center gap-2"><input type="checkbox" id="set_save_request_body" data-section="database" class="settings-input rounded border-surface-200">请求 Body</label>
+              <label class="flex items-center gap-2"><input type="checkbox" id="set_save_response_body" data-section="database" class="settings-input rounded border-surface-200">返回 Body</label>
+            </div>
+          </div>
+          <div class="card p-5 mt-4">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-sm font-medium text-ink-900">Body 截断限制</span>
+              <span class="pill pill-success">热更新</span>
+            </div>
+            <input type="number" id="set_max_log_body_size_kb" min="0" data-section="database" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+            <p class="text-xs text-ink-600 mt-2">单位：KB。仅在开启 Body 保存时生效。</p>
+            <p class="text-xs text-ink-400 mt-1">当请求或响应的 Body 超过此大小时，数据库中不会存储完整内容，而是替换为一个摘要对象，例如：</p>
+            <pre class="text-xs text-ink-500 bg-surface-50 rounded-lg px-3 py-2 mt-1.5 font-mono overflow-x-auto">{"_truncated": true, "_original_bytes": 126400, "_limit_bytes": 65536, "_preview": "消息开头内容..."}</pre>
+            <p class="text-xs text-ink-400 mt-1.5">这样可以防止长对话（大 context）消耗过多存储空间。<span class="text-ink-600 font-medium">0 表示不限制，完整保存所有内容</span>，默认 64 KB。</p>
+          </div>
+          <div class="card p-5 mt-4">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-sm font-medium text-ink-900">数据保留策略</span>
+              <span class="pill pill-success">热更新</span>
+            </div>
+            <p class="text-xs text-ink-600 mb-3">服务启动后 10 秒自动执行一次，之后每 24 小时运行一次。<strong>0 表示不清理</strong>，保留所有历史数据。</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="text-xs font-medium text-ink-700 block mb-1" for="set_request_log_raw_retention_days">原始数据保留天数</label>
+                <div class="flex items-center gap-2">
+                  <input type="number" id="set_request_log_raw_retention_days" min="0" data-section="database"
+                    class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                  <span class="text-sm text-ink-500 flex-shrink-0">天</span>
+                </div>
+                <p class="text-xs text-ink-400 mt-1">Header 和 Body 超过此天数后被置空（行保留）</p>
+              </div>
+              <div>
+                <label class="text-xs font-medium text-ink-700 block mb-1" for="set_request_log_retention_days">完整记录保留天数</label>
+                <div class="flex items-center gap-2">
+                  <input type="number" id="set_request_log_retention_days" min="0" data-section="database"
+                    class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                  <span class="text-sm text-ink-500 flex-shrink-0">天</span>
+                </div>
+                <p class="text-xs text-ink-400 mt-1">整行记录（含元数据）超过此天数后被删除</p>
+              </div>
+            </div>
+            <div class="bg-surface-50 rounded-lg border border-surface-200 px-4 py-3 text-xs text-ink-600 leading-5">
+              <span class="font-medium text-ink-800">两阶段清理机制（示例：原始数据 7 天，完整记录 365 天）</span>
+              <div class="mt-2 flex items-start gap-0 overflow-x-auto">
+                <div class="flex flex-col items-center min-w-[60px]">
+                  <div class="w-3 h-3 rounded-full bg-brand-500 mt-0.5"></div>
+                  <div class="w-px h-8 bg-surface-300"></div>
+                  <span class="text-ink-500 mt-1">写入</span>
+                </div>
+                <div class="h-px bg-surface-300 flex-1 mt-[5px] mx-1"></div>
+                <div class="flex flex-col items-center min-w-[80px]">
+                  <div class="w-3 h-3 rounded-full bg-amber-400 mt-0.5"></div>
+                  <div class="w-px h-8 bg-surface-300"></div>
+                  <span class="text-ink-500 mt-1 text-center">第 7 天<br>清空 RAW</span>
+                </div>
+                <div class="h-px bg-surface-300 flex-1 mt-[5px] mx-1"></div>
+                <div class="flex flex-col items-center min-w-[80px]">
+                  <div class="w-3 h-3 rounded-full bg-rose-400 mt-0.5"></div>
+                  <div class="w-px h-8 bg-surface-300"></div>
+                  <span class="text-ink-500 mt-1 text-center">第 365 天<br>删除整行</span>
+                </div>
+              </div>
+              <p class="mt-2 text-ink-500">第 7 天后查看该记录的 Header/Body 时会显示「无数据」；模型、耗时、Token 等统计字段继续保留至第 365 天。若「原始数据保留天数」≥「完整记录保留天数」，两者同时在完整记录天数到期时删除（Phase 1 被跳过）。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部操作栏 -->
+        <div class="mt-6 flex items-center gap-3 pb-2">
+          <button onclick="saveSettings()" class="btn-primary text-sm px-5 py-2.5 font-medium">保存设置</button>
+          <button onclick="restartServer()" id="restartBtn" class="btn-secondary text-sm px-4 py-2.5 font-medium hidden text-rose-600 border border-rose-200 hover:bg-rose-50">重启服务</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast 提示 -->
+    <div id="settingsToast" class="fixed top-6 right-6 z-50 hidden">
+      <div id="settingsToastInner" class="flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 transform translate-y-0 opacity-100">
+        <svg id="settingsToastIcon" class="w-4 h-4 flex-shrink-0"></svg>
+        <span id="settingsToastMsg"></span>
+      </div>
+    </div>
+  </div>

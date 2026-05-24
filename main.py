@@ -345,8 +345,8 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/")
 async def root():
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse("/static/index.html")
+    from fastapi.responses import FileResponse
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 if __name__ == "__main__":
