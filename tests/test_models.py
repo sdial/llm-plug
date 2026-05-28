@@ -126,6 +126,30 @@ class TestChannel:
         assert ch.anthropic_beta is None
         assert ch.anthropic_beta_policy == AnthropicBetaPolicy.CHANNEL
 
+    def test_advanced_urls_default_to_none(self):
+        ch = Channel(
+            name="OpenAI",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+        )
+
+        assert ch.endpoint_url is None
+        assert ch.models_url is None
+
+    def test_advanced_urls_can_be_configured(self):
+        ch = Channel(
+            name="Custom",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.example.com",
+            endpoint_url="https://gateway.example.com/custom/chat",
+            models_url="https://gateway.example.com/custom/models",
+            api_key="sk-test",
+        )
+
+        assert ch.endpoint_url == "https://gateway.example.com/custom/chat"
+        assert ch.models_url == "https://gateway.example.com/custom/models"
+
 
 class TestChannelCreate:
     def test_all_fields_required_except_defaults(self):
@@ -165,6 +189,19 @@ class TestChannelCreate:
         assert cc.anthropic_version_policy == AnthropicVersionPolicy.CLIENT
         assert cc.anthropic_beta_policy == AnthropicBetaPolicy.MERGE
 
+    def test_advanced_urls_fields(self):
+        cc = ChannelCreate(
+            name="Custom",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.example.com",
+            endpoint_url="https://gateway.example.com/custom/chat",
+            models_url="https://gateway.example.com/custom/models",
+            api_key="sk-test",
+        )
+
+        assert cc.endpoint_url == "https://gateway.example.com/custom/chat"
+        assert cc.models_url == "https://gateway.example.com/custom/models"
+
 
 class TestChannelUpdate:
     def test_all_fields_optional(self):
@@ -194,6 +231,15 @@ class TestChannelUpdate:
         assert cu.anthropic_version == "2024-10-22"
         assert cu.anthropic_version_policy == AnthropicVersionPolicy.CHANNEL_IF_MISSING
         assert cu.anthropic_beta_policy == AnthropicBetaPolicy.CLIENT
+
+    def test_advanced_urls_update_fields(self):
+        cu = ChannelUpdate(
+            endpoint_url="https://gateway.example.com/custom/chat",
+            models_url="https://gateway.example.com/custom/models",
+        )
+
+        assert cu.endpoint_url == "https://gateway.example.com/custom/chat"
+        assert cu.models_url == "https://gateway.example.com/custom/models"
 
     def test_weight_validation(self):
         with pytest.raises(ValidationError):

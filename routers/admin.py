@@ -18,6 +18,7 @@ from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from models.model_group import LBConfig, ModelGroup, ModelGroupCreate, ModelGroupUpdate
 from proxy_core import _get_upstream_url
+from url_builder import build_models_url
 import whitelist as _whitelist_mod
 from stats import (
     aggregate_daily_stats,
@@ -50,6 +51,7 @@ from storage import (
 
 class FetchModelsRequest(BaseModel):
     base_url: str
+    models_url: str | None = None
     api_key: str | None = None
     api_type: str
 
@@ -507,7 +509,6 @@ async def test_channel(channel_id: str, model: Annotated[str | None, Query()] = 
 @router.post("/channels/fetch-models")
 async def fetch_models(body: FetchModelsRequest):
     """从上游 API 获取模型列表（代理请求，避免浏览器跨域）"""
-    base = body.base_url.rstrip("/")
     headers = {"Content-Type": "application/json"}
     if body.api_key:
         if body.api_type == "anthropic":
@@ -515,8 +516,7 @@ async def fetch_models(body: FetchModelsRequest):
         else:
             headers["Authorization"] = f"Bearer {body.api_key}"
 
-    # 确定上游 models 端点
-    models_url = f"{base}/v1/models"
+    models_url = build_models_url(body.base_url, body.models_url)
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:

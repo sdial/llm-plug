@@ -26,6 +26,8 @@ class Channel(BaseModel):
     name: str
     api_type: APIType
     base_url: str
+    endpoint_url: Optional[str] = None
+    models_url: Optional[str] = None
     api_key: str
     models: list[str] = Field(default_factory=list)
     enabled: bool = True
@@ -46,6 +48,8 @@ class ChannelCreate(BaseModel):
     name: str
     api_type: APIType
     base_url: str
+    endpoint_url: Optional[str] = None
+    models_url: Optional[str] = None
     api_key: str
     models: list[str] = Field(default_factory=list)
     enabled: bool = True
@@ -63,6 +67,8 @@ class ChannelUpdate(BaseModel):
     name: Optional[str] = None
     api_type: Optional[APIType] = None
     base_url: Optional[str] = None
+    endpoint_url: Optional[str] = None
+    models_url: Optional[str] = None
     api_key: Optional[str] = None
     models: Optional[list[str]] = None
     enabled: Optional[bool] = None

@@ -369,3 +369,88 @@ async def test_cleanup_request_logs_endpoint_returns_zero_when_nothing_old(clien
     assert "rows_deleted" in body
     assert body["raw_fields_cleared"] == 0
     assert body["rows_deleted"] == 0
+
+
+async def test_fetch_models_uses_advanced_models_url(client, monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"data": [{"id": "mimo-v2.5-pro"}]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, headers):
+            captured["url"] = url
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    resp = await client.post(
+        "/admin/channels/fetch-models",
+        json={
+            "base_url": "https://api.example.com",
+            "models_url": "https://gateway.example.com/custom/models",
+            "api_key": "sk-test",
+            "api_type": "openai-chat-completions",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"models": ["mimo-v2.5-pro"]}
+    assert captured["url"] == "https://gateway.example.com/custom/models"
+
+
+async def test_fetch_models_falls_back_to_base_url_when_advanced_models_url_missing(
+    client, monkeypatch
+):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"models": [{"name": "claude-3"}]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, headers):
+            captured["url"] = url
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    resp = await client.post(
+        "/admin/channels/fetch-models",
+        json={
+            "base_url": "https://api.example.com/v1",
+            "models_url": "",
+            "api_key": "sk-test",
+            "api_type": "anthropic",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"models": ["claude-3"]}
+    assert captured["url"] == "https://api.example.com/v1/models"
