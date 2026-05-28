@@ -232,7 +232,10 @@ async def delete_response(response_id: str):
 
 
 def _response_from_upstream_http_error(exc: httpx.HTTPStatusError) -> Response:
-    content = exc.response.content
+    try:
+        content = exc.response.content
+    except httpx.ResponseNotRead:
+        content = exc.response.read()
     media_type = exc.response.headers.get("content-type")
     return Response(
         content=content,

@@ -377,6 +377,43 @@ def test_stream_upstream_http_error_before_first_chunk_is_passed_through():
     assert response.json() == {"error": {"message": "bad stream request"}}
 
 
+def test_stream_upstream_http_error_with_unread_streaming_body_is_passed_through():
+    """流式上游错误体未预读时，也应返回上游状态码而不是触发 ResponseNotRead。"""
+    from unittest.mock import patch
+
+    request = httpx.Request("POST", "https://upstream.example/v1/chat/completions")
+    upstream_response = httpx.Response(
+        404,
+        stream=httpx.ByteStream(b'{"error":{"message":"not found"}}'),
+        request=request,
+        headers={"content-type": "application/json"},
+    )
+    upstream_error = httpx.HTTPStatusError(
+        "Client error '404 Not Found'",
+        request=request,
+        response=upstream_response,
+    )
+
+    async def fake_proxy_request(*args, **kwargs):
+        raise upstream_error
+
+    with (
+        TestClient(app) as client,
+        patch("routers.proxy_base.proxy_request", fake_proxy_request),
+    ):
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gpt-4o",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"error": {"message": "not found"}}
+
+
 def test_stream_response_is_not_primed_again_at_router_layer():
     """proxy_core 已完成流式预取，路由层不应再次消费首个 chunk。"""
     import anyio
