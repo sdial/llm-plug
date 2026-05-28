@@ -73,20 +73,28 @@ function populateRequestChannelFilter() {
 }
 
 function buildRequestQuery() {
+    const modelEl = document.getElementById('reqFilterModel');
+    const channelEl = document.getElementById('reqFilterChannel');
+    const startEl = document.getElementById('reqFilterStart');
+    const endEl = document.getElementById('reqFilterEnd');
+    const successEl = document.getElementById('reqFilterSuccess');
+    const apiKeyEl = document.getElementById('reqFilterApiKeyId');
+    if (!modelEl || !channelEl || !startEl || !endEl || !successEl || !apiKeyEl) return new URLSearchParams();
+
     const params = new URLSearchParams();
-    const model = document.getElementById('reqFilterModel').value.trim();
+    const model = modelEl.value.trim();
     if (model) params.set('model', model);
-    const channel = document.getElementById('reqFilterChannel').value;
+    const channel = channelEl.value;
     if (channel) params.set('channel', channel);
-    const start = localInputToUtcIso(document.getElementById('reqFilterStart').value);
+    const start = localInputToUtcIso(startEl.value);
     if (start) params.set('start', start);
-    const end = localInputToUtcIso(document.getElementById('reqFilterEnd').value);
+    const end = localInputToUtcIso(endEl.value);
     if (end) params.set('end', end);
-    const success = document.getElementById('reqFilterSuccess').value;
+    const success = successEl.value;
     if (success) params.set('success', success);
-    const apiKeyId = document.getElementById('reqFilterApiKeyId').value.trim();
+    const apiKeyId = apiKeyEl.value.trim();
     if (apiKeyId) params.set('api_key_id', apiKeyId);
-  params.set('page', requestPage);
+    params.set('page', requestPage);
     params.set('page_size', requestPageSize);
     return params;
 }
@@ -167,31 +175,17 @@ function changeRequestPageSize() {
 }
 
 function setDefaultRequestTimeRange() {
+ const startEl = document.getElementById('reqFilterStart');
+ const endEl = document.getElementById('reqFilterEnd');
+ if (!startEl || !endEl) return;
  const fmt = d => {
  const pad = n => String(n).padStart(2, '0');
  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
  };
  const now = new Date();
  const ago = new Date(now.getTime() - 12 * 3600 * 1000);
- document.getElementById('reqFilterStart').value = fmt(ago);
- document.getElementById('reqFilterEnd').value = fmt(now);
-}
-
-// 把 datetime-local 控件值（浏览器本地时间）转成 UTC ISO 字符串，用于 URL 参数和后端查询。
-function localInputToUtcIso(v) {
- if (!v) return '';
- const d = new Date(v);
- if (isNaN(d.getTime())) return '';
- return d.toISOString();
-}
-
-// 把 URL 中的 UTC ISO 字符串还原成 datetime-local 控件需要的浏览器本地格式。
-function utcIsoToLocalInput(v) {
- if (!v) return '';
- const d = new Date(v);
- if (isNaN(d.getTime())) return '';
- const pad = n => String(n).padStart(2, '0');
- return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+ startEl.value = fmt(ago);
+ endEl.value = fmt(now);
 }
 
 // 把 datetime-local 控件值（浏览器本地时间）转成 UTC ISO 字符串，用于 URL 参数和后端查询。
@@ -231,19 +225,27 @@ function resetRequestFilters() {
 }
 
 function syncRequestHash() {
+    const modelEl = document.getElementById('reqFilterModel');
+    const channelEl = document.getElementById('reqFilterChannel');
+    const startEl = document.getElementById('reqFilterStart');
+    const endEl = document.getElementById('reqFilterEnd');
+    const successEl = document.getElementById('reqFilterSuccess');
+    const apiKeyEl = document.getElementById('reqFilterApiKeyId');
+    if (!modelEl || !channelEl || !startEl || !endEl || !successEl || !apiKeyEl) return;
+
     const params = new URLSearchParams();
-    const model = document.getElementById('reqFilterModel').value.trim();
+    const model = modelEl.value.trim();
     if (model) params.set('model', model);
-    const channel = document.getElementById('reqFilterChannel').value;
+    const channel = channelEl.value;
     if (channel) params.set('channel', channel);
-    const start = localInputToUtcIso(document.getElementById('reqFilterStart').value);
+    const start = localInputToUtcIso(startEl.value);
     if (start) params.set('start', start);
-    const end = localInputToUtcIso(document.getElementById('reqFilterEnd').value);
+    const end = localInputToUtcIso(endEl.value);
     if (end) params.set('end', end);
-    const success = document.getElementById('reqFilterSuccess').value;
+    const success = successEl.value;
     if (success) params.set('success', success);
-  const apiKeyId = document.getElementById('reqFilterApiKeyId').value.trim();
-  if (apiKeyId) params.set('api_key_id', apiKeyId);
+    const apiKeyId = apiKeyEl.value.trim();
+    if (apiKeyId) params.set('api_key_id', apiKeyId);
     if (requestPage !== 1) params.set('page', requestPage);
     if (requestPageSize !== 10) params.set('page_size', requestPageSize);
 

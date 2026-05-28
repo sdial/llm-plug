@@ -265,5 +265,7 @@ Object.assign(window, {
     loadStats,
     refreshStatsData,
     renderStats,
+    formatTokens,
+    _stopStatsAutoRefresh,
 });
 })();
