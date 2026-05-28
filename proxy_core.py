@@ -301,8 +301,9 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
                 reasoning_text += delta["reasoning_content"]
 
             # 拼接 tool_calls
-            if delta and "tool_calls" in delta:
-                for tc in delta["tool_calls"]:
+            tool_calls = delta.get("tool_calls") if delta else None
+            if tool_calls:
+                for tc in tool_calls:
                     idx = tc.get("index", 0)
                     if idx not in tool_calls_map:
                         tool_calls_map[idx] = {
