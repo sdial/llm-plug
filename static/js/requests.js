@@ -7,6 +7,8 @@ let requestPageSize = 10;
 let requestTotal = 0;
 let requestLogSource = 'request_logs';
 let pendingChannelRestore = '';
+let requestApiKeys = [];
+let pendingApiKeyRestore = '';
 
 function esc(s) {
     const d = document.createElement('div');
@@ -26,6 +28,12 @@ async function loadRequests() {
             document.getElementById('reqFilterChannel').value = pendingChannelRestore;
             pendingChannelRestore = '';
         }
+        await loadRequestApiKeys();
+        populateRequestApiKeyFilter();
+        if (pendingApiKeyRestore) {
+            document.getElementById('reqFilterApiKeyId').value = pendingApiKeyRestore;
+            pendingApiKeyRestore = '';
+        }
 
         const params = buildRequestQuery();
         if (requestLogSource === 'stats') params.set('source', 'stats');
@@ -36,7 +44,7 @@ async function loadRequests() {
                 requestsData = [];
                 requestTotal = 0;
                 renderRequestPagination();
-                document.getElementById('requestsTbody').innerHTML = `<tr><td colspan="11" class="py-6 text-center text-sm text-ink-600">请求记录库不可用:${esc(err.detail || '未知错误')} <button onclick="loadStatsRequestLogs()" class="pill pill-brand ml-2 cursor-pointer">查看轻量请求记录</button></td></tr>`;
+                document.getElementById('requestsTbody').innerHTML = `<tr><td colspan="12" class="py-6 text-center text-sm text-ink-600">请求记录库不可用:${esc(err.detail || '未知错误')} <button onclick="loadStatsRequestLogs()" class="pill pill-brand ml-2 cursor-pointer">查看轻量请求记录</button></td></tr>`;
                 return;
             }
             throw new Error('HTTP ' + resp.status);
@@ -51,7 +59,7 @@ async function loadRequests() {
         renderRequestPagination();
     } catch (e) {
         console.error('加载请求记录失败:', e);
-        document.getElementById('requestsTbody').innerHTML = '<tr><td colspan="11" class="py-4 text-center text-ink-400 text-sm">加载失败</td></tr>';
+        document.getElementById('requestsTbody').innerHTML = '<tr><td colspan="12" class="py-4 text-center text-ink-400 text-sm">加载失败</td></tr>';
     }
 }
 
@@ -68,6 +76,27 @@ function populateRequestChannelFilter() {
     select.innerHTML = '<option value="">全部渠道</option>';
     window.adminChannels.getChannels().forEach(ch => {
         select.innerHTML += `<option value="${esc(ch.name)}">${esc(ch.name)}</option>`;
+    });
+    select.value = currentVal;
+}
+
+async function loadRequestApiKeys() {
+    try {
+        const resp = await fetch('/admin/api-keys');
+        requestApiKeys = resp.ok ? await resp.json() : [];
+    } catch (e) {
+        requestApiKeys = [];
+    }
+}
+
+function populateRequestApiKeyFilter() {
+    const select = document.getElementById('reqFilterApiKeyId');
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">全部 API Key</option>';
+    requestApiKeys.forEach(key => {
+        const label = key.name || key.id;
+        select.innerHTML += `<option value="${esc(key.id)}">${esc(label)}</option>`;
     });
     select.value = currentVal;
 }
@@ -103,7 +132,7 @@ function renderRequests() {
     const tbody = document.getElementById('requestsTbody');
     if (!tbody) return;
     if (!requestsData.length) {
-        tbody.innerHTML = '<tr><td colspan="11" class="py-4 text-center text-ink-400 text-sm">暂无请求记录</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="py-4 text-center text-ink-400 text-sm">暂无请求记录</td></tr>';
         return;
     }
     tbody.innerHTML = requestsData.map(req => {
@@ -120,6 +149,7 @@ function renderRequests() {
             <td data-label="时间" class="py-3 px-3 text-sm text-ink-900 whitespace-nowrap">${formatTimestamp(req.timestamp)}</td>
             <td data-label="渠道" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.channel_name)}">${esc(req.channel_name)}</td>
             <td data-label="客户端IP" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
+            <td data-label="API Key" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.api_key_name || req.api_key_id || '-')}">${esc(req.api_key_name || req.api_key_id || '-')}</td>
             <td data-label="模型" class="py-3 px-2 text-sm text-ink-900 truncate" title="${esc(req.model)}">${esc(req.model)}</td>
             <td data-label="输入Tkn" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${req.input_tokens || 0}</td>
             <td data-label="输出Tkn" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${outTokens}</td>
@@ -278,6 +308,7 @@ function openRequestDetail(id) {
             <div><span class="text-ink-400">模型:</span> <span class="text-ink-900">${esc(req.model)}</span></div>
             <div><span class="text-ink-400">渠道:</span> <span class="text-ink-900">${esc(req.channel_name)}</span></div>
             <div><span class="text-ink-400">渠道ID:</span> <span class="text-ink-900 font-mono">${esc(req.channel_id)}</span></div>
+            <div><span class="text-ink-400">API Key:</span> <span class="text-ink-900">${esc(req.api_key_name || req.api_key_id || '-')}</span></div>
             <div><span class="text-ink-400">API Key ID:</span> <span class="text-ink-900 font-mono">${esc(req.api_key_id || '-')}</span></div>
             <div><span class="text-ink-400">流式:</span> <span class="text-ink-900">${req.is_stream ? '是' : '否'}</span></div>
             <div><span class="text-ink-400">状态:</span> <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? '成功' : '失败'}</span></div>
@@ -312,6 +343,10 @@ function setPendingChannelRestore(value) {
     pendingChannelRestore = value || '';
 }
 
+function setPendingApiKeyRestore(value) {
+    pendingApiKeyRestore = value || '';
+}
+
 function setPageSize(value) {
     requestPageSize = parseInt(value) || 10;
     const pageSizeEl = document.getElementById('reqPageSize');
@@ -325,6 +360,7 @@ function setPage(value) {
 Object.assign(window, {
     loadRequests,
     loadStatsRequestLogs,
+    loadRequestApiKeys,
     buildRequestQuery,
     renderRequests,
     formatTimestamp,
@@ -342,5 +378,5 @@ Object.assign(window, {
     openRequestDetail,
     closeRequestDetailModal,
 });
-window.adminRequests = { setPendingChannelRestore, setPageSize, setPage };
+window.adminRequests = { setPendingChannelRestore, setPendingApiKeyRestore, setPageSize, setPage };
 })();

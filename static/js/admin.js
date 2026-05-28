@@ -83,6 +83,7 @@ function _applyPendingRequestHash() {
     const params = new URLSearchParams(pendingRequestHashQuery);
     modelEl.value = params.get('model') || '';
     window.adminRequests.setPendingChannelRestore(params.get('channel') || '');
+    window.adminRequests.setPendingApiKeyRestore(params.get('api_key_id') || '');
     startEl.value = utcIsoToLocalInput(params.get('start'));
     endEl.value = utcIsoToLocalInput(params.get('end'));
     successEl.value = params.get('success') || '';

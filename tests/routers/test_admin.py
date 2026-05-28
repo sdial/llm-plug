@@ -189,6 +189,47 @@ class TestListRequestsEndpoint:
         assert data["total"] == 1
         assert data["items"][0]["model"] == "gpt-4"
 
+    async def test_requests_include_api_key_name_and_filter_by_api_key_id(self, client):
+        await storage.save_api_keys(
+            {
+                "api_keys": [
+                    {"id": "key_alpha", "name": "Alpha Key", "key": "sk-alpha"},
+                    {"id": "key_beta", "name": "Beta Key", "key": "sk-beta"},
+                ]
+            }
+        )
+        request_logs.record_request(
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
+            api_key_id="key_alpha",
+        )
+        request_logs.record_request(
+            channel_id="ch_1",
+            channel_name="Test",
+            model="gpt-4",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
+            api_key_id="key_beta",
+        )
+        await request_logs.drain_queue()
+
+        resp = await client.get("/admin/requests?api_key_id=key_beta")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["items"][0]["api_key_id"] == "key_beta"
+        assert data["items"][0]["api_key_name"] == "Beta Key"
+
 
 class TestRequestFieldEndpoints:
     async def test_get_request_headers(self, client):
