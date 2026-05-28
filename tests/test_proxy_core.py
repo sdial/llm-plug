@@ -1871,6 +1871,63 @@ class TestAnthropicHeaderPriority:
         assert "event: response.completed" in joined
         assert '"text": "Hello"' in joined
 
+    @pytest.mark.anyio
+    async def test_openai_stream_with_null_tool_calls_still_records_request(self):
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"mimo-v2.5-pro","choices":[{"index":0,"delta":{"role":"assistant","content":"","tool_calls":null},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"mimo-v2.5-pro","choices":[{"index":0,"delta":{"content":"Hello","tool_calls":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}'
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_mimo",
+            name="XiaoMi-TokenPlan",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://token-plan-cn.xiaomimimo.com",
+            api_key="sk-test",
+            models=["mimo-v2.5-pro"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://token-plan-cn.xiaomimimo.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "mimo-v2.5-pro", "stream": True},
+                response_converter=None,
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_CHAT,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        assert outputs[-1] == "data: [DONE]\n\n"
+        request_log_record.assert_called_once()
+        assert request_log_record.call_args.kwargs["model"] == "mimo-v2.5-pro"
+        assert request_log_record.call_args.kwargs["response_body"]["choices"][0]["message"]["content"] == "Hello"
+
 
 class TestFailoverOn401:
     """401/403/404 属于渠道配置错误，应尝试下一个候选渠道。"""
