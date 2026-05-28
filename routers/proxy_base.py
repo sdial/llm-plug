@@ -95,7 +95,10 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
 
 def _response_from_upstream_http_error(exc: httpx.HTTPStatusError) -> Response:
     """透传上游 HTTP 错误状态码和响应体。"""
-    content = exc.response.content
+    try:
+        content = exc.response.content
+    except httpx.ResponseNotRead:
+        content = exc.response.read()
     media_type = exc.response.headers.get("content-type")
     return Response(
         content=content,
