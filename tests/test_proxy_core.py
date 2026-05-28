@@ -385,6 +385,19 @@ class TestGetUpstreamUrl:
         )
         assert _get_upstream_url(ch) == "https://api.example.com/custom/messages"
 
+    def test_endpoint_url_overrides_base_url(self):
+        ch = Channel(
+            id="ch_1",
+            name="Custom API",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.example.com",
+            endpoint_url="https://gateway.example.com/custom/chat",
+            api_key="sk-test",
+            models=["gpt-4"],
+        )
+
+        assert _get_upstream_url(ch) == "https://gateway.example.com/custom/chat"
+
 
 class TestYieldAnthropicEvent:
     def test_single_event(self):

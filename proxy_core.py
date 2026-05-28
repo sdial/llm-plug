@@ -29,6 +29,7 @@ from models.channel import Channel
 from response_state import get_responses_store
 from storage import register_save_callback
 from think_filter import ThinkFilter, filter_think_content_static
+from url_builder import append_api_path, append_query, build_upstream_url
 
 # Responses 状态存储
 _responses_store = get_responses_store()
@@ -482,28 +483,11 @@ def _get_converter_and_upstream_type(
 
 
 def _get_upstream_url(channel: Channel) -> str:
-    base = channel.base_url.rstrip("/")
-    actual_type = channel.api_type.value
-
-    if actual_type == "openai-chat-completions":
-        return _append_api_path(base, "/chat/completions")
-    elif actual_type == "openai-response":
-        return _append_api_path(base, "/responses")
-    elif actual_type == "anthropic":
-        return _append_api_path(base, "/messages")
-    return base
+    return build_upstream_url(channel)
 
 
 def _append_api_path(base: str, path: str) -> str:
-    base = base.rstrip("/")
-    if base.endswith(path):
-        return base
-    # 检查单复数形式: /chat/completion vs /chat/completions
-    if path.endswith("s") and base.endswith(path[:-1]):
-        return base
-    if base.endswith("/v1"):
-        return f"{base}{path}"
-    return f"{base}/v1{path}"
+    return append_api_path(base, path)
 
 
 def _build_upstream_headers(
@@ -860,7 +844,7 @@ async def _do_request(
 
     url = _get_upstream_url(channel)
     if query_string:
-        url = f"{url}?{query_string}"
+        url = append_query(url, query_string)
     headers = _build_upstream_headers(
         channel,
         target_api_type,

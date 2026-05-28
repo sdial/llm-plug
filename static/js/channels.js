@@ -29,11 +29,12 @@ function esc(s) {
 
 async function fetchModels() {
     const baseUrl = document.getElementById('f_base_url').value.trim();
+    const modelsUrl = document.getElementById('f_models_url').value.trim();
     const apiKey = document.getElementById('f_api_key').value.trim();
     const apiType = document.getElementById('f_api_type').value;
 
-    if (!baseUrl) {
-        _showSettingsToast('请先填写 Base URL', 'error');
+    if (!baseUrl && !modelsUrl) {
+        _showSettingsToast('请先填写 Base URL 或模型列表 URL', 'error');
         return;
     }
 
@@ -47,7 +48,7 @@ async function fetchModels() {
         const resp = await fetch('/admin/channels/fetch-models', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base_url: baseUrl, api_key: apiKey || null, api_type: apiType })
+            body: JSON.stringify({ base_url: baseUrl, models_url: modelsUrl || null, api_key: apiKey || null, api_type: apiType })
         });
         const data = await resp.json();
 
@@ -180,7 +181,7 @@ function renderChannels() {
                                 <span class="type-badge ${typeInfo.color}" title="${typeInfo.title}">${typeInfo.short}</span>
                             </td>
                             <td data-label="模型" class="py-3 px-2 text-ink-600">${ch.models.map(m => `<span class="pill pill-muted mr-1">${esc(m)}</span>`).join('')}</td>
-                            <td data-label="Base URL" class="py-3 px-4 text-ink-400 text-xs truncate" title="${esc(ch.base_url)}">${esc(ch.base_url)}</td>
+                            <td data-label="Base URL" class="py-3 px-4 text-ink-400 text-xs truncate" title="${esc(ch.endpoint_url || ch.base_url)}">${esc(ch.endpoint_url || ch.base_url)}</td>
                             <td data-label="操作" class="py-3 px-4 text-right">
                                 <div class="flex items-center justify-end gap-2">
                                     <button onclick="editChannel('${ch.id}')" class="pill pill-muted hover:bg-surface-200 transition cursor-pointer">编辑</button>
@@ -282,6 +283,9 @@ function openModal(channel = null) {
     document.getElementById('f_name').value = channel ? channel.name : '';
     document.getElementById('f_api_type').value = channel ? channel.api_type : 'openai-chat-completions';
     document.getElementById('f_base_url').value = channel ? channel.base_url : '';
+    document.getElementById('f_endpoint_url').value = channel ? (channel.endpoint_url || '') : '';
+    document.getElementById('f_models_url').value = channel ? (channel.models_url || '') : '';
+    document.getElementById('advancedUrlDetails').open = !!(channel && (channel.endpoint_url || channel.models_url));
     document.getElementById('f_api_key').value = '';
     document.getElementById('f_api_key').placeholder = channel ? '已设置，留空则不修改' : '';
     tagInputChannel.setTags(channel ? channel.models : []);
@@ -333,7 +337,9 @@ async function saveChannel(e) {
     const data = {
         name: document.getElementById('f_name').value,
         api_type: document.getElementById('f_api_type').value,
-        base_url: document.getElementById('f_base_url').value,
+        base_url: document.getElementById('f_base_url').value.trim(),
+        endpoint_url: document.getElementById('f_endpoint_url').value.trim() || null,
+        models_url: document.getElementById('f_models_url').value.trim() || null,
         models: modelsStr ? modelsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
         weight: parseInt(document.getElementById('f_weight').value) || 1,
         priority: parseInt(document.getElementById('f_priority').value) || 1,
