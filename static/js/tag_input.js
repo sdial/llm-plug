@@ -89,5 +89,6 @@ if (e.key === 'Enter' || e.key === ',') {
     _esc(s) {
 return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+}
 
 window.TagInput = TagInput;

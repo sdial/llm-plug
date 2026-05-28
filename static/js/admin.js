@@ -4,15 +4,33 @@ let currentTab = 'channels';
 let adminBootstrapped = false;
 let pendingRequestHashQuery = '';
 
+function updateRequestHashSafely() {
+    if (typeof syncRequestHash === 'function' && document.getElementById('reqFilterModel')) {
+        syncRequestHash();
+    } else {
+        history.replaceState(null, '', '#requests');
+    }
+}
+
+function updateTabActiveState(tab) {
+    document.querySelectorAll('[id^="tab_"]').forEach(button => {
+        const tabName = button.id.replace('tab_', '');
+        const isActive = tabName === tab;
+        button.classList.toggle('tab-active', isActive);
+        button.classList.toggle('tab-inactive', !isActive);
+    });
+}
+
 function switchTab(tab, updateHash = true) {
     currentTab = tab;
     if (updateHash) {
         if (tab === 'requests') {
-            syncRequestHash();
+            updateRequestHashSafely();
         } else {
             history.replaceState(null, '', '#' + tab);
         }
     }
+    updateTabActiveState(tab);
     const content = document.getElementById('admin-content');
     if (content) {
         content.setAttribute('hx-get', `/admin/ui/${tab}`);
