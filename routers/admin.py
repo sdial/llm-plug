@@ -276,6 +276,15 @@ async def _save_api_keys(keys: list[ApiKey]):
     await save_api_keys({"api_keys": [k.model_dump() for k in keys]})
 
 
+async def _attach_api_key_names(result: dict) -> dict:
+    keys = await _get_api_keys()
+    name_by_id = {key.id: key.name for key in keys}
+    for item in result.get("items", []):
+        api_key_id = item.get("api_key_id")
+        item["api_key_name"] = name_by_id.get(api_key_id) if api_key_id else None
+    return result
+
+
 @router.get("/api-keys")
 async def list_api_keys():
     """获取所有 API Key（Key 脱敏），统计数据从 PG 聚合"""
@@ -675,7 +684,7 @@ async def list_requests_endpoint(
             page_size=page_size,
         )
         result["source"] = "stats"
-        return result
+        return await _attach_api_key_names(result)
     if source not in (None, "request_logs"):
         raise HTTPException(status_code=400, detail=f"不支持的请求记录来源: {source}")
 
@@ -693,7 +702,7 @@ async def list_requests_endpoint(
     )
     if result.get("available") is False:
         raise HTTPException(status_code=503, detail=result.get("error") or "请求记录库不可用")
-    return result
+    return await _attach_api_key_names(result)
 
 
 _FIELD_PATH_MAP = {
