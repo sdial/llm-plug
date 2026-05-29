@@ -8,6 +8,7 @@ let requestTotal = 0;
 let requestLogSource = 'request_logs';
 let pendingChannelRestore = '';
 let requestApiKeys = [];
+let requestApiKeysLoaded = false;
 let pendingApiKeyRestore = '';
 
 function esc(s) {
@@ -80,13 +81,19 @@ function populateRequestChannelFilter() {
     select.value = currentVal;
 }
 
-async function loadRequestApiKeys() {
+async function loadRequestApiKeys(force = false) {
+    if (!force && requestApiKeysLoaded) return;
     try {
         const resp = await fetch('/admin/api-keys');
         requestApiKeys = resp.ok ? await resp.json() : [];
+        requestApiKeysLoaded = true;
     } catch (e) {
         requestApiKeys = [];
     }
+}
+
+function invalidateRequestApiKeys() {
+    requestApiKeysLoaded = false;
 }
 
 function populateRequestApiKeyFilter() {
@@ -377,6 +384,7 @@ Object.assign(window, {
     openJsonInNewTab,
     openRequestDetail,
     closeRequestDetailModal,
+    invalidateRequestApiKeys,
 });
 window.adminRequests = { setPendingChannelRestore, setPendingApiKeyRestore, setPageSize, setPage };
 })();

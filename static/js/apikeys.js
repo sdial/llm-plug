@@ -12,6 +12,11 @@ function esc(s) {
     return d.innerHTML;
 }
 
+function invalidateRequestApiKeys() {
+    if (typeof window.invalidateRequestApiKeys === 'function') {
+        window.invalidateRequestApiKeys();
+    }
+}
 
 async function loadApiKeys() {
     try {
@@ -121,11 +126,13 @@ async function saveApiKey(e) {
 
     if (id) {
         await fetch(`${API_KEYS}/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+        invalidateRequestApiKeys();
         closeKeyModal();
         loadApiKeys();
     } else {
         const resp = await fetch(API_KEYS, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
         const result = await resp.json();
+        invalidateRequestApiKeys();
         closeKeyModal();
         if (result.key) {
             pendingCopyKey = result.key;
@@ -139,6 +146,7 @@ async function saveApiKey(e) {
 async function deleteApiKey(id) {
     if (!confirm('确定删除该 API Key？')) return;
     await fetch(`${API_KEYS}/${id}`, { method: 'DELETE' });
+    invalidateRequestApiKeys();
     loadApiKeys();
 }
 

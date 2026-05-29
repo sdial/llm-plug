@@ -39,3 +39,14 @@ def test_requests_tab_has_api_key_name_column_and_filter():
     assert 'data-label="API Key"' in requests_js
     assert "req.api_key_name || req.api_key_id || '-'" in requests_js
     assert "loadRequestApiKeys" in requests_js
+
+
+def test_requests_tab_caches_api_key_filter_options_until_invalidated():
+    requests_js = (STATIC_JS / "requests.js").read_text(encoding="utf-8")
+    apikeys_js = (STATIC_JS / "apikeys.js").read_text(encoding="utf-8")
+
+    assert "let requestApiKeysLoaded = false;" in requests_js
+    assert "if (!force && requestApiKeysLoaded) return;" in requests_js
+    assert "requestApiKeysLoaded = true;" in requests_js
+    assert "function invalidateRequestApiKeys()" in requests_js
+    assert "invalidateRequestApiKeys" in apikeys_js
