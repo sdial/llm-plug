@@ -1,8 +1,12 @@
 from collections.abc import Callable
+import asyncio
+import ipaddress
 import secrets
+import socket
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Annotated
 
 import httpx
@@ -82,6 +86,48 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 ADMIN_FRAGMENT_DIR = STATIC_DIR / "fragments" / "admin"
 DATA_DIR = Path(__file__).parent.parent / "data"
 WHITELIST_PATH = DATA_DIR / "whitelist.csv"
+_ALLOWED_LOG_SUFFIX = ".jsonl"
+
+
+def _is_public_address(address: str) -> bool:
+    return ipaddress.ip_address(address).is_global
+
+
+async def _validate_outbound_url(url: str) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="上游地址必须是 http 或 https URL")
+    if parsed.username or parsed.password:
+        raise HTTPException(status_code=400, detail="上游地址不允许包含认证信息")
+
+    host = parsed.hostname.rstrip(".").lower()
+    try:
+        if not _is_public_address(host):
+            raise HTTPException(status_code=400, detail="不允许访问内网或本机地址")
+        addresses = {host}
+    except ValueError:
+        try:
+            addrinfo = await asyncio.to_thread(
+                socket.getaddrinfo,
+                host,
+                parsed.port,
+                type=socket.SOCK_STREAM,
+            )
+        except socket.gaierror as exc:
+            raise HTTPException(status_code=400, detail="上游地址无法解析") from exc
+        addresses = {item[4][0] for item in addrinfo}
+
+    if any(not _is_public_address(address) for address in addresses):
+        raise HTTPException(status_code=400, detail="不允许访问内网或本机地址")
+
+
+def _validate_log_filename(filename: str) -> None:
+    if (
+        not filename.endswith(_ALLOWED_LOG_SUFFIX)
+        or filename != Path(filename).name
+        or any(sep in filename for sep in ("/", "\\"))
+    ):
+        raise HTTPException(status_code=400, detail="日志文件名不合法")
 
 
 def _client_ip(request: Request) -> str:
@@ -603,19 +649,20 @@ async def fetch_models(body: FetchModelsRequest):
             headers["Authorization"] = f"Bearer {body.api_key}"
 
     models_url = build_models_url(body.base_url, body.models_url)
+    await _validate_outbound_url(models_url)
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(models_url, headers=headers)
+            resp = await client.get(models_url, headers=headers, follow_redirects=False)
             if resp.status_code != 200:
                 return {"error": f"上游返回 {resp.status_code}: {resp.text[:200]}"}
             data = resp.json()
             models = [m.get("id", m.get("name", "")) for m in data.get("data", data.get("models", []))]
             return {"models": sorted(set(filter(None, models)))}
-    except httpx.Timeout:
+    except httpx.TimeoutException:
         return {"error": "请求上游超时"}
-    except Exception as e:
-        return {"error": f"请求失败: {str(e)}"}
+    except Exception:
+        return {"error": "请求失败"}
 
 
 # ============ Logs API ============
@@ -633,6 +680,7 @@ async def list_logs():
 @router.get("/logs/{filename}")
 async def get_log(filename: str):
     """获取日志文件内容"""
+    _validate_log_filename(filename)
     file_path = (LOGS_DIR / filename).resolve()
     if not file_path.is_relative_to(LOGS_DIR.resolve()):
         raise HTTPException(status_code=403, detail="禁止访问")
