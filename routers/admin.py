@@ -66,11 +66,81 @@ class AdminLoginRequest(BaseModel):
 request_log_list_requests = request_logs.list_requests
 request_log_get_request_field = request_logs.get_request_field
 
+_CSRF_HEADER_NAME = "x-csrf-token"
+_CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+_AUTH_PUBLIC_PATHS = {
+    "/admin/auth/status",
+    "/admin/auth/setup",
+    "/admin/auth/login",
+}
+_LOGIN_RATE_LIMIT_MAX_FAILURES = 10
+_LOGIN_RATE_LIMIT_WINDOW_SECONDS = 60
+_login_rate_limit_state: dict[tuple[str, str], list[float]] = {}
+
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 STATIC_DIR = Path(__file__).parent.parent / "static"
 ADMIN_FRAGMENT_DIR = STATIC_DIR / "fragments" / "admin"
 DATA_DIR = Path(__file__).parent.parent / "data"
 WHITELIST_PATH = DATA_DIR / "whitelist.csv"
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _login_rate_limit_key(request: Request) -> tuple[str, str]:
+    return (str(admin_auth._auth_file()), _client_ip(request))
+
+
+def _is_login_rate_limited(request: Request) -> bool:
+    now = time.monotonic()
+    key = _login_rate_limit_key(request)
+    failures = [
+        ts for ts in _login_rate_limit_state.get(key, [])
+        if now - ts < _LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    ]
+    _login_rate_limit_state[key] = failures
+    return len(failures) >= _LOGIN_RATE_LIMIT_MAX_FAILURES
+
+
+def _record_login_failure(request: Request) -> None:
+    now = time.monotonic()
+    key = _login_rate_limit_key(request)
+    failures = [
+        ts for ts in _login_rate_limit_state.get(key, [])
+        if now - ts < _LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    ]
+    failures.append(now)
+    _login_rate_limit_state[key] = failures
+
+
+def _clear_login_failures(request: Request) -> None:
+    _login_rate_limit_state.pop(_login_rate_limit_key(request), None)
+
+
+def _csrf_error_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content={
+            "error": {
+                "message": "CSRF token required",
+                "type": "csrf_error",
+            },
+        },
+    )
+
+
+def _requires_csrf(request: Request) -> bool:
+    if request.method.upper() in _CSRF_SAFE_METHODS:
+        return False
+    if request.url.path in _AUTH_PUBLIC_PATHS:
+        return False
+    return request.url.path.startswith("/admin")
+
+
+async def _validate_csrf_for_request(request: Request, session_token: str | None) -> bool:
+    csrf_token = request.headers.get(_CSRF_HEADER_NAME)
+    return await admin_auth.validate_admin_csrf_token(session_token, csrf_token)
 
 
 class AdminAuthRoute(APIRoute):
@@ -80,7 +150,7 @@ class AdminAuthRoute(APIRoute):
         original_route_handler = super().get_route_handler()
 
         async def admin_auth_route_handler(request: Request):
-            if request.url.path.startswith("/admin/auth"):
+            if request.url.path in _AUTH_PUBLIC_PATHS:
                 return await original_route_handler(request)
 
             cookie_token = request.cookies.get(admin_auth.get_session_cookie_name())
@@ -94,6 +164,8 @@ class AdminAuthRoute(APIRoute):
                         },
                     },
                 )
+            if _requires_csrf(request) and not await _validate_csrf_for_request(request, cookie_token):
+                return _csrf_error_response()
             return await original_route_handler(request)
 
         return admin_auth_route_handler
@@ -109,6 +181,15 @@ async def auth_status():
     }
 
 
+@router.get("/auth/csrf")
+async def auth_csrf(request: Request):
+    cookie_token = request.cookies.get(admin_auth.get_session_cookie_name())
+    csrf_token = await admin_auth.create_admin_csrf_token(cookie_token)
+    if csrf_token is None:
+        raise HTTPException(status_code=401, detail="Admin login required")
+    return {"csrf_token": csrf_token}
+
+
 @router.post("/auth/setup")
 async def auth_setup(body: AdminPasswordSetup):
     if await admin_auth.is_admin_password_configured():
@@ -121,13 +202,18 @@ async def auth_setup(body: AdminPasswordSetup):
 
 
 @router.post("/auth/login")
-async def auth_login(body: AdminLoginRequest):
+async def auth_login(body: AdminLoginRequest, request: Request):
     if not await admin_auth.is_admin_password_configured():
         raise HTTPException(status_code=401, detail="管理员密码尚未设置")
+    if _is_login_rate_limited(request):
+        raise HTTPException(status_code=429, detail="登录失败次数过多，请稍后再试")
     if not await admin_auth.verify_admin_password(body.password):
+        _record_login_failure(request)
         raise HTTPException(status_code=401, detail="密码错误")
+    _clear_login_failures(request)
     token = await admin_auth.create_admin_session()
-    response = JSONResponse({"message": "登录成功"})
+    csrf_token = await admin_auth.create_admin_csrf_token(token)
+    response = JSONResponse({"message": "登录成功", "csrf_token": csrf_token})
     response.headers["Set-Cookie"] = admin_auth.build_session_cookie(token)
     return response
 
