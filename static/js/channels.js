@@ -270,6 +270,13 @@ function closeConfirmModal() {
     pendingConfirmAction = null;
 }
 
+function showConfirmModal(title, message, action) {
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmMessage').textContent = message;
+    pendingConfirmAction = action;
+    document.getElementById('confirmModal').classList.remove('hidden');
+}
+
 async function confirmAction() {
     if (pendingConfirmAction) {
         await pendingConfirmAction();
@@ -396,6 +403,7 @@ Object.assign(window, {
     toggleStatusWithConfirm,
     closeConfirmModal,
     confirmAction,
+    showConfirmModal,
     openModal,
     closeModal,
     deleteChannelFromModal,

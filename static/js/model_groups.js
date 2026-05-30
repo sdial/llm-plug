@@ -188,18 +188,19 @@ async function toggleModelGroup(id) {
 }
 
 async function deleteModelGroupConfirm(id) {
-    if (!confirm('确定删除该模型组？')) return;
-    try {
-        const resp = await fetch(`/admin/model-groups/${id}`, { method: 'DELETE' });
-        if (resp.ok) {
-            loadModelGroups();
-        } else {
-            const err = await resp.json();
-            alert('删除失败: ' + (err.detail || JSON.stringify(err)));
+    showConfirmModal('确认删除', '确定要删除该模型组吗？此操作不可恢复。', async () => {
+        try {
+            const resp = await fetch(`/admin/model-groups/${id}`, { method: 'DELETE' });
+            if (resp.ok) {
+                loadModelGroups();
+            } else {
+                const err = await resp.json();
+                alert('删除失败: ' + (err.detail || JSON.stringify(err)));
+            }
+        } catch (e) {
+            alert('删除失败: ' + e.message);
         }
-    } catch (e) {
-        alert('删除失败: ' + e.message);
-    }
+    });
 }
 
 Object.assign(window, {
