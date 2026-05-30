@@ -8,6 +8,30 @@ function esc(s) {
     return d.innerHTML;
 }
 
+function getStatsAggregationTimezone() {
+  return window.adminSettings?.getOriginal()?.aggregation_timezone || undefined;
+}
+
+function formatStatsDateInTimezone(date, timezone) {
+  const options = {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  };
+  if (timezone) options.timeZone = timezone;
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', options)
+      .formatToParts(date)
+      .reduce((acc, part) => {
+        acc[part.type] = part.value;
+        return acc;
+      }, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  } catch (e) {
+    return date.toISOString().slice(0, 10);
+  }
+}
 
 async function refreshStats() {
   const btn = document.getElementById('refreshDailyBtn');
@@ -83,7 +107,7 @@ fetch('/admin/stats?days=7'),
       ]);
       const todayData = await todayResp.json();
       const weekData = await weekResp.json();
-      const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+      const todayStr = formatStatsDateInTimezone(new Date(), getStatsAggregationTimezone());
       const daily = (weekData.daily || []).map(d => d.date === todayStr && todayData.daily?.[0] ? todayData.daily[0] : d);
       data = { overall: todayData.overall, daily, _debug: todayData._debug };
       // 显示截止时间（今天的数据）
@@ -91,7 +115,7 @@ fetch('/admin/stats?days=7'),
       if (serverNow) {
 const dt = new Date(serverNow);
 // 使用设置中的统计时区来显示时间
-const timezone = window.adminSettings?.getOriginal()?.aggregation_timezone;
+const timezone = getStatsAggregationTimezone();
 const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
 if (timezone) options.timeZone = timezone;
 const timeStr = dt.toLocaleString('zh-CN', options);
@@ -99,7 +123,7 @@ const tzDisplay = timezone || '本地时区';
 cutoffTimeValue.textContent = `${timeStr} (${tzDisplay})`;
       } else {
 const now = new Date();
-const timezone = window.adminSettings?.getOriginal()?.aggregation_timezone;
+const timezone = getStatsAggregationTimezone();
 const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
 if (timezone) options.timeZone = timezone;
 const timeStr = now.toLocaleString('zh-CN', options);

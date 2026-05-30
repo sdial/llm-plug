@@ -50,3 +50,12 @@ def test_requests_tab_caches_api_key_filter_options_until_invalidated():
     assert "requestApiKeysLoaded = true;" in requests_js
     assert "function invalidateRequestApiKeys()" in requests_js
     assert "invalidateRequestApiKeys" in apikeys_js
+
+
+def test_stats_today_merge_uses_configured_aggregation_timezone():
+    stats_js = (STATIC_JS / "stats.js").read_text(encoding="utf-8")
+
+    assert "8 * 3600000" not in stats_js
+    assert "function getStatsAggregationTimezone()" in stats_js
+    assert "function formatStatsDateInTimezone(" in stats_js
+    assert "const todayStr = formatStatsDateInTimezone(new Date(), getStatsAggregationTimezone());" in stats_js
