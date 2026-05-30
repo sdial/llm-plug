@@ -1,4 +1,5 @@
-from datetime import date
+import sqlite3
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -92,6 +93,53 @@ async def test_aggregate_daily_stats_refreshes_daily_stats():
     assert daily[0]["fail_count"] == 0
     assert daily[0]["input_tokens"] == 20
     assert daily[0]["output_tokens"] == 5
+
+
+async def test_refresh_missing_daily_stats_uses_timestamp_index_for_date_cutoff(sqlite_stats_db, monkeypatch):
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=3)).replace(tzinfo=None)
+    conn = sqlite3.connect(str(sqlite_stats_db))
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        """
+        INSERT INTO request_stats_raw
+        (timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
+         input_tokens, output_tokens, latency_ms, lag_ms, finish_reason, success, error_msg)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            stats._to_iso(old_ts),
+            "gpt-index",
+            "ch_index",
+            "Index",
+            "key_index",
+            "127.0.0.1",
+            0,
+            1,
+            1,
+            10,
+            None,
+            "stop",
+            1,
+            None,
+        ),
+    )
+    conn.commit()
+
+    traced_sql: list[str] = []
+    conn.set_trace_callback(
+        lambda sql: traced_sql.append(sql)
+        if "SELECT DISTINCT" in sql and "FROM request_stats_raw" in sql
+        else None
+    )
+    monkeypatch.setattr(stats, "_connect", lambda: conn)
+
+    stats._refresh_missing_daily_stats_sync()
+
+    assert traced_sql
+    plan_rows = conn.execute(f"EXPLAIN QUERY PLAN {traced_sql[0]}").fetchall()
+    plan_text = " ".join(row[3] for row in plan_rows)
+    assert "SEARCH request_stats_raw USING" in plan_text
+    assert "idx_request_stats_raw_timestamp" in plan_text
 
 
 async def test_get_request_field_returns_none_for_raw_fields():
