@@ -130,7 +130,7 @@ async def test_login_page_and_static_assets_are_public(admin_auth_files):
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         page = await client.get("/admin/login", follow_redirects=False)
-        asset = await client.get("/static/js/admin.js")
+        asset = await client.get("/admin/static/js/admin.js")
 
     assert page.status_code == 200
     assert "管理员登录" in page.text
