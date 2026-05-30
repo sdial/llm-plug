@@ -244,6 +244,29 @@ async def validate_admin_session(token: str | None) -> bool:
     return secrets.compare_digest(expected, sig)
 
 
+async def create_admin_csrf_token(session_token: str | None) -> str | None:
+    if not session_token or not await validate_admin_session(session_token):
+        return None
+    state = await get_admin_auth_state()
+    password_hash = state["password_hash"]
+    if not password_hash:
+        return None
+    return hmac.new(
+        password_hash.encode("utf-8"),
+        _session_token_digest(session_token).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+async def validate_admin_csrf_token(session_token: str | None, csrf_token: str | None) -> bool:
+    if not csrf_token:
+        return False
+    expected = await create_admin_csrf_token(session_token)
+    if expected is None:
+        return False
+    return secrets.compare_digest(expected, csrf_token)
+
+
 def get_session_cookie_name() -> str:
     return _SESSION_COOKIE_NAME
 

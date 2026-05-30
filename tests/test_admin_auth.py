@@ -151,9 +151,13 @@ async def test_logout_revokes_existing_session_token(admin_auth_files):
             json={"password": "correct horse battery staple"},
         )
         session_cookie = login_resp.headers["set-cookie"].split(";", 1)[0]
+        csrf_resp = await client.get("/admin/auth/csrf")
         logout_resp = await client.post(
             "/admin/auth/logout",
-            headers={"Cookie": session_cookie},
+            headers={
+                "Cookie": session_cookie,
+                "X-CSRF-Token": csrf_resp.json()["csrf_token"],
+            },
         )
 
     assert logout_resp.status_code == 200
@@ -169,3 +173,58 @@ async def test_logout_revokes_existing_session_token(admin_auth_files):
 
     assert resp.status_code == 401
     assert resp.json()["error"]["type"] == "admin_login_required"
+
+
+@pytest.mark.anyio
+async def test_admin_mutation_requires_csrf_token(admin_auth_files):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.post(
+            "/admin/auth/setup",
+            json={"password": "correct horse battery staple"},
+        )
+        await client.post(
+            "/admin/auth/login",
+            json={"password": "correct horse battery staple"},
+        )
+
+        denied = await client.post(
+            "/admin/api-keys",
+            json={"name": "client-key"},
+        )
+        csrf_resp = await client.get("/admin/auth/csrf")
+        allowed = await client.post(
+            "/admin/api-keys",
+            headers={"X-CSRF-Token": csrf_resp.json()["csrf_token"]},
+            json={"name": "client-key"},
+        )
+
+    assert denied.status_code == 403
+    assert denied.json()["error"]["type"] == "csrf_error"
+    assert csrf_resp.status_code == 200
+    assert allowed.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_admin_login_rate_limits_failed_attempts(admin_auth_files):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.post(
+            "/admin/auth/setup",
+            json={"password": "correct horse battery staple"},
+        )
+
+        responses = [
+            await client.post("/admin/auth/login", json={"password": "wrong"})
+            for _ in range(11)
+        ]
+        valid_after_limit = await client.post(
+            "/admin/auth/login",
+            json={"password": "correct horse battery staple"},
+        )
+
+    assert [resp.status_code for resp in responses[:5]] == [401] * 5
+    assert responses[5].status_code == 429
+    assert valid_after_limit.status_code == 429

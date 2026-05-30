@@ -3,6 +3,49 @@
 let currentTab = 'channels';
 let adminBootstrapped = false;
 let pendingRequestHashQuery = '';
+let csrfToken = null;
+let csrfTokenPromise = null;
+
+const originalFetch = window.fetch.bind(window);
+
+function isAdminMutation(url, method) {
+    const target = typeof url === 'string' ? url : url?.url;
+    if (!target) return false;
+    const parsed = new URL(target, window.location.origin);
+    return parsed.origin === window.location.origin
+        && parsed.pathname.startsWith('/admin')
+        && !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())
+        && !['/admin/auth/login', '/admin/auth/setup'].includes(parsed.pathname);
+}
+
+async function getCsrfToken() {
+    if (csrfToken) return csrfToken;
+    if (!csrfTokenPromise) {
+        csrfTokenPromise = originalFetch('/admin/auth/csrf')
+            .then(resp => {
+                if (!resp.ok) throw new Error('CSRF token unavailable');
+                return resp.json();
+            })
+            .then(data => {
+                csrfToken = data.csrf_token;
+                return csrfToken;
+            })
+            .finally(() => {
+                csrfTokenPromise = null;
+            });
+    }
+    return csrfTokenPromise;
+}
+
+window.fetch = async function adminFetch(input, init = {}) {
+    const requestMethod = init.method || (input instanceof Request ? input.method : 'GET');
+    if (!isAdminMutation(input, requestMethod)) {
+        return originalFetch(input, init);
+    }
+    const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+    headers.set('X-CSRF-Token', await getCsrfToken());
+    return originalFetch(input, { ...init, headers });
+};
 
 function updateRequestHashSafely() {
     if (typeof syncRequestHash === 'function' && document.getElementById('reqFilterModel')) {

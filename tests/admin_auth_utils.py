@@ -8,4 +8,8 @@ async def login_admin(client, password: str = ADMIN_TEST_PASSWORD):
     login = await client.post("/admin/auth/login", json={"password": password})
     if login.status_code != 200:
         raise AssertionError(f"admin login failed: {login.status_code} {login.text}")
+    csrf = await client.get("/admin/auth/csrf")
+    if csrf.status_code != 200:
+        raise AssertionError(f"admin csrf failed: {csrf.status_code} {csrf.text}")
+    client.headers["X-CSRF-Token"] = csrf.json()["csrf_token"]
     return login
