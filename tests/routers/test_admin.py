@@ -6,6 +6,7 @@ import httpx
 
 import config
 import request_logs
+from routers import admin
 import stats
 import storage
 from main import app
@@ -373,6 +374,11 @@ async def test_cleanup_request_logs_endpoint_returns_zero_when_nothing_old(clien
 
 async def test_fetch_models_uses_advanced_models_url(client, monkeypatch):
     captured = {}
+    monkeypatch.setattr(
+        admin.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 443))],
+    )
 
     class FakeResponse:
         status_code = 200
@@ -391,7 +397,7 @@ async def test_fetch_models_uses_advanced_models_url(client, monkeypatch):
         async def __aexit__(self, *args):
             return None
 
-        async def get(self, url, headers):
+        async def get(self, url, headers, **kwargs):
             captured["url"] = url
             captured["headers"] = headers
             return FakeResponse()
@@ -417,6 +423,11 @@ async def test_fetch_models_falls_back_to_base_url_when_advanced_models_url_miss
     client, monkeypatch
 ):
     captured = {}
+    monkeypatch.setattr(
+        admin.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 443))],
+    )
 
     class FakeResponse:
         status_code = 200
@@ -435,7 +446,7 @@ async def test_fetch_models_falls_back_to_base_url_when_advanced_models_url_miss
         async def __aexit__(self, *args):
             return None
 
-        async def get(self, url, headers):
+        async def get(self, url, headers, **kwargs):
             captured["url"] = url
             return FakeResponse()
 
@@ -454,3 +465,68 @@ async def test_fetch_models_falls_back_to_base_url_when_advanced_models_url_miss
     assert resp.status_code == 200
     assert resp.json() == {"models": ["claude-3"]}
     assert captured["url"] == "https://api.example.com/v1/models"
+
+
+async def test_fetch_models_rejects_private_upstream_url(client, monkeypatch):
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("SSRF validation should reject before httpx is created")
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    resp = await client.post(
+        "/admin/channels/fetch-models",
+        json={
+            "base_url": "http://127.0.0.1:8000",
+            "models_url": "",
+            "api_key": "sk-test",
+            "api_type": "openai-chat-completions",
+        },
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "不允许访问内网或本机地址"
+
+
+async def test_fetch_models_rejects_hostname_resolving_to_non_public_ip(client, monkeypatch):
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("SSRF validation should reject before httpx is created")
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    def fake_getaddrinfo(*args, **kwargs):
+        return [(None, None, None, "", ("100.64.0.1", 443))]
+
+    monkeypatch.setattr(admin.socket, "getaddrinfo", fake_getaddrinfo)
+
+    resp = await client.post(
+        "/admin/channels/fetch-models",
+        json={
+            "base_url": "https://api.example.com",
+            "models_url": "",
+            "api_key": "sk-test",
+            "api_type": "openai-chat-completions",
+        },
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "不允许访问内网或本机地址"
+
+
+async def test_get_log_rejects_non_jsonl_filename(client):
+    resp = await client.get("/admin/logs/admin_auth.py")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "日志文件名不合法"
+
+
+async def test_get_log_rejects_path_traversal_filename(client):
+    resp = await client.get("/admin/logs/../admin_auth.py")
+
+    assert resp.status_code == 404
+
+    resp = await client.get("/admin/logs/..%5Csecret.jsonl")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "日志文件名不合法"
