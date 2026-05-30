@@ -559,15 +559,16 @@ def _refresh_missing_daily_stats_sync() -> dict[str, Any]:
         return {"refreshed_dates": [], "count": 0, "debug": {"db_available": False}}
     today = agg_now().date()
     offset_modifier = _agg_offset_sql()
+    today_start_utc = _local_date_to_utc_iso(today)
     with _connect() as conn:
         rows = conn.execute(
             f"""
             SELECT DISTINCT date(datetime(timestamp, '{offset_modifier}')) AS d
             FROM request_stats_raw
-            WHERE date(datetime(timestamp, '{offset_modifier}')) < ?
+            WHERE timestamp < ?
             ORDER BY d
             """,
-            (today.isoformat(),),
+            (today_start_utc,),
         ).fetchall()
         request_dates = {date.fromisoformat(row["d"]) for row in rows if row["d"]}
         if not request_dates:
