@@ -185,7 +185,7 @@ class CombinedMiddleware:
             await self._send_error(send, 403, _wl_reason, "ip_whitelist_error")
             return
 
-        if path in ("/", "/static/index.html"):
+        if path in ("/admin", "/admin/"):
             from admin_auth import get_session_cookie_name, validate_admin_session
             session_cookie = None
             for key, value in scope.get("headers", []):
@@ -200,7 +200,12 @@ class CombinedMiddleware:
                 await self._send_redirect(send, "/admin/login")
                 return
 
-        if path.startswith("/admin") and path not in ("/admin/login",) and not path.startswith("/admin/auth"):
+        if (
+            path.startswith("/admin")
+            and path not in ("/admin", "/admin/", "/admin/login")
+            and not path.startswith("/admin/auth")
+            and not path.startswith("/admin/static/")
+        ):
             from admin_auth import get_session_cookie_name, validate_admin_session
             session_cookie = None
             for key, value in scope.get("headers", []):
@@ -387,7 +392,7 @@ app.include_router(proxy_models.router)
 
 # 静态文件（管理页面）
 STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/admin/static", StaticFiles(directory=str(STATIC_DIR)), name="admin_static")
 
 
 @app.get("/admin/login")
@@ -396,8 +401,9 @@ async def admin_login_page():
     return FileResponse(STATIC_DIR / "admin-login.html")
 
 
-@app.get("/")
-async def root(request: Request):
+@app.get("/admin")
+@app.get("/admin/")
+async def admin_index(request: Request):
     from fastapi.responses import FileResponse
     from admin_auth import get_session_cookie_name, validate_admin_session
 

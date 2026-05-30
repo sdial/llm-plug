@@ -291,7 +291,7 @@ function syncRequestHash() {
 }
 
 function openJsonInNewTab(requestId, field) {
-    const url = '/static/json-viewer.html?url=' + encodeURIComponent('/admin/requests/' + requestId + '/' + field) + '&title=' + encodeURIComponent(field);
+    const url = '/admin/static/json-viewer.html?url=' + encodeURIComponent('/admin/requests/' + requestId + '/' + field) + '&title=' + encodeURIComponent(field);
     window.open(url, '_blank');
 }
 

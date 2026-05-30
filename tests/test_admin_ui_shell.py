@@ -48,14 +48,31 @@ async def client(admin_ui_data_dir):
 
 @pytest.mark.anyio
 async def test_admin_index_is_a_shell(client):
-    resp = await client.get("/")
+    resp = await client.get("/admin/")
 
     assert resp.status_code == 200
     html = resp.text
-    assert "/static/js/htmx.min.js" in html
+    assert "/admin/static/js/htmx.min.js" in html
     assert 'hx-get="/admin/ui/channels"' in html
     assert 'id="admin-content"' in html
     assert 'id="channelsTab"' not in html
+
+
+@pytest.mark.anyio
+async def test_root_and_old_static_paths_are_not_admin_entrypoints(client):
+    root = await client.get("/")
+    old_asset = await client.get("/static/js/admin.js")
+
+    assert root.status_code == 404
+    assert old_asset.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_admin_static_assets_are_served_under_admin_prefix(client):
+    resp = await client.get("/admin/static/js/admin.js")
+
+    assert resp.status_code == 200
+    assert "function logoutAdmin" in resp.text
 
 
 @pytest.mark.anyio
