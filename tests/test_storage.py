@@ -24,6 +24,10 @@ def isolate_storage(tmp_path, monkeypatch):
     storage._cache_ts = 0
     storage._keys_cache = None
     storage._keys_cache_ts = 0
+    storage._MODEL_GROUPS_CACHE = None
+    storage._MODEL_GROUPS_CACHE_TS = 0
+    storage._MODEL_GROUPS_CACHE_VERSION = 0
+    storage._model_groups_lock = None
     storage._channels_lock = None
     storage._keys_lock = None
 
@@ -33,6 +37,10 @@ def isolate_storage(tmp_path, monkeypatch):
     storage._cache_ts = 0
     storage._keys_cache = None
     storage._keys_cache_ts = 0
+    storage._MODEL_GROUPS_CACHE = None
+    storage._MODEL_GROUPS_CACHE_TS = 0
+    storage._MODEL_GROUPS_CACHE_VERSION = 0
+    storage._model_groups_lock = None
     storage._channels_lock = None
     storage._keys_lock = None
 
@@ -87,6 +95,15 @@ class TestLoadData:
         storage._cache_ts = time.time() - 10
         data2 = await storage.load_data()
         assert data2["channels"][0]["name"] == "second"
+
+    @pytest.mark.anyio
+    async def test_malformed_channels_json_returns_empty_skeleton(self):
+        with open(config.CHANNELS_FILE, "w", encoding="utf-8") as f:
+            f.write("{not valid json")
+
+        data = await storage.load_data()
+
+        assert data == {"channels": []}
 
 
 class TestSaveData:
@@ -211,6 +228,67 @@ class TestApiKeysStorage:
         await storage.invalidate_keys_cache()
         data = await storage.load_api_keys()
         assert data["api_keys"][0]["name"] == "modified"
+
+    @pytest.mark.anyio
+    async def test_malformed_api_keys_json_returns_empty_skeleton(self):
+        with open(config.API_KEYS_FILE, "w", encoding="utf-8") as f:
+            f.write("{not valid json")
+
+        data = await storage.load_api_keys()
+
+        assert data == {"api_keys": []}
+
+
+class TestModelGroupsStorage:
+    @pytest.mark.anyio
+    async def test_skips_invalid_model_group_entries(self):
+        payload = {
+            "channels": [],
+            "model_groups": [
+                {"id": "broken", "enabled": True},
+                {"id": "grp_valid", "name": "valid", "models": ["gpt-4"], "enabled": True},
+            ],
+        }
+        with open(config.CHANNELS_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+
+        groups = await storage.load_model_groups()
+
+        assert [g.id for g in groups] == ["grp_valid"]
+
+    @pytest.mark.anyio
+    async def test_load_model_groups_does_not_overwrite_invalidation_with_stale_data(self, monkeypatch):
+        stale_data = {
+            "channels": [],
+            "model_groups": [{"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}],
+        }
+        fresh_data = {
+            "channels": [],
+            "model_groups": [{"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}],
+        }
+        release_load = asyncio.Event()
+
+        async def slow_load_data():
+            await release_load.wait()
+            return stale_data
+
+        monkeypatch.setattr(storage, "load_data", slow_load_data)
+
+        first_load = asyncio.create_task(storage.load_model_groups())
+        await asyncio.sleep(0)
+        invalidation = asyncio.create_task(storage.invalidate_model_groups_cache())
+
+        release_load.set()
+        await first_load
+        await invalidation
+
+        async def fresh_load_data():
+            return fresh_data
+
+        monkeypatch.setattr(storage, "load_data", fresh_load_data)
+        groups = await storage.load_model_groups()
+
+        assert [g.id for g in groups] == ["grp_new"]
 
 
 class TestConcurrency:

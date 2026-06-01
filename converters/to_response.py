@@ -1004,6 +1004,13 @@ class ToResponseConverter(BaseConverter):
 
     def _build_output_items(self) -> list[dict[str, Any]]:
         output = []
+        if self._stream_state["reasoning_content"]:
+            output.append({
+                "type": "reasoning",
+                "id": self._stream_state["reasoning_id"],
+                "summary": [],
+                "content": [{"type": "reasoning_text", "text": self._stream_state["reasoning_content"]}],
+            })
         if self._stream_state["accumulated_text"]:
             item_id = self._stream_state["active_text_item_id"] or self._stream_state["message_id"]
             if not item_id.startswith("msg_"):
@@ -1023,13 +1030,6 @@ class ToResponseConverter(BaseConverter):
                 "name": tc_data["name"],
                 "arguments": tc_data["arguments"],
                 "status": "completed",
-            })
-        if self._stream_state["reasoning_content"]:
-            output.append({
-                "type": "reasoning",
-                "id": self._stream_state["reasoning_id"],
-                "summary": [],
-                "content": [{"type": "reasoning_text", "text": self._stream_state["reasoning_content"]}],
             })
         if not output:
             item_id = self._stream_state["message_id"]
