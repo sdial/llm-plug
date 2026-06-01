@@ -5,6 +5,7 @@ import contextlib
 import json
 import os
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -27,6 +28,10 @@ _STATS_WORKER_COUNT = 4
 _STATS_WRITE_TIMEOUT = 60
 
 _STATS_OVERFLOW_FILENAME = "stats_overflow.jsonl"
+
+# 64 MB mmap;走 OS page cache 共享内存,替代每连接私有 cache。
+# 生产部署在 1 GB 内存的受限设备上,故保守取 64 MB。
+_MMAP_SIZE_BYTES = 64 * 1024 * 1024
 
 _RAW_FIELDS = {
     "request_headers",
@@ -101,12 +106,28 @@ def _resolve_db_path(db_path: str | None = None) -> str:
 def _connect() -> sqlite3.Connection:
     if not _DB_PATH:
         raise RuntimeError("stats database is not initialized")
-    conn = sqlite3.connect(_DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES)
+    conn = sqlite3.connect(_DB_PATH)
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA cache_size=-64000")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute(f"PRAGMA mmap_size={_MMAP_SIZE_BYTES}")
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextlib.contextmanager
+def _open_conn():
+    """打开统计 DB 连接:保证 fd 立即释放 + 隐式事务的 commit/rollback。
+
+    短连接配方的统一入口。直接 with _connect() 只会 commit/rollback,不会关闭 fd;
+    本 helper 用 try/finally 兜底 close,异常路径同样可靠。
+    """
+    conn = _connect()
+    try:
+        with conn:  # 正常退出 commit;异常 rollback;只读路径下是 no-op
+            yield conn
+    finally:
+        conn.close()
 
 
 def _to_iso(value: datetime) -> str:
@@ -126,7 +147,7 @@ def _init_db_sync(db_path: str) -> None:
     directory = os.path.dirname(os.path.abspath(db_path))
     if directory:
         os.makedirs(directory, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         conn.executescript(
@@ -291,7 +312,7 @@ def _write_record_sync(record: dict[str, Any]) -> None:
     timestamp = lightweight.get("timestamp") or datetime.now(timezone.utc).replace(tzinfo=None)
     if isinstance(timestamp, datetime):
         timestamp = _to_iso(timestamp)
-    with _connect() as conn:
+    with _open_conn() as conn:
         conn.execute(
             """
             INSERT INTO request_stats_raw
@@ -406,7 +427,7 @@ def _aggregate_daily_stats_sync(start_date: date, end_date: date) -> dict[str, A
     start_iso, end_iso = _daily_bounds(start_date, end_date)
     updated_at = _to_iso(agg_now())
     offset_modifier = _agg_offset_sql()
-    with _connect() as conn:
+    with _open_conn() as conn:
         conn.execute(
             """
             DELETE FROM daily_stats
@@ -477,7 +498,7 @@ def _get_daily_stats_sync(
     if api_key_id:
         conditions.append("api_key_id = ?")
         args.append(api_key_id)
-    with _connect() as conn:
+    with _open_conn() as conn:
         rows = conn.execute(
             f"""
             SELECT date, channel_id, model, api_key_id, request_count, success_count,
@@ -522,7 +543,7 @@ def _get_daily_stats_from_requests_sync(
     if api_key_id:
         conditions.append("api_key_id = ?")
         args.append(api_key_id)
-    with _connect() as conn:
+    with _open_conn() as conn:
         rows = conn.execute(
             f"""
             SELECT
@@ -560,7 +581,7 @@ def _refresh_missing_daily_stats_sync() -> dict[str, Any]:
     today = agg_now().date()
     offset_modifier = _agg_offset_sql()
     today_start_utc = _local_date_to_utc_iso(today)
-    with _connect() as conn:
+    with _open_conn() as conn:
         rows = conn.execute(
             f"""
             SELECT DISTINCT date(datetime(timestamp, '{offset_modifier}')) AS d
@@ -635,7 +656,7 @@ def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
     if not _DB_AVAILABLE:
         return _overall_zero()
     since = _to_iso(datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days))
-    with _connect() as conn:
+    with _open_conn() as conn:
         row = conn.execute(
             """
             SELECT
@@ -734,7 +755,7 @@ async def get_today_stats() -> dict[str, Any]:
 
 
 def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
-    with _connect() as conn:
+    with _open_conn() as conn:
         row = conn.execute(
             """
             SELECT
@@ -804,7 +825,7 @@ def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
 def _get_api_key_stats_sync() -> dict[str, dict[str, int]]:
     if not _DB_AVAILABLE:
         return {}
-    with _connect() as conn:
+    with _open_conn() as conn:
         rows = conn.execute(
             """
             SELECT api_key_id,
@@ -892,7 +913,7 @@ def _list_requests_sync(
         args.append(1 if is_stream else 0)
 
     where_clause = " AND ".join(conditions)
-    with _connect() as conn:
+    with _open_conn() as conn:
         total = conn.execute(
             f"SELECT COUNT(*) FROM request_stats_raw WHERE {where_clause}",
             args,
@@ -948,7 +969,7 @@ async def list_requests(
 def _list_tables_for_test_sync() -> set[str]:
     if not _DB_AVAILABLE:
         return set()
-    with _connect() as conn:
+    with _open_conn() as conn:
         rows = conn.execute(
             """
             SELECT name FROM sqlite_master

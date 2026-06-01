@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -16,6 +17,10 @@ import config
 
 if TYPE_CHECKING:
     import asyncpg
+
+# 64 MB mmap;走 OS page cache 共享内存,替代每连接私有 cache。
+# 生产部署在 1 GB 内存的受限设备上,故保守取 64 MB。
+_SQLITE_MMAP_SIZE_BYTES = 64 * 1024 * 1024
 
 _RAW_FIELDS = {
     "request_headers",
@@ -178,15 +183,30 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-64000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute(f"PRAGMA mmap_size={_SQLITE_MMAP_SIZE_BYTES}")
         conn.row_factory = sqlite3.Row
         return conn
+
+    @contextlib.contextmanager
+    def _open_conn(self):
+        """打开请求日志 DB 连接:保证 fd 释放 + 隐式事务的 commit/rollback。
+
+        短连接配方的统一入口。直接 with self._connect() 只 commit/rollback,
+        不会 close;本 helper 用 try/finally 兜底 close,异常路径同样可靠。
+        """
+        conn = self._connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_sync(self) -> None:
         directory = os.path.dirname(os.path.abspath(self.db_path))
         if directory:
             os.makedirs(directory, exist_ok=True)
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=5000")
             conn.executescript(
@@ -228,7 +248,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         return json.dumps(value, ensure_ascii=False)
 
     def _write_record_sync(self, record: dict[str, Any]) -> None:
-        with self._connect() as conn:
+        with self._open_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO request_logs
@@ -309,7 +329,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
             args.append(1 if is_stream else 0)
 
         where_clause = " AND ".join(conditions)
-        with self._connect() as conn:
+        with self._open_conn() as conn:
             total = conn.execute(
                 f"SELECT COUNT(*) FROM request_logs WHERE {where_clause}",
                 args,
@@ -365,7 +385,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         sql = _RAW_FIELD_SELECT_SQLITE.get(field)
         if sql is None:
             return None
-        with self._connect() as conn:
+        with self._open_conn() as conn:
             row = conn.execute(sql, (request_id,)).fetchone()
         if row is None:
             return None
@@ -378,7 +398,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
 
     def _cleanup_old_records_sync(self, retention_days: int, raw_retention_days: int) -> dict:
         result = {"raw_fields_cleared": 0, "rows_deleted": 0}
-        with self._connect() as conn:
+        with self._open_conn() as conn:
             if raw_retention_days > 0 and (retention_days == 0 or raw_retention_days < retention_days):
                 cur = conn.execute(
                     """
