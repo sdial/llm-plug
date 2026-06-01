@@ -1,3 +1,4 @@
+import contextlib
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
@@ -131,7 +132,10 @@ async def test_refresh_missing_daily_stats_uses_timestamp_index_for_date_cutoff(
         if "SELECT DISTINCT" in sql and "FROM request_stats_raw" in sql
         else None
     )
-    monkeypatch.setattr(stats, "_connect", lambda: conn)
+    # 直接 patch _open_conn 让多次调用复用同一个 conn(测试需要稳定的 trace callback),
+    # 而 _open_conn 在生产里会显式 close。用 nullcontext 跳过 close + commit,测试 conn
+    # 由外层 sqlite_stats_db fixture 释放。
+    monkeypatch.setattr(stats, "_open_conn", lambda: contextlib.nullcontext(conn))
 
     stats._refresh_missing_daily_stats_sync()
 
