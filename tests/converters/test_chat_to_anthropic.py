@@ -333,7 +333,7 @@ class TestChatToAnthropic:
             )
 
     def test_assistant_reasoning_content_emits_thinking_with_empty_signature(self):
-        """OpenAI reasoning_content 应转为带空 signature 的 Anthropic thinking 块（让客户端可渲染）"""
+        """Chat 请求转 Anthropic 上游默认允许空 signature thinking 块"""
         request = {
             "model": "gpt-4o",
             "messages": [

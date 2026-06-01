@@ -17,6 +17,7 @@ from proxy_core import (
     _get_converter_and_upstream_type,
     _get_upstream_url,
     _proxy_single_model_request,
+    _raise_preflight_stream_errors,
     _yield_anthropic_event,
     CONVERTER_MAP,
     _is_channel_config_error,
@@ -112,6 +113,34 @@ class TestGetChannelsForModel:
             assert channels == []
 
     @pytest.mark.anyio
+    async def test_skips_invalid_channel_entries(self):
+        import storage
+
+        mock_data = {
+            "channels": [
+                {"id": "broken", "name": "Missing required fields"},
+                {
+                    "id": "ch_valid",
+                    "name": "Valid",
+                    "api_type": "openai-chat-completions",
+                    "base_url": "https://api.example.com",
+                    "api_key": "sk-test",
+                    "models": ["gpt-4"],
+                    "enabled": True,
+                    "weight": 1,
+                    "priority": 1,
+                },
+            ]
+        }
+
+        with patch.object(
+            storage, "load_data", new_callable=AsyncMock, return_value=mock_data
+        ):
+            channels = await _get_channels_for_model("gpt-4")
+
+        assert [ch.id for ch in channels] == ["ch_valid"]
+
+    @pytest.mark.anyio
     async def test_save_data_invalidates_model_channels_cache_immediately(self):
         import proxy_core
         import storage
@@ -156,6 +185,29 @@ class TestGetChannelsForModel:
 
         channels = await _get_channels_for_model("gpt-4")
         assert [ch.id for ch in channels] == ["ch_new"]
+
+
+class TestStreamPreflight:
+    @pytest.mark.anyio
+    async def test_closes_inner_generator_when_preflight_error_is_raised(self):
+        closed = False
+
+        async def gen():
+            nonlocal closed
+            try:
+                request = httpx.Request("POST", "https://api.example.com/v1/chat/completions")
+                response = httpx.Response(500, request=request)
+                raise httpx.HTTPStatusError("upstream error", request=request, response=response)
+                yield b"unreachable"
+            finally:
+                closed = True
+
+        wrapped = _raise_preflight_stream_errors(gen())
+        with pytest.raises(Exception) as exc_info:
+            await wrapped.__anext__()
+
+        assert exc_info.value.__class__.__name__ == "_StreamPreflightError"
+        assert closed is True
 
 
 class TestChannelConfigError:

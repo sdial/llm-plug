@@ -9,6 +9,7 @@ from typing import Any
 
 import config
 from models.model_group import LBConfig, ModelGroup
+from pydantic import ValidationError
 
 _channels_lock: asyncio.Lock | None = None
 _keys_lock: asyncio.Lock | None = None
@@ -60,8 +61,14 @@ def _ensure_data_dir():
 
 
 def _read_channels_from_disk() -> dict[str, Any]:
-    with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as exc:
+        from loguru import logger
+
+        logger.warning(f"channels file is not valid JSON, using empty channel list: {exc}")
+        return {"channels": []}
 
 
 def _write_channels_to_disk(data: dict[str, Any]) -> None:
@@ -156,8 +163,14 @@ _keys_cache_ts: float = 0
 
 
 def _read_api_keys_from_disk() -> dict[str, Any]:
-    with open(config.API_KEYS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(config.API_KEYS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as exc:
+        from loguru import logger
+
+        logger.warning(f"api keys file is not valid JSON, using empty api key list: {exc}")
+        return {"api_keys": []}
 
 
 def _write_api_keys_to_disk(data: dict[str, Any]) -> None:
@@ -260,19 +273,48 @@ async def save_lb_config(cfg: LBConfig) -> None:
 
 _MODEL_GROUPS_CACHE: list[ModelGroup] | None = None
 _MODEL_GROUPS_CACHE_TS: float = 0
+_MODEL_GROUPS_CACHE_VERSION: int = 0
+_model_groups_lock: asyncio.Lock | None = None
+
+
+def _get_model_groups_lock() -> asyncio.Lock:
+    global _model_groups_lock
+    if _model_groups_lock is None:
+        _model_groups_lock = asyncio.Lock()
+    return _model_groups_lock
+
+
+def _parse_model_groups(raw_groups: list[Any]) -> list[ModelGroup]:
+    from loguru import logger
+
+    groups: list[ModelGroup] = []
+    for idx, raw_group in enumerate(raw_groups):
+        try:
+            groups.append(ModelGroup(**raw_group))
+        except (TypeError, ValidationError) as exc:
+            group_id = raw_group.get("id") if isinstance(raw_group, dict) else None
+            logger.warning(
+                f"skip invalid model group entry index={idx} id={group_id}: {exc}"
+            )
+    return groups
 
 
 async def load_model_groups() -> list[ModelGroup]:
     global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
-    now = time.time()
-    if _MODEL_GROUPS_CACHE is not None and (now - _MODEL_GROUPS_CACHE_TS) < _CACHE_TTL:
-        return _MODEL_GROUPS_CACHE
+    async with _get_model_groups_lock():
+        now = time.time()
+        if _MODEL_GROUPS_CACHE is not None and (now - _MODEL_GROUPS_CACHE_TS) < _CACHE_TTL:
+            return _MODEL_GROUPS_CACHE
 
-    data = await load_data()
-    groups = [ModelGroup(**g) for g in data.get("model_groups", [])]
-    _MODEL_GROUPS_CACHE = groups
-    _MODEL_GROUPS_CACHE_TS = now
-    return groups
+        version = _MODEL_GROUPS_CACHE_VERSION
+        data = await load_data()
+        groups = _parse_model_groups(data.get("model_groups", []))
+        if version != _MODEL_GROUPS_CACHE_VERSION:
+            return groups
+
+        _MODEL_GROUPS_CACHE = groups
+        _MODEL_GROUPS_CACHE_TS = time.time()
+        return groups
 
 
 async def get_model_group_by_name(name: str) -> ModelGroup | None:
@@ -317,16 +359,18 @@ async def delete_model_group(group_id: str) -> bool:
 
 
 async def invalidate_model_groups_cache() -> None:
-    global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
-    async with _get_channels_lock():
+    global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS, _MODEL_GROUPS_CACHE_VERSION
+    async with _get_model_groups_lock():
         _MODEL_GROUPS_CACHE = None
         _MODEL_GROUPS_CACHE_TS = 0
+        _MODEL_GROUPS_CACHE_VERSION += 1
 
 
 def _invalidate_model_groups_cache_sync() -> None:
-    global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
+    global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS, _MODEL_GROUPS_CACHE_VERSION
     _MODEL_GROUPS_CACHE = None
     _MODEL_GROUPS_CACHE_TS = 0
+    _MODEL_GROUPS_CACHE_VERSION += 1
 
 
 # 注册缓存失效回调

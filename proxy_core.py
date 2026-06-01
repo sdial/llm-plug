@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 from loguru import logger
+from pydantic import ValidationError
 
 import request_logs
 import stats
@@ -427,16 +428,20 @@ async def _cleanup_removed_channels_after_save() -> None:
 
 async def _get_channels_for_model(model: str) -> list[Channel]:
     global _model_channels_cache
-    cache = _model_channels_cache
-    if cache is not None:
-        return cache.get(model, [])
-
     async with _model_channels_lock:
         cache = _model_channels_cache
         if cache is not None:
             return cache.get(model, [])
         data = await storage.load_data()
-        channels = [Channel(**ch) for ch in data.get("channels", [])]
+        channels: list[Channel] = []
+        for idx, raw_channel in enumerate(data.get("channels", [])):
+            try:
+                channels.append(Channel(**raw_channel))
+            except (TypeError, ValidationError) as exc:
+                channel_id = raw_channel.get("id") if isinstance(raw_channel, dict) else None
+                logger.warning(
+                    f"skip invalid channel entry index={idx} id={channel_id}: {exc}"
+                )
         _model_channels_cache = {}
         for ch in channels:
             if not ch.enabled:
@@ -1591,3 +1596,7 @@ async def _raise_preflight_stream_errors(gen):
         if not has_yielded and (_is_retryable_exception(exc) or _is_channel_config_error(exc)):
             raise _StreamPreflightError(exc) from exc
         raise
+    finally:
+        aclose = getattr(gen, "aclose", None)
+        if aclose is not None:
+            await aclose()

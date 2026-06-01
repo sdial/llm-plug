@@ -147,9 +147,6 @@ class ToAnthropicConverter(BaseConverter):
                 content_parts = []
                 reasoning_content = msg.get("reasoning_content")
                 if reasoning_content:
-                    # Chat 侧没有 Anthropic 加密签名，emit 空 signature 让 client 渲染思考过程；
-                    # 反向回传上游时 to_chat.py 会把整个 thinking 块降级为 reasoning_content，
-                    # 上游 Chat Completions 看不到 signature，不会触发 Anthropic API 的 400。
                     content_parts.append({
                         "type": "thinking",
                         "thinking": reasoning_content,

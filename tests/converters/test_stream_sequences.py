@@ -698,6 +698,52 @@ class TestChatToResponseStream:
         assert "output_tokens" in resp["usage"]
         assert resp["output_text"] == "Hello"
 
+    def test_response_completed_orders_reasoning_before_message_and_function_call(self):
+        """response.completed output 应按 reasoning → message → function_call 排序"""
+        converter = ToResponseConverter()
+        events = [
+            {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            {"choices": [{"delta": {"content": "Visible answer"}}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {
+                                        "name": "search",
+                                        "arguments": '{"q":"x"}',
+                                    },
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            {"choices": [{"delta": {"reasoning_content": "Think first"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        ]
+        outputs = []
+        for evt in events:
+            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
+            if result is not None:
+                outputs.append(result)
+                outputs.extend(converter.get_extra_events(result or {}))
+        outputs.extend(converter.finalize_stream("openai-chat-completions"))
+
+        completed = [
+            o
+            for o in outputs
+            if isinstance(o, dict) and o.get("type") == "response.completed"
+        ][0]
+        assert [item["type"] for item in completed["response"]["output"]] == [
+            "reasoning",
+            "message",
+            "function_call",
+        ]
+
     def test_response_completed_with_empty_choices(self):
         """choices 为空但有 finish_reason 时仍应发送 response.completed"""
         converter = ToResponseConverter()
