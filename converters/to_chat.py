@@ -935,18 +935,18 @@ class ToChatCompletionsConverter(BaseConverter):
             return self._anthropic_request_to_chat(source_data)
         elif source_type == "openai-response":
             return self._response_request_to_chat(source_data)
-        return source_data
+        raise ValueError(f"ToChatCompletionsConverter 不支持 source_type={source_type!r}")
 
     def convert_response(self, target_response: dict[str, Any], source_type: str = "") -> dict[str, Any]:
         if source_type == "anthropic":
             return self._anthropic_response_to_chat(target_response)
         elif source_type == "openai-response":
             return self._response_response_to_chat(target_response)
-        return target_response
+        raise ValueError(f"ToChatCompletionsConverter 不支持 source_type={source_type!r}")
 
     def convert_stream_chunk(self, chunk: dict[str, Any], source_type: str = "") -> dict[str, Any] | None:
         if source_type == "anthropic":
             return self._anthropic_stream_chunk_to_chat(chunk)
         elif source_type == "openai-response":
             return self._response_stream_chunk_to_chat(chunk)
-        return chunk
+        raise ValueError(f"ToChatCompletionsConverter 不支持 source_type={source_type!r}")
