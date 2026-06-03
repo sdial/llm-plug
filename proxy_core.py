@@ -1221,8 +1221,6 @@ def _build_chat_stream_chunks_from_object(full_response: dict[str, Any], model: 
 
 
 def _format_sse_for_list(data: dict[str, Any]) -> str:
-    if data.get("type"):
-        return _yield_anthropic_event(data["type"], data)
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
