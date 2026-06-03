@@ -912,14 +912,14 @@ class ToAnthropicConverter(BaseConverter):
             return self._chat_request_to_anthropic(source_data)
         elif source_type == "openai-response":
             return self._response_request_to_anthropic(source_data)
-        return source_data
+        raise ValueError(f"ToAnthropicConverter 不支持 source_type={source_type!r}")
 
     def convert_response(self, target_response: dict[str, Any], source_type: str = "") -> dict[str, Any]:
         if source_type == "openai-chat-completions":
             return self._chat_response_to_anthropic(target_response)
         elif source_type == "openai-response":
             return self._response_response_to_anthropic(target_response)
-        return target_response
+        raise ValueError(f"ToAnthropicConverter 不支持 source_type={source_type!r}")
 
     def convert_stream_chunk(self, chunk: dict[str, Any], source_type: str = "") -> dict[str, Any] | None:
         if source_type == "openai-chat-completions":
@@ -927,7 +927,7 @@ class ToAnthropicConverter(BaseConverter):
         elif source_type == "openai-response":
             events = self._response_stream_chunk_to_anthropic(chunk)
         else:
-            return chunk
+            raise ValueError(f"ToAnthropicConverter 不支持 source_type={source_type!r}")
         if not events:
             return None
         # 缓存首个事件的 event type，供 get_stream_event_type 读取，避免重复转换

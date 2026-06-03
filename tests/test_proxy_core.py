@@ -675,6 +675,126 @@ class TestDoRequest:
         assert response["choices"][0]["message"]["content"] == "visible"
 
     @pytest.mark.anyio
+    async def test_same_type_chat_stream_passthrough_applies_think_filter(self):
+        """同格式透传 + 流式 + capabilities.filter_think_content：
+        DeepSeek Chat→Chat 流式响应中的 💭...💭 应被剥除。
+        """
+
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"💭hidden💭 "}}]}'
+                yield ""
+                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"visible"}}]}'
+                yield ""
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_deepseek",
+            name="DeepSeek",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.deepseek.com",
+            api_key="sk-test",
+            models=["deepseek-chat"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = await _do_request(
+                channel,
+                {"model": "deepseek-chat", "stream": True,
+                 "messages": [{"role": "user", "content": "hi"}]},
+                APIType.OPENAI_CHAT,
+                is_stream=True,
+            )
+            outputs = "".join([chunk async for chunk in stream])
+
+        # 💭 内部内容必须被剥除
+        assert "hidden" not in outputs
+        assert "💭" not in outputs
+        # 正常文本必须保留
+        assert "visible" in outputs
+
+    @pytest.mark.anyio
+    async def test_same_type_response_stream_passthrough_applies_think_filter(self):
+        """同格式透传 + Response→Response 流式 + filter_think_content：
+        response.output_text.delta 中的 💭...💭 应被剥除。
+        """
+
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: response.output_text.delta"
+                yield 'data: {"type":"response.output_text.delta","delta":"💭thinking💭 "}'
+                yield ""
+                yield "event: response.output_text.delta"
+                yield 'data: {"type":"response.output_text.delta","delta":"shown"}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_deepseek_resp",
+            name="DeepSeek-Responses",
+            api_type=APIType.OPENAI_RESPONSE,
+            base_url="https://api.deepseek.com",
+            api_key="sk-test",
+            models=["deepseek-chat"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = await _do_request(
+                channel,
+                {"model": "deepseek-chat", "stream": True, "input": "hi"},
+                APIType.OPENAI_RESPONSE,
+                is_stream=True,
+            )
+            outputs = "".join([chunk async for chunk in stream])
+
+        assert "thinking" not in outputs
+        assert "💭" not in outputs
+        assert "shown" in outputs
+
+    @pytest.mark.anyio
     async def test_same_type_passthrough_applies_capability_filter_when_capabilities_set(
         self,
     ):

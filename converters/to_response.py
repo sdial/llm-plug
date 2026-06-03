@@ -960,21 +960,21 @@ class ToResponseConverter(BaseConverter):
             return self._chat_request_to_response(source_data)
         elif source_type == "anthropic":
             return self._anthropic_request_to_response(source_data)
-        return source_data
+        raise ValueError(f"ToResponseConverter 不支持 source_type={source_type!r}")
 
     def convert_response(self, target_response: dict[str, Any], source_type: str = "") -> dict[str, Any]:
         if source_type == "openai-chat-completions":
             return self._chat_response_to_response(target_response)
         elif source_type == "anthropic":
             return self._anthropic_response_to_response(target_response)
-        return target_response
+        raise ValueError(f"ToResponseConverter 不支持 source_type={source_type!r}")
 
     def convert_stream_chunk(self, chunk: dict[str, Any], source_type: str = "") -> dict[str, Any] | None:
         if source_type == "openai-chat-completions":
             return self._chat_stream_chunk_to_response(chunk)
         elif source_type == "anthropic":
             return self._anthropic_stream_chunk_to_response(chunk)
-        return chunk
+        raise ValueError(f"ToResponseConverter 不支持 source_type={source_type!r}")
 
     def get_extra_events(self, chunk: dict[str, Any]) -> list[dict[str, Any]]:
         # 从实例变量获取额外事件

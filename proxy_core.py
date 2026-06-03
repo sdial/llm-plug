@@ -223,8 +223,8 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
                 try:
                     blocks[block_idx]["input"] = json.loads(buffer) if buffer else {}
                 except json.JSONDecodeError:
+                    # 上游 partial_json 拼装异常：保留空 input，避免把内部 buffer 写入日志/响应记录。
                     blocks[block_idx]["input"] = {}
-                    blocks[block_idx]["_partial_json"] = buffer
 
         elif chunk_type == "message_delta":
             delta = chunk.get("delta", {})
@@ -1608,8 +1608,14 @@ async def _do_stream_request(
                         _mark_output()
                         yield extra_sse
                 else:
+                    # 同格式透传：think 过滤仍需生效。
+                    # Anthropic 协议的思考走 type: thinking 块，不存在 💭...💭 标记，跳过过滤。
+                    if think_filter and not is_upstream_anthropic and isinstance(chunk, dict):
+                        chunk = _filter_think_in_stream_chunk(chunk, think_filter)
+                        if chunk is None:
+                            continue
                     if output_sse_events and is_upstream_event_sse and upstream_event_type:
-                        sse = _format_sse(chunk, upstream_event_type or "ping")
+                        sse = _format_sse(chunk, upstream_event_type)
                     else:
                         sse = _format_sse(chunk)
                     if passthrough_lines:
