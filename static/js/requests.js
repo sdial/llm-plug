@@ -149,20 +149,20 @@ function renderRequests() {
         let speed = '-';
         if (latency != null && lag != null && latency > lag && outTokens > 0) {
             const elapsed = (latency - lag) / 1000; // 秒
-            speed = elapsed > 0 ? (outTokens / elapsed).toFixed(1) + ' t/s' : '-';
+            speed = elapsed > 0 ? (outTokens / elapsed).toFixed(1) : '-';
         }
         return `
         <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150 cursor-pointer" onclick="openRequestDetail(${req.id})">
             <td data-label="时间" class="py-3 px-3 text-sm text-ink-900 whitespace-nowrap">${formatTimestamp(req.timestamp)}</td>
             <td data-label="渠道" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.channel_name)}">${esc(req.channel_name)}</td>
-            <td data-label="客户端IP" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
+            <td data-label="客户端 IP" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
             <td data-label="API Key" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.api_key_name || req.api_key_id || '-')}">${esc(req.api_key_name || req.api_key_id || '-')}</td>
             <td data-label="模型" class="py-3 px-2 text-sm text-ink-900 truncate" title="${esc(req.model)}">${esc(req.model)}</td>
-            <td data-label="输入Tkn" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${req.input_tokens || 0}</td>
-            <td data-label="输出Tkn" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${outTokens}</td>
-            <td data-label="延迟" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${latency != null ? latency + 'ms' : '-'}</td>
-            <td data-label="首字" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${lag != null ? lag + 'ms' : '-'}</td>
-            <td data-label="速率" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${speed}</td>
+            <td data-label="输入 Tok" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${req.input_tokens || 0}</td>
+            <td data-label="输出 Tok" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${outTokens}</td>
+            <td data-label="总耗时 (ms)" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${latency != null ? latency : '-'}</td>
+            <td data-label="首 Token (ms)" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${lag != null ? lag : '-'}</td>
+            <td data-label="速率 (t/s)" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${speed}</td>
             <td data-label="结束原因" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.finish_reason || '-')}">${esc(req.finish_reason || '-')}</td>
             <td data-label="状态" class="py-3 px-2 text-center">
                 <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? '成功' : '失败'}</span>

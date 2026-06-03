@@ -294,7 +294,7 @@ function openModal(channel = null) {
     document.getElementById('f_models_url').value = channel ? (channel.models_url || '') : '';
     document.getElementById('advancedUrlDetails').open = !!(channel && (channel.endpoint_url || channel.models_url));
     document.getElementById('f_api_key').value = '';
-    document.getElementById('f_api_key').placeholder = channel ? '已设置，留空则不修改' : '';
+    document.getElementById('f_api_key').placeholder = channel ? '已设置，留空则不修改' : '上游服务的 API Key';
     tagInputChannel.setTags(channel ? channel.models : []);
     document.getElementById('f_weight').value = channel ? channel.weight : 1;
     document.getElementById('f_priority').value = channel ? channel.priority : 1;
