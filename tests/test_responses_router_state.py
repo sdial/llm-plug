@@ -65,19 +65,21 @@ def test_save_response_state_appends_request_and_response_items():
         ]
 
 
-def test_save_response_state_generates_missing_response_id():
+def test_save_response_state_skips_when_missing_response_id():
+    """上游未返回 id 时不再本地伪造 —— 跳过落库并警告，
+    避免同格式透传场景下客户端拿到上游不认识的伪造 id。
+    """
     from routers.proxy_response import _save_response_state
 
     response = {"output": []}
 
     with patch("routers.proxy_response._store") as mock_store:
-        mock_store.generate_response_id.return_value = "resp_generated"
         mock_store.put = AsyncMock()
 
         asyncio.run(_save_response_state({"input": "Hello"}, None, response))
 
-        assert response["id"] == "resp_generated"
-        mock_store.put.assert_awaited_once()
+        assert "id" not in response
+        mock_store.put.assert_not_awaited()
 
 
 def test_legacy_responses_handler_module_removed():
