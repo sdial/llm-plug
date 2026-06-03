@@ -736,6 +736,69 @@ class TestDoRequest:
         assert "visible" in outputs
 
     @pytest.mark.anyio
+    async def test_same_type_chat_non_sse_json_fallback_applies_think_filter(self):
+        """同格式透传 + 流式请求但上游返回整块 JSON 兜底场景：
+        Chat→Chat 拆成 chat.completion.chunk 序列时仍需剥除 💭...💭。
+        """
+
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "application/json"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                # 上游对 stream=true 仍返回整块 JSON（无 data: 前缀），触发 non_sse_stream_body 兜底
+                yield (
+                    '{"id":"chatcmpl-x","object":"chat.completion","model":"deepseek-chat",'
+                    '"choices":[{"index":0,"message":{"role":"assistant",'
+                    '"content":"💭hidden💭 visible"},"finish_reason":"stop"}],'
+                    '"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}'
+                )
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_deepseek_fallback",
+            name="DeepSeek",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.deepseek.com",
+            api_key="sk-test",
+            models=["deepseek-chat"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = await _do_request(
+                channel,
+                {"model": "deepseek-chat", "stream": True,
+                 "messages": [{"role": "user", "content": "hi"}]},
+                APIType.OPENAI_CHAT,
+                is_stream=True,
+            )
+            outputs = "".join([chunk async for chunk in stream])
+
+        # 💭 内部内容必须被剥除
+        assert "hidden" not in outputs
+        assert "💭" not in outputs
+        # 正常文本必须保留
+        assert "visible" in outputs
+
+    @pytest.mark.anyio
     async def test_same_type_response_stream_passthrough_applies_think_filter(self):
         """同格式透传 + Response→Response 流式 + filter_think_content：
         response.output_text.delta 中的 💭...💭 应被剥除。

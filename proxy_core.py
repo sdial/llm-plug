@@ -1682,6 +1682,12 @@ async def _do_stream_request(
                     chat_chunks = _build_chat_stream_chunks_from_object(full_response, model)
                     if chat_chunks:
                         for chunk_obj in chat_chunks:
+                            # 同格式透传：think 过滤仍需生效（对齐 1611-1616 流式分支）。
+                            # Anthropic 上游用 type: thinking 块，不存在 💭 标记，跳过过滤。
+                            if think_filter and not is_upstream_anthropic:
+                                chunk_obj = _filter_think_in_stream_chunk(chunk_obj, think_filter)
+                                if chunk_obj is None:
+                                    continue
                             sse = _format_sse(chunk_obj)
                             _log_stream_event(sse)
                             _mark_output()
