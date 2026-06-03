@@ -32,7 +32,7 @@ function renderApiKeys() {
     const container = document.getElementById('apiKeyList');
     if (!container) return;
     if (!apiKeys.length) {
-        container.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">暂无 API Key，未设置APIKEY时，则任意APIKEY均放行</p>';
+        container.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">暂无 API Key。未创建任何 Key 时，所有请求均放行（不做鉴权）。</p>';
         return;
     }
     container.innerHTML = `

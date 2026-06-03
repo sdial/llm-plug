@@ -224,23 +224,23 @@ body {
     align-items: center;
     gap: 6px;
     padding: 6px 10px;
-    border: 1px solid var(--surface-200, #e5e7eb);
+    border: 1px solid #e8e6e3;
     border-radius: 0.5rem;
     background: white;
     min-height: 38px;
     cursor: text;
 }
 .tag-input-container:focus-within {
-    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
-    border-color: #4f46e5;
+    box-shadow: 0 0 0 2px rgba(99, 91, 255, 0.2);
+    border-color: #635bff;
 }
 .tag-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    background: #eef2ff;
-    color: #4338ca;
+    background: #f0efff;
+    color: #4a42cc;
     border-radius: 9999px;
     font-size: 0.875rem;
     font-weight: 500;
@@ -253,7 +253,7 @@ body {
 }
 .tag-chip-remove:hover {
     opacity: 1;
-    color: #dc2626;
+    color: #e11d48;
 }
 .tag-input-field {
     border: none;
