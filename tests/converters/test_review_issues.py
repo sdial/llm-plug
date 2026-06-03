@@ -4,7 +4,6 @@
 当问题被修复后，相关测试会失败，提示修改者同时更新测试以匹配新行为。
 """
 import json
-import pytest
 
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
