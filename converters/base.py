@@ -1,5 +1,31 @@
 from abc import ABC, abstractmethod
 from typing import Any
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def safe_parse_tool_args(value: Any) -> tuple[Any, bool]:
+    """安全解析 tool arguments JSON 字符串。
+
+    Args:
+        value: 待解析的值，通常是 JSON 字符串或已解析的对象
+
+    Returns:
+        tuple: (解析后的值, 是否为完整解析)
+            - 如果解析成功，返回 (解析后的对象, True)
+            - 如果解析失败，返回 {"_partial_args": 原始字符串}, False)
+            - 如果输入不是字符串，直接返回 (原值, True)
+    """
+    if not isinstance(value, str):
+        return value, True
+
+    try:
+        return json.loads(value), True
+    except json.JSONDecodeError:
+        logger.warning("incomplete tool arguments JSON: %r", value[:120] if len(value) > 120 else value)
+        return {"_partial_args": value}, False
 
 
 # Anthropic thinking.budget_tokens -> OpenAI reasoning_effort 的统一阈值。

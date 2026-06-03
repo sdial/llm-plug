@@ -56,7 +56,7 @@ class TestChatToAnthropic:
         assert result["tool_choice"]["type"] == "none"
 
     def test_invalid_json_arguments_fallback(self):
-        """无效 JSON 参数应回退为空 dict 但不崩溃"""
+        """无效 JSON 参数应回退为带 _partial_args 标记的 dict 但不崩溃"""
         request = {
             "model": "gpt-4o",
             "messages": [
@@ -75,7 +75,7 @@ class TestChatToAnthropic:
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
-        assert assistant_msg["content"][0]["input"] == {}
+        assert assistant_msg["content"][0]["input"] == {"_partial_args": "not valid json"}
 
     def test_assistant_empty_string_content_is_preserved(self):
         """OpenAI content: "" 应保留为空文本块，而不是被当成 None 丢弃。"""

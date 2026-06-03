@@ -1457,7 +1457,15 @@ async def _do_stream_request(
                     else:
                         sse = _format_sse(chunk)
                     if passthrough_lines:
-                        sse = "\n".join(passthrough_lines) + "\n" + sse
+                        _sse_lines = []
+                        for _ln in sse.split("\n"):
+                            if _ln.startswith("event: "):
+                                _sse_lines.append(_ln)
+                        _sse_lines.extend(passthrough_lines)
+                        for _ln in sse.split("\n"):
+                            if _ln.startswith("data:"):
+                                _sse_lines.append(_ln)
+                        sse = "\n".join(_sse_lines) + "\n\n"
                     _log_stream_event(sse)
                     _mark_output()
                     yield sse

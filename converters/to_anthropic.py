@@ -1,12 +1,11 @@
 """
 将其他格式转换为 Anthropic Messages 格式
 """
-import json
 from typing import Any
 
 from loguru import logger
 
-from converters.base import BaseConverter
+from converters.base import BaseConverter, safe_parse_tool_args
 from converters.usage import openai_chat_to_anthropic, openai_response_to_anthropic
 
 
@@ -164,12 +163,7 @@ class ToAnthropicConverter(BaseConverter):
                             content_parts.append({"type": "text", "text": str(converted)})
                 for tc in msg.get("tool_calls", []):
                     args = tc.get("function", {}).get("arguments", "{}")
-                    if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except json.JSONDecodeError:
-                            logger.debug("JSON decode error for arguments: %r", args)
-                            args = {}
+                    args, _ = safe_parse_tool_args(args)
                     content_parts.append({
                         "type": "tool_use",
                         "id": tc.get("id", ""),
@@ -333,12 +327,7 @@ class ToAnthropicConverter(BaseConverter):
         if tool_calls:
             for tc in tool_calls:
                 args = tc.get("function", {}).get("arguments", "{}")
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                    except json.JSONDecodeError:
-                        logger.debug("JSON decode error for arguments: %r", args)
-                        args = {}
+                args, _ = safe_parse_tool_args(args)
                 content.append({
                     "type": "tool_use",
                     "id": tc.get("id", ""),
@@ -622,12 +611,7 @@ class ToAnthropicConverter(BaseConverter):
                     })
                 elif item_type == "function_call":
                     args = item.get("arguments", "{}")
-                    if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except json.JSONDecodeError:
-                            logger.debug("JSON decode error for arguments: %r", args)
-                            args = {}
+                    args, _ = safe_parse_tool_args(args)
                     messages.append({
                         "role": "assistant",
                         "content": [{
@@ -693,12 +677,7 @@ class ToAnthropicConverter(BaseConverter):
                         content.append({"type": "text", "text": c.get("text", "")})
             elif item.get("type") == "function_call":
                 args = item.get("arguments", "{}")
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                    except json.JSONDecodeError:
-                        logger.debug("JSON decode error for arguments: %r", args)
-                        args = {}
+                args, _ = safe_parse_tool_args(args)
                 content.append({
                     "type": "tool_use",
                     "id": item.get("call_id", item.get("id", "")),

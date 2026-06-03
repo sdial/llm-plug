@@ -728,6 +728,8 @@ class ToResponseConverter(BaseConverter):
                 self._pending_extra_events = done_events
                 return _make_created_event()
 
+            if not done_events:
+                return None
             if len(done_events) == 1:
                 logger.debug(f"[CHUNK] returning single done_event: {done_events[0].get('type')}")
                 return done_events[0]
@@ -1137,6 +1139,8 @@ class ToResponseConverter(BaseConverter):
         self._stream_state["pending_finish_reason"] = finish_reason
         self._stream_state["pending_final_events"] = final_events
         self._stream_state["waiting_for_usage_after_finish"] = True
+        if not final_events:
+            return []
         return final_events[:-1]
 
     def _release_pending_completed_event(self) -> list[dict[str, Any]]:
