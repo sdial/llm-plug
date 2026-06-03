@@ -614,9 +614,15 @@ class TestConverterMap:
 
 class TestDoRequest:
     @pytest.mark.anyio
-    async def test_same_type_non_stream_skips_capability_filter_and_response_think_filter(
+    async def test_same_type_non_stream_applies_capability_filter_and_response_think_filter(
         self,
     ):
+        """同格式透传时，capabilities 描述的是上游真实约束，必须仍然生效。
+
+        DeepSeek（base_url 命中关键字）：
+        - 请求侧应剥除 parallel_tool_calls
+        - 响应侧应过滤 💭...💭 思考内容
+        """
         captured = {}
         upstream_response = {
             "id": "chatcmpl_1",
@@ -663,13 +669,16 @@ class TestDoRequest:
                 channel, request_data, APIType.OPENAI_CHAT, is_stream=False
             )
 
-        assert captured["json"] == request_data
-        assert response == upstream_response
+        # 请求侧：parallel_tool_calls 已被 capability 过滤
+        assert "parallel_tool_calls" not in captured["json"]
+        # 响应侧：💭 内容已被剥除
+        assert response["choices"][0]["message"]["content"] == "visible"
 
     @pytest.mark.anyio
-    async def test_same_type_passthrough_skips_capability_filter_even_with_capabilities_set(
+    async def test_same_type_passthrough_applies_capability_filter_when_capabilities_set(
         self,
     ):
+        """同格式透传也必须尊重 channel.capabilities 用户配置。"""
         captured = {}
         upstream_response = {
             "id": "chatcmpl_1",
@@ -717,7 +726,7 @@ class TestDoRequest:
                 channel, request_data, APIType.OPENAI_CHAT, is_stream=False
             )
 
-        assert captured["json"] == request_data
+        assert "parallel_tool_calls" not in captured["json"]
         assert response == upstream_response
 
     @pytest.mark.anyio

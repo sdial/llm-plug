@@ -84,8 +84,10 @@ async def _save_response_state(
 ) -> None:
     response_id = response.get("id")
     if not response_id:
-        response_id = _store.generate_response_id()
-        response["id"] = response_id
+        # 上游未返回 id 时不再本地伪造 —— 同格式透传场景下，本地伪造的 id 上游不认识，
+        # 客户端下次用它当 previous_response_id 会触发上游 404，链路静默断裂。
+        logger.warning("[RESPONSES] upstream response missing 'id', skipping local state store")
+        return
 
     messages = list((previous_conversation or {}).get("messages", []))
     messages.extend(_input_to_items(request_body.get("input")))

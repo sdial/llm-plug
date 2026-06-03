@@ -534,8 +534,6 @@ def _append_api_path(base: str, path: str) -> str:
 
 def _build_upstream_headers(
     channel: Channel,
-    target_api_type: APIType,
-    same_type_passthrough: bool,
     client_headers: dict[str, str] | None,
 ) -> dict:
     forwarded_headers = {}
@@ -852,7 +850,6 @@ async def _do_request(
     client_ip: str | None = None,
 ):
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
-    same_type_passthrough = request_converter is None and response_converter is None
 
     # 透传 OpenAI Chat 客户端的 stream_options.include_usage 到 response_converter
     if is_stream and isinstance(response_converter, ToChatCompletionsConverter):
@@ -877,29 +874,26 @@ async def _do_request(
 
     # === Capability 管理 ===
     # 必须在格式转换之后处理，因为能力过滤作用于实际发给上游的格式。
-    apply_compatibility_filters = not same_type_passthrough
-    caps = infer_capabilities(channel) if apply_compatibility_filters else None
-    if caps is not None:
-        upstream_data = apply_capability_filter(upstream_data, caps)
+    # 能力描述的是上游真实约束（MiniMax 单 system、DeepSeek 不支持 parallel_tool_calls 等），
+    # 与是否做格式转换无关 —— 同格式透传时也必须应用。
+    caps = infer_capabilities(channel)
+    upstream_data = apply_capability_filter(upstream_data, caps)
 
     # MiniMax 特殊处理：合并多条 system 消息
-    if caps is not None and caps.requires_single_system_message:
-        if "messages" in upstream_data:
-            original_count = len([m for m in upstream_data["messages"] if m.get("role") == "system"])
-            upstream_data["messages"] = merge_system_messages(upstream_data["messages"])
-            new_count = len([m for m in upstream_data["messages"] if m.get("role") == "system"])
-            if original_count > 1:
-                logger.debug(f"[CAPABILITY] MiniMax: 合并 {original_count} 条 system 消息为 {new_count} 条")
+    if caps.requires_single_system_message and "messages" in upstream_data:
+        original_count = len([m for m in upstream_data["messages"] if m.get("role") == "system"])
+        upstream_data["messages"] = merge_system_messages(upstream_data["messages"])
+        new_count = len([m for m in upstream_data["messages"] if m.get("role") == "system"])
+        if original_count > 1:
+            logger.debug(f"[CAPABILITY] MiniMax: 合并 {original_count} 条 system 消息为 {new_count} 条")
 
-    need_think_filter = bool(caps and caps.filter_think_content)
+    need_think_filter = bool(caps.filter_think_content)
 
     url = _get_upstream_url(channel)
     if query_string:
         url = append_query(url, query_string)
     headers = _build_upstream_headers(
         channel,
-        target_api_type,
-        same_type_passthrough,
         client_headers,
     )
 
@@ -972,20 +966,66 @@ async def _do_request(
             response_body=response_data,
         )
 
-        # 非流式响应摘要日志
-        content = response_data.get("content", []) if isinstance(response_data, dict) else []
-        if content:
-            summary = []
-            for c in content:
-                if c.get("type") == "text":
-                    txt = c.get("text", "")
-                    summary.append(f'text({len(txt)}chars)')
-                elif c.get("type") == "tool_use":
-                    summary.append(f'tool_use({c.get("name", "")})')
+        # 非流式响应摘要日志（兼容 Anthropic / Chat / Response 三种形状）
+        if isinstance(response_data, dict):
+            summary: list[str] = []
+            stop_label: str | None = None
+
+            # Anthropic: 顶层 content 数组
+            content = response_data.get("content")
+            if isinstance(content, list) and content:
+                for c in content:
+                    if not isinstance(c, dict):
+                        summary.append("?")
+                        continue
+                    if c.get("type") == "text":
+                        summary.append(f'text({len(c.get("text", ""))}chars)')
+                    elif c.get("type") == "tool_use":
+                        summary.append(f'tool_use({c.get("name", "")})')
+                    else:
+                        summary.append(c.get("type", "?"))
+                stop_label = response_data.get("stop_reason")
+
+            # OpenAI Chat: choices[].message
+            else:
+                choices = response_data.get("choices")
+                if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                    msg = choices[0].get("message") if isinstance(choices[0].get("message"), dict) else {}
+                    msg_content = msg.get("content") if isinstance(msg, dict) else None
+                    if isinstance(msg_content, str) and msg_content:
+                        summary.append(f"text({len(msg_content)}chars)")
+                    tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
+                    if isinstance(tool_calls, list):
+                        for tc in tool_calls:
+                            if isinstance(tc, dict):
+                                func = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+                                summary.append(f'tool_use({func.get("name", "")})')
+                    stop_label = choices[0].get("finish_reason")
                 else:
-                    summary.append(c.get("type", "?"))
-            logger.debug(f"content: [{', '.join(summary)}]")
-        logger.debug(f"stop_reason: {response_data.get('stop_reason', '?') if isinstance(response_data, dict) else '?'}")
+                    # OpenAI Response: output[].content[]
+                    output = response_data.get("output")
+                    if isinstance(output, list):
+                        for item in output:
+                            if not isinstance(item, dict):
+                                continue
+                            item_type = item.get("type")
+                            if item_type == "message":
+                                for part in item.get("content", []) or []:
+                                    if not isinstance(part, dict):
+                                        continue
+                                    if part.get("type") == "output_text":
+                                        summary.append(f'text({len(part.get("text", ""))}chars)')
+                                    else:
+                                        summary.append(part.get("type", "?"))
+                            elif item_type == "function_call":
+                                summary.append(f'tool_use({item.get("name", "")})')
+                            elif item_type:
+                                summary.append(item_type)
+                    stop_label = response_data.get("status") or response_data.get("stop_reason")
+
+            if summary:
+                logger.debug(f"content: [{', '.join(summary)}]")
+            logger.debug(f"stop_reason: {stop_label or '?'}")
 
         await load_balancer.record_success(channel.id)
         return response_data
@@ -1054,25 +1094,130 @@ def _convert_anthropic_response_to_events(converted: dict[str, Any]) -> list[tup
 def _convert_non_stream_to_stream_events(
     full_response: dict[str, Any], response_converter, source_type: str, output_responses_sse: bool,
 ) -> list[str]:
-    if output_responses_sse:
+    if not output_responses_sse:
+        return []
+    if response_converter is not None:
         converted = response_converter.convert_response(full_response, source_type)
-        events: list[str] = []
-        events.append(_format_sse_for_list({"type": "response.created", "response": converted}))
-        for idx, item in enumerate(converted.get("output", [])):
-            events.append(_format_sse_for_list({"type": "response.output_item.added", "output_index": idx, "item": item}))
-            if item.get("type") == "message":
-                for part_idx, part in enumerate(item.get("content", [])):
-                    if part.get("type") == "output_text":
-                        events.append(_format_sse_for_list({"type": "response.content_part.added", "output_index": idx, "content_index": part_idx, "part": {"type": "output_text", "text": ""}}))
-                        text = part.get("text", "")
-                        if text:
-                            events.append(_format_sse_for_list({"type": "response.output_text.delta", "output_index": idx, "content_index": part_idx, "delta": text}))
-                        events.append(_format_sse_for_list({"type": "response.content_part.done", "output_index": idx, "content_index": part_idx, "part": part}))
-            events.append(_format_sse_for_list({"type": "response.output_item.done", "output_index": idx, "item": item}))
-        status = converted.get("status", "completed")
-        events.append(_format_sse_for_list({"type": "response.completed", "response": {**converted, "status": status}}))
-        return events
-    return []
+    else:
+        converted = full_response
+    return _build_responses_stream_events_from_object(converted)
+
+
+def _build_responses_stream_events_from_object(converted: dict[str, Any]) -> list[str]:
+    """把一个 Response 形态的完整对象拆成 Responses SSE 事件序列。"""
+    events: list[str] = []
+    events.append(_format_sse_for_list({"type": "response.created", "response": converted}))
+    for idx, item in enumerate(converted.get("output", [])):
+        events.append(_format_sse_for_list({"type": "response.output_item.added", "output_index": idx, "item": item}))
+        if item.get("type") == "message":
+            for part_idx, part in enumerate(item.get("content", [])):
+                if part.get("type") == "output_text":
+                    events.append(_format_sse_for_list({"type": "response.content_part.added", "output_index": idx, "content_index": part_idx, "part": {"type": "output_text", "text": ""}}))
+                    text = part.get("text", "")
+                    if text:
+                        events.append(_format_sse_for_list({"type": "response.output_text.delta", "output_index": idx, "content_index": part_idx, "delta": text}))
+                    events.append(_format_sse_for_list({"type": "response.content_part.done", "output_index": idx, "content_index": part_idx, "part": part}))
+        events.append(_format_sse_for_list({"type": "response.output_item.done", "output_index": idx, "item": item}))
+    status = converted.get("status", "completed")
+    events.append(_format_sse_for_list({"type": "response.completed", "response": {**converted, "status": status}}))
+    return events
+
+
+def _build_chat_stream_chunks_from_object(full_response: dict[str, Any], model: str) -> list[dict[str, Any]]:
+    """把一个 Chat Completion 完整对象拆成 chat.completion.chunk 列表（不含 [DONE]）。
+
+    用于上游对 stream=true 仍返回整块 JSON 的兜底场景，避免直接吐整块对象破坏流式协议。
+    """
+    response_id = full_response.get("id") or f"chatcmpl-{secrets.token_hex(12)}"
+    created = full_response.get("created") or int(time.time())
+    resp_model = full_response.get("model") or model
+    chunks: list[dict[str, Any]] = []
+    choices = full_response.get("choices", [])
+    if not isinstance(choices, list) or not choices:
+        return chunks
+
+    for ch_idx, choice in enumerate(choices):
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message", {}) if isinstance(choice.get("message"), dict) else {}
+        role = message.get("role", "assistant")
+        content = message.get("content")
+        reasoning_content = message.get("reasoning_content")
+        tool_calls = message.get("tool_calls")
+        finish_reason = choice.get("finish_reason")
+
+        # 首帧：role 头
+        chunks.append({
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": resp_model,
+            "choices": [{"index": ch_idx, "delta": {"role": role}, "finish_reason": None}],
+        })
+
+        if isinstance(reasoning_content, str) and reasoning_content:
+            chunks.append({
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": resp_model,
+                "choices": [{"index": ch_idx, "delta": {"reasoning_content": reasoning_content}, "finish_reason": None}],
+            })
+
+        if isinstance(content, str) and content:
+            chunks.append({
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": resp_model,
+                "choices": [{"index": ch_idx, "delta": {"content": content}, "finish_reason": None}],
+            })
+
+        if isinstance(tool_calls, list) and tool_calls:
+            tc_delta = []
+            for tc_idx, tc in enumerate(tool_calls):
+                if not isinstance(tc, dict):
+                    continue
+                func = tc.get("function", {}) if isinstance(tc.get("function"), dict) else {}
+                tc_delta.append({
+                    "index": tc_idx,
+                    "id": tc.get("id", ""),
+                    "type": tc.get("type", "function"),
+                    "function": {
+                        "name": func.get("name", ""),
+                        "arguments": func.get("arguments", ""),
+                    },
+                })
+            if tc_delta:
+                chunks.append({
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": resp_model,
+                    "choices": [{"index": ch_idx, "delta": {"tool_calls": tc_delta}, "finish_reason": None}],
+                })
+
+        # 末帧：finish_reason
+        chunks.append({
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": resp_model,
+            "choices": [{"index": ch_idx, "delta": {}, "finish_reason": finish_reason}],
+        })
+
+    usage = full_response.get("usage")
+    if isinstance(usage, dict):
+        chunks.append({
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": resp_model,
+            "choices": [],
+            "usage": usage,
+        })
+
+    return chunks
 
 
 def _format_sse_for_list(data: dict[str, Any]) -> str:
@@ -1399,9 +1544,22 @@ async def _do_stream_request(
                 _record_chunk(chunk)
                 _mark_first_token()
 
-                if isinstance(chunk, dict) and is_upstream_anthropic and (
-                    upstream_event_type == "error" or chunk.get("type") == "error"
-                ):
+                upstream_error_detected = False
+                if isinstance(chunk, dict):
+                    if is_upstream_anthropic and (
+                        upstream_event_type == "error" or chunk.get("type") == "error"
+                    ):
+                        upstream_error_detected = True
+                    elif source_type == "openai-response" and (
+                        upstream_event_type == "error"
+                        or chunk.get("type") == "error"
+                        or chunk.get("type") == "response.failed"
+                    ):
+                        upstream_error_detected = True
+                    elif source_type == "openai-chat-completions" and isinstance(chunk.get("error"), dict):
+                        upstream_error_detected = True
+
+                if upstream_error_detected:
                     upstream_error = _UpstreamStreamErrorEvent(chunk)
                     if not emitted_output:
                         raise _StreamPreflightError(upstream_error)
@@ -1506,11 +1664,21 @@ async def _do_stream_request(
                             _mark_output()
                             yield sse
                 elif output_responses_sse:
-                    if response_converter:
-                        stream_events = _convert_non_stream_to_stream_events(
-                            full_response, response_converter, source_type, output_responses_sse,
-                        )
-                        for sse in stream_events:
+                    # Response→Response 透传或跨格式都走拆事件，避免裸吐整块 JSON。
+                    stream_events = _convert_non_stream_to_stream_events(
+                        full_response, response_converter, source_type, output_responses_sse,
+                    )
+                    for sse in stream_events:
+                        _log_stream_event(sse)
+                        _mark_output()
+                        yield sse
+                else:
+                    # Chat→Chat 透传：把整块 chat.completion 拆成 chat.completion.chunk 序列，
+                    # 避免客户端拿到非流式形态破坏 SSE 协议。
+                    chat_chunks = _build_chat_stream_chunks_from_object(full_response, model)
+                    if chat_chunks:
+                        for chunk_obj in chat_chunks:
+                            sse = _format_sse(chunk_obj)
                             _log_stream_event(sse)
                             _mark_output()
                             yield sse
@@ -1519,11 +1687,6 @@ async def _do_stream_request(
                         _log_stream_event(sse)
                         _mark_output()
                         yield sse
-                else:
-                    sse = _format_sse(full_response)
-                    _log_stream_event(sse)
-                    _mark_output()
-                    yield sse
                 if not output_sse_events:
                     _mark_output()
                     yield "data: [DONE]\n\n"
