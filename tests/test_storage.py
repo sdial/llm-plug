@@ -290,6 +290,84 @@ class TestModelGroupsStorage:
 
         assert [g.id for g in groups] == ["grp_new"]
 
+    @pytest.mark.anyio
+    async def test_load_model_groups_retries_when_sync_invalidation_happens_during_load(self, monkeypatch):
+        stale_data = {
+            "channels": [],
+            "model_groups": [{"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}],
+        }
+        fresh_data = {
+            "channels": [],
+            "model_groups": [{"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}],
+        }
+
+        async def load_data():
+            if load_data.calls == 0:
+                load_data.calls += 1
+                storage._invalidate_model_groups_cache_sync()
+                return stale_data
+            load_data.calls += 1
+            return fresh_data
+
+        load_data.calls = 0
+        monkeypatch.setattr(storage, "load_data", load_data)
+
+        groups = await storage.load_model_groups()
+
+        assert [g.id for g in groups] == ["grp_new"]
+        assert [g.id for g in storage._MODEL_GROUPS_CACHE] == ["grp_new"]
+
+    @pytest.mark.anyio
+    async def test_save_data_during_load_model_groups_does_not_leave_stale_cache(self, monkeypatch):
+        """When save_data triggers _invalidate_model_groups_cache_sync while
+        load_model_groups is suspended at load_data(), the stale result must
+        not overwrite the invalidated cache."""
+        stale_data = {
+            "channels": [],
+            "model_groups": [{"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}],
+        }
+        fresh_data = {
+            "channels": [],
+            "model_groups": [{"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}],
+        }
+
+        load_release = asyncio.Event()
+        load_call_count = 0
+
+        async def controlled_load_data():
+            nonlocal load_call_count
+            load_call_count += 1
+            if load_call_count == 1:
+                await load_release.wait()
+                return stale_data
+            return fresh_data
+
+        monkeypatch.setattr(storage, "load_data", controlled_load_data)
+
+        load_task = asyncio.create_task(storage.load_model_groups())
+        await asyncio.sleep(0)
+
+        storage._invalidate_model_groups_cache_sync()
+
+        load_release.set()
+        result = await load_task
+
+        assert storage._MODEL_GROUPS_CACHE is not None
+        assert [g.id for g in result] == ["grp_new"]
+        assert [g.id for g in storage._MODEL_GROUPS_CACHE] == ["grp_new"]
+
+    @pytest.mark.anyio
+    async def test_sync_invalidation_clears_cache_and_increments_version(self):
+        storage._MODEL_GROUPS_CACHE = [storage.ModelGroup(name="cached", models=["gpt-4"])]
+        storage._MODEL_GROUPS_CACHE_TS = time.time()
+        storage._MODEL_GROUPS_CACHE_VERSION = 3
+
+        storage._invalidate_model_groups_cache_sync()
+
+        assert storage._MODEL_GROUPS_CACHE is None
+        assert storage._MODEL_GROUPS_CACHE_TS == 0
+        assert storage._MODEL_GROUPS_CACHE_VERSION == 4
+
 
 class TestConcurrency:
     @pytest.mark.anyio
