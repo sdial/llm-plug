@@ -61,6 +61,7 @@ _CONFIG_SCHEMA = {
         "default": 64 * 1024,
         "requires_restart": False,
     },
+    "allow_format_conversion": {"type": "bool", "default": True, "requires_restart": False},
     "max_fail_count": {"type": "int", "default": 5, "requires_restart": False},
     "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False},
     "response_state_max_entries": {"type": "int", "default": 1000, "requires_restart": False},

@@ -133,6 +133,16 @@
                         <label class="block text-sm font-medium text-ink-900 mb-1">SOCKS5代理 <span class="text-ink-400 font-normal">(可选)</span></label>
                         <input type="text" id="f_socks5_proxy" placeholder="socks5://user:pass@127.0.0.1:1080" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
+                    <div>
+                        <label class="block text-sm font-medium text-ink-900 mb-1">跨格式转换</label>
+                        <select id="f_allow_format_conversion" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                            <option value="">跟随全局设置</option>
+                            <option value="true">允许转换</option>
+                            <option value="false">仅允许同格式透传</option>
+                        </select>
+                        <p class="text-xs text-ink-400 mt-1">客户端入口格式与本渠道格式不一致时是否走转换器。「跟随全局」时使用「设置 → 请求处理」中的开关。</p>
+                        <p class="text-xs text-ink-400 mt-1">本渠道设置优先级高于全局设置：选择「允许转换」或「仅允许同格式透传」后会覆盖全局默认值。</p>
+                    </div>
                     <div id="anthropicConfigSection" class="hidden space-y-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
                         <div>
                             <label class="block text-sm font-medium text-ink-900 mb-1">Anthropic Version <span class="text-ink-400 font-normal">(可选)</span></label>

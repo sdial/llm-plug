@@ -91,6 +91,17 @@
                 <p class="text-xs text-ink-400 mt-1">单位：MB，超过此大小的请求将被拒绝</p>
               </div>
             </div>
+            <div class="mt-5 pt-5 border-t border-surface-100">
+              <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-sm font-medium text-ink-900">允许跨格式转换</span>
+                <span class="pill pill-success">热更新</span>
+              </div>
+              <label class="flex items-start gap-2 text-sm text-ink-700">
+                <input type="checkbox" id="set_allow_format_conversion" data-section="request" class="settings-input mt-0.5 rounded border-surface-200">
+                <span>开启后，客户端入口格式与渠道格式不一致时会自动调用转换器（如 OpenAI Chat → Anthropic）。</span>
+              </label>
+              <p class="text-xs text-ink-400 mt-1.5">关闭后，跨格式渠道会被静默跳过（仅尝试同格式渠道，透传更稳定）。可在单个渠道里覆盖此默认值。</p>
+            </div>
           </div>
         </div>
 

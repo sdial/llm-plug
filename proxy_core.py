@@ -21,7 +21,7 @@ from capability_manager import (
     merge_system_messages,
 )
 from client import create_client, create_stream_client, get_upstream_headers
-from config import LOG_LEVEL
+from config import LOG_LEVEL, get_setting
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
@@ -477,6 +477,31 @@ CONVERTER_MAP: dict[tuple[str, str], tuple[type, type]] = {
 }
 
 
+def _filter_channels_by_conversion(
+    channels: list[Channel], target_api_type: APIType
+) -> list[Channel]:
+    """按"是否允许跨格式转换"过滤渠道。
+
+    同格式渠道（透传）始终通过。跨格式渠道按 channel.allow_format_conversion 决定，
+    若该字段为 None 则回落到全局 settings.allow_format_conversion（默认 True）。
+    """
+    target = target_api_type.value
+    global_allowed = get_setting("allow_format_conversion")
+    if global_allowed is None:
+        global_allowed = True
+    result: list[Channel] = []
+    for ch in channels:
+        if ch.api_type.value == target:
+            result.append(ch)
+            continue
+        allowed = ch.allow_format_conversion
+        if allowed is None:
+            allowed = global_allowed
+        if allowed:
+            result.append(ch)
+    return result
+
+
 def _get_converter_and_upstream_type(
     channel: Channel, target_api_type: APIType
 ) -> tuple:
@@ -715,6 +740,12 @@ async def _proxy_single_model_request(
     channels = await _get_channels_for_model(model)
     if not channels:
         raise ValueError(f"没有可用渠道支持模型: {model}")
+    channels = _filter_channels_by_conversion(channels, target_api_type)
+    if not channels:
+        raise ValueError(
+            f"模型 {model} 没有可用的同格式渠道（已禁止跨格式转换），"
+            f"客户端格式={target_api_type.value}"
+        )
 
     all_tried: set[str] = set()
     last_error: Exception | None = None
@@ -769,6 +800,9 @@ async def _proxy_model_group_request(
         channels = await _get_channels_for_model(current_model)
         if not channels:
             continue  # 该模型无渠道，尝试下一个模型
+        channels = _filter_channels_by_conversion(channels, target_api_type)
+        if not channels:
+            continue  # 该模型的所有渠道都因禁止跨格式转换被排除，尝试下一个模型
 
         # 在该模型的渠道中尝试
         while True:
