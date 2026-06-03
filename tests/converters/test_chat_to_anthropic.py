@@ -520,3 +520,141 @@ class TestChatToAnthropic:
             and event["content_block"]["type"] == "thinking"
         ][0]
         assert thinking_start["content_block"]["signature"] == ""
+
+
+class TestReviewFixes:
+    """REVIEW.md 必须修复 / 建议修改 项的回归测试。"""
+
+    def setup_method(self):
+        self.converter = ToAnthropicConverter()
+
+    # #2 tool message 多模态 content 经 _convert_content 规范化
+    def test_tool_message_image_url_content_normalized(self):
+        request = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "user", "content": "show me"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "img", "arguments": "{}"},
+                    }],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "content": [
+                        {"type": "text", "text": "see picture:"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,QUJD"},
+                        },
+                    ],
+                },
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        # tool_result 块应位于最后一条 user 消息
+        user_with_tool_result = [
+            m for m in result["messages"]
+            if m["role"] == "user" and isinstance(m["content"], list)
+            and any(c.get("type") == "tool_result" for c in m["content"])
+        ]
+        assert user_with_tool_result
+        tr = user_with_tool_result[-1]["content"][0]
+        assert tr["tool_use_id"] == "call_1"
+        # content 应当被规范化为 Anthropic 风格 list，含 image 块
+        assert isinstance(tr["content"], list)
+        assert any(c.get("type") == "image" for c in tr["content"])
+        # 不应残留 OpenAI 风格的 image_url
+        assert not any(c.get("type") == "image_url" for c in tr["content"])
+
+    # #3 缺 tool_call_id 时整块 tool_result 被丢弃
+    def test_tool_message_missing_tool_call_id_dropped(self):
+        request = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "user", "content": "go"},
+                {"role": "tool", "content": "no id here"},  # 缺 tool_call_id
+                {"role": "user", "content": "follow up"},
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        # 不应出现空 tool_use_id 的 tool_result 块
+        for msg in result["messages"]:
+            content = msg.get("content")
+            if isinstance(content, list):
+                for c in content:
+                    if isinstance(c, dict) and c.get("type") == "tool_result":
+                        assert c.get("tool_use_id")  # 非空
+
+    # #4 tool_choice.type=function 缺 name 时整块 tool_choice 被丢弃
+    def test_tool_choice_function_missing_name_dropped(self):
+        request = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "go"}],
+            "tool_choice": {"type": "function"},  # 缺 name
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        # 不应构造出 {"type":"tool","name":""}，Anthropic 会拒绝
+        assert "tool_choice" not in result
+
+    def test_tool_choice_function_nested_missing_name_dropped(self):
+        request = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "go"}],
+            "tool_choice": {"type": "function", "function": {}},
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+        assert "tool_choice" not in result
+
+    # #6 refusal 字段应被投射成 text + stop_reason
+    def test_chat_response_refusal_projected(self):
+        response = {
+            "id": "chatcmpl-1",
+            "model": "gpt-4o",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "refusal": "I cannot help with that",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }
+        result = self.converter.convert_response(response, APIType.OPENAI_CHAT)
+        # refusal 应作为带标记的 text 块出现
+        assert any(
+            c.get("type") == "text" and "[REFUSED]" in c.get("text", "")
+            for c in result["content"]
+        )
+        assert result["stop_reason"] == "refusal"
+
+    def test_chat_response_refusal_skipped_when_text_present(self):
+        """有正常 text 时不应再追加 [REFUSED] 占位（防止双倍内容）。"""
+        response = {
+            "id": "chatcmpl-1",
+            "model": "gpt-4o",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "actual answer",
+                        "refusal": "shouldn't append",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }
+        result = self.converter.convert_response(response, APIType.OPENAI_CHAT)
+        assert not any(
+            "[REFUSED]" in c.get("text", "") for c in result["content"]
+        )
+        assert result["stop_reason"] == "end_turn"

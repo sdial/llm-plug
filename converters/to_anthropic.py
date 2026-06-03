@@ -172,10 +172,20 @@ class ToAnthropicConverter(BaseConverter):
                     })
                 messages.append({"role": "assistant", "content": content_parts if content_parts else ""})
             elif role == "tool":
+                tool_use_id = msg.get("tool_call_id", "")
+                if not tool_use_id:
+                    # Anthropic 会因 tool_use_id 为空拒绝整次请求，主动丢弃并告警
+                    logger.warning("tool message missing tool_call_id, dropped")
+                    continue
+                tool_content = msg.get("content", "")
+                # 多模态 tool 结果（含 image_url 等）需经 _convert_content 标准化，
+                # 否则 OpenAI 结构会原样透传给 Anthropic 导致 400。
+                if isinstance(tool_content, list):
+                    tool_content = self._convert_content(tool_content)
                 tool_result_block = {
                     "type": "tool_result",
-                    "tool_use_id": msg.get("tool_call_id", ""),
-                    "content": msg.get("content", ""),
+                    "tool_use_id": tool_use_id,
+                    "content": tool_content,
                 }
                 # 将连续的 tool 消息合并到同一个 user 消息中（Anthropic 格式要求）
                 if messages and messages[-1]["role"] == "user":
@@ -230,7 +240,14 @@ class ToAnthropicConverter(BaseConverter):
                     name = func_info.get("name", "") if isinstance(func_info, dict) else ""
                     if not name:
                         name = tc.get("name", "")
-                    result["tool_choice"] = {"type": "tool", "name": name}
+                    if name:
+                        result["tool_choice"] = {"type": "tool", "name": name}
+                    else:
+                        # name 为空时构造 {"type":"tool","name":""} 会被 Anthropic 拒绝；
+                        # 退化为不指定 tool_choice（让上游用默认 auto 行为）
+                        logger.warning(
+                            "tool_choice.type=function missing function name, dropped (Anthropic would reject empty name)"
+                        )
                 # disable_parallel_tool_use OpenAI 无对应
                 if tc.get("disable_parallel_tool_use"):
                     logger.debug("OpenAI tool_choice.disable_parallel_tool_use not supported, ignored")
@@ -308,11 +325,13 @@ class ToAnthropicConverter(BaseConverter):
         reasoning_content = ""
         finish_reason = "end_turn"
         tool_calls = None
+        refusal = ""
         if choices:
             msg = choices[0].get("message", {})
             text = msg.get("content", "") or ""
             reasoning_content = msg.get("reasoning_content", "") or ""
             tool_calls = msg.get("tool_calls")
+            refusal = msg.get("refusal", "") or ""
 
         content = []
         # thinking 块必须在 text 块之前
@@ -334,6 +353,11 @@ class ToAnthropicConverter(BaseConverter):
                     "name": tc.get("function", {}).get("name", ""),
                     "input": args,
                 })
+        if refusal and not text and not tool_calls:
+            # Anthropic 没有 refusal content block；用带标记的 text 块兜底，
+            # 并把 stop_reason 映射成 refusal 以便客户端识别。
+            logger.warning("OpenAI response contained refusal, projecting to text block: %s", refusal[:200])
+            content.append({"type": "text", "text": f"[REFUSED] {refusal}"})
         if not content:
             content.append({"type": "text", "text": ""})
 
@@ -345,6 +369,8 @@ class ToAnthropicConverter(BaseConverter):
         if choices:
             fr = choices[0].get("finish_reason", "")
             finish_reason = stop_reason_map.get(fr, "end_turn")
+        if refusal and not text and not tool_calls:
+            finish_reason = "refusal"
 
         return {
             "id": data.get("id", "").replace("chatcmpl-", "msg_"),
@@ -649,7 +675,13 @@ class ToAnthropicConverter(BaseConverter):
                     result["tool_choice"] = {"type": "any"}
             elif isinstance(tc, dict):
                 if tc.get("type") == "function":
-                    result["tool_choice"] = {"type": "tool", "name": tc.get("name", tc.get("function", {}).get("name", ""))}
+                    name = tc.get("name", tc.get("function", {}).get("name", ""))
+                    if name:
+                        result["tool_choice"] = {"type": "tool", "name": name}
+                    else:
+                        logger.warning(
+                            "Response API tool_choice.type=function missing name, dropped (Anthropic would reject empty name)"
+                        )
                 elif tc.get("type") == "auto":
                     result["tool_choice"] = {"type": "auto"}
                 elif tc.get("type") == "required":

@@ -281,7 +281,7 @@ class ToChatCompletionsConverter(BaseConverter):
         if data.get("top_k") is not None and data["top_k"] != 0:
             unsupported_params.append("top_k")
 
-        # 递归检查 cache_control（可能在 system、messages、content blocks 上）
+        # 递归检查 cache_control（可能在 system、messages、content blocks、tools 上）
         has_cache_control = data.get("cache_control") is not None
         if not has_cache_control:
             for part in (system if isinstance(system, list) else []):
@@ -297,6 +297,12 @@ class ToChatCompletionsConverter(BaseConverter):
                             has_cache_control = True
                             break
                 if has_cache_control:
+                    break
+        if not has_cache_control:
+            # Anthropic 允许在 tool 定义上挂 cache_control 缓存工具集
+            for tool in data.get("tools", []) or []:
+                if isinstance(tool, dict) and tool.get("cache_control"):
+                    has_cache_control = True
                     break
         if has_cache_control:
             unsupported_params.append("cache_control")
@@ -478,7 +484,17 @@ class ToChatCompletionsConverter(BaseConverter):
                 }
             elif delta.get("type") == "input_json_delta":
                 block_index = chunk.get("index", 0)
-                tc_idx = self._stream_state["content_block_to_tc_index"].get(block_index, block_index)
+                if block_index in self._stream_state["content_block_to_tc_index"]:
+                    tc_idx = self._stream_state["content_block_to_tc_index"][block_index]
+                else:
+                    # fallback：缺少前置 content_block_start 时，退到最近一次分配的 tc_idx；
+                    # 直接用 Anthropic 的 block_index 作 OpenAI 的 tool_calls index 会错位
+                    # （Anthropic block 编号常 ≥1，OpenAI tool_calls 从 0 起）
+                    tc_idx = max(0, self._stream_state["tool_call_index"] - 1)
+                    logger.warning(
+                        "input_json_delta without matching content_block_start (block_index=%d), fallback tc_idx=%d",
+                        block_index, tc_idx,
+                    )
                 return {
                     "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",

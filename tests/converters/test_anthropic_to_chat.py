@@ -271,3 +271,50 @@ class TestAnthropicToChat:
         }
         result = self.converter.convert_response(response, APIType.ANTHROPIC)
         assert result["choices"][0]["finish_reason"] == "content_filter"
+
+
+class TestAnthropicToChatReviewFixes:
+    """REVIEW.md #5 / #8 的回归测试。"""
+
+    def setup_method(self):
+        self.converter = ToChatCompletionsConverter()
+
+    # #5 input_json_delta 缺少前置 content_block_start 时 fallback 到最后已知 tc_idx
+    def test_input_json_delta_fallback_uses_last_tool_call_index(self):
+        # 模拟两次 tool_use start（tc_idx 0、1），随后一个 input_json_delta 的 block_index
+        # 与已知映射不匹配 —— fallback 应当回到 tool_call_index-1 而不是 block_index 原值
+        self.converter._reset_stream_state()
+        # 手动种入一个已知映射：block_index=2 -> tc_idx=0
+        self.converter._stream_state["content_block_to_tc_index"] = {2: 0, 3: 1}
+        self.converter._stream_state["tool_call_index"] = 2
+
+        chunk = {
+            "type": "content_block_delta",
+            "index": 99,  # 未知 block_index
+            "delta": {"type": "input_json_delta", "partial_json": '{"a":1}'},
+        }
+        out = self.converter._anthropic_stream_chunk_to_chat(chunk)
+        tool_call = out["choices"][0]["delta"]["tool_calls"][0]
+        # tool_call_index - 1 = 1，不应是 99
+        assert tool_call["index"] == 1
+        assert tool_call["index"] != 99
+
+    # #8 tools 内的 cache_control 也应被识别为不支持参数
+    def test_cache_control_on_tools_detected(self, caplog):
+        request = {
+            "model": "claude-opus-4-7",
+            "messages": [{"role": "user", "content": "go"}],
+            "tools": [
+                {
+                    "name": "search",
+                    "input_schema": {"type": "object", "properties": {}},
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        }
+        # 转换应成功，且产物中不应保留 cache_control
+        result = self.converter.convert_request(request, APIType.ANTHROPIC)
+        assert "cache_control" not in json.dumps(result)
+        # 工具定义应被正确转换
+        assert result["tools"][0]["type"] == "function"
+        assert result["tools"][0]["function"]["name"] == "search"
