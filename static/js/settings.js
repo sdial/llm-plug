@@ -38,6 +38,8 @@ function _detectSettingsDirty() {
   if (timeout !== (orig.request_timeout ?? 300)) _settingsDirtySections.add('request');
   const maxBody = parseInt(document.getElementById('set_max_body_size').value) || 10;
   if (maxBody !== (orig.max_body_size_mb ?? 10)) _settingsDirtySections.add('request');
+  const allowConv = document.getElementById('set_allow_format_conversion').checked;
+  if (allowConv !== (orig.allow_format_conversion ?? true)) _settingsDirtySections.add('request');
   const maxFail = parseInt(document.getElementById('set_max_fail_count').value) || 5;
   if (maxFail !== (orig.max_fail_count ?? 5)) _settingsDirtySections.add('lb');
   const cooldown = parseInt(document.getElementById('set_cooldown_seconds').value) || 60;
@@ -120,6 +122,7 @@ async function loadSettings() {
     document.getElementById('set_port').value = data.port || 55555;
     document.getElementById('set_request_timeout').value = data.request_timeout ?? 300;
     document.getElementById('set_max_body_size').value = data.max_body_size_mb ?? 10;
+    document.getElementById('set_allow_format_conversion').checked = data.allow_format_conversion ?? true;
     document.getElementById('set_log_level').value = (data.log_level || 'INFO').toUpperCase();
     document.getElementById('set_aggregation_timezone').value = data.aggregation_timezone || '';
     document.getElementById('set_request_log_db_type').value = data.request_log_db_type || 'sqlite';
@@ -149,6 +152,8 @@ async function saveSettings() {
   const maxBodyMB = parseInt(document.getElementById('set_max_body_size').value) || 10;
   const origMaxBodyMB = orig.max_body_size_mb ?? 10;
   if (maxBodyMB !== origMaxBodyMB) data.max_body_size = maxBodyMB * 1024 * 1024;
+  const allowConv = document.getElementById('set_allow_format_conversion').checked;
+  if (allowConv !== (orig.allow_format_conversion ?? true)) data.allow_format_conversion = allowConv;
   const newLogLevel = document.getElementById('set_log_level').value;
   if (newLogLevel !== (orig.log_level || 'INFO').toUpperCase()) data.log_level = newLogLevel;
   const newAggTz = document.getElementById('set_aggregation_timezone').value.trim();

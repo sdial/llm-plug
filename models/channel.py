@@ -39,6 +39,7 @@ class Channel(BaseModel):
     anthropic_version_policy: AnthropicVersionPolicy = AnthropicVersionPolicy.CHANNEL
     anthropic_beta: Optional[str] = None
     anthropic_beta_policy: AnthropicBetaPolicy = AnthropicBetaPolicy.CHANNEL
+    allow_format_conversion: Optional[bool] = None
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -61,6 +62,7 @@ class ChannelCreate(BaseModel):
     anthropic_version_policy: AnthropicVersionPolicy = AnthropicVersionPolicy.CHANNEL
     anthropic_beta: Optional[str] = None
     anthropic_beta_policy: AnthropicBetaPolicy = AnthropicBetaPolicy.CHANNEL
+    allow_format_conversion: Optional[bool] = None
 
 
 class ChannelUpdate(BaseModel):
@@ -80,3 +82,4 @@ class ChannelUpdate(BaseModel):
     anthropic_version_policy: Optional[AnthropicVersionPolicy] = None
     anthropic_beta: Optional[str] = None
     anthropic_beta_policy: Optional[AnthropicBetaPolicy] = None
+    allow_format_conversion: Optional[bool] = None
