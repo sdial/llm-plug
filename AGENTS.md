@@ -1,81 +1,124 @@
-<!-- Generated: 2026-04-24 | Updated: 2026-04-27 -->
-
 # llm-plug
 
 ## Purpose
-LLM API 转换器 - 一个将不同大模型API格式互转的代理服务。支持 OpenAI Chat Completions、OpenAI Response 和 Anthropic 三种格式之间的相互转换，并提供负载均衡、故障转移和渠道管理功能。
+LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthropic Messages 三种格式在客户端与上游之间互转，配负载均衡、故障转移、模型组 Fallback 和可视化渠道管理。零 `.env` 配置，默认监听 `0.0.0.0:55555`。
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `uv sync` | 安装项目依赖 |
-| `uv run python main.py` | 启动服务（带热重载），默认监听 0.0.0.0:55555 |
-| `./start.sh run` | 通过启动脚本启动（首次自动执行 `uv sync`） |
-| `./start.sh debug` | 调试模式启动（热重载 + uvicorn trace 日志） |
-| `uv run ruff check .` | 代码检查 |
-| `uv run ruff check . --fix` | 代码检查并自动修复 |
-| `uv run pytest` | 运行测试（`tests/` 目录下已有单元及集成测试） |
+| `uv run python main.py` | 启动服务（带热重载） |
+| `uv run python main.py --no-reload` | Windows 推荐，避免热重载退出后端口短暂占用 |
+| `./start.sh run` | 通过启动脚本（首次自动 `uv sync`） |
+| `./start.sh debug` | 调试模式（reload + uvicorn trace） |
+| `./kill_port.sh 55555` | 强制释放端口（Windows 用 `taskkill`，否则用 `lsof`） |
+| `uv run pytest` | 跑全部测试 |
+| `uv run pytest tests/converters/test_converter_matrix.py -v` | 跑单个测试文件 |
+| `uv run pytest -k test_name` | 按名字匹配跑测试 |
+| `uv run ruff check .` / `uv run ruff check . --fix` | lint / 自动修复 |
 
-### 配置
-项目不需要 `.env`。服务固定监听 `0.0.0.0:55555`，Docker 对外端口通过 ports 映射处理。数据固定写入项目根目录下 `data/`：
-- `data/channels.json` — 渠道配置
-- `data/api_keys.json` — 访问 Key
-- `data/settings.json` — 前端设置页保存的业务配置
-- `data/stats.db` / `data/request_logs.db` — 统计与默认请求记录数据库
+## 数据存储
 
-## Architecture
+所有运行时数据落在项目根 `data/` 下，由 `config.DATA_DIR` 指向：
 
-### 请求处理流程
-客户端请求到达代理端点后，经过以下流程：
+| 文件 | 用途 |
+|------|------|
+| `data/channels.json` | 渠道 + 模型组 (`model_groups`) + 已废弃 `lb_config`（启动时迁移到 `settings.json`） |
+| `data/api_keys.json` | 客户端访问 key（Bearer 或 `x-api-key` 头） |
+| `data/settings.json` | 前端设置页保存的业务配置（超时、体积上限、LB 阈值、时区等） |
+| `data/admin_auth.json` | 管理员密码哈希（PBKDF2-SHA256 260k 轮）+ 已撤销会话 |
+| `data/whitelist.csv` | IP 白名单（`path_pattern,methods,cidr,desc` 四列 CSV） |
+| `data/stats.db` | SQLite 统计聚合（按渠道/模型/天） |
+| `data/request_logs.db` | SQLite 请求记录（可在设置页切到 PostgreSQL） |
+| `data/responses_session/` | Responses API 的会话状态文件（`previous_response_id` 展开依赖） |
 
-1. **路由入口** — `routers/proxy_base.py` 的 `make_proxy_router()` 工厂函数为三种代理端点生成统一处理器：鉴权 → 提取 `model`/`stream` → 调用 `proxy_core`
-2. **渠道选择** — `proxy_core.proxy_request()` 从 storage 加载匹配 model 的已启用渠道，通过 `balancer.LoadBalancer` 选择渠道（优先级分组 + 加权轮询）
-3. **格式转换** — 根据入口 API 类型与上游渠道类型的差异，选择对应 converter 进行请求体转换；同类型则直通
-4. **上游请求** — 通过 `client.py` 创建的 httpx.AsyncClient（支持 SOCKS5 代理）发送请求
-5. **响应转换** — converter 将上游响应（非流式 JSON 或流式 SSE chunks）转换回入口格式
-6. **故障转移** — 请求失败时记录故障到 balancer，排除已试渠道后重新选择
+`storage.load_data()` / `load_api_keys()` 内置 5 秒 TTL 缓存。**修改渠道或 API Key 数据时必须走 `atomic_update_data(mutator)` / `atomic_update_api_keys(mutator)`**（在锁内完成 read-modify-write 并同步缓存）；直接覆盖 `channels.json` 文件会导致缓存与磁盘不一致，请求最多延迟 5 秒才能感知变更。`save_data()` 仅在你已自行持锁或确定无竞态时使用。
 
-### 核心模块
+`config._CONFIG_SCHEMA` 中标 `requires_restart: True` 的项（`host` / `port` / `log_level`）保存后会立刻在响应里 `needs_restart: true`，但内存里 `LOG_LEVEL` 需重启或下次 `--log-level` 启动才生效。`request_timeout` 修改会自动调用 `client.invalidate_all_clients()` 重建连接池。
 
-**`proxy_core.py`** — 代理核心，协调所有其他模块。`proxy_request()` 实现故障转移循环：不断选择渠道并尝试请求，直到成功或所有渠道耗尽。`_do_stream_request()` 是异步生成器，逐行解析 SSE 并通过 converter 逐 chunk 转换。**注意**：流式请求的 httpx client 是独立创建的（不经缓存池），在生成器 `finally` 块中手动 `aclose()`，不可加入 `_clients` 缓存池，否则会导致连接被提前关闭或泄漏。
+## 架构
 
-**`converters/`** — 三种格式转换器，均继承 `base.BaseConverter`，实现 `convert_request`/`convert_response`/`convert_stream_chunk` 三个抽象方法。每个 converter 内部按 `source_type` 分派到具体的 `_xxx_request_to_yyy()` 私有方法。转换矩阵：
+### 请求流程
+1. **入口** — `main.py:CombinedMiddleware`（纯 ASGI，不是 `BaseHTTPMiddleware`，避免流式 bug）：IP 白名单 → 鉴权 → 解析 body → 校验 `model` 是否在 `allowed_models` 列表里 → 写 `scope["state"]`
+2. **代理路由** — `routers/proxy_base.py:make_proxy_router(path, api_type)` 工厂生成三个端点（`/v1/chat/completions`、`/v1/responses`、`/v1/messages`），仅做格式分发
+3. **核心** — `proxy_core.proxy_request()`：解析模型组 → `_get_channels_for_model()` 拉取已启用渠道 → `_filter_channels_by_conversion()` 按目标格式与 `allow_format_conversion` 过滤 → `LoadBalancer.select_channel()` 选渠道 → `_do_request()` 执行
+4. **转换** — `CONVERTER_MAP[(source, target)]` 选择 request/response converter；同格式直通
+5. **能力过滤** — `capability_manager.apply_capability_filter()` 在 converter 之后、发送之前运行（作用于真实发往上游的 payload，同格式透传也必须应用）
+6. **上游请求** — 非流式用 `client.create_client()` 缓存的 `httpx.AsyncClient`；流式用 `client.create_stream_client()` 新建客户端并在生成器 `finally` 中 `aclose()`（**绝不可加入 `_clients` 缓存池**，否则连接会被提前关闭或泄漏）
+7. **故障转移** — 失败时 `load_balancer.record_failure()`，加进 `all_tried` 排除集重选；可重试条件见 `_is_retryable_exception()`（网络异常、`_UpstreamStreamErrorEvent`、`_EmptyStreamError`、5xx/429、`ConverterError`）
 
-| 入口格式 \ 上游格式 | openai-chat-completions | openai-response | anthropic |
+### 转换矩阵
+行 = 入口格式，列 = 上游格式。`ToXxxConverter` 把上游转回入口格式。
+
+| 入口 \ 上游 | openai-chat-completions | openai-response | anthropic |
 |---|---|---|---|
-| **openai-chat-completions** | 直通 | `ToChatCompletionsConverter` | `ToChatCompletionsConverter` |
-| **openai-response** | `ToResponseConverter` | 直通 | `ToResponseConverter` |
-| **anthropic** | `ToAnthropicConverter` | `ToAnthropicConverter` | 直通 |
+| openai-chat-completions | 直通 | `ToChatCompletionsConverter` | `ToChatCompletionsConverter` |
+| openai-response | `ToResponseConverter` | 直通 | `ToResponseConverter` |
+| anthropic | `ToAnthropicConverter` | `ToAnthropicConverter` | 直通 |
 
-流式转换时，converter 内部维护 `_stream_state` 状态机跟踪消息 ID、tool call index 等，一个上游 chunk 可能产生多个下游事件（通过 `_extra_events` 字段传递，由 `get_extra_events()` 取出）。Anthropic SSE 格式有 `event:` 行，OpenAI 格式仅有 `data:` 行。
+流式：converter 内部维护 `_stream_state`（消息 ID、tool_call index 等），一个上游 chunk 可能产出多个下游事件，通过 `_extra_events` + `get_extra_events()` 取出。Anthropic 输出 SSE 含 `event:` 行，OpenAI 仅含 `data:` 行。
 
-**`routers/`** — `proxy_base.py` 定义 `make_proxy_router(path, api_type)` 工厂函数，三个代理路由模块各调用一次生成端点。`admin.py` 提供渠道 CRUD + 测试连通性 + 日志查看。`proxy_models.py` 聚合已启用渠道的模型列表。`auth.py` 校验 Bearer Token。`proxy_errors.py` 将 httpx 异常映射为 HTTP 错误响应。
+### 模型组 Fallback
+`storage.get_model_group_by_name(model)` 在代理请求入口判断；若 `model` 是组名，`_proxy_model_group_request()` 按 `group.models` 顺序逐个模型尝试（每个模型内部仍走正常 LB + 故障转移）。模型组与渠道是两层 Fallback：先模型后渠道。
 
-**`balancer/load_balancer.py`** — `LoadBalancer` 单例实现优先级分组 + 平滑加权轮询（类似 Nginx SWRR）。`ChannelHealth` 跟踪每个渠道的连续失败次数，超过前端设置页配置的失败阈值则标记不健康，经过冷却时间后恢复探测。
+### Capability 管理
+`capability_manager.infer_capabilities(channel)` 按 `base_url` 关键词识别提供商：含 `deepseek` → 关闭 `parallel_tool_calls` + 过滤 `💭` 思考块；含 `minimax` → 合并多条 system 消息为单条。`channel.capabilities` 字段可显式覆盖默认。`filter_think_content` 走 `think_filter.ThinkFilter` 状态机（流式逐 chunk 过滤，跨 chunk 保留 `💭...💭` 块边界）。
 
-**`storage.py`** — JSON 文件读写，5 秒 TTL 内存缓存 + `threading.Lock` 线程安全。写入使用原子操作（先写临时文件再 `os.replace`）。`save_data()` 后自动更新缓存。**重要**：所有修改渠道数据的操作必须通过 `save_data()` 写入（它会同步更新内存缓存），切勿直接写 `channels.json` 文件，否则缓存与磁盘不一致，代理请求最多延迟 5 秒才能感知变更。
+### 模块要点
 
-**`client.py`** — httpx.AsyncClient 管理器。普通请求使用带缓存的 `create_client()`（按 base_url+proxy 缓存）；流式请求每次新建客户端（`create_stream_client()`，不缓存）。`get_upstream_headers()` 根据 api_type 构造上游认证头（Anthropic 用 `x-api-key` + `anthropic-version`，OpenAI 用 `Authorization: Bearer`）。
+- **`proxy_core.py`** — `_do_stream_request()` 是异步生成器，逐行解析 SSE，由 `_prime_stream()` 消费首个 chunk 触发首包前错误进故障转移。`_EmptyStreamError` 处理"上游连接成功但无任何 SSE 输出"的情况。`_do_request()` 内的 `latency_ms` 起点是 `create_client` 返回之后（避免把连接建立时间算进去）。
+- **`client.py`** — 普通客户端按 `base_url|socks5_proxy` 缓存。`get_upstream_headers()` 对 Anthropic 发 `x-api-key` + `anthropic-version`（默认 `2023-06-01`）+ 可选 `anthropic-beta`；版本/beta 走 `AnthropicVersionPolicy` / `AnthropicBetaPolicy`（`channel` / `client` / `channel_if_missing` / `merge`）。`_apply_anthropic_headers()` 会从客户端 `extra_headers` 里 `pop` 走 `anthropic-version` 和 `anthropic-beta` 再按策略写回。
+- **`storage.py`** — 原子写：临时文件 + `os.replace()`。提供 `register_save_callback()` / `register_api_keys_save_callback()` 给缓存失效逻辑订阅；`proxy_core._schedule_invalidate_model_channels_cache()` 和 `storage._invalidate_model_groups_cache_sync()` 都通过它串联。
+- **`routers/admin.py`** — `AdminAuthRoute` 在路由级加会话校验 + CSRF 校验（写操作要 `X-CSRF-Token` 头）。上游 URL 创建前走 `_validate_outbound_url()` 防 SSRF（拒绝非公网、内网、本机地址）。
+- **`balancer/load_balancer.py`** — 平滑加权轮询（SWRR，类似 Nginx）：`current_weight += weight` → 选最大 → 减去 `total_weight`。`ChannelHealth.fail_count` 内存存储，进程重启清零。
+- **`response_state.py`** — `FileStore`（`state_store.py`）基于 `data/responses_session/` 提供 LRU + TTL 淘汰；`reload_responses_store()` 在 `response_state_*` 设置变更后被 `config.update_settings()` 调用。代理通过 `previous_response_id` 把历史展开为 `input` 后再发上游（仅对不支持原生 Responses 状态的上游生效）。
+- **`whitelist.py`** — `WhitelistCache` 用文件 `mtime` 判断是否重新加载；`fnmatchcase` 匹配路径，`ipaddress.ip_network(strict=False)` 解析 CIDR。无任何规则时默认放行。
 
-**`models/`** — `APIType` 枚举定义三种 API 格式；`Channel`/`ChannelCreate`/`ChannelUpdate` Pydantic 模型定义渠道数据结构（含 weight、priority、socks5_proxy 字段）。
+### 前端与日志查看
+- `static/` 原生 HTML + Tailwind (CDN)，`/admin` 走 `index.html`，`/admin/login` 走 `admin-login.html`
+- `static/fragments/admin/` 存放 htmx 局部刷新片段（`channels.html` / `apikeys.html` / `stats.html` / `requests.html` / `settings.html` / `whitelist.html` / `model-groups.html`），由 `/admin/ui/{section}` 返回
+- `serve_viewer.py` 独立的日志查看服务（端口 8080），与主服务分离运行
+- 告警/错误日志落 `logs/{warning,error,critical}.log`（loguru 10MB 轮转），每条请求通过 `CombinedMiddleware` 写入 `[REQ]` / `[RES]` 文本日志
 
-### 管理页面
-`static/` 目录下为原生 HTML + TailwindCSS (CDN) 的管理页面，根路径 `/` 重定向到 `/static/index.html`。`serve_viewer.py` 是独立的日志查看服务（端口 8080），与主服务分离运行。
+## API 端点
 
-### API 端点
+**代理（请求体与官方 API 一致，converter 自动按上游格式转换）**
+- `POST /v1/chat/completions` — OpenAI Chat Completions
+- `POST /v1/responses` — OpenAI Responses
+- `POST /v1/messages` — Anthropic Messages
+- `GET /v1/models` / `GET /v1/anthropic/models` — 聚合模型列表
+- `GET /v1/responses/{id}` / `DELETE /v1/responses/{id}` — 读/删代理本地保存的 Responses 状态（**不**转发到上游官方 Responses API）
 
-**代理 API**（请求体与对应官方 API 一致，转换器自动根据渠道类型进行格式转换）：
-- `POST /v1/chat/completions` — OpenAI Chat Completions 格式
-- `POST /v1/responses` — OpenAI Response 格式
-- `POST /v1/messages` — Anthropic Messages 格式
-- `GET /v1/models` — 聚合模型列表（OpenAI 格式）
-- `GET /v1/anthropic/models` — 聚合模型列表（Anthropic 格式，带分页）
+**管理（前缀 `/admin`，需登录会话，写操作需 `X-CSRF-Token`）**
+- `/admin/auth/{status,csrf,setup,login,logout}` — 鉴权流程
+- `/admin/channels`（`GET`/`POST`）、`/admin/channels/{id}`（`PUT`/`DELETE`）、`/admin/channels/{id}/toggle`（`PATCH`）、`/admin/channels/{id}/test`（`POST`）
+- `/admin/api-keys` CRUD
+- `/admin/model-groups` CRUD
+- `/admin/whitelist` 读/写 IP 白名单
+- `/admin/settings` 读/写业务配置
+- `/admin/stats`（`/daily`、`/today`、`/overall`、`/refresh`）
+- `/admin/requests`、`/admin/requests/{id}/{field}` — 日志查询 / 读 RAW 字段
+- `/admin/logs`、`/admin/logs/{filename}` — 查看 `logs/*.log`
+- `/admin/ui/{section}` — htmx 片段
 
-**管理 API**（前缀 `/admin`）：
-- `GET /admin/channels` / `POST /admin/channels` / `PUT /admin/channels/{id}` / `DELETE /admin/channels/{id}` — 渠道 CRUD
-- `PATCH /admin/channels/{id}/toggle` — 启用/禁用切换
-- `POST /admin/channels/{id}/test` — 测试渠道连通性
-- `GET /admin/logs` / `GET /admin/logs/{filename}` — 日志查看
+## 测试约定
 
-<!-- MANUAL: -->
+- `tests/conftest.py` 提供 `e2e_mock_server`（session 级，启 `tests/mock_server.py` 在 19999 端口）和 `e2e_client`（TestClient + 清除 storage / proxy_core 缓存）两套 fixture
+- `tests/admin_auth_utils.py:login_admin(client)` 一次性完成 setup + login + CSRF；管理端点测试必须先调用它
+- 流式测试需 `LOG_LEVEL=debug` 才能在 `_do_stream_request` 看到 chunk 日志（前 20 个事件）
+- `tests/fixtures/` 含 `anthropic_request.json` / `openai_chat_request.json` / `openai_response_request.json` / `mock_channels.json`；`ANTHROPIC_STREAM_DATA` / `OPENAI_STREAM_DATA` 在 `mock_server.py`
+- `pytest-asyncio` 用 `asyncio_mode = auto`（见 `pyproject.toml`）
+- `data/` 在测试期间可能被改：直接修改文件而不是通过 `atomic_update_data` 即可（仅在测试场景）
+
+## 不要踩的坑
+
+- **流式 httpx 客户端不要缓存** — `_do_stream_request()` 创建的 `create_stream_client()` 必须由生成器 `finally: await stream.aclose()` 释放；缓存到 `_clients` 会导致连接提前关闭
+- **不要直接写 `channels.json`** — 走 `atomic_update_data()`，否则缓存最多 5 秒才更新
+- **`CombinedMiddleware` 是纯 ASGI** — 显式选它是为了规避 `BaseHTTPMiddleware` 的流式 bug，新功能继续走 ASGI 中间件或路由级依赖
+- **同格式 Anthropic 直通不走 converter** — 设计如此。Anthropic→Anthropic 时 URL 拼接、版本/beta 头由 `client._apply_anthropic_headers()` + `url_builder.build_upstream_url()` 直接处理；不要把同类型场景硬塞进 `ToAnthropicConverter`
+- **能力过滤发生在转换之后** — `apply_capability_filter()` 作用于实际发往上游的格式，同格式透传时仍需应用
+- **请求体大小** — `MAX_BODY_SIZE` 默认 10MB（`config.py`），`CombinedMiddleware` 提前校验并返回 413
+- **流式首包空** — `_prime_stream()` 触发 `_EmptyStreamError` 走故障转移；非流式空响应走另一条路径，参见 `proxy_core.py` 内注释
+- **Windows 端口占用** — 热重载退出后端口可能短时间占用，研发改用 `--no-reload`；残留进程用 `./kill_port.sh 55555`
+- **`LOG_LEVEL` 模块级** — `config.LOG_LEVEL` 不会在 `update_settings()` 后热生效，只在 `--log-level` 启动参数时赋值
