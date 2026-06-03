@@ -310,7 +310,8 @@ async def load_model_groups() -> list[ModelGroup]:
         data = await load_data()
         groups = _parse_model_groups(data.get("model_groups", []))
         if version != _MODEL_GROUPS_CACHE_VERSION:
-            return groups
+            data = await load_data()
+            groups = _parse_model_groups(data.get("model_groups", []))
 
         _MODEL_GROUPS_CACHE = groups
         _MODEL_GROUPS_CACHE_TS = time.time()

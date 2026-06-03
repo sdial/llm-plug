@@ -393,22 +393,25 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
 
 
 _model_channels_cache: dict[str, list[Channel]] | None = None
+_model_channels_cache_version = 0
 _model_channels_lock = asyncio.Lock()
 _background_tasks: set[asyncio.Task] = set()
 
 
 async def _invalidate_model_channels_cache() -> None:
-    global _model_channels_cache
+    global _model_channels_cache, _model_channels_cache_version
     async with _model_channels_lock:
         _model_channels_cache = None
+        _model_channels_cache_version += 1
     data = await storage.load_data()
     active_ids = {ch.get("id") for ch in data.get("channels", [])}
     await load_balancer.cleanup_removed_channels(active_ids)
 
 
 def _schedule_invalidate_model_channels_cache() -> None:
-    global _model_channels_cache
+    global _model_channels_cache, _model_channels_cache_version
     _model_channels_cache = None
+    _model_channels_cache_version += 1
     try:
         task = asyncio.create_task(_cleanup_removed_channels_after_save())
         _background_tasks.add(task)
@@ -429,26 +432,35 @@ async def _cleanup_removed_channels_after_save() -> None:
 async def _get_channels_for_model(model: str) -> list[Channel]:
     global _model_channels_cache
     async with _model_channels_lock:
-        cache = _model_channels_cache
-        if cache is not None:
-            return cache.get(model, [])
-        data = await storage.load_data()
-        channels: list[Channel] = []
-        for idx, raw_channel in enumerate(data.get("channels", [])):
-            try:
-                channels.append(Channel(**raw_channel))
-            except (TypeError, ValidationError) as exc:
-                channel_id = raw_channel.get("id") if isinstance(raw_channel, dict) else None
-                logger.warning(
-                    f"skip invalid channel entry index={idx} id={channel_id}: {exc}"
-                )
-        _model_channels_cache = {}
-        for ch in channels:
-            if not ch.enabled:
+        while True:
+            cache = _model_channels_cache
+            if cache is not None:
+                return cache.get(model, [])
+
+            version = _model_channels_cache_version
+            data = await storage.load_data()
+            channels: list[Channel] = []
+            for idx, raw_channel in enumerate(data.get("channels", [])):
+                try:
+                    channels.append(Channel(**raw_channel))
+                except (TypeError, ValidationError) as exc:
+                    channel_id = raw_channel.get("id") if isinstance(raw_channel, dict) else None
+                    logger.warning(
+                        f"skip invalid channel entry index={idx} id={channel_id}: {exc}"
+                    )
+
+            next_cache: dict[str, list[Channel]] = {}
+            for ch in channels:
+                if not ch.enabled:
+                    continue
+                for m in ch.models:
+                    next_cache.setdefault(m, []).append(ch)
+
+            if version != _model_channels_cache_version:
                 continue
-            for m in ch.models:
-                _model_channels_cache.setdefault(m, []).append(ch)
-        return _model_channels_cache.get(model, [])
+
+            _model_channels_cache = next_cache
+            return next_cache.get(model, [])
 
 
 CONVERTER_MAP: dict[tuple[str, str], tuple[type, type]] = {

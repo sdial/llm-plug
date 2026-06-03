@@ -50,6 +50,7 @@ def reset_model_cache():
     import proxy_core
 
     proxy_core._model_channels_cache = None
+    proxy_core._model_channels_cache_version = 0
     yield
 
 
@@ -185,6 +186,58 @@ class TestGetChannelsForModel:
 
         channels = await _get_channels_for_model("gpt-4")
         assert [ch.id for ch in channels] == ["ch_new"]
+
+    @pytest.mark.anyio
+    async def test_does_not_cache_channels_loaded_during_invalidation(self):
+        import proxy_core
+        import storage
+
+        old_payload = {
+            "channels": [
+                {
+                    "id": "ch_old",
+                    "name": "Old",
+                    "api_type": "openai-chat-completions",
+                    "base_url": "https://old.example",
+                    "api_key": "sk-old",
+                    "models": ["gpt-4"],
+                    "enabled": True,
+                    "weight": 1,
+                    "priority": 1,
+                }
+            ]
+        }
+        new_payload = {
+            "channels": [
+                {
+                    "id": "ch_new",
+                    "name": "New",
+                    "api_type": "openai-chat-completions",
+                    "base_url": "https://new.example",
+                    "api_key": "sk-new",
+                    "models": ["gpt-4"],
+                    "enabled": True,
+                    "weight": 1,
+                    "priority": 1,
+                }
+            ]
+        }
+
+        async def load_data():
+            if load_data.calls == 0:
+                load_data.calls += 1
+                proxy_core._schedule_invalidate_model_channels_cache()
+                return old_payload
+            load_data.calls += 1
+            return new_payload
+
+        load_data.calls = 0
+
+        with patch.object(storage, "load_data", load_data):
+            channels = await _get_channels_for_model("gpt-4")
+
+        assert [ch.id for ch in channels] == ["ch_new"]
+        assert [ch.id for ch in proxy_core._model_channels_cache["gpt-4"]] == ["ch_new"]
 
 
 class TestStreamPreflight:

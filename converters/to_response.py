@@ -352,6 +352,18 @@ class ToResponseConverter(BaseConverter):
         msg_id = data.get("id", "")
 
         text_buffer = ""
+        reasoning_text = ""
+
+        def flush_reasoning() -> None:
+            nonlocal reasoning_text
+            if reasoning_text:
+                output.append({
+                    "type": "reasoning",
+                    "id": f"rs_{msg_id}",
+                    "summary": [],
+                    "content": [{"type": "reasoning_text", "text": reasoning_text}],
+                })
+                reasoning_text = ""
 
         def flush_text() -> None:
             nonlocal text_buffer
@@ -367,10 +379,13 @@ class ToResponseConverter(BaseConverter):
 
         for part in data.get("content", []):
             ptype = part.get("type")
-            if ptype == "text":
+            if ptype == "thinking":
+                reasoning_text += part.get("thinking", "")
+            elif ptype == "text":
+                flush_reasoning()
                 text_buffer += part.get("text", "")
             elif ptype == "tool_use":
-                # 工具调用前先把累积的文本作为独立 message 输出，保持原始顺序
+                flush_reasoning()
                 flush_text()
                 output.append({
                     "type": "function_call",
@@ -379,6 +394,7 @@ class ToResponseConverter(BaseConverter):
                     "arguments": json.dumps(part.get("input", {})),
                 })
 
+        flush_reasoning()
         flush_text()
 
         if not output:
