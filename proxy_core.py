@@ -1643,6 +1643,10 @@ async def _do_stream_request(
 
         logger.debug(f"[STREAM LOOP END] model={model} lines={_line_count} done={_done_received}")
         logger.debug(f"[STREAM ASYNC WITH EXIT] model={model}")
+        # 尽早标记成功：流循环已正常结束，所有 chunks 已处理。
+        # 放在后续 yield 点之前，避免 GeneratorExit 导致 success 未设置。
+        if stream_error is None:
+            stream_success = True
         if non_sse_stream_body is not None:
             logger.debug(f"[STREAM NON-SSE] model={model} body_length={len(non_sse_stream_body)}")
             try:
@@ -1715,8 +1719,6 @@ async def _do_stream_request(
                     finish_reason = stop_reason
 
         logger.debug(f"[STREAM FINISH] model={model} done_received={_done_received} non_sse_body={'yes' if non_sse_stream_body else 'no'} chunks={len(stream_chunks)}")
-        if stream_error is None:
-            stream_success = True
         logger.debug(f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} output_tokens={output_tokens} finish_reason={finish_reason}")
     except Exception as e:
         stream_error = str(e)
