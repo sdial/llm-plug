@@ -2182,6 +2182,76 @@ class TestAnthropicHeaderPriority:
         assert '"text": "Hello"' in joined
 
     @pytest.mark.anyio
+    async def test_non_sse_json_fallback_to_responses_sse_includes_event_lines(self):
+        """上游对 stream=true 返回整块 JSON，输出 Responses SSE 时每个事件必须有 event: 行。
+        覆盖 _format_sse_for_list / _build_responses_stream_events_from_object 兜底路径。"""
+
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "application/json"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield (
+                    '{"id":"chatcmpl-x","object":"chat.completion","model":"gpt-4o",'
+                    '"choices":[{"index":0,"message":{"role":"assistant",'
+                    '"content":"Hello"},"finish_reason":"stop"}],'
+                    '"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}'
+                )
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_fallback_resp",
+            name="Test",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.openai.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "gpt-4o", "stream": True},
+                response_converter=ToResponseConverter(),
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_RESPONSE,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        joined = "".join(outputs)
+        # 每条 Responses SSE 事件都必须有 event: 行（依赖 event: 分发的客户端依赖此）
+        assert "event: response.created" in joined
+        assert "event: response.output_item.added" in joined
+        assert "event: response.completed" in joined
+        # 不能有裸 data: 行 —— 每个 data: 之前必须有 event:
+        for block in joined.split("\n\n"):
+            block = block.strip()
+            if not block or not block.startswith(("event:", "data:", ":")):
+                continue
+            if "data:" in block:
+                assert block.startswith("event:"), f"missing event: line in block: {block!r}"
+
+    @pytest.mark.anyio
     async def test_openai_stream_with_null_tool_calls_still_records_request(self):
         class FakeStreamResponse:
             status_code = 200
