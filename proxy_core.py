@@ -1482,6 +1482,7 @@ async def _do_stream_request(
                 if data_str.strip() == "[DONE]":
                     _record_chunk("[DONE]")
                     _done_received = True
+                    stream_success = True
                     logger.debug(f"[STREAM DONE] model={model} lines={_line_count} chunks={len(stream_chunks)}")
                     try:
                         # 输出 ThinkFilter 残余内容
@@ -1718,6 +1719,8 @@ async def _do_stream_request(
                 if stop_reason:
                     finish_reason = stop_reason
 
+        if stream_error is None:
+            stream_success = True
         logger.debug(f"[STREAM FINISH] model={model} done_received={_done_received} non_sse_body={'yes' if non_sse_stream_body else 'no'} chunks={len(stream_chunks)}")
         logger.debug(f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} output_tokens={output_tokens} finish_reason={finish_reason}")
     except Exception as e:
