@@ -129,6 +129,33 @@ async def test_record_request_writes_cache_token_details_and_overall_totals():
     assert overall["api_keys"][0]["cache_creation_input_tokens"] == 40
 
 
+async def test_overall_stats_include_token_totals_for_channel_and_model_distributions():
+    _record_sample(
+        channel_id="ch_primary",
+        channel_name="Primary",
+        model="gpt-4o",
+        input_tokens=1200,
+        output_tokens=80,
+    )
+    _record_sample(
+        channel_id="ch_primary",
+        channel_name="Primary",
+        model="gpt-4o",
+        input_tokens=300,
+        output_tokens=20,
+    )
+    await stats.drain_queue()
+
+    overall = await stats.get_overall_stats(days=1)
+
+    assert overall["channels"][0]["name"] == "Primary"
+    assert overall["channels"][0]["input_tokens"] == 1500
+    assert overall["channels"][0]["output_tokens"] == 100
+    assert overall["models"][0]["name"] == "gpt-4o"
+    assert overall["models"][0]["input_tokens"] == 1500
+    assert overall["models"][0]["output_tokens"] == 100
+
+
 async def test_init_db_migrates_existing_stats_db_for_cache_token_columns(tmp_path):
     old_db = tmp_path / "stats_old.db"
     conn = sqlite3.connect(str(old_db))
