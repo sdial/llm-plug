@@ -17,6 +17,44 @@ function esc(s) {
     return d.innerHTML;
 }
 
+function asInt(value) {
+    const n = Number(value || 0);
+    return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
+function renderTokenUsage(tokens, cachedTokens = 0) {
+    const total = asInt(tokens);
+    const cached = asInt(cachedTokens);
+    const cachedTag = cached > 0
+        ? `<span class="request-cache-tag" title="命中缓存 Token">${cached}</span>`
+        : '';
+    return `<span class="request-token-cell"><span class="request-token-main">${total}</span>${cachedTag}</span>`;
+}
+
+function renderMetric(value, suffix = '') {
+    return value != null
+        ? `<span class="request-metric">${esc(value)}${suffix}</span>`
+        : '<span class="request-metric-muted">-</span>';
+}
+
+function speedClass(speed) {
+    if (speed === '-') return 'request-metric-muted';
+    const value = Number(speed);
+    if (!Number.isFinite(value)) return 'request-metric-muted';
+    if (value >= 25) return 'request-metric request-speed-good';
+    if (value > 0 && value < 8) return 'request-metric request-speed-warn';
+    return 'request-metric';
+}
+
+function renderDetailMetric(label, value, extraClass = '') {
+    return `
+            <div class="request-detail-metric ${extraClass}">
+                <div class="request-detail-metric-label">${esc(label)}</div>
+                <div class="request-detail-metric-value">${esc(value)}</div>
+            </div>
+    `;
+}
+
 
 async function loadRequests() {
     try {
@@ -145,24 +183,26 @@ function renderRequests() {
     tbody.innerHTML = requestsData.map(req => {
         const latency = req.latency_ms;
         const lag = req.lag_ms;
-        const outTokens = req.output_tokens || 0;
+        const inputTokens = asInt(req.input_tokens);
+        const outTokens = asInt(req.output_tokens);
+        const cachedTokens = asInt(req.cache_read_input_tokens);
         let speed = '-';
         if (latency != null && lag != null && latency > lag && outTokens > 0) {
             const elapsed = (latency - lag) / 1000; // 秒
             speed = elapsed > 0 ? (outTokens / elapsed).toFixed(1) : '-';
         }
         return `
-        <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150 cursor-pointer" onclick="openRequestDetail(${req.id})">
+        <tr class="transition-colors duration-150 cursor-pointer" onclick="openRequestDetail(${req.id})">
             <td data-label="时间" class="py-3 px-3 text-sm text-ink-900 whitespace-nowrap">${formatTimestamp(req.timestamp)}</td>
-            <td data-label="渠道" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.channel_name)}">${esc(req.channel_name)}</td>
-            <td data-label="客户端 IP" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
+            <td data-label="渠道" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.channel_name)}"><span class="pill pill-muted">${esc(req.channel_name)}</span></td>
+            <td data-label="客户端 IP" class="py-3 px-2 text-sm text-ink-500 truncate font-mono" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
             <td data-label="API Key" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.api_key_name || req.api_key_id || '-')}">${esc(req.api_key_name || req.api_key_id || '-')}</td>
             <td data-label="模型" class="py-3 px-2 text-sm text-ink-900 truncate" title="${esc(req.model)}">${esc(req.model)}</td>
-            <td data-label="输入 Tok" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${req.input_tokens || 0}</td>
-            <td data-label="输出 Tok" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${outTokens}</td>
-            <td data-label="总耗时 (ms)" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${latency != null ? latency : '-'}</td>
-            <td data-label="首 Token (ms)" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${lag != null ? lag : '-'}</td>
-            <td data-label="速率 (t/s)" class="py-3 px-2 text-right text-sm text-ink-900 font-medium">${speed}</td>
+            <td data-label="输入 Tok" class="py-3 px-2 text-right text-sm">${renderTokenUsage(inputTokens, cachedTokens)}</td>
+            <td data-label="输出 Tok" class="py-3 px-2 text-right text-sm"><span class="request-token-cell"><span class="request-token-main">${outTokens}</span></span></td>
+            <td data-label="总耗时 (ms)" class="py-3 px-2 text-right text-sm">${renderMetric(latency)}</td>
+            <td data-label="首 Token (ms)" class="py-3 px-2 text-right text-sm">${renderMetric(lag)}</td>
+            <td data-label="速率 (t/s)" class="py-3 px-2 text-right text-sm"><span class="${speedClass(speed)}">${speed}</span></td>
             <td data-label="结束原因" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.finish_reason || '-')}">${esc(req.finish_reason || '-')}</td>
             <td data-label="状态" class="py-3 px-2 text-center">
                 <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? '成功' : '失败'}</span>
@@ -307,7 +347,11 @@ function openRequestDetail(id) {
                 <a href="javascript:void(0)" onclick="openJsonInNewTab(${req.id}, 'request-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">请求 Body</a>
                 <a href="javascript:void(0)" onclick="openJsonInNewTab(${req.id}, 'response-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">返回 Header</a>
                 <a href="javascript:void(0)" onclick="openJsonInNewTab(${req.id}, 'response-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">返回 Body</a>
-          `;
+          `; 
+    const inputTokens = asInt(req.input_tokens);
+    const outputTokens = asInt(req.output_tokens);
+    const cacheReadTokens = asInt(req.cache_read_input_tokens);
+    const cacheCreationTokens = asInt(req.cache_creation_input_tokens);
     content.innerHTML = `
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div><span class="text-ink-400">ID:</span> <span class="text-ink-900 font-mono">${req.id}</span></div>
@@ -319,12 +363,16 @@ function openRequestDetail(id) {
             <div><span class="text-ink-400">API Key ID:</span> <span class="text-ink-900 font-mono">${esc(req.api_key_id || '-')}</span></div>
             <div><span class="text-ink-400">流式:</span> <span class="text-ink-900">${req.is_stream ? '是' : '否'}</span></div>
             <div><span class="text-ink-400">状态:</span> <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? '成功' : '失败'}</span></div>
-            <div><span class="text-ink-400">输入Token:</span> <span class="text-ink-900">${req.input_tokens || 0}</span></div>
-            <div><span class="text-ink-400">输出Token:</span> <span class="text-ink-900">${req.output_tokens || 0}</span></div>
             <div><span class="text-ink-400">延迟:</span> <span class="text-ink-900">${req.latency_ms != null ? req.latency_ms + 'ms' : '-'}</span></div>
             <div><span class="text-ink-400">Lag:</span> <span class="text-ink-900">${req.lag_ms != null ? req.lag_ms + 'ms' : '-'}</span></div>
             <div><span class="text-ink-400">Cost:</span> <span class="text-ink-900">${req.cost != null ? req.cost : '-'}</span></div>
             <div><span class="text-ink-400">Finish Reason:</span> <span class="text-ink-900">${esc(req.finish_reason || '-')}</span></div>
+        </div>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+            ${renderDetailMetric('输入 Token', inputTokens)}
+            ${renderDetailMetric('输出 Token', outputTokens)}
+            ${renderDetailMetric('缓存命中 Token', cacheReadTokens, 'cache-hit')}
+            ${renderDetailMetric('缓存写入 Token', cacheCreationTokens, 'cache-write')}
         </div>
         <div class="mt-3">
             <div class="text-ink-400 mb-2">请求/返回数据:</div>
