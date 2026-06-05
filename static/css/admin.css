@@ -68,7 +68,7 @@ body {
 }
 .request-log-table {
     table-layout: fixed;
-    min-width: 1260px;
+    min-width: 1200px;
 }
 .request-log-table thead {
     background: linear-gradient(180deg, #fbfaf8 0%, #f7f5f2 100%);
