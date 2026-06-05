@@ -1,6 +1,6 @@
 # 模块详解
 
-本文档详细介绍 LLM-Plug 各模块的实现细节，面向开发者。
+本文档详细介绍 LLM-Plug 各模块的实现细节，面向开发者日常维护和二次开发参考。
 
 ## 目录
 
@@ -12,55 +12,84 @@
 - [代理核心 (proxy_core.py)](#代理核心)
 - [转换器 (converters/)](#转换器)
 - [负载均衡器 (balancer/)](#负载均衡器)
+- [能力管理 (capability_manager.py)](#能力管理)
+- [URL 构建 (url_builder.py)](#url-构建)
+- [思考过滤 (think_filter.py)](#思考过滤)
+- [IP 白名单 (whitelist.py)](#ip-白名单)
+- [管理员鉴权 (admin_auth.py)](#管理员鉴权)
+- [请求记录 (request_logs.py)](#请求记录)
+- [Responses 状态 (response_state.py / state_store.py)](#responses-状态)
 
 ---
 
 ## 配置管理
 
-> 对应文件：`config.py`（约 50 行）
+> 对应文件：`config.py`
 
 ### 模块定位
 
 `config.py` 是项目配置的**单一来源**（Single Source of Truth）。项目不读取 `.env`：启动常量使用内置默认值，业务配置从 `data/settings.json` 读取，前端「设置」页负责写入。
 
-### 配置项详解
+### 配置架构
 
-#### 服务器配置
+配置分两层：
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `HOST` | `"0.0.0.0"` | 固定监听地址 |
-| `PORT` | `55555` | 固定容器内部端口 |
+1. **模块级常量**：`HOST`、`PORT`、`CHANNELS_FILE`、`API_KEYS_FILE` 等，启动时从 `_CONFIG_SCHEMA` 默认值初始化，一般不热变
+2. **业务设置**：通过 `_CONFIG_SCHEMA` 定义，运行时从 `data/settings.json` 读取，前端可修改
 
-#### 数据存储
+### _CONFIG_SCHEMA 完整配置项
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `DATA_DIR` | 项目根目录/data | 固定数据存储目录 |
-| `CHANNELS_FILE` | `DATA_DIR/channels.json` | 渠道配置文件 |
-| `API_KEYS_FILE` | `DATA_DIR/api_keys.json` | API Key 配置文件 |
+| 键 | 类型 | 默认值 | 需重启 | 说明 |
+|----|------|--------|--------|------|
+| `host` | str | `"0.0.0.0"` | 是 | 监听地址（只读，前端不可改） |
+| `port` | int | `55555` | 是 | 监听端口（只读，前端不可改） |
+| `request_timeout` | int | `300` | 否 | 上游请求超时（秒），变更后自动重建连接池 |
+| `max_body_size` | int | `10485760`（10MB） | 否 | 请求体最大体积 |
+| `log_level` | str | `"info"` | 是 | 日志级别，可选 trace/debug/info/warning/error/critical |
+| `stats_sqlite_path` | str | `data/stats.db` | 否 | 统计 SQLite 路径 |
+| `request_log_db_type` | str | `"sqlite"` | 否 | 请求记录后端：`sqlite` 或 `postgres` |
+| `request_log_sqlite_path` | str | `data/request_logs.db` | 否 | 请求记录 SQLite 路径 |
+| `request_log_database_url` | str | `""` | 否 | PostgreSQL 连接串（切换到 postgres 时使用） |
+| `save_request_headers` | bool | `false` | 否 | 是否保存请求头到请求记录 |
+| `save_response_headers` | bool | `false` | 否 | 是否保存响应头到请求记录 |
+| `save_request_body` | bool | `false` | 否 | 是否保存请求体到请求记录 |
+| `save_response_body` | bool | `false` | 否 | 是否保存响应体到请求记录 |
+| `max_log_body_size` | int | `65536`（64KB） | 否 | 请求记录 body 截断上限（字节），0=不截断 |
+| `allow_format_conversion` | bool | `true` | 否 | 全局是否允许跨格式转换 |
+| `max_fail_count` | int | `5` | 否 | 连续失败 N 次后标记渠道不健康 |
+| `cooldown_seconds` | int | `60` | 否 | 不健康渠道冷却恢复时间（秒） |
+| `response_state_max_entries` | int | `1000` | 否 | Responses 状态最大条目数 |
+| `response_state_ttl_minutes` | int | `60` | 否 | Responses 状态过期时间（分钟） |
+| `response_state_cleanup_interval_minutes` | int | `30` | 否 | Responses 状态清理间隔（分钟） |
+| `aggregation_timezone` | str | `""` | 否 | 统计聚合时区（IANA 格式，空=UTC） |
+| `request_log_retention_days` | int | `0` | 否 | 请求记录保留天数（0=不清理） |
+| `request_log_raw_retention_days` | int | `0` | 否 | RAW 字段（headers/body）保留天数（0=不清理） |
 
-#### 负载均衡
+### 配置校验 (_CONFIG_CONSTRAINTS)
 
-| 设置键 | 默认值 | 说明 |
-|------|--------|------|
-| `max_fail_count` | `5` | 连续失败 N 次后标记渠道不健康 |
-| `cooldown_seconds` | `60` | 不健康渠道冷却恢复时间（秒） |
+每个配置项可定义约束规则，在 `update_settings()` 时自动校验：
 
-#### 请求超时
+- `min` / `max`：数值范围
+- `choices`：枚举值集合
+- `validator`：自定义校验函数（如 `aggregation_timezone` 用 `iana_timezone` 校验是否为合法 IANA 时区名）
 
-| 设置键 | 默认值 | 说明 |
-|------|--------|------|
-| `request_timeout` | `300` | 上游请求超时时间（秒） |
+### 热更新机制
 
-#### 鉴权与请求记录
+`update_settings(updates)` 是前端设置页的后端入口：
 
-代理鉴权通过前端 API Key 页面管理，数据写入 `data/api_keys.json`。请求记录默认使用 `data/request_logs.db`，也可在前端设置页切换到 PostgreSQL。
+1. 加锁遍历更新项，跳过 `readonly` 字段
+2. 类型转换 + 校验
+3. 写入磁盘（原子写入：临时文件 + `os.replace()`）
+4. 同步模块级变量（`_sync_module_vars()`）
+5. 按变更项触发级联操作：
+   - `request_timeout` → `client.invalidate_all_clients()`
+   - `response_state_*` → `reload_responses_store()`
+   - `max_fail_count` / `cooldown_seconds` → `load_balancer.update_config()`
+6. 返回 `{updated: [...], needs_restart: bool}`
 
-### 注意事项
+### 负载均衡配置迁移
 
-1. **零配置启动**：`.env` 不参与运行时配置
-2. **部分设置热更新**：请求超时、负载均衡、请求记录数据库保存后立即生效；日志级别需重启
+启动时 `init_settings()` 会调用 `_migrate_lb_config()`，检查 `channels.json` 是否残留旧版 `lb_config` 字段，自动迁移到 `settings.json` 并删除旧字段。
 
 ---
 
@@ -86,15 +115,40 @@ class Channel(BaseModel):
     id: str                           # ch_{uuid4_hex[:8]}
     name: str                         # 渠道名称
     api_type: APIType                 # 上游 API 格式
-    base_url: str                     # 上游 API 地址
+    base_url: str                     # 上游 API 基础地址
+    endpoint_url: str | None = None   # 可选，完整端点 URL（优先）
+    models_url: str | None = None     # 可选，模型列表 URL
     api_key: str                      # 上游 API 密钥
     models: list[str]                 # 支持的模型列表
     enabled: bool = True              # 是否启用
-    weight: int = 1                   # 负载均衡权重
-    priority: int = 1                 # 优先级（数字越小越优先）
+    weight: int = 1                   # 负载均衡权重（ge=1）
+    priority: int = 1                 # 优先级（ge=1，数字越小越优先）
     socks5_proxy: str | None = None   # SOCKS5 代理地址
-    created_at: str                   # 创建时间
+    capabilities: dict | None = None  # 手动覆盖提供商能力
+    anthropic_version: str | None = None
+    anthropic_version_policy: AnthropicVersionPolicy = "channel"
+    anthropic_beta: str | None = None
+    anthropic_beta_policy: AnthropicBetaPolicy = "channel"
+    allow_format_conversion: bool | None = None
+    created_at: str                   # ISO 8601 时间
 ```
+
+**Anthropic 策略枚举**：
+
+```python
+class AnthropicVersionPolicy(str, Enum):
+    CHANNEL = "channel"              # 始终使用渠道版本
+    CLIENT = "client"                # 优先客户端版本
+    CHANNEL_IF_MISSING = "channel_if_missing"  # 客户端未传时用渠道版本
+
+class AnthropicBetaPolicy(str, Enum):
+    CHANNEL = "channel"
+    CLIENT = "client"
+    MERGE = "merge"                  # 合并渠道和客户端 beta
+    CHANNEL_IF_MISSING = "channel_if_missing"
+```
+
+同时提供 `ChannelCreate` 和 `ChannelUpdate` 用于管理 API 的创建/更新请求体。
 
 ### ApiKey 模型
 
@@ -103,7 +157,7 @@ class ApiKey(BaseModel):
     id: str                           # key_{uuid4_hex[:8]}
     name: str                         # API Key 名称
     key: str                          # llmplug-api-{random}
-    allowed_models: list[str] = []    # 允许访问的模型
+    allowed_models: list[str] = []    # 允许访问的模型（空=全部）
     notes: str = ""                   # 备注
     request_count: int = 0            # 累计请求次数
     total_input_tokens: int = 0       # 累计输入 token
@@ -123,78 +177,96 @@ class ModelGroup(BaseModel):
     created_at: str                   # 创建时间
 ```
 
+### LBConfig 模型
+
+```python
+class LBConfig(BaseModel):
+    max_fail_count: int = 5
+    cooldown_seconds: int = 60
+```
+
+兼容接口，实际存储已迁移到 `settings.json`。
+
 ---
 
 ## 存储层
 
-> 对应文件：`storage.py`（约 305 行）
+> 对应文件：`storage.py`
 
 ### 模块定位
 
 负责数据持久化存储，使用 JSON 文件作为存储介质，提供异步安全的读写接口和内存缓存。
 
+### 缓存机制
+
+```python
+_cache: dict | None = None    # 渠道数据内存缓存
+_cache_ts: float = 0          # 缓存时间戳
+_CACHE_TTL = 5.0              # 缓存有效期（秒）
+
+_keys_cache: dict | None = None  # API Keys 内存缓存
+_keys_cache_ts: float = 0
+
+_MODEL_GROUPS_CACHE: list[ModelGroup] | None = None  # 模型组缓存
+_MODEL_GROUPS_CACHE_TS: float = 0
+```
+
+三类数据（渠道、API Keys、模型组）各自独立缓存和锁，TTL 均为 5 秒。
+
 ### 核心函数
 
 #### `load_data() -> dict`
 
-异步读取数据，优先从内存缓存读取，缓存 TTL 为 5 秒。
-
-```python
-async def load_data() -> dict[str, Any]
-```
+异步读取渠道数据，优先从内存缓存读取。
 
 #### `save_data(data) -> None`
 
-异步写入数据，使用原子写入确保数据安全。
+异步写入渠道数据，使用原子写入（临时文件 → fsync → `os.replace()`）。**仅在你已自行持锁或确定无竞态时使用**。
+
+#### `atomic_update_data(mutator)` ★推荐
+
+在 channels 锁内完成 read-modify-write，消除 lost-update 竞态。`mutator` 接收最新 data 字典，可原地修改或返回新字典。
 
 ```python
-async def save_data(data: dict[str, Any]) -> None
+async def atomic_update_data(mutator: Callable[[dict], Any]):
+    # 锁内: 读磁盘 → mutator(data) → 写磁盘 → 更新缓存 → 触发回调
 ```
 
-**流程**：
-1. 确保数据目录存在
-2. 获取异步锁
-3. 在线程池中执行磁盘 IO（临时文件 → 写入 → fsync → 原子替换）
-4. 立即更新内存缓存
-5. 触发保存回调
+#### `atomic_update_api_keys(mutator)`
 
-#### `load_api_keys() -> dict`
+API Keys 版本的原子 read-modify-write，用法同上。
 
-异步读取 API Keys 数据，使用相同的缓存机制。
+#### `load_api_keys() -> dict` / `save_api_keys(data)` / `load_model_groups() -> list[ModelGroup]`
 
-#### `load_model_groups() -> list[ModelGroup]`
+类似的读写接口，模型组数据存在 `channels.json` 的 `model_groups` 键中。
 
-异步读取模型组列表。
+#### `get_model_group_by_name(name) -> ModelGroup | None`
 
-#### `get_lb_config() -> LBConfig`
+按名称查找启用的模型组，代理入口用来判断请求的 model 是否为模型组。
 
-异步读取负载均衡配置。
-
-### 缓存机制
+### 保存回调机制
 
 ```python
-_cache: dict | None = None    # 内存缓存
-_cache_ts: float = 0          # 缓存时间戳
-_CACHE_TTL = 5.0              # 缓存有效期（秒）
+register_save_callback(callback)       # 渠道数据保存时触发
+register_api_keys_save_callback(callback)  # API Keys 保存时触发
 ```
 
-### 为什么用 asyncio.Lock？
+用于缓存失效订阅。例如：
+- `proxy_core._schedule_invalidate_model_channels_cache()` 通过 `register_save_callback` 注册，渠道变更时自动清理渠道缓存
+- `storage._invalidate_model_groups_cache_sync()` 也通过此机制串联
+- `main._invalidate_api_key_index()` 通过 `register_api_keys_save_callback` 注册
 
-从 `threading.RLock` 迁移到 `asyncio.Lock`：
-- 异步函数不会在同一线程上嵌套获取锁
-- 懒加载创建锁，确保绑定到正确的事件循环
+### 注意事项
 
-### 重要设计决策
-
-1. **save_data() 后立即更新缓存**：写后读一致性保证
-2. **不能直接修改 channels.json**：必须通过 `save_data()`
-3. **缓存 TTL 是 5 秒**：权衡 IO 压力和变更感知延迟
+1. **不要直接修改 channels.json** — 走 `atomic_update_data()`，否则缓存最多 5 秒才更新
+2. **原子写入** — 所有写操作使用临时文件 + `os.replace()`，防止写入中途崩溃导致文件损坏
+3. **锁是 asyncio.Lock** — 异步函数不会在同一线程上嵌套获取锁，懒加载创建确保绑定正确的事件循环
 
 ---
 
 ## HTTP 客户端
 
-> 对应文件：`client.py`（约 162 行）
+> 对应文件：`client.py`
 
 ### 模块定位
 
@@ -203,9 +275,9 @@ _CACHE_TTL = 5.0              # 缓存有效期（秒）
 ### 全局缓存
 
 ```python
-_clients: dict[str, httpx.AsyncClient] = {}      # 普通请求客户端池
-_stream_clients: dict[str, httpx.AsyncClient] = {} # 流式请求客户端池
-_lock = asyncio.Lock()                           # 并发安全锁
+_clients: dict[str, httpx.AsyncClient] = {}   # 普通请求客户端池
+_cache_ts: dict[str, float] = {}              # 每个客户端的最后使用时间
+_lock = asyncio.Lock()                        # 并发安全锁
 ```
 
 **缓存键**：`f"{channel.base_url}|{channel.socks5_proxy or ''}"`
@@ -214,59 +286,64 @@ _lock = asyncio.Lock()                           # 并发安全锁
 
 #### `create_client(channel) -> httpx.AsyncClient`
 
-创建或获取缓存的客户端，用于非流式请求。
-
-```python
-async def create_client(channel: Channel, timeout: float | None = None) -> httpx.AsyncClient
-```
-
-#### `get_or_create_stream_client(channel) -> httpx.AsyncClient`
-
-创建或获取缓存的流式客户端，是 proxy_core 获取流式客户端的主要方式。
-
-```python
-async def get_or_create_stream_client(channel: Channel, timeout: float | None = None) -> httpx.AsyncClient
-```
+创建或获取缓存的客户端，用于**非流式**请求。内部调用 `get_or_create_client()`。
 
 #### `create_stream_client(channel) -> httpx.AsyncClient`
 
-创建独立的流式客户端，每次调用都新建，不缓存。
+创建**独立的流式客户端**，每次调用都新建，**不缓存**。由 `_do_stream_request()` 在 `finally` 块中手动 `aclose()`。
 
-```python
-def create_stream_client(channel: Channel) -> httpx.AsyncClient
-```
+#### `get_upstream_headers(channel, extra_headers) -> dict`
 
-#### `get_upstream_headers(channel) -> dict`
-
-构建上游 API 认证头。
+构建上游 API 认证头：
 
 | 渠道类型 | 认证方式 |
 |----------|----------|
-| Anthropic | `x-api-key: {api_key}` + `anthropic-version` |
+| Anthropic | `x-api-key` + `anthropic-version`（默认 `2023-06-01`）+ 可选 `anthropic-beta` |
 | OpenAI 系列 | `Authorization: Bearer {api_key}` |
+
+Anthropic 版本/Beta 走策略处理（`_apply_anthropic_headers()`）：从客户端 `extra_headers` 里 `pop` 走 `anthropic-version` 和 `anthropic-beta`，再按 `AnthropicVersionPolicy` / `AnthropicBetaPolicy` 策略写回。
+
+### 客户端生命周期管理
+
+#### `cleanup_stale_clients(max_age=300.0)`
+
+定期清理超过 `max_age` 秒未使用的客户端连接，由 `main.py` 的后台任务每 300 秒调用一次。
+
+#### `invalidate_all_clients()`
+
+关闭并清除所有缓存的普通客户端。`config.update_settings()` 在 `request_timeout` 变更时调用，以应用新超时。
+
+#### `remove_channel_client(channel)`
+
+从缓存中移除指定渠道的客户端，用于渠道配置变更后刷新连接。
+
+#### `close_all_clients()`
+
+关闭所有缓存客户端，在应用关闭时（`lifespan` 的 `finally` 块）调用。
 
 ### 三种客户端对比
 
-| 特性 | 普通客户端 | 缓存流式客户端 | 独立流式客户端 |
-|------|------|------|------|
-| 创建方式 | 缓存复用 | 缓存复用 | 每次新建 |
-| 关闭方式 | `close_all_clients()` | `close_all_clients()` | 手动 `aclose()` |
-| 可用 async with | 不可 | 不可 | 可以 |
+| 特性 | 普通客户端 | 独立流式客户端 |
+|------|------|------|
+| 创建方式 | 缓存复用 | 每次新建 |
+| 关闭方式 | `close_all_clients()` / `cleanup_stale_clients()` | 手动 `aclose()`（finally 块） |
+| 可用 async with | 不可（会关闭共享连接） | 可以 |
 
 ### 注意事项
 
 1. **不要用 async with 包裹缓存的客户端**：会关闭共享连接
 2. **独立流式客户端必须手动关闭**：在 `finally` 块中调用 `aclose()`
+3. **连接池配置**：`max_connections=200`，`max_keepalive_connections=50`，`keepalive_expiry=60s`
 
 ---
 
 ## 路由层
 
-> 对应目录：`routers/`（8 个文件，约 520 行）
+> 对应目录：`routers/`
 
 ### 模块定位
 
-负责 HTTP 请求的接入、鉴权和错误处理，核心处理委托给 `proxy_core.py`。
+负责 HTTP 请求的接入和错误处理，核心处理委托给 `proxy_core.py`。
 
 ### 架构设计
 
@@ -290,20 +367,14 @@ def make_proxy_router(path: str, api_type: APIType) -> APIRouter
 ```
 
 处理器流程：
-1. 鉴权 → 401
-2. 解析请求体 → 400
-3. 提取 model/stream
-4. 调用 `proxy_request()`
-5. 返回响应（流式/非流式）
+1. 从 `scope["state"]` 获取中间件预解析的 body
+2. 提取 model/stream
+3. 调用 `proxy_core.proxy_request()`
+4. 返回响应（流式 StreamingResponse / 非流式 JSONResponse）
 
 ### auth.py — 鉴权
 
-```python
-def check_proxy_authorization(authorization: str | None, request_state=None) -> bool
-```
-
-- 代理鉴权由中间件完成，结果写入 `request.state.proxy_auth_checked`
-- API Key 在前端 API Key 页面维护，存储于 `data/api_keys.json`
+代理鉴权主要由 `CombinedMiddleware` 完成，结果写入 `scope["state"]["proxy_auth_checked"]`。
 
 ### proxy_errors.py — 错误响应
 
@@ -321,19 +392,16 @@ def check_proxy_authorization(authorization: str | None, request_state=None) -> 
 
 ### admin.py — 管理接口
 
-| 端点 | 说明 |
-|------|------|
-| `/admin/channels` | 渠道 CRUD |
-| `/admin/channels/{id}/test` | 测试连通性 |
-| `/admin/api-keys` | API Key CRUD |
-| `/admin/stats` | 统计数据 |
-| `/admin/requests` | 请求记录查询 |
+管理 API 路由使用 `AdminAuthRoute` 自定义路由类，在路由级自动完成：
+- 会话校验（从 Cookie 提取 session token 并验证）
+- CSRF 校验（写操作需要 `X-CSRF-Token` 头）
+- SSRF 防护（`_validate_outbound_url()` 拒绝非公网、内网、本机地址）
 
 ---
 
 ## 代理核心
 
-> 对应文件：`proxy_core.py`（约 950 行）
+> 对应文件：`proxy_core.py`
 
 ### 模块定位
 
@@ -345,61 +413,89 @@ def check_proxy_authorization(authorization: str | None, request_state=None) -> 
 
 主入口，由路由层调用。
 
-```python
-async def proxy_request(
-    model: str,
-    request_data: dict,
-    target_api_type: APIType,
-    is_stream: bool = False,
-    ...
-) -> tuple[Any, Channel]
-```
-
 **流程**：
-1. 检查模型组，若有则按 fallback 顺序尝试
-2. 获取匹配的已启用渠道
-3. 进入故障转移循环：选择渠道 → 执行请求 → 成功返回 / 失败重试
+1. 检查模型组（`storage.get_model_group_by_name(model)`）
+2. 若是模型组 → `_proxy_model_group_request()`：按 `group.models` 顺序逐个模型尝试
+3. 若是单模型 → `_proxy_single_model_request()`：获取渠道 → 过滤 → 故障转移循环
 
 #### `_do_request(channel, request_data, ...)`
 
-单次请求执行，包含格式转换 + 发送流程。
+单次请求执行，包含完整的转换 + 发送 + 统计流程：
 
-```python
-async def _do_request(channel, request_data, target_api_type, is_stream, ...)
-```
-
-**流程**：
-1. 获取转换器和上游类型
-2. 转换请求体
-3. 构建上游 URL 和请求头
-4. 发送请求（流式/非流式）
-5. 转换响应
-6. 记录成功/统计
+1. 获取转换器（`_get_converter_and_upstream_type()`）
+2. 展开 Responses 本地历史（`_prepare_openai_response_request_for_upstream()`）
+3. 转换请求体（客户端格式 → 上游格式）
+4. **能力过滤**（`infer_capabilities()` + `apply_capability_filter()`）
+5. MiniMax 特殊处理：合并多条 system 消息
+6. 构建上游 URL 和请求头
+7. 发送请求（流式/非流式）
+8. 转换响应（上游格式 → 客户端格式）
+9. 思考内容过滤（非流式）
+10. 提取 token 用量
+11. 记录统计和请求日志（异步入队，不阻塞响应）
 
 #### `_do_stream_request(...)`
 
-流式请求处理，异步生成器，逐行解析上游 SSE 并转换。
+流式请求处理，异步生成器。核心流程：
+
+1. 创建独立流式客户端（`create_stream_client()`）
+2. `client.stream("POST", ...)` 发起流式请求
+3. `_iter_sse_blocks()` 逐块解析上游 SSE
+4. 逐块转换 + ThinkFilter 过滤
+5. 增量提取 token 用量和 finish_reason
+6. 处理 `[DONE]` 信号 + finalize_stream
+7. 非 SSE 响应兜底：把整块 JSON 拆成流式事件序列
+8. `finally` 块：构建流式响应体、记录统计、关闭客户端
+
+### 异常体系
+
+| 异常类 | 说明 | 是否可重试 |
+|--------|------|-----------|
+| `ConverterError` | 格式转换失败 | 是 |
+| `_EmptyStreamError` | 上游连接成功但无任何 SSE 输出 | 是 |
+| `_UpstreamStreamErrorEvent` | 上游流式事件中包含错误 | 是 |
+| `_StreamPreflightError` | 首包前错误（包装原始异常） | 是 |
+
+`_is_retryable_exception()` 判断可重试条件：网络异常、上述自定义异常、5xx/429 HTTP 状态码。
+
+### 渠道过滤
+
+`_filter_channels_by_conversion()` 按"是否允许跨格式转换"过滤渠道：
+- 同格式渠道（透传）始终通过
+- 跨格式渠道按 `channel.allow_format_conversion` 决定，`None` 时回退全局 `settings.allow_format_conversion`
+
+### 首包前错误处理
+
+`_prime_stream()` 消费首个 chunk，让连接和首包前错误进入故障转移循环：
+- `StopAsyncIteration`（空流）→ `_EmptyStreamError`
+- `_StreamPreflightError` → 解包原始异常重新抛出
+
+`_raise_preflight_stream_errors()` 包裹生成器，在首个 yield 前捕获异常并转为 `_StreamPreflightError`。
 
 ### 辅助函数
 
 | 函数 | 说明 |
 |------|------|
-| `_get_channels_for_model(model)` | 筛选匹配模型的已启用渠道 |
-| `_get_converter_and_upstream_type(channel, target_api_type)` | 获取转换器 |
-| `_get_upstream_url(channel)` | 拼接上游 URL |
+| `_get_channels_for_model(model)` | 筛选匹配模型的已启用渠道（带缓存） |
+| `_get_converter_and_upstream_type(channel, target_api_type)` | 从 CONVERTER_MAP 获取转换器 |
+| `_get_upstream_url(channel)` | 调用 `url_builder.build_upstream_url()` |
+| `_build_upstream_headers(channel, client_headers)` | 构建上游请求头（含转发客户端头） |
+| `_build_stream_response_body(chunks, ...)` | 从流式 chunks 拼装完整响应体（用于请求记录） |
+| `_record_request(**kwargs)` | 写统计 + 请求记录（不阻塞响应） |
 
 ### 注意事项
 
 1. **非流式请求使用缓存客户端**：不能 `async with` 关闭
-2. **流式请求使用缓存流式客户端**：同样不能手动关闭
+2. **流式请求使用独立客户端**：`finally` 中手动 `aclose()`
 3. **故障转移循环**：`all_tried` 集合保证同一渠道不会重试
-4. **流式中途错误**：通过 SSE 错误事件通知客户端
+4. **流式中途错误**：已通过 SSE 输出则发送错误事件并正常结束；未输出则抛异常走故障转移
+5. **MAX_STREAM_CHUNKS=2000**：流式记录 chunk 数量上限，防止内存溢出
 
 ---
 
 ## 转换器
 
-> 对应目录：`converters/`（4 个文件，约 1700 行）
+> 对应目录：`converters/`
 
 ### 模块定位
 
@@ -485,7 +581,11 @@ class BaseConverter(ABC):
 
 ### 流式状态机
 
-每个 Converter 实例维护 `_stream_state`，一个实例只服务一次流式请求，不可复用。
+每个 Converter 实例维护 `_stream_state`，一个实例只服务一次流式请求，不可复用。一个上游 chunk 可能产出多个下游事件，通过 `_extra_events` + `get_extra_events()` 取出。
+
+### usage.py — Token 用量提取
+
+`cache_token_details(usage)` 从 usage 字典中提取 `cache_read_input_tokens` 和 `cache_creation_input_tokens`（兼容不同 API 的命名差异）。
 
 ### 注意事项
 
@@ -497,7 +597,7 @@ class BaseConverter(ABC):
 
 ## 负载均衡器
 
-> 对应文件：`balancer/load_balancer.py`（约 119 行）
+> 对应文件：`balancer/load_balancer.py`
 
 ### 模块定位
 
@@ -512,6 +612,8 @@ class ChannelHealth:
     current_weight: int = 0    # 当前轮询权重（SWRR 内部状态）
 ```
 
+健康判断：`fail_count < max_fail_count` 或 `当前时间 - last_fail_time > cooldown_seconds`。成功一次即重置 `fail_count`。
+
 ### LoadBalancer 核心方法
 
 #### `select_channel(channels, exclude_ids)`
@@ -524,14 +626,13 @@ async def select_channel(
 ```
 
 **流程**：
-1. 读取负载均衡配置
-2. 过滤：排除 disabled、已试、不健康的渠道
-3. 分组：按 `priority` 升序排序，取最小 priority 组
-4. 选择：组内加权轮询
+1. 过滤：排除 disabled、已试（`exclude_ids`）、不健康的渠道
+2. 分组：按 `priority` 升序排序，取最小 priority 组
+3. 选择：组内加权轮询（单渠道直接返回）
 
 #### `_weighted_round_robin(channels)`
 
-**平滑加权轮询算法**（SWRR）：
+**平滑加权轮询算法**（SWRR，类似 Nginx）：
 
 ```
 1. 每个 channel 的 current_weight += weight
@@ -539,19 +640,343 @@ async def select_channel(
 3. 被选中 channel 的 current_weight -= total_weight
 ```
 
-### 配置项
+### 配置热更新
 
-| 配置字段 | 默认值 | 说明 |
-|----------|--------|------|
-| `lb_config.max_fail_count` | 5 | 连续失败 N 次后标记不健康 |
-| `lb_config.cooldown_seconds` | 60 | 冷却恢复时间（秒） |
+```python
+async def update_config(max_fail_count: int = 5, cooldown_seconds: int = 60)
+```
 
-### 线程安全
+由 `config.update_settings()` 在负载均衡相关设置变更时自动调用。
 
-使用 `asyncio.Lock`，整个选择过程在锁内完成。
+### 渠道清理
+
+```python
+async def cleanup_removed_channels(active_channel_ids: set[str])
+```
+
+从健康状态字典中移除已删除的渠道，防止内存泄漏。由 `proxy_core._schedule_invalidate_model_channels_cache()` 在渠道保存后触发。
 
 ### 注意事项
 
 1. **priority 数字越小优先级越高**：1 比 2 优先
-2. **冷却期只是恢复探测**：冷却过后允许再试一次
+2. **冷却期只是恢复探测**：冷却过后允许再试一次，不等于恢复
 3. **current_weight 不重置**：保证长时间运行的流量分配比例精确
+4. **ChannelHealth 内存存储**：进程重启清零
+5. **线程安全**：整个选择过程在 `asyncio.Lock` 内完成
+
+---
+
+## 能力管理
+
+> 对应文件：`capability_manager.py`
+
+### 模块定位
+
+根据渠道的 `base_url` 关键词自动推断上游提供商的能力限制，在请求发送前过滤不支持的参数。
+
+### ProviderCapabilities 数据类
+
+```python
+@dataclass
+class ProviderCapabilities:
+    supports_parallel_tool_calls: bool = True
+    supports_tool_choice_auto: bool = True
+    supports_response_format: bool = True
+    supports_reasoning_effort: bool = True
+    supports_file_content: bool = False
+    supports_audio_content: bool = False
+    supports_tool_choice_required: bool = True
+    supports_strict_tools: bool = True
+    requires_single_system_message: bool = False
+    filter_think_content: bool = False
+```
+
+### 核心函数
+
+#### `infer_capabilities(channel) -> ProviderCapabilities`
+
+推断逻辑：
+1. 优先使用 `channel.capabilities` 字段（用户手动覆盖）
+2. 否则按 `base_url` 关键词匹配（`deepseek` / `minimax`）
+3. 都不匹配则返回默认（全部支持）
+
+#### `apply_capability_filter(request_data, caps) -> dict`
+
+根据能力逐项过滤请求参数，不支持的参数会被静默移除并记录 WARNING 日志。
+
+#### `merge_system_messages(messages) -> list`
+
+合并多条 system 消息为单条，MiniMax 等要求单 system 的提供商使用。将多条 system 消息的文本用 `\n\n` 连接，放在消息列表最前面。
+
+---
+
+## URL 构建
+
+> 对应文件：`url_builder.py`
+
+### 模块定位
+
+负责构造发给上游的完整 URL，处理各种 base_url 格式的兼容性。
+
+### 核心函数
+
+#### `build_upstream_url(channel) -> str`
+
+1. 如果 `channel.endpoint_url` 非空，直接使用
+2. 否则用 `base_url` + API 路径（如 `/chat/completions`）自动拼接
+3. `append_api_path()` 智能处理：如果 base_url 已包含 `/v1`，直接追加路径；如果已包含目标路径后缀，不重复拼接
+
+#### `build_models_url(base_url, models_url) -> str`
+
+构造模型列表 URL，`models_url` 优先。
+
+#### `append_query(url, query_string) -> str`
+
+合并客户端透传的 query 参数和 URL 已有的 query，使用 `urllib.parse` 处理，避免手写 `?` 破坏 URL。
+
+### API 路径映射
+
+```python
+_UPSTREAM_PATHS = {
+    "openai-chat-completions": "/chat/completions",
+    "openai-response": "/responses",
+    "anthropic": "/messages",
+}
+```
+
+---
+
+## 思考过滤
+
+> 对应文件：`think_filter.py`
+
+### 模块定位
+
+过滤模型输出中的思考过程内容，支持 `<think>...</think>` 标签和 `💭...💭` emoji 两种格式。
+
+### 两种模式
+
+#### 静态过滤：`filter_think_content_static(content)`
+
+正则一次性替换，适用于非流式响应。
+
+#### 流式过滤：`ThinkFilter` 类
+
+增量状态机，逐 chunk 处理：
+
+```python
+tf = ThinkFilter()
+for chunk_text in stream:
+    filtered = tf.feed(chunk_text)  # 返回过滤后的文本
+remaining = tf.flush()              # 流结束时取残余内容
+```
+
+**跨 chunk 处理**：
+- 标签可能横跨多个 chunk，状态机通过 buffer 缓存未匹配的部分
+- `_partial_start_tag_len()` 检测 buffer 末尾是否为标签前缀（如 `<thi`），避免误输出
+- `flush()` 时如果在 `<think>` 块内则丢弃，在 `💭` 块内则输出残余（因为 `💭` 既作开始也作结束标记）
+
+---
+
+## IP 白名单
+
+> 对应文件：`whitelist.py`
+
+### 模块定位
+
+基于 CSV 文件的 IP 访问控制，对请求路径 + HTTP 方法 + 客户端 IP 做规则匹配。
+
+### 规则格式
+
+CSV 文件 `data/whitelist.csv`，四列：
+
+```csv
+path_pattern,methods,cidr,desc
+/v1/chat/completions,POST,10.0.0.0/8,内网 Chat
+/admin/*,,192.168.1.100/32,管理员
+```
+
+- `path_pattern`：`fnmatchcase` 通配符匹配请求路径
+- `methods`：用 `|` 分隔多个方法，空或 `*` 表示允许所有
+- `cidr`：`ipaddress.ip_network(strict=False)` 解析
+- `desc`：规则描述
+
+以 `#` 开头的行和空行被忽略。
+
+### WhitelistCache
+
+```python
+class WhitelistCache:
+    def get_rules(self) -> list[WhitelistRule]:
+        # 用文件 mtime 判断是否需要重新加载
+```
+
+修改 CSV 文件后自动生效，无需重启。
+
+### check_request(rules, path, method, client_ip)
+
+返回 `(allow: bool, reason: str)`：
+- 路径无匹配规则 → 放行
+- 路径有规则但 IP 不在范围 → 拒绝
+- IP 在范围但方法不允许 → 拒绝
+- 全部匹配 → 放行
+- **无任何规则时默认放行**
+
+### validate_rules_text(text)
+
+前端白名单编辑页的校验入口，解析 CSV 文本并返回 `(valid, error_message, rules)`。
+
+---
+
+## 管理员鉴权
+
+> 对应文件：`admin_auth.py`
+
+### 模块定位
+
+管理后台的密码管理、会话验证和 CSRF 防护。
+
+### 密码存储
+
+- 存储位置：`data/admin_auth.json`
+- 哈希算法：PBKDF2-SHA256，260,000 轮迭代
+- 格式：`algo|iterations|salt_hex|digest_hex`
+
+### 会话机制
+
+- Session token 结构：`{expiry}.{nonce}.{hmac_signature}`
+- 签名密钥：密码哈希值（HMAC-SHA256）
+- TTL：24 小时
+- Cookie 名称：`admin_session`，属性 `HttpOnly; SameSite=Lax`
+- 登出时将 token 的 SHA256 摘要加入 `revoked_sessions`，定期清理过期的撤销记录
+
+### CSRF 防护
+
+- 写操作（POST/PUT/DELETE/PATCH）需要 `X-CSRF-Token` 头
+- CSRF token = `HMAC-SHA256(password_hash, SHA256(session_token))`
+- 与 session 绑定，session 失效则 CSRF 也失效
+
+### 核心函数
+
+| 函数 | 说明 |
+|------|------|
+| `setup_admin_password(password)` | 首次设置密码 |
+| `setup_and_login(password)` | 原子操作：未设置则先设置，然后验证并创建会话 |
+| `validate_admin_session(token)` | 验证会话 token（检查过期 + 撤销 + 签名） |
+| `create_admin_csrf_token(session_token)` | 生成 CSRF token |
+| `validate_admin_csrf_token(session_token, csrf_token)` | 验证 CSRF token |
+| `clear_admin_session(token)` | 撤销会话（登出） |
+
+---
+
+## 请求记录
+
+> 对应文件：`request_logs.py`
+
+### 模块定位
+
+记录每条代理请求的详细信息（token 用量、延迟、错误、请求/响应头等），支持 SQLite 和 PostgreSQL 两种后端。
+
+### 架构
+
+```
+proxy_core._record_request()
+    → record_request()              # 入队
+        → asyncio.Queue (max=1000)
+            → _request_log_worker() # 2 个后台 worker
+                → backend.write_record()
+```
+
+### 后端实现
+
+| 后端 | 说明 |
+|------|------|
+| `SQLiteRequestLogBackend` | 默认，使用 WAL 模式 + 64MB mmap |
+| `PostgresRequestLogBackend` | 可选，连接池 min=1 max=5，JSONB 存储 |
+
+两种后端共享相同的 `_BaseRequestLogBackend` 接口：`init()` / `close()` / `write_record()` / `list_requests()` / `get_request_field()` / `cleanup_old_records()`。
+
+### RAW 字段
+
+可选保存的原始数据字段（受 `save_request_headers` 等配置控制）：
+- `request_headers` / `response_headers`
+- `request_body` / `response_body`
+
+超过 `max_log_body_size`（默认 64KB）时自动截断，保留 `_preview` + 元信息。
+
+### 队列溢出保护
+
+当队列满（1000 条）时，记录会被写入 `data/request_logs_overflow.jsonl` 文件，防止丢失。
+
+### 数据清理
+
+`cleanup_old_records()` 支持两级保留策略：
+- `request_log_raw_retention_days`：超过此天数的记录清除 RAW 字段（释放空间）
+- `request_log_retention_days`：超过此天数的记录整行删除
+
+启动时 + 每 24 小时自动执行清理。
+
+---
+
+## Responses 状态
+
+> 对应文件：`response_state.py`、`state_store.py`
+
+### 模块定位
+
+为 OpenAI Responses API 提供会话状态持久化。当客户端使用 `previous_response_id` 引用历史对话时，代理需要从本地存储加载并展开。
+
+### response_state.py
+
+入口模块，管理全局 `FileStore` 实例：
+
+```python
+_responses_store = FileStore(
+    data_dir="data/responses_session/",
+    max_entries=1000,    # 可前端设置
+    ttl_minutes=60,      # 可前端设置
+)
+
+def get_responses_store() -> FileStore:
+    return _responses_store
+
+def reload_responses_store():
+    """设置变更后刷新配置"""
+```
+
+### state_store.py — FileStore
+
+基于文件系统的状态存储，每个 response 存为独立 JSON 文件。
+
+#### 核心方法
+
+| 方法 | 说明 |
+|------|------|
+| `get_response(response_id)` | 获取响应数据，过期返回 None，读取时更新 mtime（LRU） |
+| `get_conversation(response_id)` | 获取对话消息列表（用于展开 `previous_response_id`） |
+| `put(response_id, conversation, response)` | 存储会话记录 |
+| `delete(response_id)` | 删除会话记录 |
+| `cleanup_expired()` | 清理过期文件 |
+| `evict_lru()` | 按 mtime 淘汰超出容量的最旧文件 |
+
+#### 淘汰策略
+
+- **TTL 过期**：`expires_at` 字段与当前时间比较
+- **LRU 容量淘汰**：按文件 `mtime` 排序，删除最旧的，保留最新的 `max_entries` 个
+- 读取文件时用 `os.utime(path, None)` 更新 mtime，实现 LRU 跟踪
+- 后台定期执行 `_cleanup_if_needed()`（过期 + LRU）
+
+#### 文件结构
+
+```json
+{
+  "response_id": "resp_xxxx",
+  "conversation": {"messages": [...], "instructions": "..."},
+  "response": {...},
+  "created_at": 1234567890,
+  "expires_at": 1234571490,
+  "last_access_at": 1234567890
+}
+```
+
+所有文件写入使用原子写入（临时文件 + `os.replace()`）。
