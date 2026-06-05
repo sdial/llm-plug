@@ -3,7 +3,6 @@
 let _settingsOriginal = {};
 let _settingsCurrentSection = 'server';
 let _settingsDirtySections = new Set();
-let _settingsToastTimer = null;
 let _settingsInitRoot = null;
 
 function switchSettingsSection(section) {
@@ -64,28 +63,6 @@ function _detectSettingsDirty() {
   _updateSettingsDirtyIndicators();
 }
 
-function _showSettingsToast(msg, type) {
-  const toast = document.getElementById('settingsToast');
-  const inner = document.getElementById('settingsToastInner');
-  const icon = document.getElementById('settingsToastIcon');
-  const msgEl = document.getElementById('settingsToastMsg');
-  if (_settingsToastTimer) clearTimeout(_settingsToastTimer);
-  inner.className = 'flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 ' + type;
-  inner.style.animation = 'toast-in 0.3s ease-out';
-  const icons = {
-    success: '<path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
-    error: '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-    info: '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="12" y1="16" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="8" x2="12.01" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-  };
-  icon.innerHTML = icons[type] || icons.info;
-  msgEl.textContent = msg;
-  toast.classList.remove('hidden');
-  _settingsToastTimer = setTimeout(() => {
-    inner.style.animation = 'toast-out 0.3s ease-in forwards';
-    setTimeout(() => toast.classList.add('hidden'), 300);
-  }, 2500);
-}
-
 function syncRequestLogDbMode() {
   const typeEl = document.getElementById('set_request_log_db_type');
   const pgUrlEl = document.getElementById('set_request_log_database_url');
@@ -115,6 +92,7 @@ async function loadSettings() {
   try {
     if (!document.getElementById('set_host')) return;
     const resp = await fetch('/admin/settings');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
     _settingsOriginal = data;
     _settingsDirtySections.clear();
@@ -176,7 +154,7 @@ async function saveSettings() {
   if (cooldownSeconds !== (orig.cooldown_seconds ?? 60)) data.cooldown_seconds = cooldownSeconds;
 
   if (Object.keys(data).length === 0) {
-    _showSettingsToast('没有修改', 'info');
+    showGlobalToast('没有修改', 'info');
     return;
   }
 
@@ -188,7 +166,7 @@ async function saveSettings() {
     });
     if (resp.ok) {
       const result = await resp.json();
-      _showSettingsToast('保存成功', 'success');
+      showGlobalToast('保存成功', 'success');
       if (result.needs_restart) {
 document.getElementById('restartBtn').classList.remove('hidden');
       } else {
@@ -196,21 +174,22 @@ document.getElementById('restartBtn').classList.add('hidden');
       }
       loadSettings();
     } else {
-      const err = await resp.json();
-      _showSettingsToast('保存失败: ' + (err.detail || JSON.stringify(err)), 'error');
+      const err = await resp.json().catch(() => ({}));
+      showGlobalToast('保存失败: ' + (err.detail || 'HTTP ' + resp.status), 'error');
     }
   } catch (e) {
-    _showSettingsToast('保存失败: ' + e.message, 'error');
+    showGlobalToast('保存失败: ' + e.message, 'error');
   }
 }
 
 async function restartServer() {
-  if (!confirm('确定要重启服务吗？重启后当前页面将刷新。')) return;
-  try {
-    await fetch('/admin/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
-  } catch (e) { }
-  _showSettingsToast('正在重启，5秒后刷新页面...', 'info');
-  setTimeout(() => location.reload(), 5000);
+  showConfirmModal('确认重启', '确定要重启服务吗？重启后当前页面将刷新。', async () => {
+    try {
+      await fetch('/admin/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
+    } catch (e) { }
+    showGlobalToast('正在重启，5秒后刷新页面...', 'info');
+    setTimeout(() => location.reload(), 5000);
+  });
 }
 
 function getOriginalSettings() {
@@ -219,46 +198,9 @@ function getOriginalSettings() {
 
 // ===== 格式转换面板 =====
 
-const FC_API_TYPE_MAP = {
-  'openai-chat-completions': { short: 'C', color: 'bg-violet-100 text-violet-700', title: 'OpenAI Chat Completions' },
-  'openai-response': { short: 'R', color: 'bg-blue-100 text-blue-700', title: 'OpenAI Response' },
-  'anthropic': { short: 'A', color: 'bg-amber-100 text-amber-700', title: 'Anthropic' },
-};
-
 let _fcChannels = [];
 let _fcGlobalAllowed = true;
 let _fcLoading = false;
-let _fcToastTimer = null;
-
-function _fcEsc(s) {
-  const d = document.createElement('div');
-  d.textContent = s == null ? '' : String(s);
-  return d.innerHTML;
-}
-
-function _fcShowToast(msg, type) {
-  const toast = document.getElementById('fcToast');
-  const inner = document.getElementById('fcToastInner');
-  const icon = document.getElementById('fcToastIcon');
-  const msgEl = document.getElementById('fcToastMsg');
-  if (!toast) return;
-  if (_fcToastTimer) clearTimeout(_fcToastTimer);
-  const styles = {
-    success: 'bg-emerald-500 text-white',
-    error: 'bg-rose-500 text-white',
-    info: 'bg-ink-800 text-white',
-  };
-  inner.className = 'flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 ' + (styles[type] || styles.info);
-  const icons = {
-    success: '<path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
-    error: '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-    info: '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="12" y1="16" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-  };
-  icon.innerHTML = icons[type] || icons.info;
-  msgEl.textContent = msg;
-  toast.classList.remove('hidden');
-  _fcToastTimer = setTimeout(() => toast.classList.add('hidden'), 2200);
-}
 
 function _fcEffectiveAllowed(ch, globalAllowed) {
   const v = ch.allow_format_conversion;
@@ -274,18 +216,18 @@ function _fcOverrideMeta(ch) {
 }
 
 function _fcRenderChannelRow(ch) {
-  const apiInfo = FC_API_TYPE_MAP[ch.api_type] || { short: (ch.api_type || '?').charAt(0).toUpperCase(), color: 'bg-gray-100 text-gray-700', title: ch.api_type };
+  const apiInfo = API_TYPE_MAP[ch.api_type] || { short: (ch.api_type || '?').charAt(0).toUpperCase(), color: 'bg-gray-100 text-gray-700', title: ch.api_type };
   const override = _fcOverrideMeta(ch);
   const disabled = ch.enabled === false;
   return `
     <div class="flex items-center gap-3 px-4 py-2.5 border-t border-surface-100 first:border-t-0 ${disabled ? 'opacity-60' : ''}">
-      <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold ${apiInfo.color}" title="${_fcEsc(apiInfo.title)}">${apiInfo.short}</span>
+      <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold ${apiInfo.color}" title="${esc(apiInfo.title)}">${apiInfo.short}</span>
       <div class="min-w-0 flex-1 flex items-center gap-2">
-        <span class="text-sm font-medium text-ink-900 truncate" title="${_fcEsc(ch.name)}">${_fcEsc(ch.name)}</span>
+        <span class="text-sm font-medium text-ink-900 truncate" title="${esc(ch.name)}">${esc(ch.name)}</span>
         ${disabled ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-200 text-ink-500 flex-shrink-0">已禁用</span>' : ''}
         <span class="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${override.cls}">${override.label}</span>
       </div>
-      <select data-fc-channel-id="${_fcEsc(ch.id)}" class="fc-channel-select text-xs border border-surface-200 rounded-md px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
+      <select data-fc-channel-id="${esc(ch.id)}" class="fc-channel-select text-xs border border-surface-200 rounded-md px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
         <option value=""${override.value === '' ? ' selected' : ''}>跟随全局</option>
         <option value="true"${override.value === 'true' ? ' selected' : ''}>强制允许</option>
         <option value="false"${override.value === 'false' ? ' selected' : ''}>强制禁止</option>
@@ -362,7 +304,7 @@ async function loadFormatConversionPanel() {
     _fcRenderPanel();
     _fcBindGlobalToggle();
   } catch (e) {
-    panel.innerHTML = '<div class="text-sm text-rose-600 py-10 text-center">加载失败：' + _fcEsc(e.message) + '</div>';
+    panel.innerHTML = '<div class="text-sm text-rose-600 py-10 text-center">加载失败：' + esc(e.message) + '</div>';
   } finally {
     _fcLoading = false;
   }
@@ -397,11 +339,11 @@ async function _fcOnGlobalToggle(e) {
       _settingsOriginal.allow_format_conversion = desired;
     }
     _fcRenderPanel();
-    _fcShowToast(desired ? '已开启全局跨格式转换' : '已关闭全局跨格式转换', 'success');
+    showGlobalToast(desired ? '已开启全局跨格式转换' : '已关闭全局跨格式转换', 'success');
   } catch (err) {
     toggle.checked = prev;
     _fcGlobalAllowed = prev;
-    _fcShowToast('保存失败：' + err.message, 'error');
+    showGlobalToast('保存失败：' + err.message, 'error');
   } finally {
     toggle.disabled = false;
   }
@@ -429,11 +371,11 @@ async function _fcOnChannelChange(sel) {
     ch.allow_format_conversion = updated.allow_format_conversion ?? null;
     _fcRenderPanel();
     const label = payloadValue === null ? '跟随全局' : (payloadValue ? '强制允许' : '强制禁止');
-    _fcShowToast(`${ch.name}：${label}`, 'success');
+    showGlobalToast(`${ch.name}：${label}`, 'success');
   } catch (err) {
     ch.allow_format_conversion = prev;
     _fcRenderPanel();
-    _fcShowToast('保存失败：' + err.message, 'error');
+    showGlobalToast('保存失败：' + err.message, 'error');
   }
 }
 

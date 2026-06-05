@@ -6,12 +6,6 @@ let tagInputKey = null;      // TagInput 实例: API Key 允许模型
 let pendingCopyKey = '';
 let lastApiKeysInitRoot = null;
 
-function esc(s) {
-    const d = document.createElement('div');
-    d.textContent = s ?? '';
-    return d.innerHTML;
-}
-
 function invalidateRequestApiKeys() {
     if (typeof window.invalidateRequestApiKeys === 'function') {
         window.invalidateRequestApiKeys();
@@ -21,7 +15,9 @@ function invalidateRequestApiKeys() {
 async function loadApiKeys() {
     try {
         const resp = await fetch(API_KEYS);
-        apiKeys = await resp.json();
+        if (!resp.ok) { apiKeys = []; } else {
+            apiKeys = await resp.json();
+        }
     } catch (e) {
         apiKeys = [];
     }
@@ -124,30 +120,52 @@ async function saveApiKey(e) {
         data.key = manualKey;
     }
 
-    if (id) {
-        await fetch(`${API_KEYS}/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
-        invalidateRequestApiKeys();
-        closeKeyModal();
-        loadApiKeys();
-    } else {
-        const resp = await fetch(API_KEYS, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
-        const result = await resp.json();
-        invalidateRequestApiKeys();
-        closeKeyModal();
-        if (result.key) {
-            pendingCopyKey = result.key;
-            document.getElementById('copyKeyText').textContent = result.key;
-            document.getElementById('copyKeyModal').classList.remove('hidden');
+    try {
+        if (id) {
+            const resp = await fetch(`${API_KEYS}/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || ('HTTP ' + resp.status));
+            }
+            invalidateRequestApiKeys();
+            closeKeyModal();
+            loadApiKeys();
+        } else {
+            const resp = await fetch(API_KEYS, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || ('HTTP ' + resp.status));
+            }
+            const result = await resp.json();
+            invalidateRequestApiKeys();
+            closeKeyModal();
+            if (result.key) {
+                pendingCopyKey = result.key;
+                document.getElementById('copyKeyText').textContent = result.key;
+                document.getElementById('copyKeyModal').classList.remove('hidden');
+            }
+            loadApiKeys();
         }
-        loadApiKeys();
+    } catch (e) {
+        showGlobalToast('保存失败: ' + e.message);
     }
 }
 
 async function deleteApiKey(id) {
-    if (!confirm('确定删除该 API Key？')) return;
-    await fetch(`${API_KEYS}/${id}`, { method: 'DELETE' });
-    invalidateRequestApiKeys();
-    loadApiKeys();
+    showConfirmModal('确认删除', '确定删除该 API Key？', async () => {
+        try {
+            const resp = await fetch(`${API_KEYS}/${id}`, { method: 'DELETE' });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || ('HTTP ' + resp.status));
+            }
+        } catch (e) {
+            showGlobalToast('删除失败: ' + e.message);
+            return;
+        }
+        invalidateRequestApiKeys();
+        loadApiKeys();
+    });
 }
 
 async function copyApiKey(id) {
@@ -155,16 +173,16 @@ async function copyApiKey(id) {
         const resp = await fetch(`${API_KEYS}/${id}/key`);
         if (!resp.ok) {
             const text = await resp.text();
-            alert(`获取 Key 失败 (${resp.status}): ${text}`);
+            showGlobalToast(`获取 Key 失败 (${resp.status}): ${text}`);
             return;
         }
         const result = await resp.json();
         if (result.key) {
             await navigator.clipboard.writeText(result.key);
-            alert('Key 已复制到剪贴板');
+            showGlobalToast('Key 已复制到剪贴板', 'success');
         }
     } catch (e) {
-        alert('复制失败: ' + e.message);
+        showGlobalToast('复制失败: ' + e.message);
     }
 }
 

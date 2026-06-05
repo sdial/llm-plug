@@ -3,22 +3,18 @@
 let modelGroups = [];
 let editingModelGroupId = null;
 
-function esc(s) {
-    const d = document.createElement('div');
-    d.textContent = s ?? '';
-    return d.innerHTML;
-}
-
 
 async function loadModelGroups() {
     try {
         if (!document.getElementById('modelGroupList')) return;
         const resp = await fetch('/admin/model-groups');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
         modelGroups = await resp.json();
         renderModelGroups();
     } catch (e) {
         console.error('加载模型组失败:', e);
-        document.getElementById('modelGroupList').innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">加载失败</p>';
+        const el = document.getElementById('modelGroupList');
+        if (el) el.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">加载失败</p>';
     }
 }
 
@@ -128,11 +124,11 @@ async function saveModelGroup(e) {
     const models = Array.from(modelInputs).map(i => i.value.trim()).filter(v => v);
 
     if (!name) {
-        alert('请输入组名');
+        showGlobalToast('请输入组名', 'error');
         return;
     }
     if (models.length === 0) {
-        alert('请至少添加一个模型');
+        showGlobalToast('请至少添加一个模型', 'error');
         return;
     }
 
@@ -158,11 +154,11 @@ async function saveModelGroup(e) {
             closeModelGroupModal();
             loadModelGroups();
         } else {
-            const err = await resp.json();
-            alert('保存失败: ' + (err.detail || JSON.stringify(err)));
+            const err = await resp.json().catch(() => ({}));
+            showGlobalToast('保存失败: ' + (err.detail || 'HTTP ' + resp.status));
         }
     } catch (e) {
-        alert('保存失败: ' + e.message);
+        showGlobalToast('保存失败: ' + e.message);
     }
 }
 
@@ -179,11 +175,11 @@ async function toggleModelGroup(id) {
         if (resp.ok) {
             loadModelGroups();
         } else {
-            const err = await resp.json();
-            alert('操作失败: ' + (err.detail || JSON.stringify(err)));
+            const err = await resp.json().catch(() => ({}));
+            showGlobalToast('操作失败: ' + (err.detail || 'HTTP ' + resp.status));
         }
     } catch (e) {
-        alert('操作失败: ' + e.message);
+        showGlobalToast('操作失败: ' + e.message);
     }
 }
 
@@ -194,11 +190,11 @@ async function deleteModelGroupConfirm(id) {
             if (resp.ok) {
                 loadModelGroups();
             } else {
-                const err = await resp.json();
-                alert('删除失败: ' + (err.detail || JSON.stringify(err)));
+                const err = await resp.json().catch(() => ({}));
+                showGlobalToast('删除失败: ' + (err.detail || 'HTTP ' + resp.status));
             }
         } catch (e) {
-            alert('删除失败: ' + e.message);
+            showGlobalToast('删除失败: ' + e.message);
         }
     });
 }

@@ -2,12 +2,6 @@
 
 const API = '/admin/channels';
 let tagInputChannel = null;  // TagInput 实例: 渠道模型
-// API类型简写映射
-const API_TYPE_MAP = {
-    'openai-chat-completions': { short: 'C', color: 'bg-violet-100 text-violet-700', title: 'Chat Completions' },
-    'openai-response': { short: 'R', color: 'bg-blue-100 text-blue-700', title: 'Response' },
-    'anthropic': { short: 'A', color: 'bg-amber-100 text-amber-700', title: 'Anthropic' }
-};
 
 function getApiTypeInfo(apiType) {
     return API_TYPE_MAP[apiType] || { short: apiType.charAt(0).toUpperCase(), color: 'bg-gray-100 text-gray-700', title: apiType };
@@ -19,12 +13,7 @@ let fetchedModelsCache = [];
 let pendingTestChannelId = null;
 let pendingConfirmAction = null;
 let lastChannelsInitRoot = null;
-
-function esc(s) {
-    const d = document.createElement('div');
-    d.textContent = s ?? '';
-    return d.innerHTML;
-}
+let lastChannelsApiTypeInput = null;
 
 
 async function fetchModels() {
@@ -34,7 +23,7 @@ async function fetchModels() {
     const apiType = document.getElementById('f_api_type').value;
 
     if (!baseUrl && !modelsUrl) {
-        _showSettingsToast('请先填写 Base URL 或模型列表 URL', 'error');
+        showGlobalToast('请先填写 Base URL 或模型列表 URL', 'error');
         return;
     }
 
@@ -50,25 +39,25 @@ async function fetchModels() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ base_url: baseUrl, models_url: modelsUrl || null, api_key: apiKey || null, api_type: apiType })
         });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || err.error || ('HTTP ' + resp.status));
+        }
         const data = await resp.json();
 
         if (data.error) {
-            _showSettingsToast(data.error, 'error');
+            showGlobalToast(data.error, 'error');
             return;
         }
 
         fetchedModelsCache = data.models || [];
         showModelSelectPanel();
     } catch (e) {
-        _showSettingsToast('请求失败: ' + e.message, 'error');
+        showGlobalToast('请求失败: ' + e.message, 'error');
     } finally {
         btn.disabled = false;
         spinner.classList.add('hidden');
     }
-}
-
-function _escHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function showModelSelectPanel() {
@@ -87,8 +76,8 @@ function showModelSelectPanel() {
         const label = document.createElement('label');
         label.className = 'flex items-center gap-2 text-sm text-ink-700 hover:bg-surface-50 px-1 py-0.5 rounded cursor-pointer';
         label.innerHTML = `
-            <input type="checkbox" value="${_escHtml(model)}" ${currentTags.includes(model) ? 'checked' : ''} class="w-4 h-4 rounded border-surface-300 text-brand-600 focus:ring-brand-500">
-            <span>${_escHtml(model)}</span>
+            <input type="checkbox" value="${esc(model)}" ${currentTags.includes(model) ? 'checked' : ''} class="w-4 h-4 rounded border-surface-300 text-brand-600 focus:ring-brand-500">
+            <span>${esc(model)}</span>
         `;
         list.appendChild(label);
     });
@@ -117,8 +106,14 @@ function confirmModelSelect() {
 }
 
 async function loadChannels() {
-    const resp = await fetch(API);
-    channels = await resp.json();
+    try {
+        const resp = await fetch(API);
+        if (!resp.ok) return;
+        channels = await resp.json();
+    } catch (e) {
+        console.error('loadChannels error:', e);
+        channels = [];
+    }
     renderChannels();
 }
 
@@ -200,7 +195,7 @@ function renderChannels() {
 function openTestModal(channelId) {
     const ch = channels.find(c => c.id === channelId);
     if (!ch || !ch.models.length) {
-        alert('该渠道没有配置模型');
+        showGlobalToast('该渠道没有配置模型', 'error');
         return;
     }
     pendingTestChannelId = channelId;
@@ -229,6 +224,10 @@ async function executeTestFromModal() {
 
     try {
         const resp = await fetch(`${API}/${pendingTestChannelId}/test?model=${encodeURIComponent(model)}`, { method: 'POST' });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || ('HTTP ' + resp.status));
+        }
         const result = await resp.json();
         resultDiv.classList.remove('hidden');
         if (result.success) {
@@ -259,7 +258,15 @@ function toggleStatusWithConfirm(channelId, currentEnabled) {
     document.getElementById('confirmTitle').textContent = '确认' + action;
     document.getElementById('confirmMessage').textContent = `确定要${action}该渠道吗？`;
     pendingConfirmAction = async () => {
-        await fetch(`${API}/${channelId}/toggle`, { method: 'PATCH' });
+        try {
+            const resp = await fetch(`${API}/${channelId}/toggle`, { method: 'PATCH' });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || ('HTTP ' + resp.status));
+            }
+        } catch (e) {
+            showGlobalToast('操作失败: ' + e.message);
+        }
         loadChannels();
     };
     document.getElementById('confirmModal').classList.remove('hidden');
@@ -284,6 +291,27 @@ async function confirmAction() {
     closeConfirmModal();
 }
 
+function toggleApiKeyVisibility() {
+    const input = document.getElementById('f_api_key');
+    const showIcon = document.getElementById('eyeIconShow');
+    const hideIcon = document.getElementById('eyeIconHide');
+    if (!input || !showIcon || !hideIcon) return;
+    const isPassword = input.type === 'password';
+    input.type = isPassword ? 'text' : 'password';
+    showIcon.classList.toggle('hidden', isPassword);
+    hideIcon.classList.toggle('hidden', !isPassword);
+}
+
+function resetApiKeyVisibility() {
+    const input = document.getElementById('f_api_key');
+    const showIcon = document.getElementById('eyeIconShow');
+    const hideIcon = document.getElementById('eyeIconHide');
+    if (!input || !showIcon || !hideIcon) return;
+    input.type = 'password';
+    showIcon.classList.remove('hidden');
+    hideIcon.classList.add('hidden');
+}
+
 function openModal(channel = null) {
     document.getElementById('modalTitle').textContent = channel ? '编辑渠道' : '添加渠道';
     document.getElementById('editId').value = channel ? channel.id : '';
@@ -295,6 +323,7 @@ function openModal(channel = null) {
     document.getElementById('advancedUrlDetails').open = !!(channel && (channel.endpoint_url || channel.models_url));
     document.getElementById('f_api_key').value = '';
     document.getElementById('f_api_key').placeholder = channel ? '已设置，留空则不修改' : '上游服务的 API Key';
+    resetApiKeyVisibility();
     tagInputChannel.setTags(channel ? channel.models : []);
     document.getElementById('f_weight').value = channel ? channel.weight : 1;
     document.getElementById('f_priority').value = channel ? channel.priority : 1;
@@ -324,7 +353,15 @@ async function deleteChannelFromModal() {
     document.getElementById('confirmTitle').textContent = '确认删除';
     document.getElementById('confirmMessage').textContent = '确定要删除该渠道吗？此操作不可恢复。';
     pendingConfirmAction = async () => {
-        await fetch(`${API}/${id}`, { method: 'DELETE' });
+        try {
+            const resp = await fetch(`${API}/${id}`, { method: 'DELETE' });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || ('HTTP ' + resp.status));
+            }
+        } catch (e) {
+            showGlobalToast('删除失败: ' + e.message);
+        }
         closeModal();
         loadChannels();
     };
@@ -371,14 +408,27 @@ async function saveChannel(e) {
     }
 
     if (!id && !apiKey) {
-        alert('API Key 不能为空');
+        showGlobalToast('API Key 不能为空', 'error');
         return;
     }
 
-    if (id) {
-        await fetch(`${API}/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
-    } else {
-        await fetch(API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+    try {
+        if (id) {
+            const resp = await fetch(`${API}/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || ('HTTP ' + resp.status));
+            }
+        } else {
+            const resp = await fetch(API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || ('HTTP ' + resp.status));
+            }
+        }
+    } catch (e) {
+        showGlobalToast('保存失败: ' + e.message);
+        return;
     }
     closeModal();
     loadChannels();
@@ -386,10 +436,17 @@ async function saveChannel(e) {
 
 function initChannels() {
     const root = document.getElementById('f_models_container');
-    if (!root || root === lastChannelsInitRoot) return;
-    lastChannelsInitRoot = root;
-    tagInputChannel = new window.TagInput('f_models_container', 'f_models', '输入模型名称');
-    document.getElementById('f_api_type')?.addEventListener('change', updateAnthropicConfigVisibility);
+    if (!root) return;
+    if (root !== lastChannelsInitRoot) {
+        lastChannelsInitRoot = root;
+        tagInputChannel = new window.TagInput('f_models_container', 'f_models', '输入模型名称');
+    }
+
+    const apiTypeInput = document.getElementById('f_api_type');
+    if (apiTypeInput && apiTypeInput !== lastChannelsApiTypeInput) {
+        lastChannelsApiTypeInput = apiTypeInput;
+        apiTypeInput.addEventListener('change', updateAnthropicConfigVisibility);
+    }
 }
 
 function getChannels() {
@@ -417,6 +474,7 @@ Object.assign(window, {
     updateAnthropicConfigVisibility,
     saveChannel,
     initChannels,
+    toggleApiKeyVisibility,
 });
 window.adminChannels = { getChannels, loadChannels };
 })();

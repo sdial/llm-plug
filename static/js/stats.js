@@ -2,12 +2,6 @@
 
 let lastStatsData = null;
 
-function esc(s) {
-    const d = document.createElement('div');
-    d.textContent = s ?? '';
-    return d.innerHTML;
-}
-
 function getStatsAggregationTimezone() {
   return window.adminSettings?.getOriginal()?.aggregation_timezone || undefined;
 }
@@ -105,6 +99,7 @@ async function loadStats() {
 fetch('/admin/stats/today'),
 fetch('/admin/stats?days=7'),
       ]);
+      if (!todayResp.ok || !weekResp.ok) throw new Error('HTTP ' + (todayResp.ok ? weekResp.status : todayResp.status));
       const todayData = await todayResp.json();
       const weekData = await weekResp.json();
       const todayStr = formatStatsDateInTimezone(new Date(), getStatsAggregationTimezone());
@@ -144,6 +139,7 @@ params.set('days', daysVal);
 document.getElementById('statsDaysLabel').textContent = daysVal;
       }
       const resp = await fetch('/admin/stats?' + params.toString());
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
       data = await resp.json();
     }
     lastStatsData = data;

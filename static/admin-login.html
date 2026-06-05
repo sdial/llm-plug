@@ -43,31 +43,27 @@
         }
     }
 
+    function extractErrorMessage(detail) {
+        if (typeof detail === 'string') return detail;
+        if (Array.isArray(detail)) return detail.map(e => (typeof e === 'object' && e !== null ? (e.msg || JSON.stringify(e)) : String(e))).join('; ');
+        if (detail && typeof detail === 'object') return detail.message || JSON.stringify(detail);
+        return '';
+    }
+
     document.getElementById('loginForm').addEventListener('submit', async (event) => {
         event.preventDefault();
         const message = document.getElementById('message');
         message.textContent = '';
         const password = document.getElementById('password').value;
         try {
-            const statusResp = await fetch('/admin/auth/status');
-            const status = await statusResp.json();
-            if (!status.configured) {
-                const setupResp = await fetch('/admin/auth/setup', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({password}),
-                });
-                if (!setupResp.ok) {
-                    throw new Error((await setupResp.json()).detail || '初始化失败');
-                }
-            }
-            const loginResp = await fetch('/admin/auth/login', {
+            const resp = await fetch('/admin/auth/setup-login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({password}),
             });
-            if (!loginResp.ok) {
-                throw new Error((await loginResp.json()).detail || '登录失败');
+            if (!resp.ok) {
+                const body = await resp.json().catch(() => null);
+                throw new Error(extractErrorMessage(body?.detail) || '登录失败');
             }
             window.location.href = '/admin/';
         } catch (err) {

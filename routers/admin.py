@@ -273,6 +273,28 @@ async def auth_logout(request: Request):
     return response
 
 
+@router.post("/auth/setup-login")
+async def auth_setup_login(body: AdminLoginRequest, request: Request):
+    """原子操作：若管理员密码尚未设置则先初始化，然后验证并登录。
+
+    消除 setup → login 两步流程的竞态条件和重复网络请求。
+    """
+    if _is_login_rate_limited(request):
+        raise HTTPException(status_code=429, detail="登录失败次数过多，请稍后再试")
+    try:
+        token = await admin_auth.setup_and_login(body.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if token is None:
+        _record_login_failure(request)
+        raise HTTPException(status_code=401, detail="密码错误")
+    _clear_login_failures(request)
+    csrf_token = await admin_auth.create_admin_csrf_token(token)
+    response = JSONResponse({"message": "登录成功", "csrf_token": csrf_token})
+    response.headers["Set-Cookie"] = admin_auth.build_session_cookie(token)
+    return response
+
+
 async def _get_channels() -> list[Channel]:
     data = await load_data()
     return [Channel(**ch) for ch in data.get("channels", [])]

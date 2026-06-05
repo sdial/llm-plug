@@ -235,21 +235,6 @@ body {
   }
   #settingsNav::-webkit-scrollbar { height: 0; }
 }
-#settingsToastInner.success {
-  background-color: #ecfdf5;
-  color: #059669;
-  border: 1px solid #d1fae5;
-}
-#settingsToastInner.error {
-  background-color: #fff1f2;
-  color: #e11d48;
-  border: 1px solid #ffe4e6;
-}
-#settingsToastInner.info {
-  background-color: #f0efff;
-  color: #635bff;
-  border: 1px solid #e0dfff;
-}
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
