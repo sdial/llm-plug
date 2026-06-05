@@ -242,7 +242,7 @@ function renderStats(data) {
   trendTitle.innerHTML = '每日趋势（最近<span id="statsDaysLabel">' + daysLabel + '</span>天）';
   trendTimeHeader.textContent = '日期';
   if (daily.length === 0) {
-    dailyTbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
+    dailyTbody.innerHTML = '<tr><td colspan="8" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
   } else {
     dailyTbody.innerHTML = daily.slice().reverse().map(d => `
     <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
@@ -252,6 +252,7 @@ function renderStats(data) {
       <td data-label="失败" class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
       <td data-label="平均延迟" class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${d.avg_latency_ms || 0}ms</td>
       <td data-label="输入Token" class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
+      <td data-label="缓存命中" class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${formatTokens(d.total_cache_read_input_tokens || 0)}</td>
       <td data-label="输出Token" class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
     </tr>
     `).join('');
