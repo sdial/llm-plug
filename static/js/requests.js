@@ -11,12 +11,6 @@ let requestApiKeys = [];
 let requestApiKeysLoaded = false;
 let pendingApiKeyRestore = '';
 
-function esc(s) {
-    const d = document.createElement('div');
-    d.textContent = s ?? '';
-    return d.innerHTML;
-}
-
 function asInt(value) {
     const n = Number(value || 0);
     return Number.isFinite(n) ? Math.trunc(n) : 0;
@@ -79,7 +73,7 @@ async function loadRequests() {
         const resp = await fetch(`${API_REQUESTS}?${params.toString()}`);
         if (!resp.ok) {
             if (resp.status === 503) {
-                const err = await resp.json();
+                const err = await resp.json().catch(() => ({}));
                 requestsData = [];
                 requestTotal = 0;
                 renderRequestPagination();
@@ -112,10 +106,10 @@ function populateRequestChannelFilter() {
     const select = document.getElementById('reqFilterChannel');
     if (!select) return;
     const currentVal = select.value;
-    select.innerHTML = '<option value="">全部渠道</option>';
-    window.adminChannels.getChannels().forEach(ch => {
-        select.innerHTML += `<option value="${esc(ch.name)}">${esc(ch.name)}</option>`;
-    });
+    const options = Array.from(window.adminChannels.getChannels())
+        .map(ch => `<option value="${esc(ch.name)}">${esc(ch.name)}</option>`)
+        .join('');
+    select.innerHTML = `<option value="">全部渠道</option>${options}`;
     select.value = currentVal;
 }
 

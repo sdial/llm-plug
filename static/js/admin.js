@@ -18,6 +18,13 @@ function isAdminMutation(url, method) {
         && !['/admin/auth/login', '/admin/auth/setup'].includes(parsed.pathname);
 }
 
+function isAdminApi(url) {
+    const target = typeof url === 'string' ? url : url?.url;
+    if (!target) return false;
+    const parsed = new URL(target, window.location.origin);
+    return parsed.origin === window.location.origin && parsed.pathname.startsWith('/admin');
+}
+
 async function getCsrfToken() {
     if (csrfToken) return csrfToken;
     if (!csrfTokenPromise) {
@@ -37,14 +44,118 @@ async function getCsrfToken() {
     return csrfTokenPromise;
 }
 
+function _showGlobalToast(msg, type = 'error') {
+    const colors = {
+        error: 'bg-rose-600 text-white',
+        success: 'bg-emerald-600 text-white',
+        info: 'bg-sky-600 text-white',
+    };
+    let container = document.getElementById('_globalToast');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = '_globalToast';
+        container.style.cssText = 'position:fixed;top:1.5rem;right:1.5rem;z-index:9999;display:flex;flex-direction:column;gap:0.5rem;pointer-events:none;';
+        document.body.appendChild(container);
+    }
+    const el = document.createElement('div');
+    el.className = `px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 pointer-events-auto ${colors[type] || colors.error}`;
+    el.style.animation = 'toast-in 0.3s ease-out';
+    el.textContent = msg;
+    container.appendChild(el);
+    setTimeout(() => {
+        el.style.animation = 'toast-out 0.3s ease-in forwards';
+        setTimeout(() => el.remove(), 300);
+    }, 4000);
+}
+window.showGlobalToast = _showGlobalToast;
+
+function _redirectToLogin() {
+    if (!window.location.pathname.startsWith('/admin/login')) {
+        window.location.href = '/admin/login';
+    }
+}
+
+async function _extractErrorMessage(resp) {
+    try {
+        const data = await resp.json();
+        return data.detail || data.error || data.message || `HTTP ${resp.status}`;
+    } catch {
+        try {
+            const text = await resp.text();
+            return text ? text.slice(0, 200) : `HTTP ${resp.status}`;
+        } catch {
+            return `HTTP ${resp.status}`;
+        }
+    }
+}
+
 window.fetch = async function adminFetch(input, init = {}) {
     const requestMethod = init.method || (input instanceof Request ? input.method : 'GET');
-    if (!isAdminMutation(input, requestMethod)) {
-        return originalFetch(input, init);
-    }
+    const isMutation = isAdminMutation(input, requestMethod);
+    const isAdmin = isAdminApi(input);
     const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
-    headers.set('X-CSRF-Token', await getCsrfToken());
-    return originalFetch(input, { ...init, headers });
+
+    if (isMutation) {
+        headers.set('X-CSRF-Token', await getCsrfToken());
+    }
+
+    // 保存请求信息用于 403 重试（Request body 只能读一次）
+    const retryUrl = typeof input === 'string' ? input : input.url;
+    const retryInit = { ...init, headers };
+
+    let resp;
+    try {
+        resp = await originalFetch(input, { ...init, headers });
+    } catch (e) {
+        // 网络错误（断网、DNS 失败等）
+        if (isAdmin) {
+            _showGlobalToast('网络错误：' + (e.message || '无法连接服务器'));
+        }
+        throw e;
+    }
+
+    // 仅对 /admin API 做统一错误处理
+    if (!isAdmin) return resp;
+
+    if (resp.ok) return resp;
+
+    // 401 → 会话过期，跳登录
+    if (resp.status === 401) {
+        _showGlobalToast('登录已过期，请重新登录');
+        setTimeout(_redirectToLogin, 800);
+        return resp;
+    }
+
+    // 403 → CSRF 过期，刷新后重试一次（仅 mutation）
+    if (resp.status === 403 && isMutation) {
+        csrfToken = null;
+        const newToken = await getCsrfToken();
+        const retryHeaders = new Headers(retryInit.headers);
+        retryHeaders.set('X-CSRF-Token', newToken);
+        let retryResp;
+        try {
+            retryResp = await originalFetch(retryUrl, { ...retryInit, headers: retryHeaders });
+        } catch (e) {
+            _showGlobalToast('网络错误：' + (e.message || '无法连接服务器'));
+            throw e;
+        }
+        if (retryResp.ok) return retryResp;
+        // 重试仍 403 → 非 CSRF 问题（权限不足等），走通用错误
+        if (retryResp.status !== 403) return retryResp;
+        const errMsg = await _extractErrorMessage(retryResp.clone());
+        _showGlobalToast('权限不足：' + errMsg);
+        return retryResp;
+    }
+
+    // 5xx → 服务器错误提示
+    if (resp.status >= 500) {
+        const errMsg = await _extractErrorMessage(resp.clone());
+        _showGlobalToast('服务器错误：' + errMsg);
+        return resp;
+    }
+
+    // 其他 4xx（400、404、409、422 等）不弹 toast，让调用方自行处理
+    return resp;
 };
 
 function updateRequestHashSafely() {

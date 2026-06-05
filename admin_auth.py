@@ -173,6 +173,46 @@ async def setup_admin_password(password: str) -> None:
         await _write_auth_file(data)
 
 
+async def setup_and_login(password: str) -> str | None:
+    """原子操作：若密码尚未设置则先初始化，然后验证密码并创建会话。
+
+    返回会话 token 字符串；密码错误时返回 None。
+    密码为空时抛出 ValueError。
+    """
+    if not password or not password.strip():
+        raise ValueError("password 不能为空")
+    async with _auth_lock:
+        path = _auth_file()
+        if path.exists():
+            raw_data = await _read_auth_file()
+            data = _normalize_auth_data(raw_data)
+        else:
+            data = {"password_hash": "", "updated_at": 0, "revoked_sessions": {}}
+        password_hash = data.get("password_hash", "")
+        if not password_hash:
+            # 首次设置
+            password_hash = _hash_password(password)
+            data = {
+                "password_hash": password_hash,
+                "updated_at": int(_now()),
+                "revoked_sessions": {},
+            }
+            await _write_auth_file(data)
+        # 验证密码
+        if not _verify_password(password, password_hash):
+            return None
+        # 创建会话
+        expiry = str(int(_now()) + _SESSION_TTL_SECONDS)
+        nonce = secrets.token_urlsafe(16)
+        payload = f"{expiry}.{nonce}"
+        sig = hmac.new(
+            password_hash.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return f"{payload}.{sig}"
+
+
 async def verify_admin_password(password: str) -> bool:
     state = await get_admin_auth_state()
     password_hash = state["password_hash"]
