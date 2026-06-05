@@ -44,36 +44,36 @@
             </div>
 
             <!-- 表格 -->
-            <div class="card overflow-hidden mb-4">
-                <table class="w-full text-sm responsive-card" style="table-layout:fixed">
+            <div class="request-table-shell mb-4">
+                <table class="request-log-table w-full text-sm responsive-card">
                     <colgroup>
                         <col style="width:110px">
-                        <col style="width:90px">
+                        <col style="width:120px">
                         <col style="width:100px">
-                        <col style="width:110px">
                         <col style="width:130px">
-                        <col style="width:70px">
-                        <col style="width:70px">
+                        <col style="width:180px">
+                        <col style="width:112px">
+                        <col style="width:82px">
                         <col style="width:90px">
                         <col style="width:90px">
                         <col style="width:70px">
-                        <col style="width:80px">
-                        <col style="width:60px">
+                        <col style="width:100px">
+                        <col style="width:76px">
                     </colgroup>
                     <thead>
-                        <tr class="border-b border-surface-200">
-                            <th class="text-left py-3 px-3 text-xs text-ink-600 font-semibold uppercase tracking-wider">时间</th>
-                            <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">渠道</th>
-                            <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">客户端 IP</th>
-                            <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">API Key</th>
-                            <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">模型</th>
-                            <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider" title="输入 Token 数">输入 Tok</th>
-                            <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider" title="输出 Token 数">输出 Tok</th>
-                            <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider" title="整体耗时（毫秒）">总耗时 (ms)</th>
-                            <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider" title="首个 Token 返回耗时（毫秒）">首 Token (ms)</th>
-                            <th class="text-right py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider" title="输出速率：tokens/秒">速率 (t/s)</th>
-                            <th class="text-left py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">结束原因</th>
-                            <th class="text-center py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">状态</th>
+                        <tr>
+                            <th class="text-left py-3 px-3">时间</th>
+                            <th class="text-left py-3 px-2">渠道</th>
+                            <th class="text-left py-3 px-2">客户端 IP</th>
+                            <th class="text-left py-3 px-2">API Key</th>
+                            <th class="text-left py-3 px-2">模型</th>
+                            <th class="text-right py-3 px-2" title="输入 Token 数；括号为命中缓存的 cache_read_input_tokens">输入 Tok</th>
+                            <th class="text-right py-3 px-2" title="输出 Token 数">输出 Tok</th>
+                            <th class="text-right py-3 px-2" title="整体耗时（毫秒）">总耗时</th>
+                            <th class="text-right py-3 px-2" title="首个 Token 返回耗时（毫秒）">首 Tok</th>
+                            <th class="text-right py-3 px-2" title="输出速率：tokens/秒">速率</th>
+                            <th class="text-left py-3 px-2">结束原因</th>
+                            <th class="text-center py-3 px-2">状态</th>
                         </tr>
                     </thead>
                     <tbody id="requestsTbody">

@@ -64,6 +64,12 @@ function updateTabActiveState(tab) {
     });
 }
 
+function updateAdminLayoutWidth(tab) {
+    const layout = document.getElementById('admin-layout');
+    if (!layout) return;
+    layout.classList.toggle('admin-wide-layout', tab === 'requests');
+}
+
 function switchTab(tab, updateHash = true) {
     currentTab = tab;
     if (updateHash) {
@@ -74,6 +80,7 @@ function switchTab(tab, updateHash = true) {
         }
     }
     updateTabActiveState(tab);
+    updateAdminLayoutWidth(tab);
     const content = document.getElementById('admin-content');
     if (content) {
         content.setAttribute('hx-get', `/admin/ui/${tab}`);
