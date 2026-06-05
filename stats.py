@@ -709,7 +709,9 @@ def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
         ).fetchone()
         channel_rows = conn.execute(
             """
-            SELECT channel_name, COUNT(*) AS count
+            SELECT channel_name, COUNT(*) AS count,
+                   COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                   COALESCE(SUM(output_tokens), 0) AS output_tokens
             FROM request_stats_raw
             WHERE timestamp >= ?
             GROUP BY channel_id, channel_name
@@ -719,7 +721,9 @@ def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
         ).fetchall()
         model_rows = conn.execute(
             """
-            SELECT model, COUNT(*) AS count
+            SELECT model, COUNT(*) AS count,
+                   COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                   COALESCE(SUM(output_tokens), 0) AS output_tokens
             FROM request_stats_raw
             WHERE timestamp >= ?
             GROUP BY model
@@ -750,8 +754,24 @@ def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
         "total_output_tokens": row["total_output_tokens"] or 0,
         "total_cache_read_input_tokens": row["total_cache_read_input_tokens"] or 0,
         "total_cache_creation_input_tokens": row["total_cache_creation_input_tokens"] or 0,
-        "channels": [{"name": r["channel_name"], "count": r["count"]} for r in channel_rows],
-        "models": [{"name": r["model"], "count": r["count"]} for r in model_rows],
+        "channels": [
+            {
+                "name": r["channel_name"],
+                "count": r["count"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+            }
+            for r in channel_rows
+        ],
+        "models": [
+            {
+                "name": r["model"],
+                "count": r["count"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+            }
+            for r in model_rows
+        ],
         "api_keys": [
             {
                 "key_id": r["api_key_id"],
@@ -818,7 +838,9 @@ def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
         ).fetchone()
         channel_rows = conn.execute(
             """
-            SELECT channel_name, COUNT(*) AS count
+            SELECT channel_name, COUNT(*) AS count,
+                   COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                   COALESCE(SUM(output_tokens), 0) AS output_tokens
             FROM request_stats_raw
             WHERE timestamp >= ?
             GROUP BY channel_id, channel_name
@@ -828,7 +850,9 @@ def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
         ).fetchall()
         model_rows = conn.execute(
             """
-            SELECT model, COUNT(*) AS count
+            SELECT model, COUNT(*) AS count,
+                   COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                   COALESCE(SUM(output_tokens), 0) AS output_tokens
             FROM request_stats_raw
             WHERE timestamp >= ?
             GROUP BY model
@@ -859,8 +883,24 @@ def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
         "total_output_tokens": row["total_output_tokens"] or 0,
         "total_cache_read_input_tokens": row["total_cache_read_input_tokens"] or 0,
         "total_cache_creation_input_tokens": row["total_cache_creation_input_tokens"] or 0,
-        "channels": [{"name": r["channel_name"], "count": r["count"]} for r in channel_rows],
-        "models": [{"name": r["model"], "count": r["count"]} for r in model_rows],
+        "channels": [
+            {
+                "name": r["channel_name"],
+                "count": r["count"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+            }
+            for r in channel_rows
+        ],
+        "models": [
+            {
+                "name": r["model"],
+                "count": r["count"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+            }
+            for r in model_rows
+        ],
         "api_keys": [
             {
                 "key_id": r["api_key_id"],

@@ -187,69 +187,51 @@ function renderStats(data) {
   document.getElementById('stat_output_tokens').textContent = formatTokens(outputTokens);
   document.getElementById('stat_total_tokens').textContent = formatTokens(inputTokens + outputTokens);
 
-  // 渠道分布
-  const channelDist = document.getElementById('channel_dist');
   const chs = overall.channels || [];
-  if (chs.length === 0) {
-    channelDist.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
-  } else {
-    const maxCount = Math.max(...chs.map(c => c.count));
-    channelDist.innerHTML = chs.map(ch => {
-      const pct = maxCount > 0 ? (ch.count / maxCount * 100) : 0;
-      return `
-      <div class="flex items-center gap-3">
-<div class="w-20 sm:w-24 text-sm text-ink-600 truncate">${esc(ch.name)}</div>
-<div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
-  <div class="bg-brand-500 h-full rounded-full" style="width: ${pct}%"></div>
-</div>
-<div class="w-12 sm:w-16 text-right text-sm text-ink-900 font-medium">${ch.count}</div>
-      </div>
-      `;
-    }).join('');
-  }
-
-  // 模型分布
-  const modelDist = document.getElementById('model_dist');
   const models = overall.models || [];
-  if (models.length === 0) {
-    modelDist.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
-  } else {
-    const maxCount = Math.max(...models.map(m => m.count));
-    modelDist.innerHTML = models.slice(0, 10).map(m => {
-      const pct = maxCount > 0 ? (m.count / maxCount * 100) : 0;
-      return `
-      <div class="flex items-center gap-3">
-<div class="w-20 sm:w-24 text-sm text-ink-600 truncate">${esc(m.name)}</div>
-<div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
-  <div class="bg-brand-500 h-full rounded-full" style="width: ${pct}%"></div>
-</div>
-<div class="w-12 sm:w-16 text-right text-sm text-ink-900 font-medium">${m.count}</div>
-      </div>
-      `;
-    }).join('');
-  }
-
-  // API Key 分布
-  const apikeyDist = document.getElementById('apikey_dist');
   const keys = overall.api_keys || [];
-  if (keys.length === 0) {
-    apikeyDist.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
-  } else {
-    const maxCount = Math.max(...keys.map(k => k.count));
-    apikeyDist.innerHTML = keys.slice(0, 10).map(k => {
-      const pct = maxCount > 0 ? (k.count / maxCount * 100) : 0;
-      const tokens = (k.input_tokens || 0) + (k.output_tokens || 0);
-      return `
-      <div class="flex items-center gap-3">
-<div class="w-20 sm:w-24 text-sm text-ink-600 truncate font-mono">${esc(k.key_id)}</div>
-<div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
-  <div class="bg-brand-500 h-full rounded-full" style="width: ${pct}%"></div>
-</div>
-<div class="w-12 sm:w-16 text-right text-sm text-ink-900 font-medium">${k.count}</div>
-      </div>
-      `;
-    }).join('');
-  }
+  renderDistribution('channel_dist', chs, {
+    value: item => item.count || 0,
+    label: item => item.name,
+    valueLabel: value => value.toLocaleString(),
+    barClass: 'bg-brand-500',
+  });
+  renderDistribution('model_dist', models, {
+    value: item => item.count || 0,
+    label: item => item.name,
+    valueLabel: value => value.toLocaleString(),
+    barClass: 'bg-brand-500',
+    limit: 10,
+  });
+  renderDistribution('apikey_dist', keys, {
+    value: item => item.count || 0,
+    label: item => item.key_id,
+    valueLabel: value => value.toLocaleString(),
+    barClass: 'bg-brand-500',
+    labelClass: 'font-mono',
+    limit: 10,
+  });
+  renderDistribution('channel_token_dist', chs, {
+    value: totalTokensForItem,
+    label: item => item.name,
+    valueLabel: formatTokens,
+    barClass: 'bg-cyan-500',
+  });
+  renderDistribution('model_token_dist', models, {
+    value: totalTokensForItem,
+    label: item => item.name,
+    valueLabel: formatTokens,
+    barClass: 'bg-cyan-500',
+    limit: 10,
+  });
+  renderDistribution('apikey_token_dist', keys, {
+    value: totalTokensForItem,
+    label: item => item.key_id,
+    valueLabel: formatTokens,
+    barClass: 'bg-cyan-500',
+    labelClass: 'font-mono',
+    limit: 10,
+  });
 
   // 趋势表格（天/小时自动切换）
   const trendTitle = document.getElementById('trendTitle');
@@ -274,6 +256,36 @@ function renderStats(data) {
     </tr>
     `).join('');
   }
+}
+
+function totalTokensForItem(item) {
+    return (item.input_tokens || 0) + (item.output_tokens || 0);
+}
+
+function renderDistribution(elementId, items, options) {
+    const target = document.getElementById(elementId);
+    if (!target) return;
+    const visibleItems = (items || []).slice(0, options.limit || items.length || 0);
+    if (visibleItems.length === 0) {
+        target.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
+        return;
+    }
+    const rows = visibleItems
+        .map(item => ({ item, value: options.value(item) || 0 }))
+        .sort((a, b) => b.value - a.value);
+    const maxValue = Math.max(...rows.map(row => row.value));
+    target.innerHTML = rows.map(({ item, value }) => {
+        const pct = maxValue > 0 ? (value / maxValue * 100) : 0;
+        return `
+      <div class="flex items-center gap-3">
+<div class="w-20 sm:w-24 text-sm text-ink-600 truncate ${options.labelClass || ''}" title="${esc(options.label(item))}">${esc(options.label(item))}</div>
+<div class="flex-1 bg-surface-100 rounded-full h-2.5 overflow-hidden">
+  <div class="${options.barClass} h-full rounded-full" style="width: ${pct}%"></div>
+</div>
+<div class="w-16 sm:w-20 text-right text-sm text-ink-900 font-medium tabular-nums">${options.valueLabel(value)}</div>
+      </div>
+      `;
+    }).join('');
 }
 
 function formatTokens(n) {
