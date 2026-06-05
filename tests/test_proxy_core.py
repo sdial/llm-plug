@@ -983,7 +983,12 @@ class TestDoRequest:
                     "finish_reason": "stop",
                 }
             ],
-            "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+            "usage": {
+                "prompt_tokens": 3,
+                "completion_tokens": 2,
+                "total_tokens": 5,
+                "prompt_tokens_details": {"cached_tokens": 1},
+            },
         }
 
         class FakeClient:
@@ -1025,6 +1030,123 @@ class TestDoRequest:
         request_log_record.assert_called_once()
         assert request_log_record.call_args.kwargs == stats_record.call_args.kwargs
         assert request_log_record.call_args.kwargs["response_body"] == upstream_response
+        assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 1
+        assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 0
+
+    @pytest.mark.anyio
+    async def test_non_stream_response_usage_records_cache_token_details(self):
+        upstream_response = {
+            "id": "resp_1",
+            "object": "response",
+            "status": "completed",
+            "output": [],
+            "usage": {
+                "input_tokens": 12,
+                "output_tokens": 3,
+                "total_tokens": 15,
+                "input_tokens_details": {"cached_tokens": 7},
+            },
+        }
+
+        class FakeClient:
+            async def post(self, url, json, headers):
+                request = httpx.Request("POST", url)
+                return httpx.Response(200, json=upstream_response, request=request)
+
+        channel = Channel(
+            id="ch_response",
+            name="Responses",
+            api_type=APIType.OPENAI_RESPONSE,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            await _do_request(
+                channel,
+                {"model": "gpt-4o", "input": "hello"},
+                APIType.OPENAI_RESPONSE,
+                is_stream=False,
+            )
+
+        assert request_log_record.call_args.kwargs["input_tokens"] == 12
+        assert request_log_record.call_args.kwargs["output_tokens"] == 3
+        assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 7
+        assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 0
+
+    @pytest.mark.anyio
+    async def test_openai_chat_stream_usage_records_cache_token_details(self):
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}'
+                yield ""
+                yield (
+                    'data: {"id":"c","object":"chat.completion.chunk",'
+                    '"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],'
+                    '"usage":{"prompt_tokens":12,"completion_tokens":3,'
+                    '"prompt_tokens_details":{"cached_tokens":7}}}'
+                )
+                yield ""
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_chat_stream",
+            name="ChatStream",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.openai.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "gpt-4o", "stream": True},
+                response_converter=None,
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_CHAT,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        assert outputs[-1] == "data: [DONE]\n\n"
+        assert request_log_record.call_args.kwargs["input_tokens"] == 12
+        assert request_log_record.call_args.kwargs["output_tokens"] == 3
+        assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 7
+        assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 0
 
     @pytest.mark.anyio
     async def test_same_type_openai_response_non_stream_forwards_body_and_response_unchanged(

@@ -143,6 +143,13 @@ def _from_row(row: sqlite3.Row) -> dict[str, Any]:
     return data
 
 
+def _ensure_sqlite_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for name, definition in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
 def _init_db_sync(db_path: str) -> None:
     directory = os.path.dirname(os.path.abspath(db_path))
     if directory:
@@ -163,6 +170,8 @@ def _init_db_sync(db_path: str) -> None:
                 is_stream INTEGER NOT NULL,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
                 latency_ms INTEGER NOT NULL,
                 lag_ms INTEGER,
                 finish_reason TEXT,
@@ -180,6 +189,8 @@ def _init_db_sync(db_path: str) -> None:
                 fail_count INTEGER NOT NULL DEFAULT 0,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
                 avg_latency_ms INTEGER,
                 avg_lag_ms INTEGER,
                 updated_at TEXT NOT NULL,
@@ -196,6 +207,8 @@ def _init_db_sync(db_path: str) -> None:
                 fail_count INTEGER NOT NULL DEFAULT 0,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
                 avg_latency_ms INTEGER,
                 avg_lag_ms INTEGER,
                 updated_at TEXT NOT NULL,
@@ -211,6 +224,12 @@ def _init_db_sync(db_path: str) -> None:
             CREATE INDEX IF NOT EXISTS idx_hourly_stats_hour ON hourly_stats(hour);
             """
         )
+        token_detail_columns = {
+            "cache_read_input_tokens": "INTEGER NOT NULL DEFAULT 0",
+            "cache_creation_input_tokens": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for table in ("request_stats_raw", "daily_stats", "hourly_stats"):
+            _ensure_sqlite_columns(conn, table, token_detail_columns)
 
 
 async def init_db(db_path: str | None = None) -> None:
@@ -317,9 +336,10 @@ def _write_record_sync(record: dict[str, Any]) -> None:
             """
             INSERT INTO request_stats_raw
             (timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
-             input_tokens, output_tokens, latency_ms, lag_ms, finish_reason,
+             input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+             latency_ms, lag_ms, finish_reason,
              success, error_msg)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 timestamp,
@@ -331,6 +351,8 @@ def _write_record_sync(record: dict[str, Any]) -> None:
                 1 if lightweight["is_stream"] else 0,
                 int(lightweight.get("input_tokens") or 0),
                 int(lightweight.get("output_tokens") or 0),
+                int(lightweight.get("cache_read_input_tokens") or 0),
+                int(lightweight.get("cache_creation_input_tokens") or 0),
                 int(lightweight["latency_ms"]),
                 lightweight.get("lag_ms"),
                 lightweight.get("finish_reason"),
@@ -353,6 +375,8 @@ def record_request(
     output_tokens: int,
     latency_ms: int,
     success: bool,
+    cache_read_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
     error_msg: str | None = None,
     api_key_id: str | None = None,
     client_ip: str | None = None,
@@ -376,6 +400,8 @@ def record_request(
         "is_stream": is_stream,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "cache_read_input_tokens": cache_read_input_tokens,
+        "cache_creation_input_tokens": cache_creation_input_tokens,
         "latency_ms": latency_ms,
         "success": success,
         "error_msg": error_msg,
@@ -439,7 +465,8 @@ def _aggregate_daily_stats_sync(start_date: date, end_date: date) -> dict[str, A
             f"""
             INSERT INTO daily_stats
             (date, channel_id, model, api_key_id, request_count, success_count, fail_count,
-             input_tokens, output_tokens, avg_latency_ms, avg_lag_ms, updated_at)
+             input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+             avg_latency_ms, avg_lag_ms, updated_at)
             SELECT
                 date(datetime(timestamp, '{offset_modifier}')) AS date,
                 channel_id,
@@ -450,6 +477,8 @@ def _aggregate_daily_stats_sync(start_date: date, end_date: date) -> dict[str, A
                 SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
                 COALESCE(SUM(input_tokens), 0) AS input_tokens,
                 COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                COALESCE(SUM(cache_read_input_tokens), 0) AS cache_read_input_tokens,
+                COALESCE(SUM(cache_creation_input_tokens), 0) AS cache_creation_input_tokens,
                 CAST(ROUND(AVG(latency_ms)) AS INTEGER) AS avg_latency_ms,
                 CAST(ROUND(AVG(lag_ms)) AS INTEGER) AS avg_lag_ms,
                 ? AS updated_at
@@ -502,7 +531,9 @@ def _get_daily_stats_sync(
         rows = conn.execute(
             f"""
             SELECT date, channel_id, model, api_key_id, request_count, success_count,
-                   fail_count, input_tokens, output_tokens, avg_latency_ms, avg_lag_ms
+                   fail_count, input_tokens, output_tokens,
+                   cache_read_input_tokens, cache_creation_input_tokens,
+                   avg_latency_ms, avg_lag_ms
             FROM daily_stats
             WHERE {" AND ".join(conditions)}
             ORDER BY date ASC
@@ -553,6 +584,8 @@ def _get_daily_stats_from_requests_sync(
                 SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
                 COALESCE(SUM(input_tokens), 0) AS input_tokens,
                 COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                COALESCE(SUM(cache_read_input_tokens), 0) AS cache_read_input_tokens,
+                COALESCE(SUM(cache_creation_input_tokens), 0) AS cache_creation_input_tokens,
                 CAST(ROUND(AVG(latency_ms)) AS INTEGER) AS avg_latency_ms,
                 CAST(ROUND(AVG(lag_ms)) AS INTEGER) AS avg_lag_ms
             FROM request_stats_raw
@@ -646,6 +679,8 @@ def _overall_zero() -> dict[str, Any]:
         "fail_count": 0,
         "total_input_tokens": 0,
         "total_output_tokens": 0,
+        "total_cache_read_input_tokens": 0,
+        "total_cache_creation_input_tokens": 0,
         "channels": [],
         "models": [],
         "api_keys": [],
@@ -664,7 +699,9 @@ def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
                 SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
                 SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
                 COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
-                COALESCE(SUM(output_tokens), 0) AS total_output_tokens
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                COALESCE(SUM(cache_read_input_tokens), 0) AS total_cache_read_input_tokens,
+                COALESCE(SUM(cache_creation_input_tokens), 0) AS total_cache_creation_input_tokens
             FROM request_stats_raw
             WHERE timestamp >= ?
             """,
@@ -695,7 +732,9 @@ def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
             """
             SELECT api_key_id, COUNT(*) AS count,
                    COALESCE(SUM(input_tokens), 0) AS input_tokens,
-                   COALESCE(SUM(output_tokens), 0) AS output_tokens
+                   COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                   COALESCE(SUM(cache_read_input_tokens), 0) AS cache_read_input_tokens,
+                   COALESCE(SUM(cache_creation_input_tokens), 0) AS cache_creation_input_tokens
             FROM request_stats_raw
             WHERE api_key_id IS NOT NULL AND api_key_id != '' AND timestamp >= ?
             GROUP BY api_key_id
@@ -709,6 +748,8 @@ def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
         "fail_count": row["fail_count"] or 0,
         "total_input_tokens": row["total_input_tokens"] or 0,
         "total_output_tokens": row["total_output_tokens"] or 0,
+        "total_cache_read_input_tokens": row["total_cache_read_input_tokens"] or 0,
+        "total_cache_creation_input_tokens": row["total_cache_creation_input_tokens"] or 0,
         "channels": [{"name": r["channel_name"], "count": r["count"]} for r in channel_rows],
         "models": [{"name": r["model"], "count": r["count"]} for r in model_rows],
         "api_keys": [
@@ -717,6 +758,8 @@ def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
                 "count": r["count"],
                 "input_tokens": r["input_tokens"],
                 "output_tokens": r["output_tokens"],
+                "cache_read_input_tokens": r["cache_read_input_tokens"],
+                "cache_creation_input_tokens": r["cache_creation_input_tokens"],
             }
             for r in key_rows
         ],
@@ -747,6 +790,8 @@ async def get_today_stats() -> dict[str, Any]:
                 "fail_count": row["fail_count"] or 0,
                 "total_input_tokens": row["input_tokens"] or 0,
                 "total_output_tokens": row["output_tokens"] or 0,
+                "total_cache_read_input_tokens": row["cache_read_input_tokens"] or 0,
+                "total_cache_creation_input_tokens": row["cache_creation_input_tokens"] or 0,
                 "avg_latency_ms": row["avg_latency_ms"] or 0,
                 "avg_lag_ms": row["avg_lag_ms"] or 0,
             }
@@ -763,7 +808,9 @@ def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
                 SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
                 SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
                 COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
-                COALESCE(SUM(output_tokens), 0) AS total_output_tokens
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                COALESCE(SUM(cache_read_input_tokens), 0) AS total_cache_read_input_tokens,
+                COALESCE(SUM(cache_creation_input_tokens), 0) AS total_cache_creation_input_tokens
             FROM request_stats_raw
             WHERE timestamp >= ?
             """,
@@ -794,7 +841,9 @@ def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
             """
             SELECT api_key_id, COUNT(*) AS count,
                    COALESCE(SUM(input_tokens), 0) AS input_tokens,
-                   COALESCE(SUM(output_tokens), 0) AS output_tokens
+                   COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                   COALESCE(SUM(cache_read_input_tokens), 0) AS cache_read_input_tokens,
+                   COALESCE(SUM(cache_creation_input_tokens), 0) AS cache_creation_input_tokens
             FROM request_stats_raw
             WHERE api_key_id IS NOT NULL AND api_key_id != '' AND timestamp >= ?
             GROUP BY api_key_id
@@ -808,6 +857,8 @@ def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
         "fail_count": row["fail_count"] or 0,
         "total_input_tokens": row["total_input_tokens"] or 0,
         "total_output_tokens": row["total_output_tokens"] or 0,
+        "total_cache_read_input_tokens": row["total_cache_read_input_tokens"] or 0,
+        "total_cache_creation_input_tokens": row["total_cache_creation_input_tokens"] or 0,
         "channels": [{"name": r["channel_name"], "count": r["count"]} for r in channel_rows],
         "models": [{"name": r["model"], "count": r["count"]} for r in model_rows],
         "api_keys": [
@@ -816,6 +867,8 @@ def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
                 "count": r["count"],
                 "input_tokens": r["input_tokens"],
                 "output_tokens": r["output_tokens"],
+                "cache_read_input_tokens": r["cache_read_input_tokens"],
+                "cache_creation_input_tokens": r["cache_creation_input_tokens"],
             }
             for r in key_rows
         ],
@@ -831,7 +884,9 @@ def _get_api_key_stats_sync() -> dict[str, dict[str, int]]:
             SELECT api_key_id,
                    COUNT(*) AS request_count,
                    COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
-                   COALESCE(SUM(output_tokens), 0) AS total_output_tokens
+                   COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                   COALESCE(SUM(cache_read_input_tokens), 0) AS total_cache_read_input_tokens,
+                   COALESCE(SUM(cache_creation_input_tokens), 0) AS total_cache_creation_input_tokens
             FROM request_stats_raw
             WHERE api_key_id IS NOT NULL AND api_key_id != ''
             GROUP BY api_key_id
@@ -842,6 +897,8 @@ def _get_api_key_stats_sync() -> dict[str, dict[str, int]]:
                 "request_count": row["request_count"],
                 "total_input_tokens": row["total_input_tokens"],
                 "total_output_tokens": row["total_output_tokens"],
+                "total_cache_read_input_tokens": row["total_cache_read_input_tokens"],
+                "total_cache_creation_input_tokens": row["total_cache_creation_input_tokens"],
             }
             for row in rows
         }
@@ -921,8 +978,9 @@ def _list_requests_sync(
         rows = conn.execute(
             f"""
             SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                   client_ip, is_stream, input_tokens, output_tokens, latency_ms,
-                   lag_ms, finish_reason, success, error_msg
+                   client_ip, is_stream, input_tokens, output_tokens,
+                   cache_read_input_tokens, cache_creation_input_tokens,
+                   latency_ms, lag_ms, finish_reason, success, error_msg
             FROM request_stats_raw
             WHERE {where_clause}
             ORDER BY timestamp DESC, id DESC
