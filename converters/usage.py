@@ -130,3 +130,24 @@ def openai_response_to_anthropic(usage: dict[str, Any] | None) -> dict[str, Any]
         "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": cached,
     }
+
+
+def cache_token_details(usage: dict[str, Any] | None) -> dict[str, int]:
+    """Extract normalized cache token details from Anthropic/OpenAI usage.
+
+    The returned values are independent dimensions. They should not be
+    subtracted from input_tokens at the recording layer because upstream APIs
+    expose different input token semantics.
+    """
+    if not isinstance(usage, dict):
+        usage = {}
+    cache_creation = _read_int(usage, "cache_creation_input_tokens")
+    cache_read = _read_int(usage, "cache_read_input_tokens")
+    if cache_read == 0:
+        cache_read = _read_int(usage.get("prompt_tokens_details"), "cached_tokens")
+    if cache_read == 0:
+        cache_read = _read_int(usage.get("input_tokens_details"), "cached_tokens")
+    return {
+        "cache_read_input_tokens": cache_read,
+        "cache_creation_input_tokens": cache_creation,
+    }

@@ -50,11 +50,13 @@ def admin_auth_files(tmp_path, monkeypatch):
     storage._keys_cache_ts = 0
     storage._channels_lock = asyncio.Lock()
     storage._keys_lock = asyncio.Lock()
+    admin._login_rate_limit_state.clear()
 
     import main
     main._whitelist_cache = main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv"))
 
     yield
+    admin._login_rate_limit_state.clear()
 
 
 @pytest.mark.anyio

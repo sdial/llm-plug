@@ -36,6 +36,8 @@ def _record_sample(**overrides):
         "is_stream": False,
         "input_tokens": 12,
         "output_tokens": 8,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
         "latency_ms": 120,
         "success": True,
         "api_key_id": "key_a",
@@ -73,6 +75,8 @@ async def test_record_request_writes_lightweight_row_and_list_requests_omits_raw
     assert item["is_stream"] is False
     assert item["input_tokens"] == 12
     assert item["output_tokens"] == 8
+    assert item["cache_read_input_tokens"] == 0
+    assert item["cache_creation_input_tokens"] == 0
     assert item["latency_ms"] == 120
     assert item["lag_ms"] == 25
     assert item["finish_reason"] == "stop"
@@ -81,7 +85,13 @@ async def test_record_request_writes_lightweight_row_and_list_requests_omits_raw
 
 
 async def test_aggregate_daily_stats_refreshes_daily_stats():
-    _record_sample(model="gpt-4o-mini", input_tokens=20, output_tokens=5)
+    _record_sample(
+        model="gpt-4o-mini",
+        input_tokens=20,
+        output_tokens=5,
+        cache_read_input_tokens=13,
+        cache_creation_input_tokens=2,
+    )
     await stats.drain_queue()
 
     result = await stats.aggregate_daily_stats(date.today(), date.today())
@@ -94,6 +104,98 @@ async def test_aggregate_daily_stats_refreshes_daily_stats():
     assert daily[0]["fail_count"] == 0
     assert daily[0]["input_tokens"] == 20
     assert daily[0]["output_tokens"] == 5
+    assert daily[0]["cache_read_input_tokens"] == 13
+    assert daily[0]["cache_creation_input_tokens"] == 2
+
+
+async def test_record_request_writes_cache_token_details_and_overall_totals():
+    _record_sample(
+        input_tokens=1200,
+        output_tokens=80,
+        cache_read_input_tokens=900,
+        cache_creation_input_tokens=40,
+    )
+    await stats.drain_queue()
+
+    listed = await stats.list_requests()
+    overall = await stats.get_overall_stats(days=1)
+
+    item = listed["items"][0]
+    assert item["cache_read_input_tokens"] == 900
+    assert item["cache_creation_input_tokens"] == 40
+    assert overall["total_cache_read_input_tokens"] == 900
+    assert overall["total_cache_creation_input_tokens"] == 40
+    assert overall["api_keys"][0]["cache_read_input_tokens"] == 900
+    assert overall["api_keys"][0]["cache_creation_input_tokens"] == 40
+
+
+async def test_init_db_migrates_existing_stats_db_for_cache_token_columns(tmp_path):
+    old_db = tmp_path / "stats_old.db"
+    conn = sqlite3.connect(str(old_db))
+    conn.executescript(
+        """
+        CREATE TABLE request_stats_raw (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            model TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            channel_name TEXT NOT NULL,
+            api_key_id TEXT,
+            client_ip TEXT,
+            is_stream INTEGER NOT NULL,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            latency_ms INTEGER NOT NULL,
+            lag_ms INTEGER,
+            finish_reason TEXT,
+            success INTEGER NOT NULL,
+            error_msg TEXT
+        );
+
+        CREATE TABLE daily_stats (
+            date TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            api_key_id TEXT NOT NULL,
+            request_count INTEGER NOT NULL DEFAULT 0,
+            success_count INTEGER NOT NULL DEFAULT 0,
+            fail_count INTEGER NOT NULL DEFAULT 0,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            avg_latency_ms INTEGER,
+            avg_lag_ms INTEGER,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (date, channel_id, model, api_key_id)
+        );
+
+        CREATE TABLE hourly_stats (
+            hour TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            api_key_id TEXT NOT NULL,
+            request_count INTEGER NOT NULL DEFAULT 0,
+            success_count INTEGER NOT NULL DEFAULT 0,
+            fail_count INTEGER NOT NULL DEFAULT 0,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            avg_latency_ms INTEGER,
+            avg_lag_ms INTEGER,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (hour, channel_id, model, api_key_id)
+        );
+        """
+    )
+    conn.close()
+
+    await stats.close_pool()
+    await stats.init_db(str(old_db))
+
+    _record_sample(cache_read_input_tokens=55, cache_creation_input_tokens=6)
+    await stats.drain_queue()
+    listed = await stats.list_requests()
+
+    assert listed["items"][0]["cache_read_input_tokens"] == 55
+    assert listed["items"][0]["cache_creation_input_tokens"] == 6
 
 
 async def test_refresh_missing_daily_stats_uses_timestamp_index_for_date_cutoff(sqlite_stats_db, monkeypatch):

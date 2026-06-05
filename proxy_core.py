@@ -25,6 +25,7 @@ from config import LOG_LEVEL, get_setting
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
+from converters.usage import cache_token_details
 from models.api_types import APIType
 from models.channel import Channel
 from response_state import get_responses_store
@@ -936,6 +937,7 @@ async def _do_request(
         usage = response_data.get("usage", {}) if isinstance(response_data, dict) else {}
         input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
         output_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
+        token_details = cache_token_details(usage)
 
         # 提取 finish_reason
         finish_reason = None
@@ -954,6 +956,8 @@ async def _do_request(
             is_stream=False,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            cache_read_input_tokens=token_details["cache_read_input_tokens"],
+            cache_creation_input_tokens=token_details["cache_creation_input_tokens"],
             latency_ms=latency_ms,
             lag_ms=None,
             success=True,
@@ -1293,6 +1297,8 @@ async def _do_stream_request(
     model = upstream_data.get("model", "")
     input_tokens = 0
     output_tokens = 0
+    cache_read_input_tokens = 0
+    cache_creation_input_tokens = 0
     finish_reason = None
     stream_chunks: list[Any] = []
     stream_chunk_count = 0
@@ -1571,9 +1577,18 @@ async def _do_stream_request(
                 if isinstance(chunk, dict):
                     if is_upstream_anthropic:
                         if chunk.get("type") == "message_start":
-                            input_tokens = chunk.get("message", {}).get("usage", {}).get("input_tokens", 0)
+                            start_usage = chunk.get("message", {}).get("usage", {})
+                            input_tokens = start_usage.get("input_tokens", 0)
+                            token_details = cache_token_details(start_usage)
+                            cache_read_input_tokens = token_details["cache_read_input_tokens"]
+                            cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
                         elif chunk.get("type") == "message_delta":
-                            output_tokens = chunk.get("usage", {}).get("output_tokens", output_tokens)
+                            delta_usage = chunk.get("usage", {})
+                            output_tokens = delta_usage.get("output_tokens", output_tokens)
+                            token_details = cache_token_details(delta_usage)
+                            if token_details["cache_read_input_tokens"] or token_details["cache_creation_input_tokens"]:
+                                cache_read_input_tokens = token_details["cache_read_input_tokens"]
+                                cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
                             fr = chunk.get("delta", {}).get("stop_reason")
                             if fr:
                                 finish_reason = fr
@@ -1583,6 +1598,9 @@ async def _do_stream_request(
                             logger.info(f"[STREAM USAGE] upstream returned usage: {usage}")
                             input_tokens = usage.get("prompt_tokens", input_tokens)
                             output_tokens = usage.get("completion_tokens", output_tokens)
+                            token_details = cache_token_details(usage)
+                            cache_read_input_tokens = token_details["cache_read_input_tokens"]
+                            cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
                         choices = chunk.get("choices", [])
                         if choices and isinstance(choices[0], dict):
                             fr = choices[0].get("finish_reason")
@@ -1708,8 +1726,12 @@ async def _do_stream_request(
                 if not output_sse_events:
                     _mark_output()
                     yield "data: [DONE]\n\n"
-                input_tokens = full_response.get("usage", {}).get("prompt_tokens", full_response.get("usage", {}).get("input_tokens", input_tokens))
-                output_tokens = full_response.get("usage", {}).get("completion_tokens", full_response.get("usage", {}).get("output_tokens", output_tokens))
+                full_usage = full_response.get("usage", {})
+                input_tokens = full_usage.get("prompt_tokens", full_usage.get("input_tokens", input_tokens))
+                output_tokens = full_usage.get("completion_tokens", full_usage.get("output_tokens", output_tokens))
+                token_details = cache_token_details(full_usage)
+                cache_read_input_tokens = token_details["cache_read_input_tokens"]
+                cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
                 choices = full_response.get("choices", [])
                 if choices and isinstance(choices[0], dict):
                     fr = choices[0].get("finish_reason")
@@ -1795,6 +1817,8 @@ async def _do_stream_request(
                 is_stream=True,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                cache_read_input_tokens=cache_read_input_tokens,
+                cache_creation_input_tokens=cache_creation_input_tokens,
                 latency_ms=latency_ms,
                 lag_ms=lag_ms,
                 success=stream_success,

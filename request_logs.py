@@ -122,6 +122,8 @@ def _base_item_from_mapping(row: dict[str, Any]) -> dict[str, Any]:
         "is_stream": row["is_stream"],
         "input_tokens": row["input_tokens"],
         "output_tokens": row["output_tokens"],
+        "cache_read_input_tokens": row.get("cache_read_input_tokens", 0),
+        "cache_creation_input_tokens": row.get("cache_creation_input_tokens", 0),
         "latency_ms": row["latency_ms"],
         "lag_ms": row.get("lag_ms"),
         "finish_reason": row.get("finish_reason"),
@@ -135,6 +137,13 @@ def _base_item_from_mapping(row: dict[str, Any]) -> dict[str, Any]:
     if data["is_stream"] is not None:
         data["is_stream"] = bool(data["is_stream"])
     return data
+
+
+def _ensure_sqlite_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for name, definition in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
 
 class _BaseRequestLogBackend:
@@ -222,6 +231,8 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
                     is_stream INTEGER NOT NULL,
                     input_tokens INTEGER NOT NULL DEFAULT 0,
                     output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
                     latency_ms INTEGER NOT NULL,
                     lag_ms INTEGER,
                     finish_reason TEXT,
@@ -240,6 +251,14 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
                 CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip);
                 """
             )
+            _ensure_sqlite_columns(
+                conn,
+                "request_logs",
+                {
+                    "cache_read_input_tokens": "INTEGER NOT NULL DEFAULT 0",
+                    "cache_creation_input_tokens": "INTEGER NOT NULL DEFAULT 0",
+                },
+            )
 
     @staticmethod
     def _json_dumps(value: Any) -> str | None:
@@ -253,10 +272,11 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
                 """
                 INSERT INTO request_logs
                 (timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
-                 input_tokens, output_tokens, latency_ms, lag_ms, finish_reason,
+                 input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+                 latency_ms, lag_ms, finish_reason,
                  success, error_msg, request_headers, response_headers,
                  request_body, response_body)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     _to_iso(record.get("timestamp")),
@@ -268,6 +288,8 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
                     1 if record["is_stream"] else 0,
                     int(record.get("input_tokens") or 0),
                     int(record.get("output_tokens") or 0),
+                    int(record.get("cache_read_input_tokens") or 0),
+                    int(record.get("cache_creation_input_tokens") or 0),
                     int(record["latency_ms"]),
                     record.get("lag_ms"),
                     record.get("finish_reason"),
@@ -337,8 +359,9 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
             rows = conn.execute(
                 f"""
                 SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                       client_ip, is_stream, input_tokens, output_tokens, latency_ms,
-                       lag_ms, finish_reason, success, error_msg
+                       client_ip, is_stream, input_tokens, output_tokens,
+                       cache_read_input_tokens, cache_creation_input_tokens,
+                       latency_ms, lag_ms, finish_reason, success, error_msg
                 FROM request_logs
                 WHERE {where_clause}
                 ORDER BY timestamp DESC, id DESC
@@ -458,6 +481,8 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
                     is_stream BOOLEAN NOT NULL,
                     input_tokens INTEGER NOT NULL DEFAULT 0,
                     output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
                     latency_ms INTEGER NOT NULL,
                     lag_ms INTEGER,
                     finish_reason TEXT,
@@ -475,6 +500,14 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
                 CREATE INDEX IF NOT EXISTS idx_request_logs_api_key ON request_logs(api_key_id);
                 CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip);
                 """
+            )
+            await conn.execute(
+                "ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS "
+                "cache_read_input_tokens INTEGER NOT NULL DEFAULT 0"
+            )
+            await conn.execute(
+                "ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS "
+                "cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0"
             )
 
     async def _init_connection(self, conn: asyncpg.Connection) -> None:
@@ -502,11 +535,12 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
                 """
                 INSERT INTO request_logs
                 (timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
-                 input_tokens, output_tokens, latency_ms, lag_ms, finish_reason,
+                 input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+                 latency_ms, lag_ms, finish_reason,
                  success, error_msg, request_headers, response_headers,
                  request_body, response_body)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                        $12, $13, $14, $15, $16, $17, $18)
+                        $12, $13, $14, $15, $16, $17, $18, $19, $20)
                 """,
                 record.get("timestamp") or _utc_now(),
                 record["model"],
@@ -517,6 +551,8 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
                 bool(record["is_stream"]),
                 int(record.get("input_tokens") or 0),
                 int(record.get("output_tokens") or 0),
+                int(record.get("cache_read_input_tokens") or 0),
+                int(record.get("cache_creation_input_tokens") or 0),
                 int(record["latency_ms"]),
                 record.get("lag_ms"),
                 record.get("finish_reason"),
@@ -588,8 +624,9 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
             rows = await conn.fetch(
                 f"""
                 SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                       client_ip, is_stream, input_tokens, output_tokens, latency_ms,
-                       lag_ms, finish_reason, success, error_msg
+                       client_ip, is_stream, input_tokens, output_tokens,
+                       cache_read_input_tokens, cache_creation_input_tokens,
+                       latency_ms, lag_ms, finish_reason, success, error_msg
                 FROM request_logs
                 WHERE {where_clause}
                 ORDER BY timestamp DESC, id DESC
@@ -850,6 +887,8 @@ def record_request(
     output_tokens: int,
     latency_ms: int,
     success: bool,
+    cache_read_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
     error_msg: str | None = None,
     api_key_id: str | None = None,
     client_ip: str | None = None,
@@ -875,6 +914,8 @@ def record_request(
         "is_stream": is_stream,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "cache_read_input_tokens": cache_read_input_tokens,
+        "cache_creation_input_tokens": cache_creation_input_tokens,
         "latency_ms": latency_ms,
         "success": success,
         "error_msg": error_msg,

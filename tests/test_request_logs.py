@@ -25,6 +25,8 @@ def _sample_record(**overrides):
         "is_stream": False,
         "input_tokens": 11,
         "output_tokens": 7,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
         "latency_ms": 123,
         "success": True,
         "api_key_id": "key_a",
@@ -80,8 +82,88 @@ async def test_sqlite_backend_initializes_writes_and_lists_paginated(sqlite_requ
     assert page_1["items"][0]["channel_id"] == "ch_new"
     assert page_1["items"][0]["success"] is True
     assert page_1["items"][0]["is_stream"] is False
+    assert page_1["items"][0]["cache_read_input_tokens"] == 0
+    assert page_1["items"][0]["cache_creation_input_tokens"] == 0
     assert RAW_FIELDS.isdisjoint(page_1["items"][0])
     assert page_2["items"][0]["channel_id"] == "ch_old"
+
+
+async def test_sqlite_backend_records_cache_token_details(sqlite_request_logs):
+    _sample_record(
+        input_tokens=1200,
+        output_tokens=80,
+        cache_read_input_tokens=900,
+        cache_creation_input_tokens=40,
+    )
+    await request_logs.drain_queue()
+
+    result = await request_logs.list_requests()
+
+    assert result["total"] == 1
+    item = result["items"][0]
+    assert item["input_tokens"] == 1200
+    assert item["output_tokens"] == 80
+    assert item["cache_read_input_tokens"] == 900
+    assert item["cache_creation_input_tokens"] == 40
+
+
+async def test_sqlite_backend_migrates_existing_db_for_cache_token_columns(tmp_path, monkeypatch):
+    import sqlite3
+
+    db_path = tmp_path / "request_logs_old.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(
+        """
+        CREATE TABLE request_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            model TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            channel_name TEXT NOT NULL,
+            api_key_id TEXT,
+            client_ip TEXT,
+            is_stream INTEGER NOT NULL,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            latency_ms INTEGER NOT NULL,
+            lag_ms INTEGER,
+            finish_reason TEXT,
+            success INTEGER NOT NULL,
+            error_msg TEXT,
+            request_headers TEXT,
+            response_headers TEXT,
+            request_body TEXT,
+            response_body TEXT
+        );
+        """
+    )
+    conn.close()
+
+    await request_logs.close_backend()
+    monkeypatch.setattr(
+        request_logs,
+        "_get_save_flags",
+        lambda: {
+            "save_request_headers": False,
+            "save_response_headers": False,
+            "save_request_body": False,
+            "save_response_body": False,
+        },
+    )
+    result = await request_logs.init_backend(
+        {
+            "request_log_db_type": "sqlite",
+            "request_log_sqlite_path": str(db_path),
+        }
+    )
+    assert result["available"] is True
+
+    _sample_record(cache_read_input_tokens=12, cache_creation_input_tokens=3)
+    await request_logs.drain_queue()
+    listed = await request_logs.list_requests()
+
+    assert listed["items"][0]["cache_read_input_tokens"] == 12
+    assert listed["items"][0]["cache_creation_input_tokens"] == 3
 
 
 async def test_start_workers_persist_queued_request_logs(sqlite_request_logs):

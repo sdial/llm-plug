@@ -77,7 +77,7 @@ _AUTH_PUBLIC_PATHS = {
     "/admin/auth/setup",
     "/admin/auth/login",
 }
-_LOGIN_RATE_LIMIT_MAX_FAILURES = 10
+_LOGIN_RATE_LIMIT_MAX_FAILURES = 5
 _LOGIN_RATE_LIMIT_WINDOW_SECONDS = 60
 _login_rate_limit_state: dict[tuple[str, str], list[float]] = {}
 
