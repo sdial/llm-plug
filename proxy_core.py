@@ -1380,6 +1380,8 @@ async def _do_stream_request(
     logger.debug(f"[STREAM START] model={model} url={url} target={target_api_type.value}")
     try:
         async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
+            if resp.is_error:
+                await resp.aread()
             resp.raise_for_status()
             resp_status_code = resp.status_code
             resp_headers = dict(resp.headers)

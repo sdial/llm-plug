@@ -4,7 +4,7 @@ from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, Header, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from loguru import logger
 
 from models.api_types import APIType
@@ -16,6 +16,7 @@ from routers.proxy_errors import (
     anthropic_unauthorized,
     invalid_request,
     response_from_proxy_exception,
+    safe_httpx_response_content,
     unauthorized,
 )
 
@@ -72,7 +73,7 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
             return err_invalid(str(e))
         except httpx.HTTPStatusError as e:
             logger.error(f"{path} upstream HTTP {e.response.status_code}: {e}")
-            return _response_from_upstream_http_error(e)
+            return _response_from_upstream_http_error(e, api_type)
         except Exception as e:
             logger.error(f"{path} {type(e).__name__}: {e}")
             return err_exception(e)
@@ -93,12 +94,22 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
     return router
 
 
-def _response_from_upstream_http_error(exc: httpx.HTTPStatusError) -> Response:
+def _response_from_upstream_http_error(exc: httpx.HTTPStatusError, api_type: APIType) -> Response:
     """透传上游 HTTP 错误状态码和响应体。"""
-    try:
-        content = exc.response.content
-    except httpx.ResponseNotRead:
-        content = exc.response.read()
+    content = safe_httpx_response_content(exc.response)
+    if content is None:
+        if api_type == APIType.ANTHROPIC:
+            return JSONResponse(
+                status_code=exc.response.status_code,
+                content={
+                    "type": "error",
+                    "error": {"type": "api_error", "message": f"上游 HTTP {exc.response.status_code}: {exc}"},
+                },
+            )
+        return JSONResponse(
+            status_code=exc.response.status_code,
+            content={"error": {"message": f"上游 HTTP {exc.response.status_code}: {exc}", "type": "api_error"}},
+        )
     media_type = exc.response.headers.get("content-type")
     return Response(
         content=content,

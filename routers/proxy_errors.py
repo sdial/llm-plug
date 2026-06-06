@@ -3,6 +3,34 @@
 import httpx
 from fastapi.responses import JSONResponse
 
+
+def safe_httpx_response_content(response: httpx.Response) -> bytes | None:
+    """Best-effort response body read for httpx errors, including closed streams."""
+    try:
+        return response.content
+    except httpx.ResponseNotRead:
+        try:
+            return response.read()
+        except (httpx.StreamClosed, httpx.StreamConsumed):
+            return None
+
+
+def safe_httpx_response_text(response: httpx.Response) -> str:
+    content = safe_httpx_response_content(response)
+    if content is None:
+        return ""
+    return content.decode(response.encoding or "utf-8", errors="replace")
+
+
+def upstream_http_error_message(exc: httpx.HTTPStatusError) -> str:
+    body = safe_httpx_response_text(exc.response)
+    if len(body) > 800:
+        body = body[:800] + "..."
+    if body:
+        return f"上游 HTTP {exc.response.status_code}: {body}"
+    return f"上游 HTTP {exc.response.status_code}: {exc}"
+
+
 # ── Anthropic 格式错误 ──
 
 def anthropic_error(status_code: int, error_type: str, message: str) -> JSONResponse:
@@ -30,10 +58,7 @@ def anthropic_gateway_timeout() -> JSONResponse:
 
 def anthropic_response_from_exception(exc: BaseException) -> JSONResponse:
     if isinstance(exc, httpx.HTTPStatusError):
-        body = exc.response.text
-        if len(body) > 800:
-            body = body[:800] + "..."
-        return anthropic_bad_gateway(f"上游 HTTP {exc.response.status_code}: {body}")
+        return anthropic_bad_gateway(upstream_http_error_message(exc))
     if isinstance(exc, httpx.TimeoutException):
         return anthropic_gateway_timeout()
     if isinstance(exc, httpx.RequestError):
@@ -86,10 +111,7 @@ def gateway_timeout(message: str = "上游请求超时") -> JSONResponse:
 def response_from_proxy_exception(exc: BaseException) -> JSONResponse:
     """将代理链路上的 httpx 等异常映射为对客户端一致的错误 JSON。"""
     if isinstance(exc, httpx.HTTPStatusError):
-        body = exc.response.text
-        if len(body) > 800:
-            body = body[:800] + "..."
-        return bad_gateway(f"上游 HTTP {exc.response.status_code}: {body}")
+        return bad_gateway(upstream_http_error_message(exc))
     if isinstance(exc, httpx.TimeoutException):
         return gateway_timeout()
     if isinstance(exc, httpx.RequestError):
