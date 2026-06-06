@@ -14,6 +14,7 @@ from routers.auth import check_proxy_authorization
 from routers.proxy_errors import (
     invalid_request,
     response_from_proxy_exception,
+    safe_httpx_response_content,
     unauthorized,
 )
 
@@ -234,10 +235,12 @@ async def delete_response(response_id: str):
 
 
 def _response_from_upstream_http_error(exc: httpx.HTTPStatusError) -> Response:
-    try:
-        content = exc.response.content
-    except httpx.ResponseNotRead:
-        content = exc.response.read()
+    content = safe_httpx_response_content(exc.response)
+    if content is None:
+        return JSONResponse(
+            status_code=exc.response.status_code,
+            content={"error": {"message": f"上游 HTTP {exc.response.status_code}: {exc}", "type": "api_error"}},
+        )
     media_type = exc.response.headers.get("content-type")
     return Response(
         content=content,
