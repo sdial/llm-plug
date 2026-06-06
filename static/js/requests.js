@@ -16,12 +16,16 @@ function asInt(value) {
     return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
-function renderTokenUsage(tokens, cachedTokens = 0) {
+function renderMissingCacheReadToken(label) {
+    return `<span class="request-cache-missing" title="cache_read_input_tokens 字段为 ${label}">${label}</span>`;
+}
+
+function renderTokenUsage(tokens, cachedTokens = null) {
     const total = asInt(tokens);
+    if (cachedTokens === null) return renderMissingCacheReadToken('null');
+    if (cachedTokens === undefined) return renderMissingCacheReadToken('undefined');
     const cached = asInt(cachedTokens);
-    const cachedTag = cached > 0
-        ? `<span class="request-cache-tag" title="命中缓存 Token">${cached}</span>`
-        : '';
+    const cachedTag = `<span class="request-cache-tag" title="命中缓存 Token">${cached}</span>`;
     return `<span class="request-token-cell"><span class="request-token-main">${total}</span>${cachedTag}</span>`;
 }
 
@@ -179,7 +183,6 @@ function renderRequests() {
         const lag = req.lag_ms;
         const inputTokens = asInt(req.input_tokens);
         const outTokens = asInt(req.output_tokens);
-        const cachedTokens = asInt(req.cache_read_input_tokens);
         let speed = '-';
         if (latency != null && lag != null && latency > lag && outTokens > 0) {
             const elapsed = (latency - lag) / 1000; // 秒
@@ -192,7 +195,7 @@ function renderRequests() {
             <td data-label="客户端 IP" class="py-3 px-2 text-sm text-ink-500 truncate font-mono" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
             <td data-label="API Key" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.api_key_name || req.api_key_id || '-')}">${esc(req.api_key_name || req.api_key_id || '-')}</td>
             <td data-label="模型" class="py-3 px-2 text-sm text-ink-900 truncate" title="${esc(req.model)}">${esc(req.model)}</td>
-            <td data-label="输入 Tok" class="py-3 px-2 text-right text-sm">${renderTokenUsage(inputTokens, cachedTokens)}</td>
+            <td data-label="输入 Tok" class="py-3 px-2 text-right text-sm">${renderTokenUsage(inputTokens, req.cache_read_input_tokens)}</td>
             <td data-label="输出 Tok" class="py-3 px-2 text-right text-sm"><span class="request-token-cell"><span class="request-token-main">${outTokens}</span></span></td>
             <td data-label="总耗时 (ms)" class="py-3 px-2 text-right text-sm">${renderMetric(latency)}</td>
             <td data-label="首 Token (ms)" class="py-3 px-2 text-right text-sm">${renderMetric(lag)}</td>
