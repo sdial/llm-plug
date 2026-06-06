@@ -52,6 +52,17 @@ def test_requests_tab_caches_api_key_filter_options_until_invalidated():
     assert "invalidateRequestApiKeys" in apikeys_js
 
 
+def test_requests_table_shows_zero_cache_read_tokens_when_field_exists():
+    requests_js = (STATIC_JS / "requests.js").read_text(encoding="utf-8")
+    admin_css = Path("static/css/admin.css").read_text(encoding="utf-8")
+
+    assert "if (cachedTokens === null) return renderMissingCacheReadToken('null');" in requests_js
+    assert "if (cachedTokens === undefined) return renderMissingCacheReadToken('undefined');" in requests_js
+    assert "renderTokenUsage(inputTokens, req.cache_read_input_tokens)" in requests_js
+    assert "request-cache-missing" in admin_css
+    assert 'content: "cache";' in admin_css
+
+
 def test_stats_today_merge_uses_configured_aggregation_timezone():
     stats_js = (STATIC_JS / "stats.js").read_text(encoding="utf-8")
 

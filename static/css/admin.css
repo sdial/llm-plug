@@ -125,6 +125,15 @@ body {
     letter-spacing: 0.03em;
     text-transform: uppercase;
 }
+.request-cache-missing {
+    display: inline-flex;
+    justify-content: flex-end;
+    align-items: center;
+    width: 100%;
+    color: #e11d48;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
 .request-metric {
     font-variant-numeric: tabular-nums;
     color: #111827;
