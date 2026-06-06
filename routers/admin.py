@@ -76,6 +76,7 @@ _AUTH_PUBLIC_PATHS = {
     "/admin/auth/status",
     "/admin/auth/setup",
     "/admin/auth/login",
+    "/admin/auth/setup-login",
 }
 _LOGIN_RATE_LIMIT_MAX_FAILURES = 5
 _LOGIN_RATE_LIMIT_WINDOW_SECONDS = 60
