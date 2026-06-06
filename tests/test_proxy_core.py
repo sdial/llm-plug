@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import patch, AsyncMock
 
 import httpx
@@ -1147,6 +1148,134 @@ class TestDoRequest:
         assert request_log_record.call_args.kwargs["output_tokens"] == 3
         assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 7
         assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 0
+
+    @pytest.mark.anyio
+    async def test_client_disconnect_before_first_chunk_records_clear_stream_error(self):
+        upstream_read_started = asyncio.Event()
+
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                upstream_read_started.set()
+                await asyncio.sleep(3600)
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_chat_stream",
+            name="ChatStream",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.openai.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "gpt-4o", "stream": True},
+                response_converter=None,
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_CHAT,
+            )
+            task = asyncio.create_task(anext(stream))
+            await upstream_read_started.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert request_log_record.call_args.kwargs["success"] is False
+        assert request_log_record.call_args.kwargs["error_msg"] == "client_disconnected_before_first_chunk"
+
+    @pytest.mark.anyio
+    async def test_client_disconnect_mid_stream_records_clear_stream_error(self):
+        first_chunk_sent = asyncio.Event()
+
+        class FakeStreamResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}'
+                yield ""
+                first_chunk_sent.set()
+                await asyncio.sleep(3600)
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_chat_stream",
+            name="ChatStream",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.openai.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "gpt-4o", "stream": True},
+                response_converter=None,
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_CHAT,
+            )
+            assert await anext(stream) == (
+                'data: {"id": "c", "object": "chat.completion.chunk", '
+                '"choices": [{"index": 0, "delta": {"content": "hi"}, "finish_reason": null}]}\n\n'
+            )
+            task = asyncio.create_task(anext(stream))
+            await first_chunk_sent.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert request_log_record.call_args.kwargs["success"] is False
+        assert request_log_record.call_args.kwargs["error_msg"] == "client_disconnected_mid_stream"
 
     @pytest.mark.anyio
     async def test_same_type_openai_response_non_stream_forwards_body_and_response_unchanged(

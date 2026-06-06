@@ -1376,6 +1376,7 @@ async def _do_stream_request(
     stream_error = None
     emitted_output = False
     failure_recorded = False
+    cancelled = False
     logger.debug(f"[STREAM START] model={model} url={url} target={target_api_type.value}")
     try:
         async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
@@ -1745,6 +1746,18 @@ async def _do_stream_request(
             stream_success = True
         logger.debug(f"[STREAM FINISH] model={model} done_received={_done_received} non_sse_body={'yes' if non_sse_stream_body else 'no'} chunks={len(stream_chunks)}")
         logger.debug(f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} output_tokens={output_tokens} finish_reason={finish_reason}")
+    except asyncio.CancelledError:
+        cancelled = True
+        if not emitted_output:
+            stream_error = "client_disconnected_before_first_chunk"
+        else:
+            stream_error = "client_disconnected_mid_stream"
+        logger.warning(
+            f"[STREAM CANCELLED] model={model} emitted={emitted_output} "
+            f"chunks={len(stream_chunks)} first_token={first_token_time is not None} "
+            f"error={stream_error}"
+        )
+        raise
     except Exception as e:
         stream_error = str(e)
         err_body = ""
@@ -1835,9 +1848,12 @@ async def _do_stream_request(
                 await load_balancer.record_success(channel.id)
                 logger.debug(f"[STREAM RECORDED SUCCESS] channel={channel.name}")
             else:
-                if stream_error and emitted_output and not failure_recorded:
+                if stream_error and emitted_output and not failure_recorded and not cancelled:
                     await load_balancer.record_failure(channel.id)
-                logger.warning(f"[STREAM RECORDED FAILURE] channel={channel.name} error={stream_error}")
+                if cancelled:
+                    logger.warning(f"[STREAM RECORDED CANCELLED] channel={channel.name} error={stream_error}")
+                else:
+                    logger.warning(f"[STREAM RECORDED FAILURE] channel={channel.name} error={stream_error}")
         except Exception as finally_err:
             logger.warning(f"stream finally error: {finally_err}")
         try:
