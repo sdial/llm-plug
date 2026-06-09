@@ -734,6 +734,8 @@ async def get_stats(days: Annotated[int, Query(ge=1)] = 7):
                 "fail_count": 0,
                 "total_input_tokens": 0,
                 "total_output_tokens": 0,
+                "total_cache_read_input_tokens": 0,
+                "total_cache_creation_input_tokens": 0,
                 "total_latency_ms": 0,
                 "total_lag_ms": 0,
                 "latency_count": 0,
@@ -744,6 +746,8 @@ async def get_stats(days: Annotated[int, Query(ge=1)] = 7):
         rec["fail_count"] += row["fail_count"] or 0
         rec["total_input_tokens"] += row["input_tokens"] or 0
         rec["total_output_tokens"] += row["output_tokens"] or 0
+        rec["total_cache_read_input_tokens"] += row.get("cache_read_input_tokens") or 0
+        rec["total_cache_creation_input_tokens"] += row.get("cache_creation_input_tokens") or 0
         if row.get("avg_latency_ms") is not None:
             rec["total_latency_ms"] += row["avg_latency_ms"] * (row["request_count"] or 1)
             rec["latency_count"] += row["request_count"] or 1
