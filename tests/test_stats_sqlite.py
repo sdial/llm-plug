@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 
 import stats
+from routers.admin import get_stats
 
 pytestmark = pytest.mark.asyncio
 
@@ -106,6 +107,35 @@ async def test_aggregate_daily_stats_refreshes_daily_stats():
     assert daily[0]["output_tokens"] == 5
     assert daily[0]["cache_read_input_tokens"] == 13
     assert daily[0]["cache_creation_input_tokens"] == 2
+
+
+async def test_admin_stats_daily_trend_includes_cache_token_totals():
+    _record_sample(
+        channel_id="ch_primary",
+        channel_name="Primary",
+        model="gpt-4o",
+        input_tokens=100,
+        output_tokens=10,
+        cache_read_input_tokens=70,
+        cache_creation_input_tokens=5,
+    )
+    _record_sample(
+        channel_id="ch_backup",
+        channel_name="Backup",
+        model="gpt-4o",
+        input_tokens=50,
+        output_tokens=5,
+        cache_read_input_tokens=30,
+        cache_creation_input_tokens=2,
+    )
+    await stats.drain_queue()
+    today = stats.agg_now().date()
+    await stats.aggregate_daily_stats(today, today)
+
+    result = await get_stats(days=1)
+
+    assert result["daily"][0]["total_cache_read_input_tokens"] == 100
+    assert result["daily"][0]["total_cache_creation_input_tokens"] == 7
 
 
 async def test_record_request_writes_cache_token_details_and_overall_totals():
