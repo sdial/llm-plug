@@ -383,6 +383,11 @@ function openRequestDetail(id) {
             <div class="bg-rose-50 border border-rose-100 rounded-xl p-3 text-sm text-rose-700">${esc(req.error_msg)}</div>
         </div>
         ` : ''}
+        ${requestLogSource !== 'stats' ? `
+        <div class="mt-4 flex justify-end">
+            <a href="/admin/static/request-analyzer.html?id=${req.id}&channel=${encodeURIComponent(req.channel_name)}&success=${req.success}&latency=${req.latency_ms || ''}&input_tokens=${inputTokens}&output_tokens=${outputTokens}" target="_blank" class="btn-primary text-sm px-3 py-1.5 font-medium">深度分析</a>
+        </div>
+        ` : ''}
     `;
     document.getElementById('requestDetailModal').classList.remove('hidden');
 }
