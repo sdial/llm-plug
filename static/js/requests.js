@@ -189,7 +189,7 @@ function renderRequests() {
             speed = elapsed > 0 ? (outTokens / elapsed).toFixed(1) : '-';
         }
         return `
-        <tr class="transition-colors duration-150 cursor-pointer" onclick="openRequestDetail(${req.id})">
+        <tr class="transition-colors duration-150 cursor-pointer" onclick="openRequestDetail('${req.id}')">
             <td data-label="时间" class="py-3 px-3 text-sm text-ink-900 whitespace-nowrap">${formatTimestamp(req.timestamp)}</td>
             <td data-label="渠道" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.channel_name)}"><span class="pill pill-muted">${esc(req.channel_name)}</span></td>
             <td data-label="客户端 IP" class="py-3 px-2 text-sm text-ink-500 truncate font-mono" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
@@ -340,10 +340,10 @@ function openRequestDetail(id) {
     const rawLinks = requestLogSource === 'stats'
         ? '<div class="text-sm text-ink-500">轻量记录模式：数据来自统计库，不包含请求/返回 Header 和 Body。</div>'
         : `
-                <a href="javascript:void(0)" onclick="openJsonInNewTab(${req.id}, 'request-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">请求 Header</a>
-                <a href="javascript:void(0)" onclick="openJsonInNewTab(${req.id}, 'request-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">请求 Body</a>
-                <a href="javascript:void(0)" onclick="openJsonInNewTab(${req.id}, 'response-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">返回 Header</a>
-                <a href="javascript:void(0)" onclick="openJsonInNewTab(${req.id}, 'response-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">返回 Body</a>
+                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'request-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">请求 Header</a>
+                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'request-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">请求 Body</a>
+                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'response-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">返回 Header</a>
+                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'response-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">返回 Body</a>
           `; 
     const inputTokens = asInt(req.input_tokens);
     const outputTokens = asInt(req.output_tokens);
