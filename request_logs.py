@@ -326,48 +326,100 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         # Ensure current month db exists
         self._ensure_month_db(self._current_year_month())
 
+    # Columns that may be absent in the legacy DB; fill with defaults.
+    _MIGRATION_DEFAULTS: dict[str, Any] = {
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "lag_ms": None,
+        "finish_reason": None,
+        "api_key_id": None,
+        "client_ip": None,
+        "request_headers": None,
+        "response_headers": None,
+        "request_body": None,
+        "response_body": None,
+        "error_msg": None,
+    }
+
+    _MIGRATION_BATCH_SIZE = 100
+
     def _migrate_legacy_db(self) -> None:
-        """Split legacy request_logs.db into monthly files, then rename to .migrated."""
+        """Split legacy request_logs.db into monthly files, then rename to .migrated.
+
+        Uses batched streaming (fetchmany) to keep peak memory well under
+        1 MB — critical for memory-constrained devices (e.g. 1 GB routers).
+        """
         legacy_path = self.db_path
+        _MIGRATION_INSERT_SQL = """\
+INSERT OR IGNORE INTO request_logs
+    (id, timestamp, model, channel_id, channel_name, api_key_id, client_ip,
+     is_stream, input_tokens, output_tokens, cache_read_input_tokens,
+     cache_creation_input_tokens, latency_ms, lag_ms, finish_reason,
+     success, error_msg, request_headers, response_headers,
+     request_body, response_body)
+VALUES (:id, :timestamp, :model, :channel_id, :channel_name, :api_key_id,
+        :client_ip, :is_stream, :input_tokens, :output_tokens,
+        :cache_read_input_tokens, :cache_creation_input_tokens,
+        :latency_ms, :lag_ms, :finish_reason, :success, :error_msg,
+        :request_headers, :response_headers, :request_body, :response_body)"""
+
+        total_rows = 0
+        month_files: set[str] = set()
+
         try:
             with closing(sqlite3.connect(legacy_path)) as src:
                 src.row_factory = sqlite3.Row
-                rows = src.execute("SELECT * FROM request_logs ORDER BY id").fetchall()
 
-            if not rows:
+                # Detect which columns exist in the source table so we can
+                # fill in defaults for any newly-added columns.
+                src_columns = {
+                    row[1] for row in src.execute("PRAGMA table_info(request_logs)")
+                }
+
+                cursor = src.execute(
+                    "SELECT * FROM request_logs ORDER BY id"
+                )
+
+                while True:
+                    batch = cursor.fetchmany(self._MIGRATION_BATCH_SIZE)
+                    if not batch:
+                        break
+
+                    # Group this batch by month
+                    month_groups: dict[str, list[dict]] = {}
+                    for row in batch:
+                        d = dict(row)
+                        # Fill missing columns with safe defaults
+                        for col, default in self._MIGRATION_DEFAULTS.items():
+                            if col not in src_columns:
+                                d[col] = default
+                        ts = d.get("timestamp") or ""
+                        ym = (
+                            ts[:4] + ts[5:7]
+                            if len(ts) >= 7
+                            else self._current_year_month()
+                        )
+                        month_groups.setdefault(ym, []).append(d)
+
+                    # Write each month group immediately, then discard
+                    for ym, group_rows in month_groups.items():
+                        db_path = self._ensure_month_db(ym)
+                        with closing(sqlite3.connect(db_path)) as dst, dst:
+                            dst.executemany(_MIGRATION_INSERT_SQL, group_rows)
+                        month_files.add(ym)
+
+                    total_rows += len(batch)
+
+            if total_rows == 0:
                 os.replace(legacy_path, legacy_path + ".migrated")
                 logger.info("Legacy request_logs.db was empty; renamed to .migrated")
                 return
 
-            # Group rows by month
-            month_groups: dict[str, list[dict]] = {}
-            for row in rows:
-                d = dict(row)
-                ts = d.get("timestamp") or ""
-                ym = ts[:4] + ts[5:7] if len(ts) >= 7 else self._current_year_month()
-                month_groups.setdefault(ym, []).append(d)
-
-            # Write each month group to its own db (INSERT OR IGNORE for idempotency)
-            for ym, group_rows in month_groups.items():
-                db_path = self._ensure_month_db(ym)
-                with closing(sqlite3.connect(db_path)) as dst, dst:
-                    dst.executemany(
-                        """INSERT OR IGNORE INTO request_logs
-                        (id, timestamp, model, channel_id, channel_name, api_key_id, client_ip,
-                         is_stream, input_tokens, output_tokens, cache_read_input_tokens,
-                         cache_creation_input_tokens, latency_ms, lag_ms, finish_reason,
-                         success, error_msg, request_headers, response_headers,
-                         request_body, response_body)
-                        VALUES (:id, :timestamp, :model, :channel_id, :channel_name, :api_key_id,
-                                :client_ip, :is_stream, :input_tokens, :output_tokens,
-                                :cache_read_input_tokens, :cache_creation_input_tokens,
-                                :latency_ms, :lag_ms, :finish_reason, :success, :error_msg,
-                                :request_headers, :response_headers, :request_body, :response_body)""",
-                        group_rows,
-                    )
-
             os.replace(legacy_path, legacy_path + ".migrated")
-            logger.info(f"Legacy request_logs.db migrated to {len(month_groups)} monthly file(s)")
+            logger.info(
+                f"Legacy request_logs.db migrated: {total_rows} rows "
+                f"into {len(month_files)} monthly file(s) ({month_files})"
+            )
         except Exception as exc:
             logger.error(f"Legacy db migration failed: {exc}")
             # Leave legacy db in place so it can be retried
