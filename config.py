@@ -56,6 +56,21 @@ _CONFIG_SCHEMA = {
         "default": False,
         "requires_restart": False,
     },
+    "save_files": {
+        "type": "bool",
+        "default": False,
+        "requires_restart": False,
+    },
+    "save_images": {
+        "type": "bool",
+        "default": False,
+        "requires_restart": False,
+    },
+    "save_audios": {
+        "type": "bool",
+        "default": False,
+        "requires_restart": False,
+    },
     "max_log_body_size": {
         "type": "int",
         "default": 64 * 1024,

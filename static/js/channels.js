@@ -291,6 +291,62 @@ async function confirmAction() {
     closeConfirmModal();
 }
 
+// ===== 模型能力覆盖 UI =====
+
+function renderModelCapabilities(modelCapabilities) {
+    const container = document.getElementById('modelCapabilitiesContainer');
+    if (!container) return;
+    container.innerHTML = '';
+    const caps = modelCapabilities || {};
+    Object.entries(caps).forEach(([model, cfg]) => {
+        addModelCapabilityRow(model, cfg || {});
+    });
+}
+
+function addModelCapabilityRow(modelName = '', cfg = {}) {
+    const container = document.getElementById('modelCapabilitiesContainer');
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'flex flex-wrap items-center gap-2 p-2 border border-surface-200 rounded-lg bg-white';
+    row.innerHTML = `
+        <input type="text" placeholder="模型名称" value="${esc(modelName)}"
+            class="model-cap-name flex-1 min-w-[120px] text-sm border border-surface-200 rounded px-2 py-1 outline-none focus:border-brand-500">
+        <label class="flex items-center gap-1 text-xs text-ink-600">
+            <input type="checkbox" class="model-cap-image rounded border-surface-200 text-brand-500" ${cfg.supports_image_content ? 'checked' : ''}> 图片
+        </label>
+        <label class="flex items-center gap-1 text-xs text-ink-600">
+            <input type="checkbox" class="model-cap-audio rounded border-surface-200 text-brand-500" ${cfg.supports_audio_content ? 'checked' : ''}> 音频
+        </label>
+        <label class="flex items-center gap-1 text-xs text-ink-600">
+            <input type="checkbox" class="model-cap-file rounded border-surface-200 text-brand-500" ${cfg.supports_file_content ? 'checked' : ''}> 文件
+        </label>
+        <button type="button" onclick="removeModelCapabilityRow(this)" class="text-rose-500 hover:text-rose-700 text-xs">删除</button>
+    `;
+    container.appendChild(row);
+}
+
+function removeModelCapabilityRow(btn) {
+    const row = btn.closest('div');
+    if (row) row.remove();
+}
+
+function collectModelCapabilities() {
+    const container = document.getElementById('modelCapabilitiesContainer');
+    if (!container) return {};
+    const result = {};
+    container.querySelectorAll('div').forEach(row => {
+        const nameInput = row.querySelector('.model-cap-name');
+        const model = nameInput ? nameInput.value.trim() : '';
+        if (!model) return;
+        result[model] = {
+            supports_image_content: row.querySelector('.model-cap-image')?.checked || false,
+            supports_audio_content: row.querySelector('.model-cap-audio')?.checked || false,
+            supports_file_content: row.querySelector('.model-cap-file')?.checked || false,
+        };
+    });
+    return result;
+}
+
 function toggleApiKeyVisibility() {
     const input = document.getElementById('f_api_key');
     const showIcon = document.getElementById('eyeIconShow');
@@ -338,6 +394,7 @@ function openModal(channel = null) {
     document.getElementById('f_anthropic_beta_policy').value = channel ? (channel.anthropic_beta_policy || 'channel') : 'channel';
     document.getElementById('f_enabled').checked = channel ? channel.enabled : true;
     updateAnthropicConfigVisibility();
+    renderModelCapabilities(channel ? channel.model_capabilities : null);
     // 编辑模式显示删除按钮，添加模式隐藏
     document.getElementById('deleteChannelBtn').classList.toggle('hidden', !channel);
     document.getElementById('channelModal').classList.remove('hidden');
@@ -406,6 +463,7 @@ async function saveChannel(e) {
     if (apiKey) {
         data.api_key = apiKey;
     }
+    data.model_capabilities = collectModelCapabilities();
 
     if (!id && !apiKey) {
         showGlobalToast('API Key 不能为空', 'error');
@@ -475,6 +533,8 @@ Object.assign(window, {
     saveChannel,
     initChannels,
     toggleApiKeyVisibility,
+    addModelCapabilityRow,
+    removeModelCapabilityRow,
 });
 window.adminChannels = { getChannels, loadChannels };
 })();

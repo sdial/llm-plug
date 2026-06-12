@@ -50,7 +50,7 @@ function _detectSettingsDirty() {
   if (requestLogDbType !== (orig.request_log_db_type || 'sqlite')) _settingsDirtySections.add('database');
   const requestLogDbUrl = document.getElementById('set_request_log_database_url').value;
   if (requestLogDbType === 'postgres' && requestLogDbUrl && requestLogDbUrl !== (orig.request_log_database_url_masked || '')) _settingsDirtySections.add('database');
-  ['save_request_headers', 'save_response_headers', 'save_request_body', 'save_response_body'].forEach(key => {
+  ['save_request_headers', 'save_response_headers', 'save_request_body', 'save_response_body', 'save_files', 'save_images', 'save_audios'].forEach(key => {
     const el = document.getElementById('set_' + key);
     if (el && el.checked !== Boolean(orig[key])) _settingsDirtySections.add('database');
   });
@@ -111,6 +111,9 @@ async function loadSettings() {
     document.getElementById('set_save_response_headers').checked = Boolean(data.save_response_headers);
     document.getElementById('set_save_request_body').checked = Boolean(data.save_request_body);
     document.getElementById('set_save_response_body').checked = Boolean(data.save_response_body);
+    document.getElementById('set_save_files').checked = Boolean(data.save_files);
+    document.getElementById('set_save_images').checked = Boolean(data.save_images);
+    document.getElementById('set_save_audios').checked = Boolean(data.save_audios);
     document.getElementById('set_max_log_body_size_kb').value = data.max_log_body_size_kb ?? 64;
     document.getElementById('set_request_log_raw_retention_days').value = data.request_log_raw_retention_days ?? 0;
     document.getElementById('set_request_log_retention_days').value = data.request_log_retention_days ?? 0;
@@ -138,7 +141,7 @@ async function saveSettings() {
   if (requestLogDbType !== (orig.request_log_db_type || 'sqlite')) data.request_log_db_type = requestLogDbType;
   const requestLogDbUrl = document.getElementById('set_request_log_database_url').value;
   if (requestLogDbType === 'postgres' && requestLogDbUrl && requestLogDbUrl !== (orig.request_log_database_url_masked || '')) data.request_log_database_url = requestLogDbUrl;
-  ['save_request_headers', 'save_response_headers', 'save_request_body', 'save_response_body'].forEach(key => {
+  ['save_request_headers', 'save_response_headers', 'save_request_body', 'save_response_body', 'save_files', 'save_images', 'save_audios'].forEach(key => {
     const el = document.getElementById('set_' + key);
     if (el && el.checked !== Boolean(orig[key])) data[key] = el.checked;
   });
