@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from loguru import logger
 
 from models.api_types import APIType
-from proxy_core import proxy_request
+from proxy_core import AllChannelsExhausted, proxy_request
 from routers.auth import check_proxy_authorization
 from routers.proxy_errors import (
     anthropic_invalid_request,
@@ -68,6 +68,11 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
                 client_ip=client_ip,
             )
             request.state.selected_channel_name = _channel.name
+        except AllChannelsExhausted as e:
+            logger.error(f"{path} AllChannelsExhausted: {e}")
+            if isinstance(e.last_error, httpx.HTTPStatusError):
+                return _response_from_upstream_http_error(e.last_error, api_type)
+            return err_exception(e.last_error or e)
         except ValueError as e:
             logger.error(f"{path} ValueError: {e}")
             return err_invalid(str(e))
