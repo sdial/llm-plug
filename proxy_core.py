@@ -575,6 +575,17 @@ class ConverterError(Exception):
     pass
 
 
+class AllChannelsExhausted(Exception):
+    """有可用渠道但全部因上游错误（429/5xx）不可用。
+
+    携带 last_error 以便外层根据原始错误返回正确的 HTTP 状态码。
+    """
+
+    def __init__(self, message: str, last_error: BaseException | None = None):
+        super().__init__(message)
+        self.last_error = last_error
+
+
 def _is_retryable_exception(exc: BaseException) -> bool:
     if isinstance(exc, _UpstreamStreamErrorEvent):
         return True
@@ -763,7 +774,7 @@ async def _proxy_single_model_request(
         if not selected:
             if last_error is not None:
                 raise last_error
-            raise ValueError(f"模型 {model} 的所有渠道均不可用")
+            raise AllChannelsExhausted(f"模型 {model} 的所有渠道均不可用")
 
         try:
             result = await _do_request(
@@ -846,7 +857,7 @@ async def _proxy_model_group_request(
     # 所有模型的所有渠道都失败了
     if last_error is not None:
         raise last_error
-    raise ValueError(f"模型组 {group.name} 的所有渠道均不可用")
+    raise AllChannelsExhausted(f"模型组 {group.name} 的所有渠道均不可用")
 
 
 def _ext_for_mime(mime_type: str) -> str:
