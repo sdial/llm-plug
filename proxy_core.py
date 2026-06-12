@@ -2,9 +2,15 @@
 通用代理逻辑，供三个代理路由共用
 """
 import asyncio
+import base64
+import hashlib
 import json
+import mimetypes
+import os
 import secrets
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -840,6 +846,167 @@ async def _proxy_model_group_request(
     raise ValueError(f"模型组 {group.name} 的所有渠道均不可用")
 
 
+def _ext_for_mime(mime_type: str) -> str:
+    """根据 MIME 类型推断扩展名，去掉前导点。"""
+    clean_mime = mime_type.split(";")[0].strip()
+    ext = mimetypes.guess_extension(clean_mime) or ""
+    return ext.lstrip(".")
+
+
+def _extract_base64_data(part: dict) -> tuple[bytes, str] | None:
+    """
+    从多模态 content 块中提取 base64 数据与扩展名。
+
+    支持：
+    - OpenAI Chat image_url (data URL)
+    - Anthropic image (source.base64)
+    - OpenAI input_audio
+    - OpenAI file (file.file_data)
+    """
+    part_type = part.get("type", "")
+
+    # OpenAI Chat / Responses image_url
+    if part_type == "image_url":
+        image_url = part.get("image_url", {})
+        if isinstance(image_url, dict):
+            url = image_url.get("url", "")
+            if isinstance(url, str) and url.startswith("data:"):
+                header, _, b64 = url.partition(",")
+                mime = "image/png"
+                if ";" in header and ":" in header:
+                    mime = header.split(";")[0].split(":", 1)[1]
+                try:
+                    return base64.b64decode(b64), _ext_for_mime(mime) or "png"
+                except Exception:
+                    return None
+
+    # Anthropic image
+    if part_type == "image":
+        source = part.get("source", {})
+        if isinstance(source, dict) and source.get("type") == "base64":
+            mime = source.get("media_type", "image/png")
+            data = source.get("data", "")
+            try:
+                return base64.b64decode(data), _ext_for_mime(mime) or "png"
+            except Exception:
+                return None
+
+    # OpenAI input_audio
+    if part_type == "input_audio":
+        audio = part.get("input_audio", {})
+        if isinstance(audio, dict):
+            fmt = audio.get("format", "wav")
+            data = audio.get("data", "")
+            try:
+                return base64.b64decode(data), fmt
+            except Exception:
+                return None
+
+    # OpenAI file (file_data base64)
+    if part_type == "file":
+        file_info = part.get("file", {})
+        if isinstance(file_info, dict):
+            file_data = file_info.get("file_data")
+            filename = file_info.get("filename", "file")
+            if file_data:
+                ext = ""
+                if isinstance(filename, str):
+                    ext = os.path.splitext(filename)[1].lstrip(".")
+                try:
+                    return base64.b64decode(file_data), ext or "bin"
+                except Exception:
+                    return None
+
+    return None
+
+
+async def _save_multimodal_files(request_data: dict, model_name: str, channel: Channel) -> None:
+    """
+    将请求中的多模态文件保存到 logs/{images,audios,files}/ 目录。
+
+    保存行为由 settings 中的 save_images / save_audios / save_files 控制。
+    写入失败会记录 warning 日志，不会阻断请求。
+    """
+    save_files = bool(get_setting("save_files"))
+    save_images = bool(get_setting("save_images"))
+    save_audios = bool(get_setting("save_audios"))
+    if not (save_files or save_images or save_audios):
+        return
+
+    messages = request_data.get("messages")
+    if not isinstance(messages, list):
+        return
+
+    logs_dir = Path("logs")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    saved_count = {"image": 0, "audio": 0, "file": 0}
+
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            part_type = part.get("type", "")
+            category: str | None = None
+            if part_type in ("image_url", "image"):
+                if not save_images:
+                    continue
+                category = "images"
+            elif part_type == "input_audio":
+                if not save_audios:
+                    continue
+                category = "audios"
+            elif part_type == "file":
+                if not save_files:
+                    continue
+                category = "files"
+            else:
+                continue
+
+            extracted = _extract_base64_data(part)
+            if not extracted:
+                continue
+            data, ext = extracted
+            if not ext:
+                ext = {"images": "png", "audios": "wav", "files": "bin"}[category]
+
+            file_hash = hashlib.sha256(data).hexdigest()[:8]
+            safe_model = "".join(
+                c if c.isalnum() or c in "-_" else "_" for c in (model_name or "unknown")
+            )
+            filename = f"{timestamp}_{safe_model}_{file_hash}.{ext}"
+            file_dir = logs_dir / category
+            file_path = file_dir / filename
+
+            try:
+                await asyncio.to_thread(_write_media_file, file_dir, file_path, data)
+                saved_count[{"images": "image", "audios": "audio", "files": "file"}[category]] += 1
+            except Exception as e:
+                logger.warning(f"[SAVE_MEDIA] 保存多模态文件失败: {file_path}: {e}")
+
+    total = sum(saved_count.values())
+    if total:
+        logger.info(
+            f"[SAVE_MEDIA] 已保存 {total} 个多模态文件: {saved_count} "
+            f"渠道={channel.name} 模型={model_name}"
+        )
+
+
+def _write_media_file(file_dir: Path, file_path: Path, data: bytes) -> None:
+    """同步写入文件，供 asyncio.to_thread 调用。"""
+    file_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+    with open(tmp_path, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, file_path)
+
+
 async def _do_request(
     channel: Channel,
     request_data: dict[str, Any],
@@ -877,8 +1044,13 @@ async def _do_request(
     # 必须在格式转换之后处理，因为能力过滤作用于实际发给上游的格式。
     # 能力描述的是上游真实约束（MiniMax 单 system、DeepSeek 不支持 parallel_tool_calls 等），
     # 与是否做格式转换无关 —— 同格式透传时也必须应用。
-    caps = infer_capabilities(channel)
-    upstream_data = apply_capability_filter(upstream_data, caps)
+    model = upstream_data.get("model", "")
+
+    # 保存请求中的多模态文件（在 capability 过滤前，保留原始内容）
+    await _save_multimodal_files(upstream_data, model, channel)
+
+    caps = infer_capabilities(channel, model)
+    upstream_data = apply_capability_filter(upstream_data, caps, channel.name, model)
 
     # MiniMax 特殊处理：合并多条 system 消息
     if caps.requires_single_system_message and "messages" in upstream_data:
@@ -908,7 +1080,6 @@ async def _do_request(
         return _raise_preflight_stream_errors(stream)
 
     # 非流式：使用缓存的 httpx 客户端（不可 async with，否则会关闭共享连接）
-    model = request_data.get("model", "")
     request_start = time.time()  # 整体起点，create_client 失败时兜底
     upstream_start: float | None = None  # 上游请求起点（不含连接建立）
     try:

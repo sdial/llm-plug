@@ -32,6 +32,9 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 | `data/stats.db` | SQLite 统计聚合（按渠道/模型/天） |
 | `data/request_logs.db` | SQLite 请求记录（可在设置页切到 PostgreSQL） |
 | `data/responses_session/` | Responses API 的会话状态文件（`previous_response_id` 展开依赖） |
+| `logs/images/` | 请求中的图片文件（需开启 `save_images` 设置） |
+| `logs/audios/` | 请求中的音频文件（需开启 `save_audios` 设置） |
+| `logs/files/` | 请求中的其他文件（需开启 `save_files` 设置） |
 
 `storage.load_data()` / `load_api_keys()` 内置 5 秒 TTL 缓存。**修改渠道或 API Key 数据时必须走 `atomic_update_data(mutator)` / `atomic_update_api_keys(mutator)`**（在锁内完成 read-modify-write 并同步缓存）；直接覆盖 `channels.json` 文件会导致缓存与磁盘不一致，请求最多延迟 5 秒才能感知变更。`save_data()` 仅在你已自行持锁或确定无竞态时使用。
 
@@ -63,7 +66,7 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 `storage.get_model_group_by_name(model)` 在代理请求入口判断；若 `model` 是组名，`_proxy_model_group_request()` 按 `group.models` 顺序逐个模型尝试（每个模型内部仍走正常 LB + 故障转移）。模型组与渠道是两层 Fallback：先模型后渠道。
 
 ### Capability 管理
-`capability_manager.infer_capabilities(channel)` 按 `base_url` 关键词识别提供商：含 `deepseek` → 关闭 `parallel_tool_calls` + 过滤 `💭` 思考块；含 `minimax` → 合并多条 system 消息为单条。`channel.capabilities` 字段可显式覆盖默认。`filter_think_content` 走 `think_filter.ThinkFilter` 状态机（流式逐 chunk 过滤，跨 chunk 保留 `💭...💭` 块边界）。
+`capability_manager.infer_capabilities(channel, model_name)` 按 `base_url` 关键词识别提供商：含 `deepseek` → 关闭 `parallel_tool_calls` + 过滤 `💭` 思考块；含 `minimax` → 合并多条 system 消息为单条。`channel.capabilities` 字段可显式覆盖渠道级默认。`channel.model_capabilities` 字典可为单个模型覆盖多模态能力（`supports_image_content` / `supports_audio_content` / `supports_file_content`），解析优先级：`model_capabilities[model]` > `channel.capabilities` > vendor 推断 > 默认 False。`apply_capability_filter()` 在过滤多模态 content 时记录包含渠道名、模型名和被过滤类型的 warn 日志。`filter_think_content` 走 `think_filter.ThinkFilter` 状态机（流式逐 chunk 过滤，跨 chunk 保留 `💭...💭` 块边界）。
 
 ### 模块要点
 

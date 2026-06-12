@@ -683,6 +683,7 @@ class TestDoRequest:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -744,6 +745,7 @@ class TestDoRequest:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "application/json"}
 
             def raise_for_status(self):
@@ -807,6 +809,7 @@ class TestDoRequest:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -1088,6 +1091,7 @@ class TestDoRequest:
     async def test_openai_chat_stream_usage_records_cache_token_details(self):
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -1155,6 +1159,7 @@ class TestDoRequest:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -1216,6 +1221,7 @@ class TestDoRequest:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -1481,6 +1487,7 @@ class TestDoStreamRequest:
     async def test_same_type_anthropic_stream_does_not_leak_event_type(self):
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -1537,6 +1544,7 @@ class TestDoStreamRequest:
     ):
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -1595,6 +1603,7 @@ class TestDoStreamRequest:
     async def test_anthropic_stream_mid_error_emits_message_stop(self):
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -1662,6 +1671,7 @@ class TestDoStreamRequest:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -1715,6 +1725,7 @@ class TestDoStreamRequest:
     async def test_openai_responses_sse_event_lines_are_preserved(self):
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -1797,6 +1808,7 @@ class TestDoStreamRequest:
 
         class WorkingStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -1876,6 +1888,7 @@ class TestAnthropicNonSseJsonFallbackEarly:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "application/json"}
             _consumed = False
 
@@ -2047,6 +2060,7 @@ class TestAnthropicSameTypeFailoverEarly:
 
         class WorkingStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -2135,6 +2149,7 @@ class TestAnthropicSameTypeFailoverEarly:
     async def test_anthropic_stream_error_event_before_output_fails_over(self):
         class ErrorStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -2153,6 +2168,7 @@ class TestAnthropicSameTypeFailoverEarly:
 
         class WorkingStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -2381,6 +2397,7 @@ class TestAnthropicHeaderPriority:
     ):
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -2439,6 +2456,7 @@ class TestAnthropicHeaderPriority:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "application/json"}
 
             def raise_for_status(self):
@@ -2506,6 +2524,7 @@ class TestAnthropicHeaderPriority:
     async def test_openai_stream_with_null_tool_calls_still_records_request(self):
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -2569,6 +2588,7 @@ class TestAnthropicHeaderPriority:
 
         class FakeStreamResponseNoDone:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
             is_error = False
 
@@ -3301,6 +3321,7 @@ class TestEmptyStreamFailover:
 
         class EmptyStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -3319,6 +3340,7 @@ class TestEmptyStreamFailover:
 
         class WorkingStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -3405,6 +3427,7 @@ class TestAnthropicNonSseJsonFallback:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "application/json"}
             _consumed = False
 
@@ -3576,6 +3599,7 @@ class TestAnthropicSameTypeFailover:
 
         class WorkingStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -3664,6 +3688,7 @@ class TestAnthropicSameTypeFailover:
     async def test_anthropic_stream_error_event_before_output_fails_over(self):
         class ErrorStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -3682,6 +3707,7 @@ class TestAnthropicSameTypeFailover:
 
         class WorkingStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -4055,6 +4081,7 @@ class TestDoRequestSetsIncludeUsage:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):
@@ -4122,6 +4149,7 @@ class TestDoRequestSetsIncludeUsage:
 
         class FakeStreamResponse:
             status_code = 200
+            is_error = False
             headers = {"content-type": "text/event-stream"}
 
             def raise_for_status(self):

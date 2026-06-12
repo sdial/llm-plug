@@ -17,61 +17,81 @@ class ProviderCapabilities:
     supports_reasoning_effort: bool = True
     supports_file_content: bool = False
     supports_audio_content: bool = False
+    supports_image_content: bool = False
     supports_tool_choice_required: bool = True
     supports_strict_tools: bool = True
     requires_single_system_message: bool = False
     filter_think_content: bool = False
 
 
-def infer_capabilities(channel) -> ProviderCapabilities:
+def infer_capabilities(channel, model_name: str = "") -> ProviderCapabilities:
     """
     根据渠道配置推断提供商能力
 
     通过 base_url 中的关键词识别提供商，返回对应的能力配置。
     用户可以在 channels.json 中通过 capabilities 字段覆盖默认值。
+    也可以在 model_capabilities 中为单个模型覆盖图片/音频/文件能力。
+
+    解析优先级（仅针对多模态能力）：
+        model_capabilities[model] > channel.capabilities > vendor 推断 > 默认值
 
     Args:
         channel: Channel 模型实例
+        model_name: 当前请求的模型 ID，用于模型级能力覆盖
 
     Returns:
         ProviderCapabilities 实例
     """
     base_url = (channel.base_url or "").lower()
 
-    # 优先使用用户配置的能力
+    # 优先使用用户配置的渠道级能力
     if hasattr(channel, 'capabilities') and channel.capabilities:
         caps_dict = channel.capabilities if isinstance(channel.capabilities, dict) else {}
-        return ProviderCapabilities(
+        caps = ProviderCapabilities(
             supports_parallel_tool_calls=caps_dict.get('supports_parallel_tool_calls', True),
             supports_tool_choice_auto=caps_dict.get('supports_tool_choice_auto', True),
             supports_response_format=caps_dict.get('supports_response_format', True),
             supports_reasoning_effort=caps_dict.get('supports_reasoning_effort', True),
             supports_file_content=caps_dict.get('supports_file_content', False),
             supports_audio_content=caps_dict.get('supports_audio_content', False),
+            supports_image_content=caps_dict.get('supports_image_content', False),
             supports_tool_choice_required=caps_dict.get('supports_tool_choice_required', True),
             supports_strict_tools=caps_dict.get('supports_strict_tools', True),
             requires_single_system_message=caps_dict.get('requires_single_system_message', False),
             filter_think_content=caps_dict.get('filter_think_content', False),
         )
-
     # DeepSeek: 不支持并行工具调用，需要过滤 💭
-    if "deepseek" in base_url:
-        return ProviderCapabilities(
+    elif "deepseek" in base_url:
+        caps = ProviderCapabilities(
             supports_parallel_tool_calls=False,
             filter_think_content=True,
         )
-
     # MiniMax: 要求单条前置 system 消息
-    if "minimax" in base_url:
-        return ProviderCapabilities(
+    elif "minimax" in base_url:
+        caps = ProviderCapabilities(
             requires_single_system_message=True,
         )
+    else:
+        # 默认：全部支持
+        caps = ProviderCapabilities()
 
-    # 默认：全部支持
-    return ProviderCapabilities()
+    # 模型级覆盖：仅作用于多模态能力
+    if model_name and hasattr(channel, 'model_capabilities') and channel.model_capabilities:
+        model_caps = channel.model_capabilities.get(model_name)
+        if model_caps:
+            caps.supports_image_content = model_caps.supports_image_content
+            caps.supports_audio_content = model_caps.supports_audio_content
+            caps.supports_file_content = model_caps.supports_file_content
+
+    return caps
 
 
-def apply_capability_filter(request_data: dict, caps: ProviderCapabilities) -> dict:
+def apply_capability_filter(
+    request_data: dict,
+    caps: ProviderCapabilities,
+    channel_name: str = "",
+    model_name: str = "",
+) -> dict:
     """
     根据能力过滤请求参数
 
@@ -81,6 +101,8 @@ def apply_capability_filter(request_data: dict, caps: ProviderCapabilities) -> d
     Args:
         request_data: 原始请求数据
         caps: 提供商能力配置
+        channel_name: 渠道名称，用于日志
+        model_name: 模型名称，用于日志
 
     Returns:
         过滤后的请求数据
@@ -132,42 +154,76 @@ def apply_capability_filter(request_data: dict, caps: ProviderCapabilities) -> d
                         del func["strict"]
                         logger.warning("[CAPABILITY] 降级: function strict 被移除（渠道不支持）")
 
-    # 过滤 file content in messages
-    if not caps.supports_file_content:
-        messages = result.get("messages")
-        if isinstance(messages, list):
-            result["messages"] = _filter_content_type(messages, "file")
+    # 过滤 messages 中的多模态内容
+    messages = result.get("messages")
+    if isinstance(messages, list):
+        filter_stats: list[tuple[str, int, int]] = []
 
-    # 过滤 audio content in messages
-    if not caps.supports_audio_content:
-        messages = result.get("messages")
-        if isinstance(messages, list):
-            result["messages"] = _filter_content_type(messages, "input_audio")
+        if not caps.supports_image_content:
+            messages, stats = _filter_content_type(messages, ["image_url", "image"])
+            if stats[1]:
+                filter_stats.append(("image", stats[0], stats[1]))
+                result["messages"] = messages
+
+        if not caps.supports_audio_content:
+            messages, stats = _filter_content_type(messages, ["input_audio"])
+            if stats[1]:
+                filter_stats.append(("audio", stats[0], stats[1]))
+                result["messages"] = messages
+
+        if not caps.supports_file_content:
+            messages, stats = _filter_content_type(messages, ["file"])
+            if stats[1]:
+                filter_stats.append(("file", stats[0], stats[1]))
+                result["messages"] = messages
+
+        if filter_stats:
+            removed_total = sum(s[1] for s in filter_stats)
+            part_total = sum(s[2] for s in filter_stats)
+            type_labels = [s[0] for s in filter_stats]
+            logger.warning(
+                f"[CAPABILITY] 降级: 渠道={channel_name} 模型={model_name} "
+                f"移除了不支持的 content types={type_labels} "
+                f"过滤数={removed_total} 总数={part_total} "
+                f"提示: 可在渠道设置的模型能力覆盖中开启对应开关"
+            )
 
     return result
 
 
-def _filter_content_type(messages: list, content_type: str) -> list:
-    """从消息列表中移除指定类型的内容块，返回新列表，不修改入参。"""
+def _filter_content_type(messages: list, content_types: list[str]) -> tuple[list, tuple[int, int]]:
+    """从消息列表中移除指定类型的内容块，返回新列表和统计信息。
+
+    Args:
+        messages: 原始消息列表
+        content_types: 要过滤的内容类型列表（如 ["image_url", "image"]）
+
+    Returns:
+        (new_messages, (removed_count, total_count))
+    """
     new_messages: list = []
-    warned = False
+    removed_count = 0
+    total_count = 0
     for msg in messages:
         if not isinstance(msg, dict):
             new_messages.append(msg)
             continue
         content = msg.get("content")
         if isinstance(content, list):
-            filtered = [p for p in content if not (isinstance(p, dict) and p.get("type") == content_type)]
+            filtered = []
+            for p in content:
+                total_count += 1
+                if isinstance(p, dict) and p.get("type") in content_types:
+                    removed_count += 1
+                    continue
+                filtered.append(p)
             if len(filtered) < len(content):
                 msg_copy = dict(msg)
                 msg_copy["content"] = filtered
                 new_messages.append(msg_copy)
-                if not warned:
-                    logger.warning(f"[CAPABILITY] 降级: {content_type} 内容块被移除（渠道不支持）")
-                    warned = True
                 continue
         new_messages.append(msg)
-    return new_messages
+    return new_messages, (removed_count, total_count)
 
 
 def merge_system_messages(messages: list[dict]) -> list[dict]:

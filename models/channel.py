@@ -8,6 +8,14 @@ from pydantic import BaseModel, Field
 from models.api_types import APIType
 
 
+class ModelCapabilities(BaseModel):
+    """单个模型的能力覆盖配置"""
+
+    supports_image_content: bool = False
+    supports_audio_content: bool = False
+    supports_file_content: bool = False
+
+
 class AnthropicVersionPolicy(str, Enum):
     CHANNEL = "channel"
     CLIENT = "client"
@@ -35,6 +43,7 @@ class Channel(BaseModel):
     priority: int = Field(default=1, ge=1)
     socks5_proxy: Optional[str] = None
     capabilities: Optional[dict[str, Any]] = None
+    model_capabilities: Optional[dict[str, ModelCapabilities]] = None
     anthropic_version: Optional[str] = None
     anthropic_version_policy: AnthropicVersionPolicy = AnthropicVersionPolicy.CHANNEL
     anthropic_beta: Optional[str] = None
@@ -58,6 +67,7 @@ class ChannelCreate(BaseModel):
     priority: int = Field(default=1, ge=1)
     socks5_proxy: Optional[str] = None
     capabilities: Optional[dict[str, Any]] = None
+    model_capabilities: Optional[dict[str, ModelCapabilities]] = None
     anthropic_version: Optional[str] = None
     anthropic_version_policy: AnthropicVersionPolicy = AnthropicVersionPolicy.CHANNEL
     anthropic_beta: Optional[str] = None
@@ -78,6 +88,7 @@ class ChannelUpdate(BaseModel):
     priority: Optional[int] = Field(default=None, ge=1)
     socks5_proxy: Optional[str] = None
     capabilities: Optional[dict[str, Any]] = None
+    model_capabilities: Optional[dict[str, ModelCapabilities]] = None
     anthropic_version: Optional[str] = None
     anthropic_version_policy: Optional[AnthropicVersionPolicy] = None
     anthropic_beta: Optional[str] = None

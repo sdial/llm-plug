@@ -52,6 +52,7 @@ LLM-Plug 是一个 **LLM API 格式转换代理服务**：客户端用一种 API
 | `priority` | 优先级，数字越小优先级越高（1 比 2 优先） |
 | `socks5_proxy` | 可选 SOCKS5 代理地址 |
 | `capabilities` | 可选，手动覆盖上游提供商的能力推断（详见"能力管理"章节） |
+| `model_capabilities` | 可选，按模型 ID 配置多模态能力覆盖（详见"能力管理"章节） |
 | `allow_format_conversion` | 可选，是否允许跨格式转换；为 `null` 时读取全局设置 |
 | `anthropic_version` / `anthropic_beta` | Anthropic 渠道专用：自定义 API 版本和 Beta 标记 |
 
@@ -189,7 +190,34 @@ LLM-Plug 是一个 **LLM API 格式转换代理服务**：客户端用一种 API
 | MiniMax | `minimax` | 要求单条 system 消息（多条自动合并） |
 | 其他 | — | 默认全部支持 |
 
-### 手动覆盖
+### 能力覆盖层级
+
+能力配置支持两个层级，解析优先级从高到低：
+
+1. **模型级覆盖**（`channel.model_capabilities`）：为单个模型配置多模态能力，仅作用于 `supports_image_content` / `supports_audio_content` / `supports_file_content`
+2. **渠道级覆盖**（`channel.capabilities`）：覆盖该渠道所有模型的能力推断
+
+```json
+{
+  "capabilities": {
+    "supports_parallel_tool_calls": true,
+    "supports_file_content": false
+  },
+  "model_capabilities": {
+    "gpt-4o": {
+      "supports_image_content": true,
+      "supports_file_content": true
+    },
+    "gpt-4o-audio-preview": {
+      "supports_audio_content": true
+    }
+  }
+}
+```
+
+上例中 `gpt-4o` 请求会开启图片和文件支持（模型级覆盖），而 `gpt-3.5-turbo` 则使用渠道级默认值（关闭）。
+
+### 渠道级能力覆盖
 
 在渠道配置的 `capabilities` 字段中可显式指定能力，覆盖自动推断。支持的能力键：
 
@@ -201,10 +229,37 @@ LLM-Plug 是一个 **LLM API 格式转换代理服务**：客户端用一种 API
 | `supports_response_format` | `true` | 是否支持 `response_format` |
 | `supports_reasoning_effort` | `true` | 是否支持 `reasoning_effort` |
 | `supports_strict_tools` | `true` | 是否支持 function 的 `strict` 字段 |
+| `supports_image_content` | `false` | 是否支持图片内容输入 |
 | `supports_file_content` | `false` | 是否支持文件内容输入 |
 | `supports_audio_content` | `false` | 是否支持音频内容输入 |
 | `requires_single_system_message` | `false` | 是否要求单条 system 消息 |
 | `filter_think_content` | `false` | 是否过滤 `💭` 思考标记 |
+
+### 模型级能力覆盖
+
+在渠道配置的 `model_capabilities` 字典中，按模型 ID 配置多模态能力。未配置的模型使用渠道级默认值。
+
+```json
+{
+  "model_capabilities": {
+    "gpt-4o": {
+      "supports_image_content": true,
+      "supports_audio_content": false,
+      "supports_file_content": true
+    }
+  }
+}
+```
+
+模型级覆盖仅作用于多模态能力（`supports_image_content` / `supports_audio_content` / `supports_file_content`），不影响其他能力（如 `parallel_tool_calls`）。
+
+### 过滤日志
+
+当多模态内容被过滤时，会记录包含渠道名、模型名和被过滤类型的 warn 日志：
+
+```
+[CAPABILITY] 降级: 渠道=OpenAI 模型=gpt-3.5-turbo 移除了不支持的 content types=['image', 'audio'] 过滤数=2 总数=5 提示: 可在渠道设置的模型能力覆盖中开启对应开关
+```
 
 ### 思考内容过滤
 
@@ -378,12 +433,22 @@ class Channel(BaseModel):
     priority: int = 1                 # 优先级（数字越小越优先）
     socks5_proxy: str | None = None   # SOCKS5 代理地址
     capabilities: dict | None = None  # 手动覆盖提供商能力
+    model_capabilities: dict[str, ModelCapabilities] | None = None  # 按模型 ID 配置多模态能力
     anthropic_version: str | None = None           # Anthropic API 版本
     anthropic_version_policy: AnthropicVersionPolicy = "channel"
     anthropic_beta: str | None = None              # Anthropic Beta 标记
     anthropic_beta_policy: AnthropicBetaPolicy = "channel"
     allow_format_conversion: bool | None = None    # 是否允许跨格式转换
     created_at: str                   # 创建时间
+```
+
+#### ModelCapabilities 模型
+
+```python
+class ModelCapabilities(BaseModel):
+    supports_image_content: bool = False  # 是否支持图片输入
+    supports_audio_content: bool = False  # 是否支持音频输入
+    supports_file_content: bool = False   # 是否支持文件输入
 ```
 
 ### ApiKey

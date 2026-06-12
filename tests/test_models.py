@@ -11,6 +11,7 @@ from models.channel import (
     Channel,
     ChannelCreate,
     ChannelUpdate,
+    ModelCapabilities,
 )
 
 
@@ -149,6 +150,53 @@ class TestChannel:
 
         assert ch.endpoint_url == "https://gateway.example.com/custom/chat"
         assert ch.models_url == "https://gateway.example.com/custom/models"
+
+    def test_model_capabilities_defaults_to_none(self):
+        ch = Channel(
+            name="Test",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+        )
+        assert ch.model_capabilities is None
+
+    def test_model_capabilities_can_be_configured(self):
+        ch = Channel(
+            name="Test",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            model_capabilities={
+                "gpt-4o": ModelCapabilities(
+                    supports_image_content=True,
+                    supports_file_content=True,
+                ),
+            },
+        )
+        assert ch.model_capabilities is not None
+        assert "gpt-4o" in ch.model_capabilities
+        assert ch.model_capabilities["gpt-4o"].supports_image_content is True
+        assert ch.model_capabilities["gpt-4o"].supports_file_content is True
+        assert ch.model_capabilities["gpt-4o"].supports_audio_content is False
+
+    def test_model_capabilities_serialization(self):
+        ch = Channel(
+            name="Test",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            model_capabilities={
+                "gpt-4o": ModelCapabilities(supports_image_content=True),
+            },
+        )
+        dumped = ch.model_dump()
+        assert dumped["model_capabilities"] == {
+            "gpt-4o": {
+                "supports_image_content": True,
+                "supports_audio_content": False,
+                "supports_file_content": False,
+            }
+        }
 
 
 class TestChannelCreate:

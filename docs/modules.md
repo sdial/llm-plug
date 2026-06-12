@@ -54,6 +54,9 @@
 | `save_response_headers` | bool | `false` | 否 | 是否保存响应头到请求记录 |
 | `save_request_body` | bool | `false` | 否 | 是否保存请求体到请求记录 |
 | `save_response_body` | bool | `false` | 否 | 是否保存响应体到请求记录 |
+| `save_files` | bool | `false` | 否 | 是否保存请求中的文件到 `logs/files/` |
+| `save_images` | bool | `false` | 否 | 是否保存请求中的图片到 `logs/images/` |
+| `save_audios` | bool | `false` | 否 | 是否保存请求中的音频到 `logs/audios/` |
 | `max_log_body_size` | int | `65536`（64KB） | 否 | 请求记录 body 截断上限（字节），0=不截断 |
 | `allow_format_conversion` | bool | `true` | 否 | 全局是否允许跨格式转换 |
 | `max_fail_count` | int | `5` | 否 | 连续失败 N 次后标记渠道不健康 |
@@ -125,6 +128,7 @@ class Channel(BaseModel):
     priority: int = 1                 # 优先级（ge=1，数字越小越优先）
     socks5_proxy: str | None = None   # SOCKS5 代理地址
     capabilities: dict | None = None  # 手动覆盖提供商能力
+    model_capabilities: dict[str, ModelCapabilities] | None = None  # 按模型 ID 配置多模态能力
     anthropic_version: str | None = None
     anthropic_version_policy: AnthropicVersionPolicy = "channel"
     anthropic_beta: str | None = None
@@ -132,6 +136,17 @@ class Channel(BaseModel):
     allow_format_conversion: bool | None = None
     created_at: str                   # ISO 8601 时间
 ```
+
+### ModelCapabilities 模型
+
+```python
+class ModelCapabilities(BaseModel):
+    supports_image_content: bool = False  # 是否支持图片输入
+    supports_audio_content: bool = False  # 是否支持音频输入
+    supports_file_content: bool = False   # 是否支持文件输入
+```
+
+用于 `Channel.model_capabilities` 字典中的值，按模型 ID 配置多模态能力覆盖。
 
 **Anthropic 策略枚举**：
 
@@ -672,7 +687,7 @@ async def cleanup_removed_channels(active_channel_ids: set[str])
 
 ### 模块定位
 
-根据渠道的 `base_url` 关键词自动推断上游提供商的能力限制，在请求发送前过滤不支持的参数。
+根据渠道配置和模型名称推断上游提供商的能力限制，在请求发送前过滤不支持的参数。支持渠道级和模型级两级能力覆盖。
 
 ### ProviderCapabilities 数据类
 
@@ -685,28 +700,56 @@ class ProviderCapabilities:
     supports_reasoning_effort: bool = True
     supports_file_content: bool = False
     supports_audio_content: bool = False
+    supports_image_content: bool = False
     supports_tool_choice_required: bool = True
     supports_strict_tools: bool = True
     requires_single_system_message: bool = False
     filter_think_content: bool = False
 ```
 
+多模态能力（`supports_file_content` / `supports_audio_content` / `supports_image_content`）默认为 `False`，需要通过渠道级或模型级覆盖开启。
+
 ### 核心函数
 
-#### `infer_capabilities(channel) -> ProviderCapabilities`
+#### `infer_capabilities(channel, model_name="") -> ProviderCapabilities`
 
 推断逻辑：
-1. 优先使用 `channel.capabilities` 字段（用户手动覆盖）
+1. 优先使用 `channel.capabilities` 字段（渠道级覆盖）
 2. 否则按 `base_url` 关键词匹配（`deepseek` / `minimax`）
-3. 都不匹配则返回默认（全部支持）
+3. 都不匹配则返回默认（全部支持，多模态除外）
+4. 最后检查 `channel.model_capabilities[model_name]`（模型级覆盖），仅作用于多模态能力
 
-#### `apply_capability_filter(request_data, caps) -> dict`
+**解析优先级**（仅多模态能力）：
+```
+model_capabilities[model] > channel.capabilities > vendor 推断 > 默认值
+```
+
+#### `apply_capability_filter(request_data, caps, channel_name="", model_name="") -> dict`
 
 根据能力逐项过滤请求参数，不支持的参数会被静默移除并记录 WARNING 日志。
+
+多模态内容过滤支持：
+- `image_url` / `image`：图片内容（OpenAI / Anthropic 格式）
+- `input_audio`：音频内容
+- `file`：文件内容
+
+过滤时记录包含渠道名、模型名和被过滤类型的 warn 日志。
 
 #### `merge_system_messages(messages) -> list`
 
 合并多条 system 消息为单条，MiniMax 等要求单 system 的提供商使用。将多条 system 消息的文本用 `\n\n` 连接，放在消息列表最前面。
+
+### 多模态文件保存
+
+`proxy_core.py` 中的 `_save_multimodal_files()` 函数可在请求发送前保存请求中的多模态文件到磁盘。保存行为由设置页的三个开关控制：
+
+| 设置项 | 说明 |
+|--------|------|
+| `save_images` | 保存图片到 `logs/images/` |
+| `save_audios` | 保存音频到 `logs/audios/` |
+| `save_files` | 保存文件到 `logs/files/` |
+
+文件名格式：`{timestamp}_{model}_{hash}.{ext}`，例如 `20260612_143052_gpt-4o_a7f3.png`。写入使用异步线程（`asyncio.to_thread`），不阻塞请求主路径。
 
 ---
 

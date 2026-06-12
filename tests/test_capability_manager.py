@@ -6,7 +6,7 @@ from capability_manager import (
     apply_capability_filter,
     merge_system_messages,
 )
-from models.channel import Channel
+from models.channel import Channel, ModelCapabilities
 from models.api_types import APIType
 
 
@@ -28,6 +28,7 @@ class TestInferCapabilities:
         assert caps.supports_reasoning_effort is True
         assert caps.supports_file_content is False
         assert caps.supports_audio_content is False
+        assert caps.supports_image_content is False
         assert caps.supports_tool_choice_required is True
         assert caps.supports_strict_tools is True
         assert caps.requires_single_system_message is False
@@ -82,6 +83,7 @@ class TestInferCapabilities:
                 "supports_reasoning_effort": False,
                 "supports_file_content": True,
                 "supports_audio_content": True,
+                "supports_image_content": True,
                 "supports_tool_choice_required": False,
                 "supports_strict_tools": False,
             },
@@ -93,8 +95,41 @@ class TestInferCapabilities:
         assert caps.supports_reasoning_effort is False
         assert caps.supports_file_content is True
         assert caps.supports_audio_content is True
+        assert caps.supports_image_content is True
         assert caps.supports_tool_choice_required is False
         assert caps.supports_strict_tools is False
+
+    def test_model_capabilities_override_multimodal(self):
+        """模型级能力覆盖应仅作用于多模态能力。"""
+        channel = Channel(
+            name="openai",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="test-key",
+            model_capabilities={
+                "gpt-4o": ModelCapabilities(
+                    supports_image_content=True,
+                    supports_file_content=True,
+                ),
+                "gpt-4o-audio-preview": ModelCapabilities(
+                    supports_audio_content=True,
+                ),
+            },
+        )
+        # gpt-4o 支持图片和文件，但不支持音频
+        caps = infer_capabilities(channel, "gpt-4o")
+        assert caps.supports_image_content is True
+        assert caps.supports_file_content is True
+        assert caps.supports_audio_content is False
+        # gpt-4o-audio-preview 支持音频
+        audio_caps = infer_capabilities(channel, "gpt-4o-audio-preview")
+        assert audio_caps.supports_audio_content is True
+        assert audio_caps.supports_image_content is False
+        # 未配置模型使用默认值
+        default_caps = infer_capabilities(channel, "gpt-3.5-turbo")
+        assert default_caps.supports_image_content is False
+        assert default_caps.supports_audio_content is False
+        assert default_caps.supports_file_content is False
 
 
 class TestApplyCapabilityFilter:
@@ -247,6 +282,65 @@ class TestCapabilityDegradation:
                 if isinstance(p, dict) and p.get("type") == "input_audio"
             ]
             assert len(audio_parts) == 0
+
+    def test_image_content_in_messages_not_supported(self):
+        """image_url / image content 在不支持时应在请求中移除"""
+        caps = ProviderCapabilities(supports_image_content=False)
+        request = {
+            "model": "gpt-4",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Describe this"},
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "BBB"}},
+                    ],
+                }
+            ],
+        }
+        result = apply_capability_filter(request, caps)
+        user_msg = result["messages"][0]
+        if isinstance(user_msg["content"], list):
+            image_parts = [
+                p
+                for p in user_msg["content"]
+                if isinstance(p, dict) and p.get("type") in ("image_url", "image")
+            ]
+            assert len(image_parts) == 0
+
+    def test_filter_logs_channel_and_model(self):
+        """过滤多模态内容时应记录包含渠道名和模型名的 warn 日志"""
+        from loguru import logger
+
+        captured = []
+        handler_id = logger.add(lambda msg: captured.append(msg), level="WARNING")
+        try:
+            caps = ProviderCapabilities(
+                supports_image_content=False,
+                supports_audio_content=False,
+            )
+            request = {
+                "model": "gpt-3.5-turbo",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "hello"},
+                            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
+                            {"type": "input_audio", "input_audio": {"data": "BBB", "format": "wav"}},
+                        ],
+                    }
+                ],
+            }
+            apply_capability_filter(request, caps, channel_name="TestChannel", model_name="gpt-3.5-turbo")
+        finally:
+            logger.remove(handler_id)
+
+        log_text = " ".join(captured)
+        assert "TestChannel" in log_text
+        assert "gpt-3.5-turbo" in log_text
+        assert "image" in log_text or "audio" in log_text
 
 
 class TestMergeSystemMessages:
