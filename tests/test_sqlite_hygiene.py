@@ -176,13 +176,19 @@ async def request_logs_db(tmp_path, monkeypatch):
 async def test_request_logs_sqlite_connect_has_robust_short_conn_pragmas(request_logs_db):
     backend = request_logs._backend
     assert isinstance(backend, request_logs.SQLiteRequestLogBackend)
-    with closing(backend._connect()) as conn:
+    current_ym = backend._current_year_month()
+    month_db = backend._month_db_path(current_ym)
+    with closing(backend._connect_to(month_db)) as conn:
         _assert_robust_short_conn_pragmas(conn)
 
 
 @pytest.mark.asyncio
 async def test_request_logs_init_sets_persistent_wal_mode(request_logs_db):
-    with closing(sqlite3.connect(str(request_logs_db))) as conn:
+    backend = request_logs._backend
+    assert isinstance(backend, request_logs.SQLiteRequestLogBackend)
+    current_ym = backend._current_year_month()
+    month_db = backend._month_db_path(current_ym)
+    with closing(sqlite3.connect(month_db)) as conn:
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
         assert mode.lower() == "wal"
 
