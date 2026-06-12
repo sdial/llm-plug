@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import secrets
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -402,6 +403,7 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
 _model_channels_cache: dict[str, list[Channel]] | None = None
 _model_channels_cache_version = 0
 _model_channels_lock = asyncio.Lock()
+_model_channels_sync_lock = threading.Lock()  # 保护同步回调对全局变量的写操作
 _background_tasks: set[asyncio.Task] = set()
 
 
@@ -417,8 +419,9 @@ async def _invalidate_model_channels_cache() -> None:
 
 def _schedule_invalidate_model_channels_cache() -> None:
     global _model_channels_cache, _model_channels_cache_version
-    _model_channels_cache = None
-    _model_channels_cache_version += 1
+    with _model_channels_sync_lock:
+        _model_channels_cache = None
+        _model_channels_cache_version += 1
     try:
         task = asyncio.create_task(_cleanup_removed_channels_after_save())
         _background_tasks.add(task)
@@ -1017,6 +1020,7 @@ async def _do_request(
     api_key_id: str | None = None,
     client_ip: str | None = None,
 ):
+    upstream_data = request_data  # 兜底：若后续转换步骤抛异常，except 仍可安全引用
     request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
 
     # 透传 OpenAI Chat 客户端的 stream_options.include_usage 到 response_converter
@@ -2030,6 +2034,8 @@ async def _do_stream_request(
             emitted_output = True
             yield "data: [DONE]\n\n"
     finally:
+        # 1. 构建响应体用于记录
+        response_body = None
         try:
             latency_ms = int((time.time() - start_time) * 1000)
             lag_ms = None
@@ -2040,6 +2046,11 @@ async def _do_stream_request(
                 is_upstream_anthropic=is_upstream_anthropic,
                 model=model,
             )
+        except Exception as build_err:
+            logger.warning(f"stream build response body error: {build_err}")
+
+        # 2. 记录请求日志
+        try:
             logger.debug(f"[STREAM STATS] model={model} success={stream_success} error={stream_error} latency={latency_ms}ms lag={lag_ms}ms chunks={len(stream_chunks)} input={input_tokens} output={output_tokens} finish={finish_reason}")
             _record_request(
                 channel_id=channel.id,
@@ -2062,6 +2073,11 @@ async def _do_stream_request(
                 request_body=upstream_data,
                 response_body=response_body,
             )
+        except Exception as record_err:
+            logger.warning(f"stream record request error: {record_err}")
+
+        # 3. 记录负载均衡状态
+        try:
             if stream_success:
                 await load_balancer.record_success(channel.id)
                 logger.debug(f"[STREAM RECORDED SUCCESS] channel={channel.name}")
@@ -2072,8 +2088,10 @@ async def _do_stream_request(
                     logger.warning(f"[STREAM RECORDED CANCELLED] channel={channel.name} error={stream_error}")
                 else:
                     logger.warning(f"[STREAM RECORDED FAILURE] channel={channel.name} error={stream_error}")
-        except Exception as finally_err:
-            logger.warning(f"stream finally error: {finally_err}")
+        except Exception as lb_err:
+            logger.warning(f"stream load balancer record error: {lb_err}")
+
+        # 4. 关闭流式客户端
         try:
             await client.aclose()
         except Exception as e:
