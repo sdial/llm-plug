@@ -250,7 +250,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
     """SQLite backend with monthly rotation.
 
     Each month's data is stored in a separate file:
-        data/request_logs_YYYY_MM.db
+        data/request_raw_logs/request_logs_YYYY_MM.sqlite3
     """
 
     def __init__(self, db_path: str):
@@ -271,17 +271,24 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
     def _current_year_month() -> str:
         return _utc_now().strftime("%Y%m")
 
+    @property
+    def _logs_dir(self) -> str:
+        return os.path.join(self.data_dir, "request_raw_logs")
+
     def _month_db_path(self, year_month: str) -> str:
-        return os.path.join(self.data_dir, f"request_logs_{year_month[:4]}_{year_month[4:]}.db")
+        return os.path.join(self._logs_dir, f"request_logs_{year_month[:4]}_{year_month[4:]}.sqlite3")
 
     def _discover_month_dbs(self) -> list[str]:
-        """Return sorted list of YYYYMM strings for existing monthly .db files."""
+        """Return sorted list of YYYYMM strings for existing monthly .sqlite3 files."""
         import glob
-        pattern = os.path.join(self.data_dir, "request_logs_????_??.db")
+        logs_dir = self._logs_dir
+        if not os.path.isdir(logs_dir):
+            return []
+        pattern = os.path.join(logs_dir, "request_logs_????_??.sqlite3")
         months: list[str] = []
         for path in glob.glob(pattern):
             basename = os.path.basename(path)
-            parts = basename.replace("request_logs_", "").replace(".db", "").split("_")
+            parts = basename.replace("request_logs_", "").replace(".sqlite3", "").split("_")
             if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 2:
                 months.append(parts[0] + parts[1])
         return sorted(months)
