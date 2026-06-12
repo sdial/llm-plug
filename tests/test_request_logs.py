@@ -477,7 +477,7 @@ async def test_monthly_files_created_on_init(sqlite_request_logs):
     import glob
 
     backend = request_logs._backend
-    pattern = os.path.join(backend.data_dir, "request_logs_????_??.db")
+    pattern = os.path.join(backend._logs_dir, "request_logs_????_??.sqlite3")
     files = glob.glob(pattern)
     assert len(files) >= 1
 
