@@ -167,7 +167,7 @@ function renderChannels() {
                         <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
                             <td data-label="名称" class="row-title py-3 px-4 font-medium text-ink-900">${esc(ch.name)}</td>
                             <td data-label="状态" class="py-3 px-2 text-center">
-                                <span class="status-badge ${ch.enabled ? 'status-enabled' : 'status-disabled'}" onclick="toggleStatusWithConfirm('${ch.id}', ${ch.enabled})" title="点击切换状态">
+                                <span class="status-badge ${ch.enabled ? 'status-enabled' : 'status-disabled'} toggle-status-pill" data-channel-id="${esc(ch.id)}" data-enabled="${ch.enabled}" title="点击切换状态">
                                     ${ch.enabled ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>' : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'}
                                     ${ch.enabled ? '启用' : '禁用'}
                                 </span>
@@ -175,12 +175,15 @@ function renderChannels() {
                             <td data-label="类型" class="py-3 px-2 text-center">
                                 <span class="type-badge ${typeInfo.color}" title="${typeInfo.title}">${typeInfo.short}</span>
                             </td>
-                            <td data-label="模型" class="py-3 px-2 text-ink-600">${ch.models.map(m => `<span class="pill pill-muted mr-1">${esc(m)}</span>`).join('')}</td>
+                            <td data-label="模型" class="py-3 px-2 text-ink-600">${ch.models.map(m => {
+                                const hasCap = ch.model_capabilities && ch.model_capabilities[m];
+                                return `<span class="pill ${hasCap ? 'pill-cap' : 'pill-muted'} mr-1 cursor-pointer model-cap-pill" data-channel-id="${esc(ch.id)}" data-model="${esc(m)}" title="点击设置模型能力">${esc(m)}</span>`;
+                            }).join('')}</td>
                             <td data-label="Base URL" class="py-3 px-4 text-ink-400 text-xs truncate" title="${esc(ch.endpoint_url || ch.base_url)}">${esc(ch.endpoint_url || ch.base_url)}</td>
                             <td data-label="操作" class="py-3 px-4 text-right">
                                 <div class="flex items-center justify-end gap-2">
-                                    <button onclick="editChannel('${ch.id}')" class="pill pill-muted hover:bg-surface-200 transition cursor-pointer">编辑</button>
-                                    <button onclick="openTestModal('${ch.id}')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">测试</button>
+                                    <button class="pill pill-muted hover:bg-surface-200 transition cursor-pointer edit-channel-btn" data-channel-id="${esc(ch.id)}">编辑</button>
+                                    <button class="pill pill-brand hover:opacity-80 transition cursor-pointer test-channel-btn" data-channel-id="${esc(ch.id)}">测试</button>
                                 </div>
                             </td>
                         </tr>
@@ -190,6 +193,29 @@ function renderChannels() {
             </table>
         </div>
     `;
+
+    // 事件委托：避免内联 onclick 拼接字符串的 XSS 风险
+    container.addEventListener('click', (e) => {
+        const modelPill = e.target.closest('.model-cap-pill');
+        if (modelPill) {
+            openModelCapModal(modelPill.dataset.channelId, modelPill.dataset.model);
+            return;
+        }
+        const statusPill = e.target.closest('.toggle-status-pill');
+        if (statusPill) {
+            toggleStatusWithConfirm(statusPill.dataset.channelId, statusPill.dataset.enabled === 'true');
+            return;
+        }
+        const editBtn = e.target.closest('.edit-channel-btn');
+        if (editBtn) {
+            editChannel(editBtn.dataset.channelId);
+            return;
+        }
+        const testBtn = e.target.closest('.test-channel-btn');
+        if (testBtn) {
+            openTestModal(testBtn.dataset.channelId);
+        }
+    });
 }
 
 function openTestModal(channelId) {
@@ -291,60 +317,81 @@ async function confirmAction() {
     closeConfirmModal();
 }
 
-// ===== 模型能力覆盖 UI =====
+// ===== 模型能力弹窗 =====
 
-function renderModelCapabilities(modelCapabilities) {
-    const container = document.getElementById('modelCapabilitiesContainer');
-    if (!container) return;
-    container.innerHTML = '';
-    const caps = modelCapabilities || {};
-    Object.entries(caps).forEach(([model, cfg]) => {
-        addModelCapabilityRow(model, cfg || {});
-    });
+let pendingCapChannelId = null;
+let pendingCapModel = null;
+
+function openModelCapModal(channelId, modelName) {
+    const ch = channels.find(c => c.id === channelId);
+    if (!ch) return;
+    pendingCapChannelId = channelId;
+    pendingCapModel = modelName;
+    const cfg = (ch.model_capabilities && ch.model_capabilities[modelName]) || {};
+    document.getElementById('modelCapName').textContent = modelName;
+    document.getElementById('capImage').checked = !!cfg.supports_image_content;
+    document.getElementById('capAudio').checked = !!cfg.supports_audio_content;
+    document.getElementById('capFile').checked = !!cfg.supports_file_content;
+    document.getElementById('modelCapModal').classList.remove('hidden');
 }
 
-function addModelCapabilityRow(modelName = '', cfg = {}) {
-    const container = document.getElementById('modelCapabilitiesContainer');
-    if (!container) return;
-    const row = document.createElement('div');
-    row.className = 'flex flex-wrap items-center gap-2 p-2 border border-surface-200 rounded-lg bg-white';
-    row.innerHTML = `
-        <input type="text" placeholder="模型名称" value="${esc(modelName)}"
-            class="model-cap-name flex-1 min-w-[120px] text-sm border border-surface-200 rounded px-2 py-1 outline-none focus:border-brand-500">
-        <label class="flex items-center gap-1 text-xs text-ink-600">
-            <input type="checkbox" class="model-cap-image rounded border-surface-200 text-brand-500" ${cfg.supports_image_content ? 'checked' : ''}> 图片
-        </label>
-        <label class="flex items-center gap-1 text-xs text-ink-600">
-            <input type="checkbox" class="model-cap-audio rounded border-surface-200 text-brand-500" ${cfg.supports_audio_content ? 'checked' : ''}> 音频
-        </label>
-        <label class="flex items-center gap-1 text-xs text-ink-600">
-            <input type="checkbox" class="model-cap-file rounded border-surface-200 text-brand-500" ${cfg.supports_file_content ? 'checked' : ''}> 文件
-        </label>
-        <button type="button" onclick="removeModelCapabilityRow(this)" class="text-rose-500 hover:text-rose-700 text-xs">删除</button>
-    `;
-    container.appendChild(row);
+function closeModelCapModal() {
+    document.getElementById('modelCapModal').classList.add('hidden');
+    pendingCapChannelId = null;
+    pendingCapModel = null;
 }
 
-function removeModelCapabilityRow(btn) {
-    const row = btn.closest('div');
-    if (row) row.remove();
+async function saveModelCap() {
+    if (!pendingCapChannelId || !pendingCapModel) return;
+    const ch = channels.find(c => c.id === pendingCapChannelId);
+    if (!ch) return;
+    const modelCaps = Object.assign({}, ch.model_capabilities || {});
+    modelCaps[pendingCapModel] = {
+        supports_image_content: document.getElementById('capImage').checked,
+        supports_audio_content: document.getElementById('capAudio').checked,
+        supports_file_content: document.getElementById('capFile').checked,
+    };
+    try {
+        const resp = await fetch(`${API}/${pendingCapChannelId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_capabilities: modelCaps }),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || ('HTTP ' + resp.status));
+        }
+    } catch (e) {
+        showGlobalToast('保存失败: ' + e.message);
+        return;
+    }
+    closeModelCapModal();
+    loadChannels();
 }
 
-function collectModelCapabilities() {
-    const container = document.getElementById('modelCapabilitiesContainer');
-    if (!container) return {};
-    const result = {};
-    container.querySelectorAll('div').forEach(row => {
-        const nameInput = row.querySelector('.model-cap-name');
-        const model = nameInput ? nameInput.value.trim() : '';
-        if (!model) return;
-        result[model] = {
-            supports_image_content: row.querySelector('.model-cap-image')?.checked || false,
-            supports_audio_content: row.querySelector('.model-cap-audio')?.checked || false,
-            supports_file_content: row.querySelector('.model-cap-file')?.checked || false,
-        };
-    });
-    return result;
+async function resetModelCap() {
+    if (!pendingCapChannelId || !pendingCapModel) return;
+    const ch = channels.find(c => c.id === pendingCapChannelId);
+    if (!ch) return;
+    const modelCaps = Object.assign({}, ch.model_capabilities || {});
+    delete modelCaps[pendingCapModel];
+    // 空对象也发，后端会正确处理
+    try {
+        const resp = await fetch(`${API}/${pendingCapChannelId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_capabilities: modelCaps }),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || ('HTTP ' + resp.status));
+        }
+    } catch (e) {
+        showGlobalToast('重置失败: ' + e.message);
+        return;
+    }
+    closeModelCapModal();
+    loadChannels();
 }
 
 function toggleApiKeyVisibility() {
@@ -394,7 +441,6 @@ function openModal(channel = null) {
     document.getElementById('f_anthropic_beta_policy').value = channel ? (channel.anthropic_beta_policy || 'channel') : 'channel';
     document.getElementById('f_enabled').checked = channel ? channel.enabled : true;
     updateAnthropicConfigVisibility();
-    renderModelCapabilities(channel ? channel.model_capabilities : null);
     // 编辑模式显示删除按钮，添加模式隐藏
     document.getElementById('deleteChannelBtn').classList.toggle('hidden', !channel);
     document.getElementById('channelModal').classList.remove('hidden');
@@ -463,7 +509,6 @@ async function saveChannel(e) {
     if (apiKey) {
         data.api_key = apiKey;
     }
-    data.model_capabilities = collectModelCapabilities();
 
     if (!id && !apiKey) {
         showGlobalToast('API Key 不能为空', 'error');
@@ -490,6 +535,9 @@ async function saveChannel(e) {
     }
     closeModal();
     loadChannels();
+    if (!id) {
+        showGlobalToast('模型默认仅开放文本能力，如需设置更多能力请点击模型标签');
+    }
 }
 
 function initChannels() {
@@ -533,8 +581,10 @@ Object.assign(window, {
     saveChannel,
     initChannels,
     toggleApiKeyVisibility,
-    addModelCapabilityRow,
-    removeModelCapabilityRow,
+    openModelCapModal,
+    closeModelCapModal,
+    saveModelCap,
+    resetModelCap,
 });
 window.adminChannels = { getChannels, loadChannels };
 })();
