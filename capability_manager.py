@@ -161,19 +161,19 @@ def apply_capability_filter(
 
         if not caps.supports_image_content:
             messages, stats = _filter_content_type(messages, ["image_url", "image"])
-            if stats[1]:
+            if stats[0]:
                 filter_stats.append(("image", stats[0], stats[1]))
                 result["messages"] = messages
 
         if not caps.supports_audio_content:
             messages, stats = _filter_content_type(messages, ["input_audio"])
-            if stats[1]:
+            if stats[0]:
                 filter_stats.append(("audio", stats[0], stats[1]))
                 result["messages"] = messages
 
         if not caps.supports_file_content:
             messages, stats = _filter_content_type(messages, ["file"])
-            if stats[1]:
+            if stats[0]:
                 filter_stats.append(("file", stats[0], stats[1]))
                 result["messages"] = messages
 
