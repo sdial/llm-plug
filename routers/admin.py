@@ -875,7 +875,7 @@ _FIELD_PATH_MAP = {
 
 
 @router.get("/requests/{request_id}/{field_name}")
-async def get_request_field_endpoint(request_id: int, field_name: str):
+async def get_request_field_endpoint(request_id: str, field_name: str):
     """获取单个请求的单个 JSONB 字段（请求/返回的 Header 或 Body）"""
     field = _FIELD_PATH_MAP.get(field_name)
     if field is None:
