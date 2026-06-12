@@ -1,10 +1,22 @@
 services:
   llm-plug:
-    image: docker.cnb.cool/lfo.cc/llm-plug:latest
+    image: llm-plug:20260612-0712
     container_name: llm-plug
+    user: root
+    mem_limit: 256m          # 最大内存限制为 256MB
     restart: unless-stopped
     ports:
       - "55555:55555"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+    environment:
+      - HOST=0.0.0.0
+      - PORT=55555
+      - PROXY_API_KEY=${PROXY_API_KEY:-}
+      - MAX_FAIL_COUNT=${MAX_FAIL_COUNT:-5}
+      - COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-60}
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-300}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - DEBUG=${DEBUG:-true}
+      - TZ=Asia/Shanghai
