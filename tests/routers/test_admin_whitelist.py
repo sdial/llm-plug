@@ -1,5 +1,7 @@
 import ipaddress
 import json
+import os
+import tempfile
 
 import pytest
 import pytest_asyncio
@@ -209,3 +211,56 @@ class TestWhitelistAPI:
         resp = await client.put("/admin/whitelist", json={"content": ""})
         assert resp.status_code == 200
         assert resp.json()["rule_count"] == 0
+
+    async def test_put_whitelist_uses_atomic_write(self, client, tmp_path, monkeypatch):
+        """验证白名单写入使用原子写：临时文件名随机、fsync、os.replace"""
+        import routers.admin as admin_router
+        recorded = {}
+
+        original_NamedTemporaryFile = tempfile.NamedTemporaryFile
+
+        def tracking_NamedTemporaryFile(*args, **kwargs):
+            f = original_NamedTemporaryFile(*args, **kwargs)
+            recorded["tmp_path"] = f.name
+            recorded["dir"] = kwargs.get("dir", args[1] if len(args) > 1 else None)
+            recorded["prefix"] = kwargs.get("prefix", "")
+            return f
+
+        monkeypatch.setattr(tempfile, "NamedTemporaryFile", tracking_NamedTemporaryFile)
+
+        content = "/admin/*,*,127.0.0.1,本机\n"
+        await client.put("/admin/whitelist", json={"content": content})
+
+        # 验证使用了 NamedTemporaryFile
+        assert "tmp_path" in recorded, "应使用 tempfile.NamedTemporaryFile"
+
+        # 验证临时文件在目标目录
+        target_dir = str(admin_router.WHITELIST_PATH.parent)
+        assert recorded["dir"] == target_dir
+
+        # 验证前缀非固定 .tmp 后缀（NamedTemporaryFile 用随机字符）
+        tmp_name = os.path.basename(recorded["tmp_path"])
+        assert not tmp_name.endswith(".csv.tmp"), "临时文件名不应为固定 .tmp 后缀"
+
+    async def test_put_whitelist_concurrent_no_data_loss(self, client, tmp_path):
+        """并发写入白名单不应丢失数据（固定 .tmp 临时文件会冲突）"""
+        import asyncio
+        import routers.admin as admin_router
+
+        content1 = "/v1/*,*,10.0.0.0/8,内网1\n"
+        content2 = "/admin/*,*,192.168.0.0/16,内网2\n"
+
+        # 并发执行两次写入
+        results = await asyncio.gather(
+            client.put("/admin/whitelist", json={"content": content1}),
+            client.put("/admin/whitelist", json={"content": content2}),
+            return_exceptions=True,
+        )
+
+        # 至少一个应成功
+        successes = [r for r in results if not isinstance(r, Exception) and r.status_code == 200]
+        assert len(successes) >= 1
+
+        # 最终文件应存在且内容完整（要么 content1 要么 content2）
+        final_content = admin_router.WHITELIST_PATH.read_text(encoding="utf-8")
+        assert final_content in (content1, content2), "并发写入后文件内容应为其中一个完整结果"

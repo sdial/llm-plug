@@ -1,8 +1,11 @@
 from collections.abc import Callable
 import asyncio
+import contextlib
 import ipaddress
+import os
 import secrets
 import socket
+import tempfile
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -1057,7 +1060,23 @@ async def update_whitelist(body: dict):
     if not valid:
         raise HTTPException(status_code=400, detail=error)
     WHITELIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = WHITELIST_PATH.with_suffix(".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(WHITELIST_PATH)
+    dir_name = str(WHITELIST_PATH.parent)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=dir_name,
+        delete=False,
+        prefix=".whitelist_",
+        suffix=".tmp",
+    ) as f:
+        tmp_path = f.name
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    try:
+        os.replace(tmp_path, str(WHITELIST_PATH))
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
     return {"message": f"已保存 {len(rules)} 条规则", "rule_count": len(rules)}
