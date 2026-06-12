@@ -342,6 +342,149 @@ class TestCapabilityDegradation:
         assert "gpt-3.5-turbo" in log_text
         assert "image" in log_text or "audio" in log_text
 
+    def test_no_warning_when_no_unsupported_content(self):
+        """渠道不支持 image/audio/file，但请求中没有这些内容时，不应发出警告"""
+        from loguru import logger
+
+        captured = []
+        handler_id = logger.add(lambda msg: captured.append(msg), level="WARNING")
+        try:
+            caps = ProviderCapabilities(
+                supports_image_content=False,
+                supports_audio_content=False,
+                supports_file_content=False,
+            )
+            request = {
+                "model": "gpt-4",
+                "messages": [
+                    {"role": "system", "content": "You are helpful."},
+                    {"role": "user", "content": "Describe this text"},
+                    {"role": "assistant", "content": "OK"},
+                ],
+            }
+            result = apply_capability_filter(request, caps, channel_name="TestChannel", model_name="gpt-4")
+        finally:
+            logger.remove(handler_id)
+
+        # 不应有任何 [CAPABILITY] 相关的警告
+        log_text = " ".join(captured)
+        assert "[CAPABILITY]" not in log_text
+        # 消息内容应保持不变
+        assert result["messages"] == request["messages"]
+
+    def test_no_warning_for_text_only_messages(self):
+        """纯文本消息不应触发多模态降级警告，即使渠道不支持所有多模态类型"""
+        from loguru import logger
+
+        captured = []
+        handler_id = logger.add(lambda msg: captured.append(msg), level="WARNING")
+        try:
+            caps = ProviderCapabilities(
+                supports_image_content=False,
+                supports_audio_content=False,
+                supports_file_content=False,
+            )
+            request = {
+                "model": "mimo-v2.5-pro",
+                "messages": [
+                    {"role": "user", "content": [
+                        {"type": "text", "text": "hello"},
+                        {"type": "text", "text": "world"},
+                    ]},
+                ],
+            }
+            result = apply_capability_filter(request, caps, channel_name="XiaoMi-TokenPlan", model_name="mimo-v2.5-pro")
+        finally:
+            logger.remove(handler_id)
+
+        log_text = " ".join(captured)
+        assert "[CAPABILITY]" not in log_text
+        # 消息内容应保持不变
+        assert result["messages"] == request["messages"]
+
+    def test_warning_only_for_present_content_types(self):
+        """只应为实际存在的不支持内容类型发出警告，不存在的类型不应警告"""
+        from loguru import logger
+
+        captured = []
+        handler_id = logger.add(lambda msg: captured.append(msg), level="WARNING")
+        try:
+            caps = ProviderCapabilities(
+                supports_image_content=False,
+                supports_audio_content=False,
+                supports_file_content=False,
+            )
+            # 只有 image，没有 audio 和 file
+            request = {
+                "model": "gpt-4",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "hello"},
+                            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
+                        ],
+                    }
+                ],
+            }
+            result = apply_capability_filter(request, caps, channel_name="TestChannel", model_name="gpt-4")
+        finally:
+            logger.remove(handler_id)
+
+        log_text = " ".join(captured)
+        # 应该有 image 的警告
+        assert "image" in log_text
+        # 不应该有 audio 或 file 的警告（因为请求中没有这些内容）
+        assert "audio" not in log_text
+        assert "file" not in log_text
+        # image 应被移除
+        user_msg = result["messages"][0]
+        image_parts = [
+            p for p in user_msg["content"]
+            if isinstance(p, dict) and p.get("type") in ("image_url", "image")
+        ]
+        assert len(image_parts) == 0
+
+    def test_warning_for_multiple_present_types(self):
+        """当多种不支持的内容类型都存在时，应为每种类型发出警告"""
+        from loguru import logger
+
+        captured = []
+        handler_id = logger.add(lambda msg: captured.append(msg), level="WARNING")
+        try:
+            caps = ProviderCapabilities(
+                supports_image_content=False,
+                supports_audio_content=False,
+                supports_file_content=False,
+            )
+            request = {
+                "model": "gpt-4",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "hello"},
+                            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
+                            {"type": "input_audio", "input_audio": {"data": "BBB", "format": "wav"}},
+                            {"type": "file", "file": {"file_id": "f1"}},
+                        ],
+                    }
+                ],
+            }
+            result = apply_capability_filter(request, caps, channel_name="TestChannel", model_name="gpt-4")
+        finally:
+            logger.remove(handler_id)
+
+        log_text = " ".join(captured)
+        # 三种类型都应有警告
+        assert "image" in log_text
+        assert "audio" in log_text
+        assert "file" in log_text
+        # 所有多模态内容应被移除，只剩 text
+        user_msg = result["messages"][0]
+        assert len(user_msg["content"]) == 1
+        assert user_msg["content"][0]["type"] == "text"
+
 
 class TestMergeSystemMessages:
     """测试 merge_system_messages 函数"""
