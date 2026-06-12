@@ -431,10 +431,6 @@ function openModal(channel = null) {
     document.getElementById('f_weight').value = channel ? channel.weight : 1;
     document.getElementById('f_priority').value = channel ? channel.priority : 1;
     document.getElementById('f_socks5_proxy').value = channel ? (channel.socks5_proxy || '') : '';
-    const allowConvVal = channel && channel.allow_format_conversion !== undefined && channel.allow_format_conversion !== null
-        ? String(channel.allow_format_conversion)
-        : '';
-    document.getElementById('f_allow_format_conversion').value = allowConvVal;
     document.getElementById('f_anthropic_version').value = channel ? (channel.anthropic_version || '') : '';
     document.getElementById('f_anthropic_version_policy').value = channel ? (channel.anthropic_version_policy || 'channel') : 'channel';
     document.getElementById('f_anthropic_beta').value = channel ? (channel.anthropic_beta || '') : '';
@@ -497,8 +493,7 @@ async function saveChannel(e) {
         socks5_proxy: document.getElementById('f_socks5_proxy').value || null,
         enabled: document.getElementById('f_enabled').checked,
     };
-    const allowConvRaw = document.getElementById('f_allow_format_conversion').value;
-    data.allow_format_conversion = allowConvRaw === '' ? null : allowConvRaw === 'true';
+
     if (data.api_type === 'anthropic') {
         data.anthropic_version = document.getElementById('f_anthropic_version').value.trim() || null;
         data.anthropic_version_policy = document.getElementById('f_anthropic_version_policy').value;
