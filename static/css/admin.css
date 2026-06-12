@@ -55,6 +55,9 @@ body {
 .pill-warning { background-color: #fffbeb; color: #d97706; }
 .pill-danger { background-color: #fff1f2; color: #e11d48; }
 .pill-muted { background-color: #f5f5f4; color: #6b6b6b; }
+.pill-cap { background-color: #eff6ff; color: #2563eb; cursor: pointer; }
+.pill-cap:hover { background-color: #dbeafe; }
+.pill-muted.cursor-pointer:hover { background-color: #e8e6e3; }
 .admin-wide-layout {
     max-width: 92rem !important;
 }
