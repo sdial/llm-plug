@@ -1669,6 +1669,51 @@ async def _do_stream_request(
         # 放在后续 yield 点之前，避免 GeneratorExit 导致 success 未设置。
         if stream_error is None:
             stream_success = True
+        # 上游关闭连接但未发送 [DONE] 时，补发终止事件避免客户端挂起。
+        # 正常流结束路径：仅在非错误、非非SSE-body 场景下执行。
+        if stream_error is None and not _done_received and non_sse_stream_body is None:
+            if emitted_output:
+                logger.warning(
+                    f"[STREAM EOF WITHOUT DONE] model={model} "
+                    f"chunks={len(stream_chunks)} target={target_api_type.value}"
+                )
+                # 1. 刷新 ThinkFilter 残余内容
+                if think_filter:
+                    remaining = think_filter.flush()
+                    if remaining:
+                        if output_responses_sse:
+                            remaining_evt = {"type": "response.output_text.delta", "delta": remaining}
+                            sse = _format_sse(remaining_evt)
+                            _log_stream_event(sse)
+                            _mark_output()
+                            yield sse
+                        else:
+                            remaining_chunk = {
+                                "id": "chatcmpl-stream",
+                                "object": "chat.completion.chunk",
+                                "created": 0,
+                                "model": model,
+                                "choices": [{"index": 0, "delta": {"content": remaining}, "finish_reason": None}]
+                            }
+                            sse = _format_sse(remaining_chunk)
+                            _log_stream_event(sse)
+                            _mark_output()
+                            yield sse
+                # 2. 调用 converter finalize 补发协议终止事件
+                if response_converter:
+                    final_events = response_converter.finalize_stream(source_type)
+                    logger.debug(f"[STREAM EOF FINALIZE] model={model} events={len(final_events)}")
+                    for final_event in _format_extra_events(final_events):
+                        _mark_output()
+                        yield final_event
+                    extra_events = _yield_extra_events({})
+                    for extra_sse in extra_events:
+                        _mark_output()
+                        yield extra_sse
+                # 3. Chat Completions 补发 data: [DONE]
+                if not output_sse_events:
+                    _mark_output()
+                    yield "data: [DONE]\n\n"
         if non_sse_stream_body is not None:
             logger.debug(f"[STREAM NON-SSE] model={model} body_length={len(non_sse_stream_body)}")
             try:

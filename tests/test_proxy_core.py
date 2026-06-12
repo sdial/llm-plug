@@ -2559,6 +2559,72 @@ class TestAnthropicHeaderPriority:
         assert request_log_record.call_args.kwargs["model"] == "mimo-v2.5-pro"
         assert request_log_record.call_args.kwargs["response_body"]["choices"][0]["message"]["content"] == "Hello"
 
+    @pytest.mark.anyio
+    async def test_openai_stream_eof_without_done_emits_terminal_frame(self):
+        """上游发完最后一个 chunk 后直接 EOF（不发 [DONE]），代理应补发 data: [DONE] 终止帧。
+
+        很多 OpenAI 兼容实现会在最后一个 finish_reason=stop chunk 后直接关闭连接，
+        部分客户端（如 openai-python）依赖 [DONE] 判断流结束，缺失会导致挂起。
+        """
+
+        class FakeStreamResponseNoDone:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+            is_error = False
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"test-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"test-model","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}'
+                # 不发 "data: [DONE]"，模拟上游直接 EOF
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponseNoDone()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_no_done",
+            name="NoDoneUpstream",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://no-done.example.com",
+            api_key="sk-test",
+            models=["test-model"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request"),
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://no-done.example.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "test-model", "stream": True},
+                response_converter=None,
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_CHAT,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        # 关键断言：最后一个输出必须是 [DONE] 终止帧
+        assert outputs[-1] == "data: [DONE]\n\n", (
+            f"代理应在无 [DONE] 的 EOF 后补发终止帧，实际最后输出: {outputs[-1]!r}"
+        )
+        # 内容 chunk 也应正常透传
+        assert "Hello" in "".join(outputs)
+
 
 class TestFailoverOn401:
     """401/403/404 属于渠道配置错误，应尝试下一个候选渠道。"""
