@@ -166,6 +166,203 @@ async def test_sqlite_backend_migrates_existing_db_for_cache_token_columns(tmp_p
     assert listed["items"][0]["cache_creation_input_tokens"] == 3
 
 
+async def test_migrate_legacy_db_streams_rows_in_batches(tmp_path, monkeypatch):
+    """Legacy DB with real rows is migrated to monthly files using batched
+    streaming.  Covers: multi-month split, missing-column defaults, batch
+    boundary (>100 rows), and legacy file rename to .migrated."""
+    import sqlite3
+
+    # ---- 1. Create a legacy DB with the OLD schema (no cache columns) ----
+    legacy_path = tmp_path / "request_logs.db"
+    conn = sqlite3.connect(str(legacy_path))
+    conn.executescript(
+        """
+        CREATE TABLE request_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            model TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            channel_name TEXT NOT NULL,
+            api_key_id TEXT,
+            client_ip TEXT,
+            is_stream INTEGER NOT NULL,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            latency_ms INTEGER NOT NULL,
+            lag_ms INTEGER,
+            finish_reason TEXT,
+            success INTEGER NOT NULL,
+            error_msg TEXT,
+            request_headers TEXT,
+            response_headers TEXT,
+            request_body TEXT,
+            response_body TEXT
+        );
+        """
+    )
+
+    # ---- 2. Insert rows across 3 months, more than one batch (>100) ----
+    months_data = [
+        ("202604", 50),   # April:  50 rows
+        ("202605", 120),  # May:   120 rows (crosses batch boundary)
+        ("202606", 80),   # June:   80 rows
+    ]
+    total_inserted = 0
+    row_id = 1
+    for ym, count in months_data:
+        year, month = ym[:4], ym[4:]
+        for i in range(count):
+            ts = f"{year}-{month}-{(i % 28) + 1:02d} {i % 24:02d}:00:00.000000"
+            conn.execute(
+                """INSERT INTO request_logs
+                (id, timestamp, model, channel_id, channel_name, api_key_id,
+                 client_ip, is_stream, input_tokens, output_tokens,
+                 latency_ms, lag_ms, finish_reason, success, error_msg)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    row_id, ts, f"model-{ym}", f"ch_{ym}", f"Channel-{ym}",
+                    "key_legacy", "10.0.0.1", 0, 100 + i, 50 + i,
+                    200, 10, "stop", 1, None,
+                ),
+            )
+            row_id += 1
+            total_inserted += 1
+    conn.commit()
+    conn.close()
+
+    # ---- 3. Init backend — triggers migration ----
+    await request_logs.close_backend()
+    monkeypatch.setattr(
+        request_logs,
+        "_get_save_flags",
+        lambda: {
+            "save_request_headers": False,
+            "save_response_headers": False,
+            "save_request_body": False,
+            "save_response_body": False,
+        },
+    )
+    result = await request_logs.init_backend(
+        {
+            "request_log_db_type": "sqlite",
+            "request_log_sqlite_path": str(legacy_path),
+        },
+    )
+    assert result["available"] is True
+
+    # ---- 4. Legacy file should have been renamed to .migrated ----
+    assert os.path.exists(str(legacy_path) + ".migrated")
+    assert not os.path.exists(str(legacy_path))
+
+    # ---- 5. Monthly files should exist for each month ----
+    backend = request_logs._backend
+    for ym, _ in months_data:
+        month_db = backend._month_db_path(ym)
+        assert os.path.exists(month_db), f"Missing monthly db for {ym}"
+
+    # ---- 6. Verify row counts per month via direct SQL ----
+    for ym, expected_count in months_data:
+        month_db = backend._month_db_path(ym)
+        conn = sqlite3.connect(month_db)
+        actual = conn.execute("SELECT COUNT(*) FROM request_logs").fetchone()[0]
+        conn.close()
+        assert actual == expected_count, (
+            f"Month {ym}: expected {expected_count} rows, got {actual}"
+        )
+
+    # ---- 7. Verify total via list_requests (cross-month merge) ----
+    listing = await request_logs.list_requests(page=1, page_size=1)
+    assert listing["total"] == total_inserted
+
+    # ---- 8. Verify missing-column defaults (cache columns should be 0) ----
+    listing = await request_logs.list_requests(page=1, page_size=5)
+    for item in listing["items"]:
+        assert item["cache_read_input_tokens"] == 0
+        assert item["cache_creation_input_tokens"] == 0
+
+    # ---- 9. Spot-check: data integrity for a specific month ----
+    listing = await request_logs.list_requests(model="model-202605", page_size=200)
+    assert listing["total"] == 120
+    assert listing["items"][0]["channel_id"] == "ch_202605"
+    assert listing["items"][0]["input_tokens"] >= 100
+
+
+async def test_migrate_legacy_db_idempotent(tmp_path, monkeypatch):
+    """Running migration twice doesn't duplicate data (INSERT OR IGNORE)."""
+    import sqlite3
+
+    legacy_path = tmp_path / "request_logs.db"
+    conn = sqlite3.connect(str(legacy_path))
+    conn.executescript(
+        """
+        CREATE TABLE request_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            model TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            channel_name TEXT NOT NULL,
+            api_key_id TEXT,
+            client_ip TEXT,
+            is_stream INTEGER NOT NULL,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            latency_ms INTEGER NOT NULL,
+            success INTEGER NOT NULL,
+            error_msg TEXT,
+            request_headers TEXT,
+            response_headers TEXT,
+            request_body TEXT,
+            response_body TEXT
+        );
+        """
+    )
+    conn.execute(
+        """INSERT INTO request_logs
+        (id, timestamp, model, channel_id, channel_name, is_stream,
+         input_tokens, output_tokens, latency_ms, success)
+        VALUES (1, '2026-05-15 10:00:00.000000', 'gpt-test', 'ch_1', 'Test', 0, 10, 5, 100, 1)"""
+    )
+    conn.commit()
+    conn.close()
+
+    await request_logs.close_backend()
+    settings = {
+        "request_log_db_type": "sqlite",
+        "request_log_sqlite_path": str(legacy_path),
+    }
+    monkeypatch.setattr(
+        request_logs,
+        "_get_save_flags",
+        lambda: {
+            "save_request_headers": False,
+            "save_response_headers": False,
+            "save_request_body": False,
+            "save_response_body": False,
+        },
+    )
+
+    # First init: migration runs
+    result = await request_logs.init_backend(settings)
+    assert result["available"] is True
+    listing1 = await request_logs.list_requests(page_size=100)
+    assert listing1["total"] == 1
+
+    # Simulate: legacy db is somehow restored (copy .migrated back)
+    import shutil
+    migrated_path = str(legacy_path) + ".migrated"
+    shutil.copy2(migrated_path, str(legacy_path))
+
+    # Re-init: migration runs again on the same data
+    await request_logs.close_backend()
+    result = await request_logs.init_backend(settings)
+    assert result["available"] is True
+    listing2 = await request_logs.list_requests(page_size=100)
+    # INSERT OR IGNORE: still exactly 1 row, not duplicated
+    assert listing2["total"] == 1
+
+    await request_logs.close_backend()
+
+
 async def test_start_workers_persist_queued_request_logs(sqlite_request_logs):
     request_logs.start_request_log_workers(worker_count=1)
     try:
