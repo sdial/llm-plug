@@ -142,6 +142,17 @@ def _login_rate_limit_key(request: Request) -> tuple[str, str]:
     return (str(admin_auth._auth_file()), _client_ip(request))
 
 
+def _cleanup_stale_login_rate_limits() -> None:
+    """清理所有过期的登录速率限制条目，防止孤立 key 导致内存泄漏。"""
+    now = time.monotonic()
+    stale_keys = [
+        k for k, v in _login_rate_limit_state.items()
+        if all(ts < now - _LOGIN_RATE_LIMIT_WINDOW_SECONDS for ts in v)
+    ]
+    for k in stale_keys:
+        del _login_rate_limit_state[k]
+
+
 def _is_login_rate_limited(request: Request) -> bool:
     now = time.monotonic()
     key = _login_rate_limit_key(request)
@@ -150,6 +161,7 @@ def _is_login_rate_limited(request: Request) -> bool:
         if now - ts < _LOGIN_RATE_LIMIT_WINDOW_SECONDS
     ]
     _login_rate_limit_state[key] = failures
+    _cleanup_stale_login_rate_limits()
     return len(failures) >= _LOGIN_RATE_LIMIT_MAX_FAILURES
 
 
@@ -162,6 +174,7 @@ def _record_login_failure(request: Request) -> None:
     ]
     failures.append(now)
     _login_rate_limit_state[key] = failures
+    _cleanup_stale_login_rate_limits()
 
 
 def _clear_login_failures(request: Request) -> None:
@@ -375,9 +388,11 @@ async def update_channel(channel_id: str, body: ChannelUpdate):
                 state["updated"] = updated
                 data["channels"] = channels_raw
                 return data
-        raise HTTPException(status_code=404, detail="渠道不存在")
+        return None  # not found
 
-    await atomic_update_data(_mutate)
+    result = await atomic_update_data(_mutate)
+    if result is None:
+        raise HTTPException(status_code=404, detail="渠道不存在")
     await remove_channel_client(state["old"])
     return state["updated"]
 
@@ -391,12 +406,14 @@ async def delete_channel(channel_id: str):
         channels_raw = data.get("channels", [])
         removed = next((ch for ch in channels_raw if ch.get("id") == channel_id), None)
         if removed is None:
-            raise HTTPException(status_code=404, detail="渠道不存在")
+            return None  # not found
         data["channels"] = [ch for ch in channels_raw if ch.get("id") != channel_id]
         state["removed"] = Channel(**removed)
         return data
 
-    await atomic_update_data(_mutate)
+    result = await atomic_update_data(_mutate)
+    if result is None:
+        raise HTTPException(status_code=404, detail="渠道不存在")
     await remove_channel_client(state["removed"])
     return {"message": "删除成功"}
 
@@ -417,9 +434,11 @@ async def toggle_channel(channel_id: str):
                 state["updated"] = updated
                 data["channels"] = channels_raw
                 return data
-        raise HTTPException(status_code=404, detail="渠道不存在")
+        return None  # not found
 
-    await atomic_update_data(_mutate)
+    result = await atomic_update_data(_mutate)
+    if result is None:
+        raise HTTPException(status_code=404, detail="渠道不存在")
     await remove_channel_client(state["old"])
     return state["updated"]
 
@@ -497,9 +516,11 @@ async def update_api_key(key_id: str, body: ApiKeyUpdate):
                 state["updated"] = updated
                 d["api_keys"] = keys_raw
                 return d
-        raise HTTPException(status_code=404, detail="API Key 不存在")
+        return None  # not found
 
-    await atomic_update_api_keys(_mutate)
+    result = await atomic_update_api_keys(_mutate)
+    if result is None:
+        raise HTTPException(status_code=404, detail="API Key 不存在")
     await invalidate_keys_cache()
     return state["updated"]
 
@@ -512,11 +533,13 @@ async def delete_api_key(key_id: str):
         keys_raw = d.get("api_keys", [])
         new_keys = [k for k in keys_raw if k.get("id") != key_id]
         if len(new_keys) == len(keys_raw):
-            raise HTTPException(status_code=404, detail="API Key 不存在")
+            return None  # not found
         d["api_keys"] = new_keys
         return d
 
-    await atomic_update_api_keys(_mutate)
+    result = await atomic_update_api_keys(_mutate)
+    if result is None:
+        raise HTTPException(status_code=404, detail="API Key 不存在")
     await invalidate_keys_cache()
     return {"message": "删除成功"}
 
@@ -547,9 +570,11 @@ async def regenerate_api_key(key_id: str):
                 state["updated"] = updated
                 d["api_keys"] = keys_raw
                 return d
-        raise HTTPException(status_code=404, detail="API Key 不存在")
+        return None  # not found
 
-    await atomic_update_api_keys(_mutate)
+    result = await atomic_update_api_keys(_mutate)
+    if result is None:
+        raise HTTPException(status_code=404, detail="API Key 不存在")
     await invalidate_keys_cache()
     return state["updated"]
 
@@ -742,6 +767,7 @@ async def get_stats(days: Annotated[int, Query(ge=1)] = 7):
                 "total_latency_ms": 0,
                 "total_lag_ms": 0,
                 "latency_count": 0,
+                "lag_count": 0,
             }
         rec = daily_by_date[d]
         rec["total_requests"] += row["request_count"] or 0
@@ -756,11 +782,13 @@ async def get_stats(days: Annotated[int, Query(ge=1)] = 7):
             rec["latency_count"] += row["request_count"] or 1
         if row.get("avg_lag_ms") is not None:
             rec["total_lag_ms"] += row["avg_lag_ms"] * (row["request_count"] or 1)
+            rec["lag_count"] += row["request_count"] or 1
     daily = []
     for rec in daily_by_date.values():
         avg_latency = round(rec.pop("total_latency_ms") / rec["latency_count"]) if rec["latency_count"] else 0
-        avg_lag = round(rec.pop("total_lag_ms") / rec["latency_count"]) if rec["latency_count"] else 0
+        avg_lag = round(rec.pop("total_lag_ms") / rec["lag_count"]) if rec["lag_count"] else 0
         rec.pop("latency_count")
+        rec.pop("lag_count")
         rec["avg_latency_ms"] = avg_latency
         rec["avg_lag_ms"] = avg_lag
         daily.append(rec)
