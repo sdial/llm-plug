@@ -464,6 +464,25 @@ async def _attach_api_key_names(result: dict) -> dict:
     return result
 
 
+async def _attach_channel_api_types(result: dict) -> dict:
+    data = await load_data()
+    channels = data.get("channels", [])
+    api_type_by_id = {ch.get("id"): ch.get("api_type") for ch in channels if ch.get("id")}
+    api_type_by_name = {ch.get("name"): ch.get("api_type") for ch in channels if ch.get("name")}
+    for item in result.get("items", []):
+        item["api_type"] = (
+            api_type_by_id.get(item.get("channel_id"))
+            or api_type_by_name.get(item.get("channel_name"))
+            or item.get("api_type")
+        )
+    return result
+
+
+async def _decorate_request_items(result: dict) -> dict:
+    result = await _attach_api_key_names(result)
+    return await _attach_channel_api_types(result)
+
+
 @router.get("/api-keys")
 async def list_api_keys():
     """获取所有 API Key（Key 脱敏），统计数据从 PG 聚合"""
@@ -876,7 +895,7 @@ async def list_requests_endpoint(
             page_size=page_size,
         )
         result["source"] = "stats"
-        return await _attach_api_key_names(result)
+        return await _decorate_request_items(result)
     if source not in (None, "request_logs"):
         raise HTTPException(status_code=400, detail=f"不支持的请求记录来源: {source}")
 
@@ -894,7 +913,7 @@ async def list_requests_endpoint(
     )
     if result.get("available") is False:
         raise HTTPException(status_code=503, detail=result.get("error") or "请求记录库不可用")
-    return await _attach_api_key_names(result)
+    return await _decorate_request_items(result)
 
 
 _FIELD_PATH_MAP = {

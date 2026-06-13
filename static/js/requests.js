@@ -332,6 +332,13 @@ function openJsonInNewTab(requestId, field) {
     window.open(url, '_blank');
 }
 
+function getRequestAnalyzerApiType(req) {
+    if (req.api_type) return req.api_type;
+    const channels = window.adminChannels?.getChannels?.() || [];
+    const channel = channels.find(ch => ch.id === req.channel_id || ch.name === req.channel_name);
+    return channel?.api_type || 'openai-chat-completions';
+}
+
 function openRequestDetail(id) {
     const req = requestsData.find(r => r.id === id);
     if (!req) return;
@@ -385,7 +392,7 @@ function openRequestDetail(id) {
         ` : ''}
         ${requestLogSource !== 'stats' ? `
         <div class="mt-4 flex justify-end">
-            <a href="/admin/static/request-analyzer.html?id=${req.id}&channel=${encodeURIComponent(req.channel_name)}&success=${req.success}&latency=${req.latency_ms || ''}&input_tokens=${inputTokens}&output_tokens=${outputTokens}" target="_blank" class="btn-primary text-sm px-3 py-1.5 font-medium">深度分析</a>
+            <a href="/admin/static/request-analyzer.html?id=${req.id}&api_type=${encodeURIComponent(getRequestAnalyzerApiType(req))}&channel=${encodeURIComponent(req.channel_name)}&success=${req.success}&latency=${req.latency_ms || ''}&input_tokens=${inputTokens}&output_tokens=${outputTokens}" target="_blank" class="btn-primary text-sm px-3 py-1.5 font-medium">深度分析</a>
         </div>
         ` : ''}
     `;

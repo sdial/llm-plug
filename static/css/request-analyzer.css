@@ -27,6 +27,21 @@ body {
     user-select: none;
 }
 
+.message-header-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.message-preview {
+    color: #57534e;
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .message-card-body {
     padding: 0 16px 16px;
     display: none;
@@ -55,6 +70,11 @@ body {
 .message-card-tool {
     background: #fffbeb;
     border-color: #fde68a;
+}
+
+.message-card-unknown {
+    background: #ffffff;
+    border-color: #e8e6e3;
 }
 
 /* 角色标签 */
@@ -88,6 +108,11 @@ body {
 .role-badge-tool {
     background: #fde68a;
     color: #b45309;
+}
+
+.role-badge-unknown {
+    background: #e5e7eb;
+    color: #4b5563;
 }
 
 /* 展开/折叠按钮 */
@@ -146,6 +171,39 @@ body {
 .message-content pre code {
     background: transparent;
     padding: 0;
+}
+
+.content-block {
+    background: rgba(255,255,255,0.72);
+    border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 8px;
+    margin-top: 10px;
+    padding: 12px;
+}
+
+.content-block-type {
+    color: #78716c;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.content-block-thinking {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+}
+
+.structured-block {
+    background: #f5f5f4;
+    border-radius: 6px;
+    color: #44403c;
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 13px;
+    overflow-x: auto;
+    padding: 10px;
+    white-space: pre-wrap;
 }
 
 /* Tool 定义 */
@@ -210,6 +268,12 @@ body {
     margin-bottom: 8px;
 }
 
+.tool-call-meta {
+    color: #78716c;
+    font-size: 12px;
+    margin-bottom: 8px;
+}
+
 .tool-call-args {
     background: #f5f5f4;
     border-radius: 6px;
@@ -223,6 +287,104 @@ body {
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px dashed #e8e6e3;
+}
+
+.tool-call-missing {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 6px;
+    color: #c2410c;
+    font-size: 13px;
+    margin-top: 8px;
+    padding: 8px 10px;
+}
+
+.tool-call-unmatched {
+    border-color: #fed7aa;
+}
+
+/* 概览与诊断 */
+.overview-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    margin-bottom: 20px;
+}
+
+.overview-metric,
+.analysis-section {
+    background: white;
+    border: 1px solid #e8e6e3;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.overview-metric-label {
+    color: #78716c;
+    font-size: 12px;
+    margin-bottom: 6px;
+}
+
+.overview-metric-value {
+    color: #1a1a1a;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.analysis-section {
+    margin-bottom: 16px;
+}
+
+.analysis-section h3 {
+    color: #1a1a1a;
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0 0 12px;
+}
+
+.context-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.context-chip {
+    background: #f5f5f4;
+    border: 1px solid #e8e6e3;
+    border-radius: 9999px;
+    color: #44403c;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 10px;
+}
+
+.diagnostic {
+    border: 1px solid #e8e6e3;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    padding: 12px;
+}
+
+.diagnostic-info {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+}
+
+.diagnostic-warn {
+    background: #fff7ed;
+    border-color: #fed7aa;
+}
+
+.diagnostic-title {
+    color: #1a1a1a;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.diagnostic-detail {
+    color: #57534e;
+    font-size: 13px;
 }
 
 /* System 提示词 */

@@ -117,6 +117,43 @@ class TestListRequestsEndpoint:
         assert resp.json()["source"] == "stats"
         assert resp.json()["items"][0]["model"] == "gpt-4o"
 
+    async def test_request_items_include_channel_api_type(self, client):
+        async def fake_list_requests(**kwargs):
+            return {
+                "items": [{"id": 1, "model": "claude", "channel_id": "anth", "channel_name": "Anthropic"}],
+                "total": 1,
+                "page": kwargs["page"],
+                "page_size": kwargs["page_size"],
+            }
+
+        async def fake_load_data():
+            return {
+                "channels": [
+                    {
+                        "id": "anth",
+                        "name": "Anthropic",
+                        "api_type": "anthropic",
+                        "base_url": "https://api.anthropic.com",
+                        "api_key": "sk-test",
+                        "models": ["claude"],
+                    }
+                ]
+            }
+
+        from routers import admin
+
+        original_list = admin.request_log_list_requests
+        original_load_data = admin.load_data
+        admin.request_log_list_requests = fake_list_requests
+        admin.load_data = fake_load_data
+        try:
+            resp = await client.get("/admin/requests")
+        finally:
+            admin.request_log_list_requests = original_list
+            admin.load_data = original_load_data
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["api_type"] == "anthropic"
+
     async def test_request_log_backend_unavailable_returns_503(self, client):
         async def fake_list_requests(**kwargs):
             return {
