@@ -311,6 +311,13 @@ body {
     margin-bottom: 20px;
 }
 
+.output-summary {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    margin-bottom: 20px;
+}
+
 .overview-metric,
 .analysis-section {
     background: white;

@@ -92,6 +92,21 @@ def test_request_analyzer_sanitizes_markdown_html():
     assert "sanitizeHtml(marked.parse(text))" in analyzer_js
 
 
+def test_request_analyzer_loads_and_normalizes_model_output():
+    analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
+    analyzer_html = Path("static/request-analyzer.html").read_text(encoding="utf-8")
+
+    assert 'data-view="output"' in analyzer_html
+    assert "模型输出" in analyzer_html
+    assert "responseData = result.data" in analyzer_js
+    assert "fetch(`/admin/requests/${requestId}/response-body`)" in analyzer_js
+    assert "function normalizeOutput(raw, apiType" in analyzer_js
+    assert "function normalizeChatOutput(raw)" in analyzer_js
+    assert "function normalizeAnthropicOutput(raw)" in analyzer_js
+    assert "function normalizeResponsesOutput(raw)" in analyzer_js
+    assert "renderOutputView" in analyzer_js
+
+
 def test_stats_today_merge_uses_configured_aggregation_timezone():
     stats_js = (STATIC_JS / "stats.js").read_text(encoding="utf-8")
 
