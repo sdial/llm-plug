@@ -24,8 +24,11 @@
                     <h1 class="text-lg font-semibold text-ink-900">请求分析器</h1>
                 </div>
                 <div class="flex items-center gap-3">
-                    <a id="jsonViewerLink" href="#" target="_blank" class="btn-secondary text-sm px-3 py-1.5 font-medium">
-                        查看原始 JSON
+                    <a id="requestJsonViewerLink" href="#" target="_blank" class="btn-secondary text-sm px-3 py-1.5 font-medium">
+                        请求 JSON
+                    </a>
+                    <a id="outputJsonViewerLink" href="#" target="_blank" class="btn-secondary text-sm px-3 py-1.5 font-medium">
+                        输出 JSON
                     </a>
                 </div>
             </div>
@@ -68,6 +71,7 @@
         <div class="tabs">
             <div class="tab active" data-view="overview">概览</div>
             <div class="tab" data-view="messages">消息结构</div>
+            <div class="tab" data-view="output">模型输出</div>
             <div class="tab" data-view="tools">Tool 调用</div>
             <div class="tab" data-view="system">System 提示词</div>
             <div class="tab" data-view="diagnostics">诊断</div>

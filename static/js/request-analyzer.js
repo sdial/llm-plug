@@ -14,7 +14,9 @@
 
     let currentView = 'overview';
     let requestData = null;
+    let responseData = null;
     let normalizedContext = null;
+    let normalizedOutput = null;
     let requestId = null;
     let apiType = 'openai-chat-completions';
 
@@ -29,9 +31,14 @@
             return;
         }
 
-        const jsonLink = document.getElementById('jsonViewerLink');
-        if (jsonLink) {
-            jsonLink.href = `/admin/static/json-viewer.html?url=${encodeURIComponent('/admin/requests/' + requestId + '/request-body')}&title=请求 Body`;
+        const requestJsonLink = document.getElementById('requestJsonViewerLink');
+        if (requestJsonLink) {
+            requestJsonLink.href = `/admin/static/json-viewer.html?url=${encodeURIComponent('/admin/requests/' + requestId + '/request-body')}&title=请求 Body`;
+        }
+
+        const outputJsonLink = document.getElementById('outputJsonViewerLink');
+        if (outputJsonLink) {
+            outputJsonLink.href = `/admin/static/json-viewer.html?url=${encodeURIComponent('/admin/requests/' + requestId + '/response-body')}&title=返回 Body`;
         }
 
         bindTabEvents();
@@ -52,6 +59,13 @@
             const result = await resp.json();
             requestData = result.data || {};
             normalizedContext = normalizeRequest(requestData, apiType);
+            const responseResult = await loadResponseBody();
+            responseData = responseResult.data;
+            normalizedOutput = normalizeOutput(responseData, apiType, responseResult);
+            normalizedContext.output = normalizedOutput;
+            normalizedContext.stats.outputBlocks = normalizedOutput.blocks.length;
+            normalizedContext.stats.outputToolCalls = normalizedOutput.toolCalls.length;
+            normalizedContext.stats.finishReason = normalizedOutput.finishReason || '-';
 
             renderMetadata();
             renderCurrentView();
@@ -60,11 +74,49 @@
         }
     }
 
+    async function loadResponseBody() {
+        try {
+            const resp = await fetch(`/admin/requests/${requestId}/response-body`);
+            if (!resp.ok) {
+                return {
+                    data: null,
+                    available: false,
+                    error: resp.status === 404 ? '返回 Body 未保存或请求记录不存在。' : '返回 Body 加载失败: ' + resp.status
+                };
+            }
+            const result = await resp.json();
+            responseData = result.data;
+            return {
+                data: responseData,
+                available: responseData !== null && responseData !== undefined,
+                error: responseData === null || responseData === undefined ? '返回 Body 未保存。' : null
+            };
+        } catch (e) {
+            return { data: null, available: false, error: '返回 Body 网络错误: ' + e.message };
+        }
+    }
+
     function normalizeRequest(raw, apiType) {
         if (apiType === 'anthropic') {
             return normalizeAnthropicRequest(raw);
         }
+        if (apiType === 'openai-response') {
+            return normalizeResponsesRequest(raw);
+        }
         return normalizeChatRequest(raw);
+    }
+
+    function normalizeOutput(raw, apiType, state) {
+        if (!state?.available) {
+            return emptyOutput(state?.error || '没有可分析的模型输出。');
+        }
+        if (apiType === 'anthropic') {
+            return normalizeAnthropicOutput(raw);
+        }
+        if (apiType === 'openai-response') {
+            return normalizeResponsesOutput(raw);
+        }
+        return normalizeChatOutput(raw);
     }
 
     function normalizeChatRequest(raw) {
@@ -119,6 +171,186 @@
         });
 
         return buildContext(raw, 'anthropic', turns, systemBlocks, toolDefinitions, toolEvents, diagnostics);
+    }
+
+    function normalizeResponsesRequest(raw) {
+        const systemBlocks = raw.instructions
+            ? [{ index: -1, role: 'system', blocks: [{ type: 'text', text: String(raw.instructions) }], raw: { instructions: raw.instructions } }]
+            : [];
+        const turns = normalizeResponsesInput(raw.input);
+        const toolDefinitions = (raw.tools || []).map(tool => ({
+            name: tool.name || tool.function?.name || tool.type || 'unknown',
+            description: tool.description || tool.function?.description || '',
+            schema: tool.parameters || tool.input_schema || tool.function?.parameters || null,
+            raw: tool
+        }));
+        const toolEvents = extractResponsesToolEvents(turns);
+        const diagnostics = buildDiagnostics({
+            apiType: 'openai-response',
+            turns,
+            systemBlocks,
+            toolDefinitions,
+            toolEvents
+        });
+
+        return buildContext(raw, 'openai-response', turns, systemBlocks, toolDefinitions, toolEvents, diagnostics);
+    }
+
+    function normalizeResponsesInput(input) {
+        if (typeof input === 'string') {
+            return [{ index: 0, role: 'user', blocks: [{ type: 'text', text: input }], raw: { input } }];
+        }
+        if (!Array.isArray(input)) return [];
+        return input.map((item, index) => {
+            if (typeof item === 'string') {
+                return { index, role: 'user', blocks: [{ type: 'text', text: item }], raw: item };
+            }
+            const role = item.role || (item.type === 'message' ? item.role : item.type) || 'unknown';
+            return {
+                index,
+                role,
+                blocks: normalizeResponsesContentBlocks(item.content ?? item),
+                raw: item
+            };
+        });
+    }
+
+    function emptyOutput(error) {
+        return {
+            available: false,
+            apiType,
+            blocks: [],
+            toolCalls: [],
+            finishReason: '-',
+            usage: null,
+            raw: null,
+            error
+        };
+    }
+
+    function buildOutput(raw, apiType, blocks, toolCalls, finishReason, usage) {
+        return {
+            available: true,
+            apiType,
+            blocks,
+            toolCalls,
+            finishReason: finishReason || '-',
+            usage: usage || null,
+            raw,
+            error: null
+        };
+    }
+
+    function normalizeChatOutput(raw) {
+        const choices = Array.isArray(raw?.choices) ? raw.choices : [];
+        const blocks = [];
+        const toolCalls = [];
+        const finishReasons = [];
+
+        choices.forEach((choice, choiceIndex) => {
+            const message = choice.message || choice.delta || {};
+            if (choice.finish_reason) finishReasons.push(choice.finish_reason);
+            normalizeChatOutputMessage(message, choiceIndex).forEach(block => blocks.push(block));
+            (message.tool_calls || []).forEach(call => {
+                toolCalls.push({
+                    id: call.id || '',
+                    name: call.function?.name || call.name || 'unknown',
+                    arguments: prettyJsonString(call.function?.arguments || call.arguments || {}),
+                    choiceIndex,
+                    raw: call
+                });
+            });
+        });
+
+        if (!blocks.length && !toolCalls.length && raw) {
+            blocks.push({ type: 'raw', text: safeJson(raw), raw });
+        }
+
+        return buildOutput(raw, 'openai-chat-completions', blocks, toolCalls, finishReasons.join(', '), raw?.usage);
+    }
+
+    function normalizeAnthropicOutput(raw) {
+        const blocks = normalizeAnthropicContentBlocks(raw?.content || []);
+        const toolCalls = blocks
+            .filter(block => block.type === 'tool_use')
+            .map(block => ({
+                id: block.id || '',
+                name: block.name || 'unknown',
+                arguments: safeJson(block.input || {}),
+                choiceIndex: 0,
+                raw: block.raw
+            }));
+        if (!blocks.length && raw) {
+            blocks.push({ type: 'raw', text: safeJson(raw), raw });
+        }
+        return buildOutput(raw, 'anthropic', blocks, toolCalls, raw?.stop_reason, raw?.usage);
+    }
+
+    function normalizeResponsesOutput(raw) {
+        const outputItems = Array.isArray(raw?.output) ? raw.output : [];
+        const blocks = [];
+        const toolCalls = [];
+
+        outputItems.forEach((item, itemIndex) => {
+            normalizeResponsesOutputItem(item).forEach(block => blocks.push(block));
+            if (item.type === 'function_call' || item.type === 'tool_call') {
+                toolCalls.push({
+                    id: item.call_id || item.id || '',
+                    name: item.name || item.function?.name || item.type,
+                    arguments: prettyJsonString(item.arguments || item.function?.arguments || {}),
+                    choiceIndex: itemIndex,
+                    raw: item
+                });
+            }
+        });
+
+        if (!blocks.length && raw?.output_text) {
+            blocks.push({ type: 'text', text: raw.output_text, raw: { output_text: raw.output_text } });
+        }
+        if (!blocks.length && raw) {
+            blocks.push({ type: 'raw', text: safeJson(raw), raw });
+        }
+
+        const finishReason = raw?.incomplete_details?.reason || raw?.status || '-';
+        return buildOutput(raw, 'openai-response', blocks, toolCalls, finishReason, raw?.usage);
+    }
+
+    function normalizeChatOutputMessage(message, choiceIndex) {
+        const blocks = [];
+        if (message.content) {
+            blocks.push(...normalizeChatContentBlocks(message.content).map(block => ({ ...block, choiceIndex })));
+        }
+        if (message.refusal) {
+            blocks.push({ type: 'refusal', text: message.refusal, raw: { refusal: message.refusal }, choiceIndex });
+        }
+        if (message.reasoning_content) {
+            blocks.push({ type: 'thinking', text: message.reasoning_content, raw: { reasoning_content: message.reasoning_content }, choiceIndex });
+        }
+        return blocks;
+    }
+
+    function normalizeResponsesOutputItem(item) {
+        if (!item || typeof item !== 'object') return [];
+        if (item.type === 'message') {
+            return normalizeResponsesContentBlocks(item.content || []).map(block => ({ ...block, outputId: item.id }));
+        }
+        if (item.type === 'reasoning') {
+            return [{ type: 'thinking', text: blockToText(item.summary || item.content || ''), raw: item }];
+        }
+        if (item.type === 'function_call' || item.type === 'tool_call') {
+            return [{
+                type: 'tool_use',
+                text: item.name || item.function?.name || item.type,
+                id: item.call_id || item.id,
+                name: item.name || item.function?.name || item.type,
+                input: item.arguments || item.function?.arguments || {},
+                raw: item
+            }];
+        }
+        if (item.type === 'output_text') {
+            return [{ type: 'text', text: item.text || '', raw: item }];
+        }
+        return [{ type: item.type || 'unknown', text: safeJson(item), raw: item }];
     }
 
     function buildContext(raw, apiType, turns, systemBlocks, toolDefinitions, toolEvents, diagnostics) {
@@ -199,6 +431,27 @@
             }
             if (block.type === 'image') return { type: 'image', text: block.source?.media_type || '[image]', raw: block };
             if (block.type === 'document') return { type: 'file', text: block.title || block.source?.media_type || '[document]', raw: block };
+            return { type: block.type || 'unknown', text: safeJson(block), raw: block };
+        });
+    }
+
+    function normalizeResponsesContentBlocks(content) {
+        if (typeof content === 'string') return [{ type: 'text', text: content }];
+        if (!Array.isArray(content)) return [];
+        return content.map(block => {
+            if (typeof block === 'string') return { type: 'text', text: block };
+            if (block.type === 'input_text' || block.type === 'output_text' || block.type === 'text') {
+                return { type: 'text', text: block.text || '', raw: block };
+            }
+            if (block.type === 'input_image' || block.type === 'image_url') {
+                return { type: 'image', text: block.image_url || block.detail || '[image]', raw: block };
+            }
+            if (block.type === 'input_file') {
+                return { type: 'file', text: block.filename || block.file_id || '[file]', raw: block };
+            }
+            if (block.type === 'refusal') {
+                return { type: 'refusal', text: block.refusal || block.text || '', raw: block };
+            }
             return { type: block.type || 'unknown', text: safeJson(block), raw: block };
         });
     }
@@ -287,6 +540,25 @@
         return events;
     }
 
+    function extractResponsesToolEvents(turns) {
+        return turns.flatMap(turn => {
+            const raw = turn.raw || {};
+            const calls = raw.tool_calls || raw.tools || [];
+            if (!Array.isArray(calls)) return [];
+            return calls.map(call => ({
+                kind: 'call',
+                id: call.id || call.call_id || '',
+                tool_call_id: call.id || call.call_id || '',
+                messageIndex: turn.index,
+                name: call.name || call.function?.name || call.type || 'unknown',
+                arguments: prettyJsonString(call.arguments || call.function?.arguments || {}),
+                result: null,
+                matched: false,
+                raw: call
+            }));
+        });
+    }
+
     function buildDiagnostics(context) {
         const issues = [];
         if (context.systemBlocks.length === 0) {
@@ -370,6 +642,9 @@
             case 'messages':
                 renderMessagesView(contentArea);
                 break;
+            case 'output':
+                renderOutputView(contentArea);
+                break;
             case 'tools':
                 renderToolsView(contentArea);
                 break;
@@ -401,6 +676,8 @@
                 ${renderOverviewMetric('Tools', stats.toolDefinitions)}
                 ${renderOverviewMetric('Tool 调用', stats.toolCalls)}
                 ${renderOverviewMetric('Tool 结果', stats.toolResults)}
+                ${renderOverviewMetric('输出 Blocks', stats.outputBlocks ?? 0)}
+                ${renderOverviewMetric('结束原因', stats.finishReason || '-')}
             </div>
             <div class="analysis-section">
                 <h3>Content Blocks</h3>
@@ -409,6 +686,50 @@
             <div class="analysis-section">
                 <h3>关键诊断</h3>
                 ${renderDiagnosticsList(normalizedContext.diagnostics.slice(0, 4))}
+            </div>
+        `;
+    }
+
+    function renderOutputView(container) {
+        const output = normalizedContext.output || normalizedOutput || emptyOutput('没有可分析的模型输出。');
+        if (!output.available) {
+            container.innerHTML = `
+                <div class="empty">
+                    <div class="text-sm font-semibold text-ink-900 mb-1">没有模型输出</div>
+                    <div class="text-sm text-ink-500">${escapeHtml(output.error || '返回 Body 未保存。')}</div>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="output-summary">
+                ${renderOverviewMetric('输出格式', output.apiType)}
+                ${renderOverviewMetric('内容 Blocks', output.blocks.length)}
+                ${renderOverviewMetric('输出 Tool 调用', output.toolCalls.length)}
+                ${renderOverviewMetric('结束原因', output.finishReason || '-')}
+            </div>
+            <div class="analysis-section">
+                <h3>模型回复</h3>
+                ${renderBlocks(output.blocks)}
+            </div>
+            <div class="analysis-section">
+                <h3>输出 Tool 调用 (${output.toolCalls.length})</h3>
+                ${output.toolCalls.length ? output.toolCalls.map(renderOutputToolCall).join('') : '<div class="empty">没有输出 Tool 调用</div>'}
+            </div>
+            <div class="analysis-section">
+                <h3>Usage</h3>
+                ${output.usage ? `<div class="structured-block">${escapeHtml(safeJson(output.usage))}</div>` : '<div class="empty">返回 Body 中没有 usage</div>'}
+            </div>
+        `;
+    }
+
+    function renderOutputToolCall(call) {
+        return `
+            <div class="tool-call-history">
+                <div class="tool-call-name">${escapeHtml(call.name)}</div>
+                <div class="tool-call-meta">ID: ${escapeHtml(call.id || '-')} · output #${call.choiceIndex + 1}</div>
+                <div class="tool-call-args">${escapeHtml(call.arguments)}</div>
             </div>
         `;
     }
