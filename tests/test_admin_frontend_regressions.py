@@ -63,6 +63,35 @@ def test_requests_table_shows_zero_cache_read_tokens_when_field_exists():
     assert 'content: "cache";' in admin_css
 
 
+def test_request_analyzer_link_passes_api_type_from_channel_metadata():
+    requests_js = (STATIC_JS / "requests.js").read_text(encoding="utf-8")
+
+    assert "function getRequestAnalyzerApiType(req)" in requests_js
+    assert "if (req.api_type) return req.api_type;" in requests_js
+    assert "api_type=${encodeURIComponent(getRequestAnalyzerApiType(req))}" in requests_js
+
+
+def test_request_analyzer_normalizes_chat_and_anthropic_contexts():
+    analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
+    analyzer_html = Path("static/request-analyzer.html").read_text(encoding="utf-8")
+
+    assert 'data-view="overview"' in analyzer_html
+    assert "function normalizeRequest(raw, apiType)" in analyzer_js
+    assert "function normalizeChatRequest(raw)" in analyzer_js
+    assert "function normalizeAnthropicRequest(raw)" in analyzer_js
+    assert "tool_use_id" in analyzer_js
+    assert "tool_call_id" in analyzer_js
+    assert "renderDiagnosticsView" in analyzer_js
+
+
+def test_request_analyzer_sanitizes_markdown_html():
+    analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
+
+    assert "function sanitizeHtml(html)" in analyzer_js
+    assert "template.content.querySelectorAll" in analyzer_js
+    assert "sanitizeHtml(marked.parse(text))" in analyzer_js
+
+
 def test_stats_today_merge_uses_configured_aggregation_timezone():
     stats_js = (STATIC_JS / "stats.js").read_text(encoding="utf-8")
 
