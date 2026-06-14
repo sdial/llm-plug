@@ -775,6 +775,7 @@
         const params = new URLSearchParams(window.location.search);
         document.getElementById('metadataBar').classList.remove('hidden');
         document.getElementById('metaModel').textContent = normalizedContext.model || '-';
+        document.getElementById('metaFormat').textContent = normalizedContext.apiType || '-';
         document.getElementById('metaChannel').textContent = params.get('channel') || '-';
 
         const statusEl = document.getElementById('metaStatus');
@@ -848,7 +849,6 @@
 
         container.innerHTML = `
             <div class="overview-grid">
-                ${renderOverviewMetric('格式', normalizedContext.apiType)}
                 ${renderOverviewMetric('消息数', stats.messages)}
                 ${renderOverviewMetric('System 段', stats.systemBlocks)}
                 ${renderOverviewMetric('Tools', stats.toolDefinitions)}
