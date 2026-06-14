@@ -30,6 +30,7 @@ def _get_keys_lock() -> asyncio.Lock:
 
 _cache: dict[str, Any] | None = None
 _cache_ts: float = 0
+_cache_file_sig: tuple[int, int] | None = None
 _CACHE_TTL = 5.0
 
 _save_callbacks: list[Callable[[], None]] = []
@@ -71,6 +72,14 @@ def _read_channels_from_disk() -> dict[str, Any]:
         return {"channels": []}
 
 
+def _file_signature(path: str) -> tuple[int, int] | None:
+    try:
+        stat_result = os.stat(path)
+    except OSError:
+        return None
+    return (stat_result.st_mtime_ns, stat_result.st_size)
+
+
 def _write_channels_to_disk(data: dict[str, Any]) -> None:
     dir_name = os.path.dirname(os.path.abspath(config.CHANNELS_FILE)) or "."
     with tempfile.NamedTemporaryFile(
@@ -94,11 +103,16 @@ def _write_channels_to_disk(data: dict[str, Any]) -> None:
 
 
 async def load_data() -> dict[str, Any]:
-    global _cache, _cache_ts
+    global _cache, _cache_ts, _cache_file_sig
     _ensure_data_dir()
     async with _get_channels_lock():
         now = time.time()
-        if _cache is not None and (now - _cache_ts) < _CACHE_TTL:
+        current_file_sig = _file_signature(config.CHANNELS_FILE)
+        if (
+            _cache is not None
+            and (now - _cache_ts) < _CACHE_TTL
+            and current_file_sig == _cache_file_sig
+        ):
             return _cache
         if not os.path.exists(config.CHANNELS_FILE):
             data = {"channels": []}
@@ -107,6 +121,7 @@ async def load_data() -> dict[str, Any]:
             data = await asyncio.to_thread(_read_channels_from_disk)
         _cache = data
         _cache_ts = time.time()
+        _cache_file_sig = _file_signature(config.CHANNELS_FILE)
         return data
 
 
@@ -116,7 +131,7 @@ async def atomic_update_data(mutator: Callable[[dict[str, Any]], Any]):
     mutator 接收当前 data 字典（已是最新磁盘状态），可原地修改或返回新字典。
     支持同步或异步 mutator。返回 mutator 的返回值。
     """
-    global _cache, _cache_ts
+    global _cache, _cache_ts, _cache_file_sig
     _ensure_data_dir()
     async with _get_channels_lock():
         if not os.path.exists(config.CHANNELS_FILE):
@@ -130,29 +145,33 @@ async def atomic_update_data(mutator: Callable[[dict[str, Any]], Any]):
         await asyncio.to_thread(_write_channels_to_disk, new_data)
         _cache = new_data
         _cache_ts = time.time()
+        _cache_file_sig = _file_signature(config.CHANNELS_FILE)
         _trigger_save_callbacks()
         return result
 
 
 async def invalidate_cache() -> None:
-    global _cache, _cache_ts, _keys_cache, _keys_cache_ts, _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
+    global _cache, _cache_ts, _cache_file_sig, _keys_cache, _keys_cache_ts, _keys_cache_file_sig, _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
     async with _get_channels_lock():
         _cache = None
         _cache_ts = 0
+        _cache_file_sig = None
         _MODEL_GROUPS_CACHE = None
         _MODEL_GROUPS_CACHE_TS = 0
     async with _get_keys_lock():
         _keys_cache = None
         _keys_cache_ts = 0
+        _keys_cache_file_sig = None
 
 
 async def save_data(data: dict[str, Any]) -> None:
-    global _cache, _cache_ts
+    global _cache, _cache_ts, _cache_file_sig
     _ensure_data_dir()
     async with _get_channels_lock():
         await asyncio.to_thread(_write_channels_to_disk, data)
         _cache = data
         _cache_ts = time.time()
+        _cache_file_sig = _file_signature(config.CHANNELS_FILE)
         _trigger_save_callbacks()
 
 
@@ -160,6 +179,7 @@ async def save_data(data: dict[str, Any]) -> None:
 
 _keys_cache: dict[str, Any] | None = None
 _keys_cache_ts: float = 0
+_keys_cache_file_sig: tuple[int, int] | None = None
 
 
 def _read_api_keys_from_disk() -> dict[str, Any]:
@@ -196,11 +216,16 @@ def _write_api_keys_to_disk(data: dict[str, Any]) -> None:
 
 
 async def load_api_keys() -> dict[str, Any]:
-    global _keys_cache, _keys_cache_ts
+    global _keys_cache, _keys_cache_ts, _keys_cache_file_sig
     _ensure_data_dir()
     async with _get_keys_lock():
         now = time.time()
-        if _keys_cache is not None and (now - _keys_cache_ts) < _CACHE_TTL:
+        current_file_sig = _file_signature(config.API_KEYS_FILE)
+        if (
+            _keys_cache is not None
+            and (now - _keys_cache_ts) < _CACHE_TTL
+            and current_file_sig == _keys_cache_file_sig
+        ):
             return _keys_cache
         if not os.path.exists(config.API_KEYS_FILE):
             data = {"api_keys": []}
@@ -209,22 +234,24 @@ async def load_api_keys() -> dict[str, Any]:
             data = await asyncio.to_thread(_read_api_keys_from_disk)
         _keys_cache = data
         _keys_cache_ts = time.time()
+        _keys_cache_file_sig = _file_signature(config.API_KEYS_FILE)
         return data
 
 
 async def save_api_keys(data: dict[str, Any]) -> None:
-    global _keys_cache, _keys_cache_ts
+    global _keys_cache, _keys_cache_ts, _keys_cache_file_sig
     _ensure_data_dir()
     async with _get_keys_lock():
         await asyncio.to_thread(_write_api_keys_to_disk, data)
         _keys_cache = data
         _keys_cache_ts = time.time()
+        _keys_cache_file_sig = _file_signature(config.API_KEYS_FILE)
         _trigger_api_keys_save_callbacks()
 
 
 async def atomic_update_api_keys(mutator: Callable[[dict[str, Any]], Any]):
     """API Keys 版本的原子 read-modify-write。"""
-    global _keys_cache, _keys_cache_ts
+    global _keys_cache, _keys_cache_ts, _keys_cache_file_sig
     _ensure_data_dir()
     async with _get_keys_lock():
         if not os.path.exists(config.API_KEYS_FILE):
@@ -238,15 +265,17 @@ async def atomic_update_api_keys(mutator: Callable[[dict[str, Any]], Any]):
         await asyncio.to_thread(_write_api_keys_to_disk, new_data)
         _keys_cache = new_data
         _keys_cache_ts = time.time()
+        _keys_cache_file_sig = _file_signature(config.API_KEYS_FILE)
         _trigger_api_keys_save_callbacks()
         return result
 
 
 async def invalidate_keys_cache() -> None:
-    global _keys_cache, _keys_cache_ts
+    global _keys_cache, _keys_cache_ts, _keys_cache_file_sig
     async with _get_keys_lock():
         _keys_cache = None
         _keys_cache_ts = 0
+        _keys_cache_file_sig = None
 
 
 # ============ 负载均衡配置（兼容接口，代理到 config settings） ============

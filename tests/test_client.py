@@ -147,6 +147,29 @@ class TestGetOrCreateClient:
         assert c1 is not c2
         assert not c2.is_closed
 
+    @pytest.mark.anyio
+    async def test_evicts_least_recent_client_when_cache_exceeds_limit(self, monkeypatch):
+        monkeypatch.setattr(client, "_MAX_CACHED_CLIENTS", 2)
+        channels = [
+            Channel(
+                id=f"ch_{idx}",
+                name=f"Channel {idx}",
+                api_type=APIType.OPENAI_CHAT,
+                base_url=f"https://api{idx}.example.com",
+                api_key="sk-test",
+                models=["gpt-4"],
+            )
+            for idx in range(3)
+        ]
+
+        c1 = await client.get_or_create_client(channels[0])
+        await client.get_or_create_client(channels[1])
+        await client.get_or_create_client(channels[2])
+
+        assert c1.is_closed
+        assert client._cache_key(channels[0]) not in client._clients
+        assert len(client._clients) == 2
+
 
 class TestCreateStreamClient:
     def test_creates_new_client_each_time(self, sample_channel):
@@ -187,6 +210,19 @@ class TestCloseAllClients:
         assert c2.is_closed
         assert len(client._clients) == 0
         assert len(client._cache_ts) == 0
+
+
+class TestInvalidateAllClients:
+    @pytest.mark.anyio
+    async def test_retires_clients_without_immediate_close(self, sample_channel):
+        c1 = await client.get_or_create_client(sample_channel)
+
+        await client.invalidate_all_clients()
+        c2 = await client.get_or_create_client(sample_channel)
+
+        assert c2 is not c1
+        assert not c1.is_closed
+        assert not c2.is_closed
 
 
 class TestCleanupStaleClients:

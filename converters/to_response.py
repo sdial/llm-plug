@@ -11,6 +11,8 @@ from loguru import logger
 from converters.base import BaseConverter, thinking_budget_to_effort
 from converters.usage import anthropic_to_openai_response
 
+MAX_STREAM_AGGREGATE_TEXT_CHARS = 1_000_000
+
 
 class ToResponseConverter(BaseConverter):
     """任意格式 → OpenAI Response"""
@@ -49,9 +51,37 @@ class ToResponseConverter(BaseConverter):
             # Anthropic usage accumulation for cache-aware mapping
             "anthropic_usage": {},
             "anthropic_content_blocks": {},
+            "aggregate_truncated": False,
         }
         self._pending_extra_events = []
         self._need_in_progress = False
+
+    def _append_stream_aggregate(self, key: str, text: str) -> None:
+        if not text:
+            return
+        current = self._stream_state.get(key, "")
+        remaining = MAX_STREAM_AGGREGATE_TEXT_CHARS - len(current)
+        if remaining <= 0:
+            self._stream_state["aggregate_truncated"] = True
+            return
+        self._stream_state[key] = current + text[:remaining]
+        if len(text) > remaining:
+            self._stream_state["aggregate_truncated"] = True
+
+    def _append_tool_arguments(self, call_id: str, text: str) -> None:
+        if not text:
+            return
+        tool_call = self._stream_state["tool_calls"].get(call_id)
+        if not tool_call:
+            return
+        current = tool_call.get("arguments", "")
+        remaining = MAX_STREAM_AGGREGATE_TEXT_CHARS - len(current)
+        if remaining <= 0:
+            self._stream_state["aggregate_truncated"] = True
+            return
+        tool_call["arguments"] = current + text[:remaining]
+        if len(text) > remaining:
+            self._stream_state["aggregate_truncated"] = True
 
     # --- Chat Completions → Response ---
 
@@ -574,7 +604,7 @@ class ToResponseConverter(BaseConverter):
         # 处理文本内容
         if delta.get("content") is not None:
             text = delta["content"]
-            self._stream_state["accumulated_text"] += text
+            self._append_stream_aggregate("accumulated_text", text)
             item_id = self._stream_state["message_id"]
             if not item_id.startswith("msg_"):
                 item_id = self._make_message_id(self._stream_state["response_id"] or "resp_stream", item_id)
@@ -662,7 +692,7 @@ class ToResponseConverter(BaseConverter):
                     args = function.get("arguments", "")
                     if args:
                         if call_id in self._stream_state["tool_calls"]:
-                            self._stream_state["tool_calls"][call_id]["arguments"] += args
+                            self._append_tool_arguments(call_id, args)
                         event = self._make_response_event(
                             "response.function_call_arguments.delta",
                             delta=args,
@@ -683,7 +713,7 @@ class ToResponseConverter(BaseConverter):
         # 处理推理内容
         if delta.get("reasoning_content") is not None:
             rc = delta["reasoning_content"]
-            self._stream_state["reasoning_content"] += rc
+            self._append_stream_aggregate("reasoning_content", rc)
             if not self._stream_state["reasoning_started"]:
                 self._stream_state["reasoning_started"] = True
                 self._stream_state["reasoning_id"] = f"rs_{chunk.get('id', '')}"
@@ -871,7 +901,7 @@ class ToResponseConverter(BaseConverter):
                 partial_json = delta.get("partial_json", "")
                 call_id = block.get("call_id", "")
                 if call_id in self._stream_state["tool_calls"]:
-                    self._stream_state["tool_calls"][call_id]["arguments"] += partial_json
+                    self._append_tool_arguments(call_id, partial_json)
                 return {
                     "type": "response.function_call_arguments.delta",
                     "item_id": block.get("item_id", self._make_function_call_id(call_id)),
@@ -880,7 +910,7 @@ class ToResponseConverter(BaseConverter):
                 }
             elif delta.get("type") == "thinking_delta":
                 thinking = delta.get("thinking", "")
-                self._stream_state["reasoning_content"] += thinking
+                self._append_stream_aggregate("reasoning_content", thinking)
                 if not self._stream_state["reasoning_started"]:
                     self._stream_state["reasoning_started"] = True
                     self._stream_state["reasoning_id"] = f"rs_{self._stream_state['message_id']}"

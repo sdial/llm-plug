@@ -125,6 +125,20 @@ async def _validate_outbound_url(url: str) -> None:
         raise HTTPException(status_code=400, detail="不允许访问内网或本机地址")
 
 
+class _PublicAddressOnlyTransport(httpx.AsyncBaseTransport):
+    """Re-check destination DNS at request time to reduce DNS rebinding risk."""
+
+    def __init__(self, wrapped: httpx.AsyncBaseTransport | None = None) -> None:
+        self._wrapped = wrapped or httpx.AsyncHTTPTransport()
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        await _validate_outbound_url(str(request.url))
+        return await self._wrapped.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        await self._wrapped.aclose()
+
+
 def _validate_log_filename(filename: str) -> None:
     if (
         not filename.endswith(_ALLOWED_LOG_SUFFIX)
@@ -722,7 +736,10 @@ async def fetch_models(body: FetchModelsRequest):
     await _validate_outbound_url(models_url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(
+            timeout=10.0,
+            transport=_PublicAddressOnlyTransport(),
+        ) as client:
             resp = await client.get(models_url, headers=headers, follow_redirects=False)
             if resp.status_code != 200:
                 return {"error": f"上游返回 {resp.status_code}: {resp.text[:200]}"}
@@ -731,6 +748,8 @@ async def fetch_models(body: FetchModelsRequest):
             return {"models": sorted(set(filter(None, models)))}
     except httpx.TimeoutException:
         return {"error": "请求上游超时"}
+    except HTTPException:
+        raise
     except Exception:
         return {"error": "请求失败"}
 
