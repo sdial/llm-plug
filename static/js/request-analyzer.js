@@ -430,13 +430,14 @@
         return content.map(block => {
             if (block.type === 'text') return { type: 'text', text: block.text || '' };
             if (block.type === 'thinking') return { type: 'thinking', text: block.thinking || '', raw: block };
+            if (block.type === 'redacted_thinking') return { type: 'thinking', text: '[redacted thinking]', raw: block };
             if (block.type === 'tool_use') {
                 return {
                     type: 'tool_use',
                     text: block.name || 'unknown',
                     id: block.id,
                     name: block.name || 'unknown',
-                    input: block.input || {},
+                    input: safeJson(block.input || {}),
                     raw: block
                 };
             }
@@ -544,7 +545,7 @@
                         tool_use_id: block.id || '',
                         messageIndex: turn.index,
                         name: block.name || 'unknown',
-                        arguments: safeJson(block.input || {}),
+                        arguments: block.input || '',
                         result: result?.result || null,
                         matched: Boolean(result),
                         raw: block.raw
@@ -901,6 +902,14 @@
                     <div class="content-block content-block-${escapeAttr(block.type)}">
                         <div class="content-block-type">${escapeHtml(block.type)}</div>
                         <div class="message-content">${renderMarkdown(block.text || '')}</div>
+                    </div>
+                `;
+            }
+            if (block.type === 'tool_use') {
+                return `
+                    <div class="content-block content-block-${escapeAttr(block.type)}">
+                        <div class="content-block-type">${escapeHtml(block.type)}</div>
+                        <div class="structured-block">${escapeHtml(block.input || '')}</div>
                     </div>
                 `;
             }
