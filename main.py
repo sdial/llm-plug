@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -375,9 +376,20 @@ STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/admin/static", StaticFiles(directory=str(STATIC_DIR)), name="admin_static")
 
 
+@app.get("/")
+async def root_redirect():
+    return RedirectResponse(url="/admin/")
+
+
 @app.get("/admin/login")
-async def admin_login_page():
+@app.get("/admin/login/")
+async def admin_login_page(request: Request):
     from fastapi.responses import FileResponse
+    from admin_auth import get_session_cookie_name, validate_admin_session
+
+    session_cookie = request.cookies.get(get_session_cookie_name())
+    if await validate_admin_session(session_cookie):
+        return RedirectResponse(url="/admin/")
     return FileResponse(STATIC_DIR / "admin-login.html")
 
 
