@@ -25,7 +25,7 @@ from storage import load_api_keys, load_data, register_api_keys_save_callback
 from logging_config import configure_level_file_logging
 
 # 静态资源版本号 — 每次更新 JS/CSS 后修改此值即可强制浏览器刷新缓存
-STATIC_ASSET_VERSION = "2"
+STATIC_ASSET_VERSION = "3"
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
