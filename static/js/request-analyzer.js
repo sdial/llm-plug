@@ -1,15 +1,17 @@
 (() => {
-    marked.setOptions({
-        highlight: function(code, lang) {
-            if (lang && hljs.getLanguage(lang)) {
-                try {
-                    return hljs.highlight(code, { language: lang }).value;
-                } catch (e) {}
+    marked.setOptions({ breaks: true, gfm: true });
+    marked.use({
+        renderer: {
+            code({ text, lang }) {
+                let highlighted = text;
+                if (lang && hljs.getLanguage(lang)) {
+                    try { highlighted = hljs.highlight(text, { language: lang }).value; } catch (_) {}
+                } else {
+                    highlighted = hljs.highlightAuto(text).value;
+                }
+                return `<pre><code class="hljs language-${lang || ''}">${highlighted}</code></pre>`;
             }
-            return hljs.highlightAuto(code).value;
-        },
-        breaks: true,
-        gfm: true
+        }
     });
 
     let currentView = 'overview';
@@ -85,11 +87,11 @@
                 };
             }
             const result = await resp.json();
-            responseData = result.data;
+            const data = result.data;
             return {
-                data: responseData,
-                available: responseData !== null && responseData !== undefined,
-                error: responseData === null || responseData === undefined ? '返回 Body 未保存。' : null
+                data,
+                available: data !== null && data !== undefined,
+                error: data === null || data === undefined ? '返回 Body 未保存。' : null
             };
         } catch (e) {
             return { data: null, available: false, error: '返回 Body 网络错误: ' + e.message };
@@ -106,14 +108,14 @@
         return normalizeChatRequest(raw);
     }
 
-    function normalizeOutput(raw, apiType, state) {
+    function normalizeOutput(raw, reqApiType, state) {
         if (!state?.available) {
-            return emptyOutput(state?.error || '没有可分析的模型输出。');
+            return emptyOutput(reqApiType, state?.error || '没有可分析的模型输出。');
         }
-        if (apiType === 'anthropic') {
+        if (reqApiType === 'anthropic') {
             return normalizeAnthropicOutput(raw);
         }
-        if (apiType === 'openai-response') {
+        if (reqApiType === 'openai-response') {
             return normalizeResponsesOutput(raw);
         }
         return normalizeChatOutput(raw);
@@ -223,10 +225,10 @@
         });
     }
 
-    function emptyOutput(error) {
+    function emptyOutput(reqApiType, error) {
         return {
             available: false,
-            apiType,
+            apiType: reqApiType || apiType,
             blocks: [],
             toolCalls: [],
             finishReason: '-',
@@ -565,6 +567,9 @@
             if (block.type === 'refusal') {
                 return { type: 'refusal', text: block.refusal || block.text || '', raw: block };
             }
+            if (block.type === 'function_call_output') {
+                return { type: 'tool_result', text: block.output || block.text || '', tool_use_id: block.call_id, raw: block };
+            }
             if (isResponsesToolUseItem(block)) {
                 return normalizeResponsesToolUseBlock(block);
             }
@@ -640,7 +645,8 @@
         });
 
         resultsById.forEach(result => {
-            if (!events.some(event => event.id === result.id)) events.push(result);
+            const matched = events.some(event => event.kind === 'call' && event.id === result.id);
+            events.push({ ...result, matched });
         });
         return events;
     }
@@ -683,28 +689,53 @@
         });
 
         resultsById.forEach(result => {
-            if (!events.some(event => event.id === result.id)) events.push(result);
+            const matched = events.some(event => event.kind === 'call' && event.id === result.id);
+            events.push({ ...result, matched });
         });
         return events;
     }
 
     function extractResponsesToolEvents(turns) {
-        return turns.flatMap(turn => {
-            const raw = turn.raw || {};
-            const calls = raw.tool_calls || raw.tools || [];
-            if (!Array.isArray(calls)) return [];
-            return calls.map(call => ({
-                kind: 'call',
-                id: call.id || call.call_id || '',
-                tool_call_id: call.id || call.call_id || '',
-                messageIndex: turn.index,
-                name: call.name || call.function?.name || call.type || 'unknown',
-                arguments: prettyJsonString(call.arguments || call.function?.arguments || {}),
-                result: null,
-                matched: false,
-                raw: call
-            }));
+        const resultsById = new Map();
+        turns.forEach(turn => {
+            turn.blocks.forEach(block => {
+                if (block.type === 'tool_result' && block.tool_use_id) {
+                    resultsById.set(block.tool_use_id, {
+                        kind: 'result',
+                        id: block.tool_use_id,
+                        tool_use_id: block.tool_use_id,
+                        messageIndex: turn.index,
+                        result: block.text || '',
+                        raw: block.raw
+                    });
+                }
+            });
         });
+
+        const events = [];
+        turns.forEach(turn => {
+            const raw = turn.raw || {};
+            if (!isResponsesToolUseItem(raw)) return;
+            const callId = raw.call_id || raw.id || '';
+            const result = resultsById.get(callId);
+            events.push({
+                kind: 'call',
+                id: callId,
+                tool_call_id: callId,
+                messageIndex: turn.index,
+                name: raw.name || raw.function?.name || raw.type || 'unknown',
+                arguments: prettyJsonString(raw.arguments || raw.function?.arguments || {}),
+                result: result?.result || null,
+                matched: Boolean(result),
+                raw
+            });
+        });
+
+        resultsById.forEach(result => {
+            const matched = events.some(event => event.kind === 'call' && event.id === result.id);
+            events.push({ ...result, matched });
+        });
+        return events;
     }
 
     function buildDiagnostics(context) {
@@ -729,7 +760,7 @@
             if (event.kind === 'call' && !event.matched) {
                 issues.push({ level: 'warn', title: `Tool 调用缺少结果: ${event.name}`, detail: event.id ? `未找到匹配的结果 ID: ${event.id}` : '调用缺少 ID，无法可靠关联结果。' });
             }
-            if (event.kind === 'result') {
+            if (event.kind === 'result' && !event.matched) {
                 issues.push({ level: 'warn', title: 'Tool 结果没有匹配调用', detail: event.id ? `结果 ID: ${event.id}` : '结果缺少 ID。' });
             }
         });
@@ -882,7 +913,7 @@
     }
 
     function renderOutputView(container) {
-        const output = normalizedContext.output || normalizedOutput || emptyOutput('没有可分析的模型输出。');
+        const output = normalizedContext.output || normalizedOutput || emptyOutput(apiType, '没有可分析的模型输出。');
         if (!output.available) {
             container.innerHTML = `
                 <div class="empty">
@@ -1006,7 +1037,7 @@
 
     function renderToolsView(container) {
         const tools = normalizedContext.toolDefinitions;
-        const toolEvents = normalizedContext.toolEvents;
+        const toolEvents = normalizedContext.toolEvents.filter(e => !(e.kind === 'result' && e.matched));
 
         container.innerHTML = `
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1137,6 +1168,7 @@
                 <div class="content-block content-block-${escapeAttr(block.type)}">
                     <div class="content-block-type">${escapeHtml(block.type)}</div>
                     ${renderBlockMeta('tool_call_id', block.tool_call_id)}
+                    ${renderBlockMeta('tool_use_id', block.tool_use_id)}
                     ${renderBlockMeta('url', block.url)}
                     ${renderBlockMeta('detail', block.detail)}
                     <div class="structured-block">${escapeHtml(block.text || safeJson(block.raw || block))}</div>
@@ -1265,7 +1297,7 @@
             <div class="raw-json-modal">
                 <div class="raw-json-modal-header">
                     <span class="raw-json-modal-title">${escapeHtml(turn.role)} #${index + 1} 原始 JSON</span>
-                    <button class="raw-json-modal-close" onclick="this.closest('.raw-json-modal-overlay').remove()">
+                    <button class="raw-json-modal-close">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                         </svg>
@@ -1276,16 +1308,17 @@
                 </div>
             </div>
         `;
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) modal.remove();
-        });
+        function closeModal() {
+            document.removeEventListener('keydown', onEscape);
+            modal.remove();
+        }
+        function onEscape(e) {
+            if (e.key === 'Escape') closeModal();
+        }
+        modal.querySelector('.raw-json-modal-close').addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+        document.addEventListener('keydown', onEscape);
         document.body.appendChild(modal);
-        document.addEventListener('keydown', function handler(e) {
-            if (e.key === 'Escape') {
-                modal.remove();
-                document.removeEventListener('keydown', handler);
-            }
-        });
     };
 
     function showLoading() {
