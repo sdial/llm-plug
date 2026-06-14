@@ -38,9 +38,7 @@ class FileStore:
                     data = json.load(f)
                 if data.get("expires_at", 0) < time.time():
                     return None
-                # 用 mtime 跟踪 LRU 访问时间，避免每次读都重写整个 JSON。
-                with contextlib.suppress(OSError):
-                    os.utime(path, None)
+                self._touch_access(path, data)
                 return data.get("response")
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to read session {response_id}: {e}")
@@ -57,6 +55,7 @@ class FileStore:
                     data = json.load(f)
                 if data.get("expires_at", 0) < time.time():
                     return None
+                self._touch_access(path, data)
                 return data.get("conversation")
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to read session {response_id}: {e}")
@@ -76,6 +75,13 @@ class FileStore:
             }
             path = self._file_path(response_id)
             self._write_file(path, data)
+
+    def _touch_access(self, path: str, data: dict[str, Any]) -> None:
+        data["last_access_at"] = time.time()
+        try:
+            self._write_file(path, data)
+        except OSError as e:
+            logger.warning(f"Failed to update session access time {path}: {e}")
 
     async def delete(self, response_id: str) -> bool:
         """删除会话记录"""
@@ -128,7 +134,7 @@ class FileStore:
             return removed
 
     async def evict_lru(self) -> int:
-        """淘汰超出容量的最旧文件（按 mtime LRU）"""
+        """淘汰超出容量的最旧文件（按 last_access_at LRU）"""
         async with self._lock:
             files = []
             for filename in os.listdir(self.data_dir):
@@ -136,10 +142,12 @@ class FileStore:
                     continue
                 path = os.path.join(self.data_dir, filename)
                 try:
-                    mtime = os.path.getmtime(path)
-                except OSError:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    access_time = float(data.get("last_access_at") or data.get("created_at") or os.path.getmtime(path))
+                except (json.JSONDecodeError, OSError, TypeError, ValueError):
                     continue
-                files.append((path, mtime))
+                files.append((path, access_time))
 
             if len(files) <= self.max_entries:
                 return 0

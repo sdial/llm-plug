@@ -162,6 +162,58 @@ class TestSaveData:
         assert storage._MODEL_GROUPS_CACHE_TS == 0
 
 
+class TestAtomicUpdateData:
+    @pytest.mark.anyio
+    async def test_atomic_update_data_reads_latest_disk_state_and_updates_cache(self):
+        await storage.save_data({"channels": [{"id": "ch_existing"}]})
+
+        def mutator(data):
+            data["channels"].append({"id": "ch_new"})
+
+        await storage.atomic_update_data(mutator)
+
+        with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        assert [ch["id"] for ch in on_disk["channels"]] == ["ch_existing", "ch_new"]
+
+        assert [ch["id"] for ch in storage._cache["channels"]] == ["ch_existing", "ch_new"]
+
+    @pytest.mark.anyio
+    async def test_atomic_update_data_serializes_concurrent_mutators(self):
+        async def add_channel(index: int):
+            await storage.atomic_update_data(
+                lambda data: data.setdefault("channels", []).append({"id": f"ch_{index}"})
+            )
+
+        await asyncio.gather(*(add_channel(i) for i in range(20)))
+
+        with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        assert sorted(
+            (ch["id"] for ch in on_disk["channels"]),
+            key=lambda item: int(item.split("_")[1]),
+        ) == [
+            f"ch_{i}" for i in range(20)
+        ]
+
+
+class TestAtomicUpdateApiKeys:
+    @pytest.mark.anyio
+    async def test_atomic_update_api_keys_reads_latest_disk_state_and_updates_cache(self):
+        await storage.save_api_keys({"api_keys": [{"id": "key_existing"}]})
+
+        def mutator(data):
+            data["api_keys"].append({"id": "key_new"})
+
+        await storage.atomic_update_api_keys(mutator)
+
+        with open(config.API_KEYS_FILE, "r", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        assert [key["id"] for key in on_disk["api_keys"]] == ["key_existing", "key_new"]
+
+        assert [key["id"] for key in storage._keys_cache["api_keys"]] == ["key_existing", "key_new"]
+
+
 class TestInvalidateCache:
     @pytest.mark.anyio
     async def test_forces_next_load_from_disk(self):

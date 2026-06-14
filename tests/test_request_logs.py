@@ -107,6 +107,18 @@ async def test_sqlite_backend_records_cache_token_details(sqlite_request_logs):
     assert item["cache_creation_input_tokens"] == 40
 
 
+async def test_record_request_queues_write_without_inline_sqlite_insert(sqlite_request_logs):
+    _sample_record(model="queued-model")
+
+    before_drain = await request_logs.list_requests()
+    assert before_drain["total"] == 0
+
+    await request_logs.drain_queue()
+    after_drain = await request_logs.list_requests()
+    assert after_drain["total"] == 1
+    assert after_drain["items"][0]["model"] == "queued-model"
+
+
 async def test_sqlite_backend_migrates_existing_db_for_cache_token_columns(tmp_path, monkeypatch):
     import sqlite3
 
@@ -725,7 +737,7 @@ async def test_get_request_field_with_compound_id(sqlite_request_logs):
 async def test_cross_month_query(sqlite_request_logs):
     """Querying across months merges results correctly."""
     import sqlite3
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timezone
 
     import request_logs as _rl
 
@@ -749,8 +761,6 @@ async def test_cross_month_query(sqlite_request_logs):
         last_month_ym = f"{now.year - 1}12"
     else:
         last_month_ym = f"{now.year}{now.month - 1:02d}"
-
-    last_month_db = backend._month_db_path(last_month_ym)
 
     # Move the "old" record to last month's db
     conn = sqlite3.connect(month_db)
@@ -802,8 +812,6 @@ async def test_cross_month_query(sqlite_request_logs):
 
 async def test_cleanup_deletes_old_monthly_files(sqlite_request_logs):
     """cleanup_old_records deletes entire monthly db files older than retention."""
-    import glob
-
     import request_logs as _rl
 
     backend = _rl._backend

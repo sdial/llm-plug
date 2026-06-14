@@ -1,6 +1,5 @@
 """P0-2: FileStore.cleanup_expired() / evict_lru() / _cleanup_if_needed() 直接测试"""
 
-import asyncio
 import json
 import os
 import time
@@ -26,6 +25,7 @@ def _write_session(store: FileStore, response_id: str, ttl_offset: int = 3600) -
         "response": {"id": response_id},
         "created_at": now,
         "expires_at": now + ttl_offset,
+        "last_access_at": now,
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f)
@@ -175,6 +175,34 @@ class TestEvictLru:
 
         removed = await store.evict_lru()
         assert removed == 3
+
+    @pytest.mark.asyncio
+    async def test_uses_stored_last_access_at_when_mtime_ties(self, tmp_path):
+        store = FileStore(str(tmp_path), max_entries=2, ttl_minutes=60)
+        paths = []
+        for rid, last_access_at in (
+            ("resp_old", 100),
+            ("resp_recent", 300),
+            ("resp_middle", 200),
+        ):
+            path = _write_session(store, rid, ttl_offset=3600)
+            with open(path, "r+", encoding="utf-8") as f:
+                data = json.load(f)
+                data["last_access_at"] = last_access_at
+                f.seek(0)
+                json.dump(data, f)
+                f.truncate()
+            paths.append(path)
+
+        for path in paths:
+            os.utime(path, (1_700_000_000, 1_700_000_000))
+
+        removed = await store.evict_lru()
+
+        assert removed == 1
+        assert not os.path.exists(store._file_path("resp_old"))
+        assert os.path.exists(store._file_path("resp_middle"))
+        assert os.path.exists(store._file_path("resp_recent"))
 
 
 # ═══════════════════════════════════════════

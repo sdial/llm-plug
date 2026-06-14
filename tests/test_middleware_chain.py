@@ -9,11 +9,8 @@
 6. 非代理路径直通（GET / 非 proxy path 不鉴权）
 """
 
+import asyncio
 import json
-import os
-import time
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, Request
@@ -189,6 +186,70 @@ class TestBodySizeLimit:
         )
         assert resp.status_code == 200
 
+    def test_chunked_body_exceeds_max_returns_413(self, tmp_path, monkeypatch):
+        """无 Content-Length 且 body 分批到达时，应按累计大小返回 413。"""
+        import config
+        import main as _main
+        import storage
+        import whitelist as _whitelist
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        channels_file = data_dir / "channels.json"
+        api_keys_file = data_dir / "api_keys.json"
+        wl_file = data_dir / "whitelist.csv"
+        channels_file.write_text(json.dumps({"channels": []}), encoding="utf-8")
+        api_keys_file.write_text(json.dumps({"api_keys": []}), encoding="utf-8")
+        wl_file.write_text("", encoding="utf-8")
+
+        monkeypatch.setattr(config, "DATA_DIR", str(data_dir))
+        monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
+        monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
+        monkeypatch.setattr(config, "MAX_BODY_SIZE", 8)
+        monkeypatch.setattr(_main, "MAX_BODY_SIZE", 8)
+        _main._whitelist_cache = _whitelist.WhitelistCache(str(wl_file))
+        _main._api_key_index = None
+        storage._cache = None
+        storage._cache_ts = 0
+        storage._keys_cache = None
+        storage._keys_cache_ts = 0
+        storage._channels_lock = None
+        storage._keys_lock = None
+
+        async def app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        middleware = _main.CombinedMiddleware(app)
+        messages = iter(
+            [
+                {"type": "http.request", "body": b"12345", "more_body": True},
+                {"type": "http.request", "body": b"6789", "more_body": False},
+            ]
+        )
+        sent = []
+
+        async def receive():
+            return next(messages)
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/chat/completions",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+        }
+
+        asyncio.run(middleware(scope, receive, send))
+
+        assert sent[0]["type"] == "http.response.start"
+        assert sent[0]["status"] == 413
+        assert b"too large" in sent[1]["body"].lower()
+
 
 # ═══════════════════════════════════════════
 #  401 — API Key 认证
@@ -342,7 +403,6 @@ class TestIpWhitelist:
         monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
         monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
         monkeypatch.setattr(config, "MAX_BODY_SIZE", 10 * 1024 * 1024)
-        import main as _main
         monkeypatch.setattr(_main, "MAX_BODY_SIZE", 10 * 1024 * 1024)
 
         storage._cache = None
