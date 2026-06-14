@@ -1953,3 +1953,29 @@ class TestReviewBugFixes:
                 f"{ev_name} ({event_seq.index(ev_name)}) must precede "
                 f"function_call output_item.added ({function_call_added_idx})"
             )
+def test_response_stream_aggregate_text_is_bounded(monkeypatch):
+    monkeypatch.setattr("converters.to_response.MAX_STREAM_AGGREGATE_TEXT_CHARS", 10)
+    converter = ToResponseConverter()
+
+    created = converter.convert_stream_chunk({
+        "id": "chatcmpl_1",
+        "model": "gpt-4o",
+        "choices": [{"delta": {"role": "assistant"}, "finish_reason": None}],
+    }, "openai-chat-completions")
+    assert created["type"] == "response.created"
+
+    first_text_event = converter.convert_stream_chunk({
+        "id": "chatcmpl_1",
+        "model": "gpt-4o",
+        "choices": [{"delta": {"content": "abcdefghijklmnop"}, "finish_reason": None}],
+    }, "openai-chat-completions")
+    events = [first_text_event]
+    events.extend(converter.get_extra_events(first_text_event))
+    delta = [event for event in events if event["type"] == "response.output_text.delta"][0]
+    assert delta["delta"] == "abcdefghijklmnop"
+
+    final_events = converter.finalize_stream("openai-chat-completions")
+    completed = [event for event in final_events if event["type"] == "response.completed"][0]
+
+    assert completed["response"]["output_text"] == "abcdefghij"
+    assert converter._stream_state["aggregate_truncated"] is True

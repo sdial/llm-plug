@@ -108,52 +108,38 @@ class TestN1RestartSilentlyFails:
 
 
 class TestN3DnsRebindingSsrf:
-    """N3: _validate_outbound_url 校验时做一次 DNS, httpx 实际请求时再做一次。"""
+    """N3: 管理端出站请求在 transport 层重复校验 DNS 解析结果。"""
 
-    async def test_validation_does_not_pin_resolved_ip_for_outbound_request(
+    async def test_fetch_models_rejects_rebound_private_address_before_request(
         self, admin_files, monkeypatch
     ):
-        """Bug N3: 校验通过的 host 被原样塞进 httpx, httpx 自己再解析一次 DNS。"""
-        captured = {}
+        """校验阶段为公网、请求阶段变为内网时，应在 transport 层拒绝。"""
+        calls = 0
+        request_reached_network = False
 
-        # 校验阶段返回公网 IP
         def fake_getaddrinfo(host, port, *args, **kwargs):
-            return [(None, None, None, "", ("93.184.216.34", 443))]
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return [(None, None, None, "", ("93.184.216.34", 443))]
+            return [(None, None, None, "", ("127.0.0.1", 443))]
 
         monkeypatch.setattr(admin.socket, "getaddrinfo", fake_getaddrinfo)
 
-        # 先建立测试 client (需要真实 httpx), 然后再 patch admin 模块里的 httpx.AsyncClient
+        class FakeTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                nonlocal request_reached_network
+                request_reached_network = True
+                return httpx.Response(200, json={"data": []}, request=request)
+
+        monkeypatch.setattr(admin.httpx, "AsyncHTTPTransport", lambda: FakeTransport())
+
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
             await client.post("/admin/auth/login", json={"password": "pw"})
             csrf = (await client.get("/admin/auth/csrf")).json()["csrf_token"]
-
-            class FakeResponse:
-                status_code = 200
-                text = ""
-
-                def json(self):
-                    return {"data": []}
-
-            class FakeClient:
-                def __init__(self, *args, **kwargs):
-                    pass
-
-                async def __aenter__(self):
-                    return self
-
-                async def __aexit__(self, *args):
-                    return None
-
-                async def get(self, url, headers, **kwargs):
-                    # 实际请求阶段, httpx 拿到的还是 hostname, 而非校验时的 IP
-                    captured["url"] = url
-                    return FakeResponse()
-
-            # 仅替换 admin 模块对 httpx.AsyncClient 的引用, 不影响测试自己的 AsyncClient
-            monkeypatch.setattr(admin.httpx, "AsyncClient", FakeClient)
 
             resp = await client.post(
                 "/admin/channels/fetch-models",
@@ -166,12 +152,9 @@ class TestN3DnsRebindingSsrf:
                 },
             )
 
-        assert resp.status_code == 200
-        # 当前 bug: URL 中保留的是 hostname, httpx 会自己再做 DNS 解析
-        # 攻击者可以在 TTL=1 的窗口内把 DNS 切到内网/元数据 IP
-        assert "evil-but-public-now.example.com" in captured["url"]
-        # 没有任何 IP 注入机制 (例如 transport.resolve / 强制 IP URL)
-        assert "93.184.216.34" not in captured["url"]
+        assert resp.status_code == 400
+        assert "内网或本机地址" in resp.json()["detail"]
+        assert request_reached_network is False
 
 
 # ─────────────────────────── N5 ───────────────────────────

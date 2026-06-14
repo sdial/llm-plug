@@ -199,6 +199,13 @@ class TestWhitelistAPI:
         assert resp.status_code == 400
         assert "not-an-ip" in resp.json()["detail"]
 
+    async def test_put_whitelist_rejects_cidr_with_host_bits(self, client):
+        resp = await client.put(
+            "/admin/whitelist", json={"content": "/admin/*,*,192.168.1.5/24,test\n"}
+        )
+        assert resp.status_code == 400
+        assert "主机位" in resp.json()["detail"]
+
     async def test_put_whitelist_bad_column_count_returns_400(self, client):
         resp = await client.put(
             "/admin/whitelist", json={"content": "/admin/*,*\n"}

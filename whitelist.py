@@ -88,8 +88,18 @@ def validate_rules_text(text: str) -> tuple[bool, str, list[WhitelistRule]]:
         if not ip_cidr:
             return False, f"第 {lineno} 行：ip_cidr 不能为空", []
         try:
-            network = ipaddress.ip_network(ip_cidr, strict=False)
+            network = ipaddress.ip_network(ip_cidr, strict=True)
         except ValueError:
+            try:
+                relaxed = ipaddress.ip_network(ip_cidr, strict=False)
+            except ValueError:
+                return False, f"第 {lineno} 行：无效的 IP 或 CIDR：{ip_cidr!r}", []
+            if "/" in ip_cidr:
+                return (
+                    False,
+                    f"第 {lineno} 行：CIDR 主机位必须为 0，应写为 {relaxed.with_prefixlen}",
+                    [],
+                )
             return False, f"第 {lineno} 行：无效的 IP 或 CIDR：{ip_cidr!r}", []
         methods: set[str] = set()
         if methods_str and methods_str != "*":

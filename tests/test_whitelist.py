@@ -177,6 +177,18 @@ def test_validate_bad_cidr():
     assert "bad-ip" in err
 
 
+def test_validate_rejects_cidr_with_host_bits():
+    ok, err, _ = wl.validate_rules_text("/admin/*,*,192.168.1.5/24,test\n")
+    assert ok is False
+    assert "主机位" in err
+
+
+def test_validate_accepts_single_ip_without_prefix():
+    ok, err, rules = wl.validate_rules_text("/admin/*,*,192.168.1.5,test\n")
+    assert ok is True, err
+    assert str(rules[0].network) == "192.168.1.5/32"
+
+
 def test_validate_line_number_with_preceding_comments():
     text = "# comment 1\n# comment 2\n\n/admin/*,*,10.0.0.0/8\n"
     ok, err, _ = wl.validate_rules_text(text)

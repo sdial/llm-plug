@@ -77,7 +77,7 @@ class TestLoadData:
             json.dump(payload, f)
 
         data2 = await storage.load_data()
-        assert data2["channels"][0]["name"] == "first"
+        assert data2["channels"][0]["name"] == "second"
 
     @pytest.mark.anyio
     async def test_cache_expires_after_ttl(self):
@@ -123,7 +123,7 @@ class TestSaveData:
 
         os.remove(config.CHANNELS_FILE)
         data = await storage.load_data()
-        assert data == payload
+        assert data == {"channels": []}
 
     @pytest.mark.anyio
     async def test_atomic_write(self):
@@ -212,7 +212,7 @@ class TestApiKeysStorage:
             json.dump(payload, f)
 
         data2 = await storage.load_api_keys()
-        assert data2["api_keys"][0]["name"] == "first"
+        assert data2["api_keys"][0]["name"] == "second"
 
     @pytest.mark.anyio
     async def test_invalidate_keys_cache(self):

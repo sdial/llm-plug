@@ -9,7 +9,10 @@ from models.channel import Channel
 
 _clients: dict[str, httpx.AsyncClient] = {}
 _cache_ts: dict[str, float] = {}
+_retired_clients: set[httpx.AsyncClient] = set()
 _lock = asyncio.Lock()
+_MAX_CACHED_CLIENTS = 128
+_RETIRED_CLIENT_CLOSE_DELAY_SECONDS = 60.0
 
 _DEFAULT_LIMITS = httpx.Limits(
     max_connections=200,
@@ -47,6 +50,7 @@ async def get_or_create_client(channel: Channel, timeout: float | None = None) -
             )
         _clients[key] = client
         _cache_ts[key] = time.time()
+        await _evict_lru_clients_locked()
         return client
 
 
@@ -74,18 +78,32 @@ async def close_all_clients():
         for key, client in list(_clients.items()):
             if not client.is_closed:
                 await client.aclose()
+        for retired in list(_retired_clients):
+            if not retired.is_closed:
+                await retired.aclose()
         _clients.clear()
         _cache_ts.clear()
+        _retired_clients.clear()
 
 
 async def invalidate_all_clients():
-    """关闭并清除所有缓存的普通客户端（用于配置变更后刷新）。"""
+    """让后续请求使用新客户端，并延迟关闭旧客户端以避免中断在途请求。"""
     async with _lock:
-        for key, client in list(_clients.items()):
-            if not client.is_closed:
-                await client.aclose()
+        retired = [client for client in _clients.values() if not client.is_closed]
+        _retired_clients.update(retired)
         _clients.clear()
         _cache_ts.clear()
+    if retired:
+        asyncio.create_task(_close_retired_clients_later(retired))
+
+
+async def _close_retired_clients_later(clients: list[httpx.AsyncClient]) -> None:
+    await asyncio.sleep(_RETIRED_CLIENT_CLOSE_DELAY_SECONDS)
+    async with _lock:
+        for retired in clients:
+            _retired_clients.discard(retired)
+            if not retired.is_closed:
+                await retired.aclose()
 
 
 async def cleanup_stale_clients(max_age: float = 300.0):
@@ -98,6 +116,15 @@ async def cleanup_stale_clients(max_age: float = 300.0):
             _cache_ts.pop(key, None)
             if client and not client.is_closed:
                 await client.aclose()
+
+
+async def _evict_lru_clients_locked() -> None:
+    while len(_clients) > _MAX_CACHED_CLIENTS:
+        oldest_key = min(_cache_ts, key=_cache_ts.get)
+        oldest_client = _clients.pop(oldest_key, None)
+        _cache_ts.pop(oldest_key, None)
+        if oldest_client and not oldest_client.is_closed:
+            await oldest_client.aclose()
 
 
 async def remove_channel_client(channel: Channel):
