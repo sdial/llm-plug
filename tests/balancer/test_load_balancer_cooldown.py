@@ -11,11 +11,10 @@
 """
 
 import asyncio
-import time
 
 import pytest
 
-from balancer.load_balancer import ChannelHealth, LoadBalancer
+from balancer.load_balancer import LoadBalancer
 from models.channel import Channel
 
 

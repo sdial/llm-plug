@@ -14,8 +14,6 @@ from loguru import logger
 
 import config
 
-UTC8 = timezone(timedelta(hours=8))  # 保留供外部历史 import，新代码请使用 _agg_tz()
-
 _DB_PATH: str | None = None
 _DB_AVAILABLE = False
 _DB_INIT_LOCK = asyncio.Lock()
@@ -87,11 +85,6 @@ def _agg_offset_sql(at: datetime | None = None) -> str:
 def agg_now() -> datetime:
     """返回聚合时区的当前时间（naive，仅用于日聚合切日与同时区运算）。"""
     return datetime.now(timezone.utc).astimezone(_agg_tz()).replace(tzinfo=None)
-
-
-def utc8_now() -> datetime:
-    """已弃用：保留旧名供外部 import，等价于 agg_now()。"""
-    return agg_now()
 
 
 def _resolve_db_path(db_path: str | None = None) -> str:
@@ -250,11 +243,6 @@ async def close_pool():
     _DB_AVAILABLE = False
     _STATS_QUEUE = None
     _STATS_QUEUE_LOOP = None
-
-
-async def init_pool():
-    """兼容旧调用名，SQLite 不维护连接池。"""
-    await init_db()
 
 
 def _ensure_queue() -> asyncio.Queue | None:

@@ -8,7 +8,6 @@
 5. proxy_auth_checked 为非 bool truthy/falsy 值
 """
 
-import pytest
 from routers.auth import check_proxy_authorization
 
 

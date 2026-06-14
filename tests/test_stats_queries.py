@@ -1,10 +1,5 @@
 """P1-8: stats.refresh_stats / get_api_key_stats / get_today_stats 直接测试"""
 
-import asyncio
-import os
-import time
-from datetime import datetime, timedelta, timezone
-
 import pytest
 import pytest_asyncio
 
@@ -126,7 +121,6 @@ class TestRefreshStats:
     async def test_refresh_backfills_missing_dates(self):
         """写入历史数据后，refresh 应补全缺失日期"""
         # 手动写入 3 天前的数据
-        three_days_ago = datetime.now(timezone.utc) - timedelta(days=3)
         stats.record_request(
             channel_id="ch_test",
             channel_name="Test",

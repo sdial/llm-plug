@@ -4,7 +4,6 @@
 2. mutator 内抛 HTTPException，在锁内耦合了 HTTP 语义
 3. _login_rate_limit_state 内存泄漏，仅查询时清理当前 key，孤立条目永不回收
 """
-import asyncio
 import inspect
 import json
 import time
@@ -14,7 +13,6 @@ import httpx
 import pytest
 import pytest_asyncio
 
-import admin_auth
 import config
 import storage
 from main import app

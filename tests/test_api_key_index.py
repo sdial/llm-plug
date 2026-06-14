@@ -1,13 +1,10 @@
 """P1-6: main._get_api_key_index / _invalidate_api_key_index 缓存机制测试"""
 
-import asyncio
 import json
-import os
 
 import pytest
 
 import main
-from storage import load_api_keys
 
 
 @pytest.fixture(autouse=True)
