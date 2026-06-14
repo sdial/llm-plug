@@ -982,11 +982,19 @@
                             <span class="role-badge role-badge-${escapeAttr(turn.role)}">${escapeHtml(turn.role)}</span>
                             <span class="message-preview">${escapeHtml(preview)}</span>
                         </div>
-                        <button class="toggle-btn" id="toggle-${turn.index}">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                            </svg>
-                        </button>
+                        <div class="message-header-actions">
+                            <button class="raw-json-btn" onclick="event.stopPropagation(); showRawJsonModal(${turn.index})" title="查看原始 JSON">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                </svg>
+                            </button>
+                            <button class="toggle-btn" id="toggle-${turn.index}">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                     <div class="message-card-body" id="body-${turn.index}">
                         ${renderBlocks(turn.blocks)}
@@ -1028,20 +1036,22 @@
 
     function renderToolEvent(event) {
         if (event.kind === 'result') {
+            const formattedResult = tryFormatJson(event.result) || event.result || '';
             return `
                 <div class="tool-call-history tool-call-unmatched">
                     <div class="tool-call-name">未匹配 Tool 结果</div>
                     <div class="tool-call-meta">ID: ${escapeHtml(event.id || '-')}</div>
-                    <div class="tool-call-args">${escapeHtml(event.result || '')}</div>
+                    <div class="tool-call-args">${escapeHtml(formattedResult)}</div>
                 </div>
             `;
         }
+        const formattedResult = event.result ? (tryFormatJson(event.result) || event.result) : '';
         return `
             <div class="tool-call-history">
                 <div class="tool-call-name">${escapeHtml(event.name)}</div>
                 <div class="tool-call-meta">ID: ${escapeHtml(event.id || '-')} · message #${event.messageIndex + 1}</div>
                 <div class="tool-call-args">${escapeHtml(event.arguments)}</div>
-                ${event.result ? `<div class="tool-call-result"><div class="text-xs text-ink-400 mb-1">结果</div><div class="tool-call-args">${escapeHtml(event.result)}</div></div>` : '<div class="tool-call-missing">未找到匹配结果</div>'}
+                ${formattedResult ? `<div class="tool-call-result"><div class="text-xs text-ink-400 mb-1">结果</div><div class="tool-call-args">${escapeHtml(formattedResult)}</div></div>` : '<div class="tool-call-missing">未找到匹配结果</div>'}
             </div>
         `;
     }
@@ -1228,6 +1238,48 @@
             body.classList.toggle('expanded');
             toggle.classList.toggle('expanded');
         }
+    };
+
+    function tryFormatJson(text) {
+        if (typeof text !== 'string') return null;
+        try {
+            return safeJson(JSON.parse(text));
+        } catch (e) {
+            return null;
+        }
+    }
+
+    window.showRawJsonModal = function(index) {
+        const turn = normalizedContext.turns.find(t => t.index === index);
+        if (!turn) return;
+        const jsonText = safeJson(turn.raw);
+        const modal = document.createElement('div');
+        modal.className = 'raw-json-modal-overlay';
+        modal.innerHTML = `
+            <div class="raw-json-modal">
+                <div class="raw-json-modal-header">
+                    <span class="raw-json-modal-title">${escapeHtml(turn.role)} #${index + 1} 原始 JSON</span>
+                    <button class="raw-json-modal-close" onclick="this.closest('.raw-json-modal-overlay').remove()">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="raw-json-modal-body">
+                    <pre><code class="language-json">${escapeHtml(jsonText)}</code></pre>
+                </div>
+            </div>
+        `;
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.remove();
+        });
+        document.body.appendChild(modal);
+        document.addEventListener('keydown', function handler(e) {
+            if (e.key === 'Escape') {
+                modal.remove();
+                document.removeEventListener('keydown', handler);
+            }
+        });
     };
 
     function showLoading() {
