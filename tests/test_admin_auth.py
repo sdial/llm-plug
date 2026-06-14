@@ -151,7 +151,10 @@ async def test_root_redirects_to_admin(admin_auth_files):
 
 
 @pytest.mark.anyio
-async def test_login_page_redirects_to_admin_when_already_logged_in(admin_auth_files):
+@pytest.mark.parametrize("login_path", ["/admin/login", "/admin/login/"])
+async def test_login_page_redirects_to_admin_when_already_logged_in(
+    admin_auth_files, login_path
+):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
@@ -163,7 +166,7 @@ async def test_login_page_redirects_to_admin_when_already_logged_in(admin_auth_f
             "/admin/auth/login",
             json={"password": "correct horse battery staple"},
         )
-        resp = await client.get("/admin/login", follow_redirects=False)
+        resp = await client.get(login_path, follow_redirects=False)
 
     assert resp.status_code == 307
     assert resp.headers["location"] == "/admin/"
