@@ -413,6 +413,12 @@ async def admin_index(request: Request):
     return _html_response(STATIC_DIR / "admin-login.html")
 
 
+@app.get("/admin/request-analyzer")
+@app.get("/admin/request-analyzer/")
+async def admin_request_analyzer():
+    return _html_response(STATIC_DIR / "request-analyzer.html")
+
+
 if __name__ == "__main__":
     import argparse
     import signal
