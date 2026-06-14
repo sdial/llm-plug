@@ -44,7 +44,7 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 
 ### 请求流程
 1. **入口** — `main.py:CombinedMiddleware`（纯 ASGI，不是 `BaseHTTPMiddleware`，避免流式 bug）：IP 白名单 → 鉴权 → 解析 body → 校验 `model` 是否在 `allowed_models` 列表里 → 写 `scope["state"]`
-2. **代理路由** — `routers/proxy_base.py:make_proxy_router(path, api_type)` 工厂生成三个端点（`/v1/chat/completions`、`/v1/responses`、`/v1/messages`），仅做格式分发
+2. **代理路由** — `/v1/chat/completions` 和 `/v1/messages` 由 `routers/proxy_base.py:make_proxy_router()` 工厂生成，仅做格式分发；`/v1/responses` 在 `routers/proxy_response.py` 中有独立实现，额外处理 `previous_response_id` 历史展开和响应状态保存（`_save_response_state`）
 3. **核心** — `proxy_core.proxy_request()`：解析模型组 → `_get_channels_for_model()` 拉取已启用渠道 → `_filter_channels_by_conversion()` 按目标格式与 `allow_format_conversion` 过滤 → `LoadBalancer.select_channel()` 选渠道 → `_do_request()` 执行
 4. **转换** — `CONVERTER_MAP[(source, target)]` 选择 request/response converter；同格式直通
 5. **能力过滤** — `capability_manager.apply_capability_filter()` 在 converter 之后、发送之前运行（作用于真实发往上游的 payload，同格式透传也必须应用）
@@ -79,7 +79,7 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 - **`whitelist.py`** — `WhitelistCache` 用文件 `mtime` 判断是否重新加载；`fnmatchcase` 匹配路径，`ipaddress.ip_network(strict=False)` 解析 CIDR。无任何规则时默认放行。
 
 ### 前端与日志查看
-- `static/` 原生 HTML + Tailwind (CDN)，`/admin` 走 `index.html`，`/admin/login` 走 `admin-login.html`
+- `static/` 原生 HTML + TailwindCSS（本地 `tailwind.min.js`）+ htmx（本地 `htmx.min.js`），零 CDN 依赖，支持离线部署。`/admin` 走 `index.html`，`/admin/login` 走 `admin-login.html`
 - `static/fragments/admin/` 存放 htmx 局部刷新片段（`channels.html` / `apikeys.html` / `stats.html` / `requests.html` / `settings.html` / `whitelist.html` / `model-groups.html`），由 `/admin/ui/{section}` 返回
 - `serve_viewer.py` 独立的日志查看服务（端口 8080），与主服务分离运行
 - 告警/错误日志落 `logs/{warning,error,critical}.log`（loguru 10MB 轮转），每条请求通过 `CombinedMiddleware` 写入 `[REQ]` / `[RES]` 文本日志
