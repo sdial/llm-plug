@@ -9,12 +9,7 @@
 """
 
 import json
-import os
-import time
-from multiprocessing import Process
-from unittest.mock import patch
 
-import pytest
 
 import config
 import storage
@@ -139,8 +134,6 @@ class TestEndpointUrlInProxyFlow:
 
     def test_endpoint_url_used_in_proxy_request(self, tmp_path, monkeypatch):
         """proxy_core 应使用 endpoint_url 而非 base_url 构建上游请求"""
-        import proxy_core
-        import asyncio
 
         data_dir = tmp_path / "data"
         data_dir.mkdir()

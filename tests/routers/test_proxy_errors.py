@@ -4,7 +4,6 @@ import json
 from unittest.mock import MagicMock, PropertyMock
 
 import httpx
-import pytest
 
 from routers.proxy_errors import (
     safe_httpx_response_content,

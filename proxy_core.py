@@ -38,7 +38,7 @@ from models.channel import Channel
 from response_state import get_responses_store
 from storage import register_save_callback
 from think_filter import ThinkFilter, filter_think_content_static
-from url_builder import append_api_path, append_query, build_upstream_url
+from url_builder import append_query, build_upstream_url
 
 # Responses 状态存储
 _responses_store = get_responses_store()
@@ -536,10 +536,6 @@ def _get_converter_and_upstream_type(
 
 def _get_upstream_url(channel: Channel) -> str:
     return build_upstream_url(channel)
-
-
-def _append_api_path(base: str, path: str) -> str:
-    return append_api_path(base, path)
 
 
 def _build_upstream_headers(
