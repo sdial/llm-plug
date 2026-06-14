@@ -190,6 +190,23 @@ body {
     text-transform: uppercase;
 }
 
+.block-meta {
+    color: #57534e;
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    margin-bottom: 6px;
+    overflow-wrap: anywhere;
+}
+
+.block-meta span {
+    color: #78716c;
+    display: inline-block;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-weight: 700;
+    margin-right: 8px;
+    min-width: 76px;
+}
+
 .content-block-thinking {
     background: #f8fafc;
     border-color: #cbd5e1;
@@ -316,6 +333,12 @@ body {
     gap: 12px;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     margin-bottom: 20px;
+}
+
+.usage-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
 .overview-metric,
