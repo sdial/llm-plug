@@ -95,6 +95,44 @@ def test_request_analyzer_renders_chat_assistant_tool_calls_as_message_blocks():
     assert "!turn.blocks.some(b => b.type === 'tool_use')" in analyzer_js
 
 
+def test_request_analyzer_preserves_chat_annotations_legacy_function_call_and_audio():
+    analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
+
+    assert "function normalizeChatAnnotationBlock(annotation)" in analyzer_js
+    assert "message.annotations.map(normalizeChatAnnotationBlock)" in analyzer_js
+    assert "message.function_call" in analyzer_js
+    assert "normalizeChatLegacyFunctionCallBlock" in analyzer_js
+    assert "message.audio" in analyzer_js
+    assert "normalizeChatAudioBlock(message.audio" in analyzer_js
+    assert "function collectChatOutputToolCalls(message, choiceIndex)" in analyzer_js
+
+
+def test_request_analyzer_preserves_request_params_and_media_details():
+    analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
+
+    assert "requestParams: normalizeRequestParams(raw)" in analyzer_js
+    assert "renderRequestParamsSection(normalizedContext.requestParams)" in analyzer_js
+    assert "'temperature'" in analyzer_js
+    assert "'reasoning_effort'" in analyzer_js
+    assert "'parallel_tool_calls'" in analyzer_js
+    assert "block.image_url?.detail" in analyzer_js
+    assert "formatAudioInputSummary(block.input_audio)" in analyzer_js
+    assert "tool_call_id: message.tool_call_id" in analyzer_js
+    assert "renderBlockMeta('tool_call_id', block.tool_call_id)" in analyzer_js
+
+
+def test_request_analyzer_structures_output_metadata_and_usage_details():
+    analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
+
+    assert "metadata: normalizeOutputMetadata(raw)" in analyzer_js
+    assert "renderOutputMetadata(output.metadata)" in analyzer_js
+    assert "'system_fingerprint'" in analyzer_js
+    assert "'service_tier'" in analyzer_js
+    assert "renderUsageDetails(output.usage)" in analyzer_js
+    assert "prompt_tokens_details?.cached_tokens" in analyzer_js
+    assert "completion_tokens_details?.reasoning_tokens" in analyzer_js
+
+
 def test_request_analyzer_renders_anthropic_tool_use_inputs_without_raw_block_dump():
     analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
 

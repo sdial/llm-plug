@@ -231,6 +231,7 @@
             toolCalls: [],
             finishReason: '-',
             usage: null,
+            metadata: [],
             raw: null,
             error
         };
@@ -244,6 +245,7 @@
             toolCalls,
             finishReason: finishReason || '-',
             usage: usage || null,
+            metadata: normalizeOutputMetadata(raw),
             raw,
             error: null
         };
@@ -259,15 +261,7 @@
             const message = choice.message || choice.delta || {};
             if (choice.finish_reason) finishReasons.push(choice.finish_reason);
             normalizeChatOutputMessage(message, choiceIndex).forEach(block => blocks.push(block));
-            (message.tool_calls || []).forEach(call => {
-                toolCalls.push({
-                    id: call.id || '',
-                    name: call.function?.name || call.name || 'unknown',
-                    arguments: prettyJsonString(call.function?.arguments || call.arguments || {}),
-                    choiceIndex,
-                    raw: call
-                });
-            });
+            collectChatOutputToolCalls(message, choiceIndex).forEach(call => toolCalls.push(call));
         });
 
         if (!blocks.length && !toolCalls.length && raw) {
@@ -334,7 +328,71 @@
         if (message.reasoning_content) {
             blocks.push({ type: 'thinking', text: message.reasoning_content, raw: { reasoning_content: message.reasoning_content }, choiceIndex });
         }
+        if (Array.isArray(message.annotations)) {
+            blocks.push(...message.annotations.map(normalizeChatAnnotationBlock).map(block => ({ ...block, choiceIndex })));
+        }
+        if (message.function_call) {
+            blocks.push({ ...normalizeChatLegacyFunctionCallBlock(message.function_call), choiceIndex });
+        }
+        if (message.audio) {
+            blocks.push({ ...normalizeChatAudioBlock(message.audio), choiceIndex });
+        }
         return blocks;
+    }
+
+    function collectChatOutputToolCalls(message, choiceIndex) {
+        const calls = [];
+        (message.tool_calls || []).forEach(call => {
+            calls.push({
+                id: call.id || '',
+                name: call.function?.name || call.name || 'unknown',
+                arguments: prettyJsonString(call.function?.arguments || call.arguments || {}),
+                choiceIndex,
+                raw: call
+            });
+        });
+        if (message.function_call) {
+            calls.push({
+                id: '',
+                name: message.function_call.name || 'function_call',
+                arguments: prettyJsonString(message.function_call.arguments || '{}'),
+                choiceIndex,
+                raw: message.function_call
+            });
+        }
+        return calls;
+    }
+
+    function normalizeChatAnnotationBlock(annotation) {
+        const citation = annotation?.url_citation || {};
+        return {
+            type: 'annotation',
+            text: citation.title || citation.url || annotation?.type || 'annotation',
+            url: citation.url || '',
+            title: citation.title || '',
+            start_index: citation.start_index,
+            end_index: citation.end_index,
+            raw: annotation
+        };
+    }
+
+    function normalizeChatLegacyFunctionCallBlock(functionCall) {
+        return {
+            type: 'tool_use',
+            text: functionCall.name || 'function_call',
+            id: '',
+            name: functionCall.name || 'function_call',
+            input: prettyJsonString(functionCall.arguments || '{}'),
+            raw: functionCall
+        };
+    }
+
+    function normalizeChatAudioBlock(audio) {
+        return {
+            type: 'audio',
+            text: formatAudioOutputSummary(audio),
+            raw: audio
+        };
     }
 
     function normalizeResponsesOutputItem(item) {
@@ -382,14 +440,22 @@
                 toolCalls: toolEvents.filter(e => e.kind === 'call').length,
                 toolResults: toolEvents.filter(e => e.kind === 'result').length,
                 blockCounts
-            }
+            },
+            requestParams: normalizeRequestParams(raw)
         };
     }
 
     function normalizeChatMessageBlocks(message) {
-        const blocks = normalizeChatContentBlocks(message.content);
+        const blocks = normalizeChatContentBlocks(message.content).map(block => (
+            message.role === 'tool' && message.tool_call_id
+                ? { ...block, tool_call_id: message.tool_call_id }
+                : block
+        ));
         if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
             blocks.push(...message.tool_calls.map(normalizeChatToolCallBlock));
+        }
+        if (message.role === 'assistant' && message.function_call) {
+            blocks.push(normalizeChatLegacyFunctionCallBlock(message.function_call));
         }
         return blocks;
     }
@@ -410,11 +476,37 @@
         if (!Array.isArray(content)) return [];
         return content.map(block => {
             if (block.type === 'text') return { type: 'text', text: block.text || '' };
-            if (block.type === 'image_url') return { type: 'image', text: block.image_url?.url || '[image_url]', raw: block };
-            if (block.type === 'input_audio') return { type: 'audio', text: block.input_audio?.format || '[audio]', raw: block };
+            if (block.type === 'image_url') {
+                const detail = block.image_url?.detail;
+                const label = block.image_url?.url || '[image_url]';
+                return { type: 'image', text: detail ? `${label} (${detail})` : label, detail, raw: block };
+            }
+            if (block.type === 'input_audio') return { type: 'audio', text: formatAudioInputSummary(block.input_audio), raw: block };
             if (block.type === 'file') return { type: 'file', text: block.file?.filename || block.file?.file_id || '[file]', raw: block };
             return { type: block.type || 'unknown', text: safeJson(block), raw: block };
         });
+    }
+
+    function formatAudioInputSummary(inputAudio) {
+        const format = inputAudio?.format || 'unknown';
+        const dataLength = typeof inputAudio?.data === 'string' ? inputAudio.data.length : 0;
+        return dataLength ? `${format} audio input (${formatByteEstimate(dataLength)})` : `${format} audio input`;
+    }
+
+    function formatAudioOutputSummary(audio) {
+        const parts = [];
+        if (audio.id) parts.push(`id: ${audio.id}`);
+        if (audio.transcript) parts.push(`transcript: ${audio.transcript}`);
+        if (audio.expires_at) parts.push(`expires: ${audio.expires_at}`);
+        if (audio.data) parts.push(`data: ${formatByteEstimate(String(audio.data).length)}`);
+        return parts.length ? parts.join('\n') : 'audio output';
+    }
+
+    function formatByteEstimate(base64Length) {
+        const bytes = Math.floor(base64Length * 0.75);
+        if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+        if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${bytes} B`;
     }
 
     function normalizeAnthropicSystem(system) {
@@ -532,6 +624,19 @@
                     });
                 });
             }
+            if (msg.role === 'assistant' && msg.function_call) {
+                events.push({
+                    kind: 'call',
+                    id: '',
+                    tool_call_id: '',
+                    messageIndex,
+                    name: msg.function_call.name || 'function_call',
+                    arguments: prettyJsonString(msg.function_call.arguments || '{}'),
+                    result: null,
+                    matched: false,
+                    raw: msg.function_call
+                });
+            }
         });
 
         resultsById.forEach(result => {
@@ -634,6 +739,36 @@
         return issues;
     }
 
+    function normalizeRequestParams(raw) {
+        const keys = [
+            'temperature',
+            'top_p',
+            'max_tokens',
+            'max_completion_tokens',
+            'tool_choice',
+            'response_format',
+            'reasoning_effort',
+            'stream',
+            'parallel_tool_calls',
+            'seed',
+            'modalities',
+            'audio',
+            'frequency_penalty',
+            'presence_penalty',
+            'stop'
+        ];
+        return keys
+            .filter(key => raw && raw[key] !== undefined)
+            .map(key => ({ key, value: raw[key] }));
+    }
+
+    function normalizeOutputMetadata(raw) {
+        if (!raw || typeof raw !== 'object') return [];
+        return ['id', 'model', 'system_fingerprint', 'service_tier', 'created', 'object']
+            .filter(key => raw[key] !== undefined && raw[key] !== null && raw[key] !== '')
+            .map(key => ({ key, value: raw[key] }));
+    }
+
     function renderMetadata() {
         if (!normalizedContext) return;
 
@@ -726,9 +861,22 @@
                 <h3>Content Blocks</h3>
                 <div class="context-chip-row">${blockRows || '<span class="text-sm text-ink-500">无结构化 blocks</span>'}</div>
             </div>
+            ${renderRequestParamsSection(normalizedContext.requestParams)}
             <div class="analysis-section">
                 <h3>关键诊断</h3>
                 ${renderDiagnosticsList(normalizedContext.diagnostics.slice(0, 4))}
+            </div>
+        `;
+    }
+
+    function renderRequestParamsSection(params) {
+        if (!params || !params.length) return '';
+        return `
+            <div class="analysis-section">
+                <h3>请求参数</h3>
+                <div class="usage-grid">
+                    ${params.map(param => renderOverviewMetric(param.key, formatParamValue(param.value))).join('')}
+                </div>
             </div>
         `;
     }
@@ -756,15 +904,46 @@
                 <h3>模型回复</h3>
                 ${renderBlocks(output.blocks)}
             </div>
+            ${renderOutputMetadata(output.metadata)}
             <div class="analysis-section">
                 <h3>输出 Tool 调用 (${output.toolCalls.length})</h3>
                 ${output.toolCalls.length ? output.toolCalls.map(renderOutputToolCall).join('') : '<div class="empty">没有输出 Tool 调用</div>'}
             </div>
             <div class="analysis-section">
                 <h3>Usage</h3>
-                ${output.usage ? `<div class="structured-block">${escapeHtml(safeJson(output.usage))}</div>` : '<div class="empty">返回 Body 中没有 usage</div>'}
+                ${output.usage ? renderUsageDetails(output.usage) : '<div class="empty">返回 Body 中没有 usage</div>'}
             </div>
         `;
+    }
+
+    function renderOutputMetadata(metadata) {
+        if (!metadata || !metadata.length) return '';
+        return `
+            <div class="analysis-section">
+                <h3>响应元信息</h3>
+                <div class="usage-grid">
+                    ${metadata.map(item => renderOverviewMetric(item.key, item.value)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderUsageDetails(usage) {
+        const metrics = [
+            ['prompt_tokens', usage.prompt_tokens],
+            ['completion_tokens', usage.completion_tokens],
+            ['total_tokens', usage.total_tokens],
+            ['cached_tokens', usage.prompt_tokens_details?.cached_tokens],
+            ['reasoning_tokens', usage.completion_tokens_details?.reasoning_tokens],
+            ['cache_creation_input_tokens', usage.cache_creation_input_tokens],
+            ['cache_read_input_tokens', usage.cache_read_input_tokens],
+            ['input_tokens', usage.input_tokens],
+            ['output_tokens', usage.output_tokens]
+        ].filter(([, value]) => value !== undefined && value !== null);
+        const cards = metrics.length
+            ? `<div class="usage-grid">${metrics.map(([label, value]) => renderOverviewMetric(label, value)).join('')}</div>`
+            : '';
+        return `${cards}<div class="structured-block mt-3">${escapeHtml(safeJson(usage))}</div>`;
     }
 
     function renderOutputToolCall(call) {
@@ -932,6 +1111,8 @@
                 return `
                     <div class="content-block content-block-${escapeAttr(block.type)}">
                         <div class="content-block-type">${escapeHtml(block.type)}</div>
+                        ${renderBlockMeta('id', block.id)}
+                        ${renderBlockMeta('name', block.name)}
                         <div class="structured-block">${escapeHtml(block.input || '')}</div>
                     </div>
                 `;
@@ -939,10 +1120,23 @@
             return `
                 <div class="content-block content-block-${escapeAttr(block.type)}">
                     <div class="content-block-type">${escapeHtml(block.type)}</div>
+                    ${renderBlockMeta('tool_call_id', block.tool_call_id)}
+                    ${renderBlockMeta('url', block.url)}
+                    ${renderBlockMeta('detail', block.detail)}
                     <div class="structured-block">${escapeHtml(block.text || safeJson(block.raw || block))}</div>
                 </div>
             `;
         }).join('');
+    }
+
+    function renderBlockMeta(label, value) {
+        if (value === undefined || value === null || value === '') return '';
+        return `<div class="block-meta"><span>${escapeHtml(label)}</span>${escapeHtml(String(value))}</div>`;
+    }
+
+    function formatParamValue(value) {
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+        return safeJson(value);
     }
 
     function renderMarkdown(text) {
