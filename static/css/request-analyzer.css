@@ -323,6 +323,11 @@ body {
     white-space: pre-wrap;
 }
 
+.json-block {
+    background: #f0f4ff;
+    border: 1px solid #dbeafe;
+}
+
 /* Tool 定义 */
 .tool-definition {
     background: white;

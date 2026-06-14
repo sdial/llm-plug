@@ -1110,10 +1110,16 @@
         if (!blocks.length) return '<div class="message-content text-ink-400">空内容</div>';
         return blocks.map(block => {
             if (block.type === 'text' || block.type === 'thinking') {
+                const rawText = (block.text || '').trim();
+                const isJson = rawText && (rawText.startsWith('{') || rawText.startsWith('['));
+                const formattedJson = isJson ? tryFormatJson(rawText) : null;
                 return `
                     <div class="content-block content-block-${escapeAttr(block.type)}">
-                        <div class="content-block-type">${escapeHtml(block.type)}</div>
-                        <div class="message-content">${renderMarkdown(block.text || '')}</div>
+                        <div class="content-block-type">${escapeHtml(block.type)}${formattedJson ? ' · json' : ''}</div>
+                        ${formattedJson
+                            ? `<div class="structured-block json-block">${escapeHtml(formattedJson)}</div>`
+                            : `<div class="message-content">${renderMarkdown(block.text || '')}</div>`
+                        }
                     </div>
                 `;
             }
