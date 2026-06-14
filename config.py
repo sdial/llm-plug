@@ -4,13 +4,28 @@ import json
 import os
 import re
 import tempfile
+from typing import Literal, TypedDict
 
 from loguru import logger
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 _SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 
-_CONFIG_SCHEMA = {
+ConfigValueType = Literal["str", "int", "bool"]
+ConfigValue = str | int | bool
+
+
+class _ConfigSchemaRequired(TypedDict):
+    type: ConfigValueType
+    default: ConfigValue
+    requires_restart: bool
+
+
+class ConfigSchemaEntry(_ConfigSchemaRequired, total=False):
+    readonly: bool
+
+
+_CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
     "host": {"type": "str", "default": "0.0.0.0", "requires_restart": True, "readonly": True},
     "port": {"type": "int", "default": 55555, "requires_restart": True, "readonly": True},
     "request_timeout": {"type": "int", "default": 300, "requires_restart": False},

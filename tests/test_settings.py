@@ -121,6 +121,21 @@ def test_config_defaults():
     assert all("env" not in schema for schema in _CONFIG_SCHEMA.values())
 
 
+def test_config_schema_has_typed_contract():
+    """配置 schema 应有显式类型契约，避免退化成任意 dict。"""
+    import config
+
+    schema_annotation = config.__annotations__["_CONFIG_SCHEMA"]
+
+    assert schema_annotation == dict[str, config.ConfigSchemaEntry]
+    assert config.ConfigSchemaEntry.__required_keys__ == {
+        "type",
+        "default",
+        "requires_restart",
+    }
+    assert config.ConfigSchemaEntry.__optional_keys__ == {"readonly"}
+
+
 def test_config_requires_restart():
     """验证需重启标记"""
     from config import _CONFIG_SCHEMA
