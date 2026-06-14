@@ -124,7 +124,7 @@
         const turns = messages.map((msg, index) => ({
             index,
             role: msg.role || 'unknown',
-            blocks: normalizeChatContentBlocks(msg.content),
+            blocks: normalizeChatMessageBlocks(msg),
             raw: msg
         }));
         const systemBlocks = turns.filter(t => t.role === 'system' || t.role === 'developer');
@@ -382,6 +382,25 @@
                 toolResults: toolEvents.filter(e => e.kind === 'result').length,
                 blockCounts
             }
+        };
+    }
+
+    function normalizeChatMessageBlocks(message) {
+        const blocks = normalizeChatContentBlocks(message.content);
+        if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+            blocks.push(...message.tool_calls.map(normalizeChatToolCallBlock));
+        }
+        return blocks;
+    }
+
+    function normalizeChatToolCallBlock(call) {
+        return {
+            type: 'tool_use',
+            text: call.function?.name || 'unknown',
+            id: call.id || '',
+            name: call.function?.name || 'unknown',
+            input: prettyJsonString(call.function?.arguments || '{}'),
+            raw: call
         };
     }
 

@@ -84,6 +84,17 @@ def test_request_analyzer_normalizes_chat_and_anthropic_contexts():
     assert "renderDiagnosticsView" in analyzer_js
 
 
+def test_request_analyzer_renders_chat_assistant_tool_calls_as_message_blocks():
+    analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
+
+    assert "blocks: normalizeChatMessageBlocks(msg)" in analyzer_js
+    assert "function normalizeChatToolCallBlock(call)" in analyzer_js
+    assert "type: 'tool_use'" in analyzer_js
+    assert "id: call.id || ''" in analyzer_js
+    assert "input: prettyJsonString(call.function?.arguments || '{}')" in analyzer_js
+    assert "!turn.blocks.some(b => b.type === 'tool_use')" in analyzer_js
+
+
 def test_request_analyzer_sanitizes_markdown_html():
     analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
 
