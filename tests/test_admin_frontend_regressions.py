@@ -95,6 +95,22 @@ def test_request_analyzer_renders_chat_assistant_tool_calls_as_message_blocks():
     assert "!turn.blocks.some(b => b.type === 'tool_use')" in analyzer_js
 
 
+def test_request_analyzer_renders_anthropic_tool_use_inputs_without_raw_block_dump():
+    analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
+
+    assert "input: safeJson(block.input || {})" in analyzer_js
+    assert "if (block.type === 'tool_use') {" in analyzer_js
+    assert "escapeHtml(block.input || '')" in analyzer_js
+
+
+def test_request_analyzer_treats_anthropic_redacted_thinking_as_thinking_block():
+    analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
+
+    assert "block.type === 'redacted_thinking'" in analyzer_js
+    assert "type: 'thinking'" in analyzer_js
+    assert "text: '[redacted thinking]'" in analyzer_js
+
+
 def test_request_analyzer_sanitizes_markdown_html():
     analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
 
