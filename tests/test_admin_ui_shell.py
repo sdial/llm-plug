@@ -59,11 +59,17 @@ async def test_admin_index_is_a_shell(client):
 
 
 @pytest.mark.anyio
-async def test_root_and_old_static_paths_are_not_admin_entrypoints(client):
-    root = await client.get("/")
+async def test_root_redirects_to_admin(client):
+    root = await client.get("/", follow_redirects=False)
+
+    assert root.status_code == 307
+    assert root.headers["location"] == "/admin/"
+
+
+@pytest.mark.anyio
+async def test_old_static_paths_are_not_accessible(client):
     old_asset = await client.get("/static/js/admin.js")
 
-    assert root.status_code == 404
     assert old_asset.status_code == 404
 
 

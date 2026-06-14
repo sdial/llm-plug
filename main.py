@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -23,6 +23,9 @@ from stats import init_db as init_stats_db
 from stats import start_stats_workers, stop_stats_workers
 from storage import load_api_keys, load_data, register_api_keys_save_callback
 from logging_config import configure_level_file_logging
+
+# 静态资源版本号 — 每次更新 JS/CSS 后修改此值即可强制浏览器刷新缓存
+STATIC_ASSET_VERSION = "2"
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
@@ -381,28 +384,33 @@ async def root_redirect():
     return RedirectResponse(url="/admin/")
 
 
+def _html_response(file_path: Path) -> HTMLResponse:
+    """返回 HTML 文件，同时替换静态资源版本占位符。"""
+    content = file_path.read_text(encoding="utf-8")
+    content = content.replace("__STATIC_ASSET_VERSION__", STATIC_ASSET_VERSION)
+    return HTMLResponse(content)
+
+
 @app.get("/admin/login")
 @app.get("/admin/login/")
 async def admin_login_page(request: Request):
-    from fastapi.responses import FileResponse
     from admin_auth import get_session_cookie_name, validate_admin_session
 
     session_cookie = request.cookies.get(get_session_cookie_name())
     if await validate_admin_session(session_cookie):
         return RedirectResponse(url="/admin/")
-    return FileResponse(STATIC_DIR / "admin-login.html")
+    return _html_response(STATIC_DIR / "admin-login.html")
 
 
 @app.get("/admin")
 @app.get("/admin/")
 async def admin_index(request: Request):
-    from fastapi.responses import FileResponse
     from admin_auth import get_session_cookie_name, validate_admin_session
 
     session_cookie = request.cookies.get(get_session_cookie_name())
     if await validate_admin_session(session_cookie):
-        return FileResponse(STATIC_DIR / "index.html")
-    return FileResponse(STATIC_DIR / "admin-login.html")
+        return _html_response(STATIC_DIR / "index.html")
+    return _html_response(STATIC_DIR / "admin-login.html")
 
 
 if __name__ == "__main__":

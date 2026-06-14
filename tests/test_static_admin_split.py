@@ -39,5 +39,5 @@ def test_admin_assets_are_split_into_cohesive_modules():
 def test_admin_login_uses_shared_admin_styles_for_primary_button():
     html = LOGIN_HTML.read_text(encoding="utf-8")
 
-    assert 'href="/admin/static/css/admin.css"' in html
+    assert 'href="/admin/static/css/admin.css?v=' in html
     assert 'id="submitBtn" type="submit" class="btn-primary' in html
