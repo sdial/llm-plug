@@ -140,6 +140,36 @@ async def test_login_page_and_static_assets_are_public(admin_auth_files):
 
 
 @pytest.mark.anyio
+async def test_root_redirects_to_admin(admin_auth_files):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.get("/", follow_redirects=False)
+
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/admin/"
+
+
+@pytest.mark.anyio
+async def test_login_page_redirects_to_admin_when_already_logged_in(admin_auth_files):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.post(
+            "/admin/auth/setup",
+            json={"password": "correct horse battery staple"},
+        )
+        await client.post(
+            "/admin/auth/login",
+            json={"password": "correct horse battery staple"},
+        )
+        resp = await client.get("/admin/login", follow_redirects=False)
+
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/admin/"
+
+
+@pytest.mark.anyio
 async def test_logout_revokes_existing_session_token(admin_auth_files):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
