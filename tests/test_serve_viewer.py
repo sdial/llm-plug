@@ -1,16 +1,9 @@
 """P0-3: serve_viewer 基本测试 — 路径安全、内容类型、日志列表"""
 
-import json
-import os
-import threading
-import time
 from pathlib import Path
-from urllib.request import urlopen, Request
-from urllib.error import HTTPError
-
-import pytest
 
 import serve_viewer
+from loguru import logger
 
 
 # ═══════════════════════════════════════════
@@ -154,3 +147,21 @@ class TestMainBinding:
         import inspect
         source = inspect.getsource(serve_viewer.main)
         assert "127.0.0.1" in source
+
+
+class TestViewerLogging:
+
+    def test_configure_logging_writes_standard_level_files(self, tmp_path):
+        """viewer 应复用主服务的 loguru 分级文件输出。"""
+        handler_ids = serve_viewer.configure_logging(tmp_path)
+        try:
+            logger.warning("viewer warning smoke")
+            logger.error("viewer error smoke")
+            logger.critical("viewer critical smoke")
+        finally:
+            for handler_id in handler_ids:
+                logger.remove(handler_id)
+
+        assert "viewer warning smoke" in (tmp_path / "warning.log").read_text(encoding="utf-8")
+        assert "viewer error smoke" in (tmp_path / "error.log").read_text(encoding="utf-8")
+        assert "viewer critical smoke" in (tmp_path / "critical.log").read_text(encoding="utf-8")

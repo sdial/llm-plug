@@ -7,9 +7,15 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
+from logging_config import configure_level_file_logging
+
 BASE_DIR = Path(__file__).parent.resolve()
 STATIC_DIR = BASE_DIR / "static"
 LOGS_DIR = BASE_DIR / "logs"
+
+
+def configure_logging(log_dir: Path | str = LOGS_DIR) -> list[int]:
+    return configure_level_file_logging(log_dir)
 
 
 class SessionViewerHandler(BaseHTTPRequestHandler):
@@ -86,6 +92,7 @@ class SessionViewerHandler(BaseHTTPRequestHandler):
 
 
 def main(port=8080):
+    configure_logging()
     logger.info(f"BASE_DIR: {BASE_DIR}")
     logger.info(f"STATIC_DIR: {STATIC_DIR}")
     logger.info(f"LOGS_DIR: {LOGS_DIR}")
