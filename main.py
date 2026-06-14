@@ -183,7 +183,7 @@ class CombinedMiddleware:
 
         if (
             path.startswith("/admin")
-            and path not in ("/admin", "/admin/", "/admin/login")
+            and path not in ("/admin", "/admin/", "/admin/login", "/admin/login/")
             and not path.startswith("/admin/auth")
             and not path.startswith("/admin/static/")
         ):
