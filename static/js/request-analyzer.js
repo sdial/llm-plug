@@ -206,6 +206,14 @@
                 return { index, role: 'user', blocks: [{ type: 'text', text: item }], raw: item };
             }
             const role = item.role || (item.type === 'message' ? item.role : item.type) || 'unknown';
+            if (isResponsesToolUseItem(item)) {
+                return {
+                    index,
+                    role,
+                    blocks: [normalizeResponsesToolUseBlock(item)],
+                    raw: item
+                };
+            }
             return {
                 index,
                 role,
@@ -337,15 +345,8 @@
         if (item.type === 'reasoning') {
             return [{ type: 'thinking', text: blockToText(item.summary || item.content || ''), raw: item }];
         }
-        if (item.type === 'function_call' || item.type === 'tool_call') {
-            return [{
-                type: 'tool_use',
-                text: item.name || item.function?.name || item.type,
-                id: item.call_id || item.id,
-                name: item.name || item.function?.name || item.type,
-                input: item.arguments || item.function?.arguments || {},
-                raw: item
-            }];
+        if (isResponsesToolUseItem(item)) {
+            return [normalizeResponsesToolUseBlock(item)];
         }
         if (item.type === 'output_text') {
             return [{ type: 'text', text: item.text || '', raw: item }];
@@ -472,8 +473,30 @@
             if (block.type === 'refusal') {
                 return { type: 'refusal', text: block.refusal || block.text || '', raw: block };
             }
+            if (isResponsesToolUseItem(block)) {
+                return normalizeResponsesToolUseBlock(block);
+            }
             return { type: block.type || 'unknown', text: safeJson(block), raw: block };
         });
+    }
+
+    function isResponsesToolUseItem(item) {
+        return item && typeof item === 'object' && [
+            'function_call',
+            'tool_call',
+            'terminal_execute'
+        ].includes(item.type);
+    }
+
+    function normalizeResponsesToolUseBlock(item) {
+        return {
+            type: 'tool_use',
+            text: item.name || item.function?.name || item.type,
+            id: item.call_id || item.id || '',
+            name: item.name || item.function?.name || item.type,
+            input: prettyJsonString(item.arguments || item.input || item.function?.arguments || {}),
+            raw: item
+        };
     }
 
     function extractChatToolEvents(messages) {

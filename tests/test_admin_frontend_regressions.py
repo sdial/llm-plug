@@ -134,6 +134,16 @@ def test_request_analyzer_loads_and_normalizes_model_output():
     assert "renderOutputView" in analyzer_js
 
 
+def test_request_analyzer_renders_responses_terminal_execute_arguments():
+    analyzer_js = (STATIC_JS / "request-analyzer.js").read_text(encoding="utf-8")
+
+    assert "function normalizeResponsesToolUseBlock(item)" in analyzer_js
+    assert "'terminal_execute'" in analyzer_js
+    assert "input: prettyJsonString(item.arguments || item.input || item.function?.arguments || {})" in analyzer_js
+    assert "blocks: [normalizeResponsesToolUseBlock(item)]" in analyzer_js
+    assert "return [normalizeResponsesToolUseBlock(item)];" in analyzer_js
+
+
 def test_stats_today_merge_uses_configured_aggregation_timezone():
     stats_js = (STATIC_JS / "stats.js").read_text(encoding="utf-8")
 
