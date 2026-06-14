@@ -299,11 +299,11 @@ http://localhost:55555/admin
 
 | 文件 | 级别 | 说明 |
 |------|------|------|
-| `logs/warning.log` | WARNING 及以上 | 包含警告、错误、严重错误 |
-| `logs/error.log` | ERROR 及以上 | 仅错误和严重错误 |
+| `logs/warning.log` | WARNING | 仅警告 |
+| `logs/error.log` | ERROR | 仅错误 |
 | `logs/critical.log` | CRITICAL | 仅严重错误 |
 
-此外，每个请求的 `[REQ]` / `[RES]` 文本日志也写入 `warning.log`（由 `CombinedMiddleware` 产生）。
+主服务和 `serve_viewer.py` 共用同一套 loguru 分级文件输出配置。`serve_viewer.py` 是独立的本地日志查看服务，只绑定 `127.0.0.1:8080`，不接入主服务的管理员会话和 CSRF 校验；它用于读取 `logs/*.jsonl` 会话记录，不替代管理端 `/admin/logs`。
 
 ### 常用日志查询
 

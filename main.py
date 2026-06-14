@@ -21,31 +21,11 @@ from stats import close_pool as close_stats_pool
 from stats import init_db as init_stats_db
 from stats import start_stats_workers, stop_stats_workers
 from storage import load_api_keys, load_data, register_api_keys_save_callback
+from logging_config import configure_level_file_logging
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
-_log_dir.mkdir(exist_ok=True)
-logger.add(
-    _log_dir / "warning.log",
-    level="WARNING",
-    rotation="10 MB",
-    filter=lambda r: r["level"].name == "WARNING",
-    encoding="utf-8"
-)
-logger.add(
-    _log_dir / "error.log",
-    level="ERROR",
-    rotation="10 MB",
-    filter=lambda r: r["level"].name == "ERROR",
-    encoding="utf-8"
-)
-logger.add(
-    _log_dir / "critical.log",
-    level="CRITICAL",
-    rotation="10 MB",
-    filter=lambda r: r["level"].name == "CRITICAL",
-    encoding="utf-8"
-)
+configure_level_file_logging(_log_dir)
 
 
 _responses_store = get_responses_store()

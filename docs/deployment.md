@@ -93,6 +93,22 @@ uv run python main.py --log-level debug
 - **Windows（Git Bash）**：通过 `netstat` + `taskkill` 终止进程
 - **Linux / macOS**：通过 `lsof` + `kill -9` 终止进程
 
+### 独立日志查看器
+
+`serve_viewer.py` 是与主代理分离运行的本地日志查看服务，用于查看 `logs/*.jsonl` 会话记录：
+
+```bash
+uv run python serve_viewer.py
+```
+
+默认监听 `127.0.0.1:8080`，也可以通过第一个参数指定端口：
+
+```bash
+uv run python serve_viewer.py 18080
+```
+
+viewer 无管理员鉴权，只绑定 loopback；不要直接暴露到公网。它与主服务共用 `logs/` 目录和 loguru 分级文件输出配置，但不会承载代理 API、管理 API 或 `/admin/logs`。
+
 ---
 
 ## Docker 部署
