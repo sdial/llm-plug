@@ -10,6 +10,7 @@ from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
 from proxy_core import (
+    AllChannelsExhausted,
     _build_anthropic_stream_response,
     _build_openai_stream_response,
     _do_request,
@@ -304,6 +305,72 @@ class TestChannelConfigError:
         ):
             channels = await _get_channels_for_model("gpt-4")
             assert channels == []
+
+
+class TestModelGroupFallbackErrors:
+    @pytest.mark.anyio
+    async def test_exhausted_model_group_error_includes_group_and_models(self):
+        import storage
+        from proxy_core import _proxy_model_group_request
+
+        group = storage.ModelGroup(
+            id="grp_1",
+            name="production-group",
+            models=["model-a", "model-b"],
+            enabled=True,
+        )
+
+        channel_a = Channel(
+            id="ch_a",
+            name="Channel A",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://a.example",
+            api_key="sk-a",
+            models=["model-a"],
+        )
+        channel_b = Channel(
+            id="ch_b",
+            name="Channel B",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://b.example",
+            api_key="sk-b",
+            models=["model-b"],
+        )
+
+        async def fake_get_channels(model):
+            return {"model-a": [channel_a], "model-b": [channel_b]}[model]
+
+        async def fake_do_request(channel, request_data, *args, **kwargs):
+            request = httpx.Request("POST", f"{channel.base_url}/v1/chat/completions")
+            response = httpx.Response(503, json={"error": "unavailable"}, request=request)
+            raise httpx.HTTPStatusError(
+                f"{request_data['model']} unavailable",
+                request=request,
+                response=response,
+            )
+
+        with (
+            patch("proxy_core._get_channels_for_model", side_effect=fake_get_channels),
+            patch("proxy_core._do_request", side_effect=fake_do_request),
+            patch("proxy_core.load_balancer.record_failure", new_callable=AsyncMock),
+        ):
+            with pytest.raises(AllChannelsExhausted) as exc_info:
+                await _proxy_model_group_request(
+                    group,
+                    {"model": group.name, "messages": [{"role": "user", "content": "hi"}]},
+                    APIType.OPENAI_CHAT,
+                    False,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+
+        message = str(exc_info.value)
+        assert "production-group" in message
+        assert "model-a" in message
+        assert "model-b" in message
+        assert "模型组 Fallback 已穷尽所有模型" in message
 
 
 class TestGetConverterAndUpstreamType:

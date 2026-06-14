@@ -814,8 +814,11 @@ async def _proxy_model_group_request(
     # 按组内模型的 Fallback 顺序尝试
     tried_channels: set[str] = set()  # 所有已尝试的渠道
     last_error: Exception | None = None
+    attempted_models: list[str] = []
 
     for current_model in group.models:
+        if current_model not in attempted_models:
+            attempted_models.append(current_model)
         channels = await _get_channels_for_model(current_model)
         if not channels:
             continue  # 该模型无渠道，尝试下一个模型
@@ -855,9 +858,16 @@ async def _proxy_model_group_request(
                     raise
 
     # 所有模型的所有渠道都失败了
+    attempted = ", ".join(attempted_models) or "none"
     if last_error is not None:
-        raise last_error
-    raise AllChannelsExhausted(f"模型组 {group.name} 的所有渠道均不可用")
+        raise AllChannelsExhausted(
+            f"模型组 Fallback 已穷尽所有模型: group={group.name}, "
+            f"attempted_models=[{attempted}], last_error={last_error}"
+        ) from last_error
+    raise AllChannelsExhausted(
+        f"模型组 Fallback 已穷尽所有模型: group={group.name}, "
+        f"attempted_models=[{attempted}], no available channels"
+    )
 
 
 def _ext_for_mime(mime_type: str) -> str:
