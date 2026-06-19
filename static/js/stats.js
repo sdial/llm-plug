@@ -131,7 +131,10 @@ cutoffTimeValue.textContent = `${timeStr} (${tzDisplay})`;
       // 非今天时隐藏截止时间
       cutoffTimeEl.classList.add('hidden');
       const params = new URLSearchParams();
-      if (daysVal === '0') {
+      if (daysVal === 'this_week' || daysVal === 'this_month') {
+        params.set('range', daysVal);
+        document.getElementById('statsDaysLabel').textContent = daysVal === 'this_week' ? '本周' : '本月';
+      } else if (daysVal === '0') {
 params.set('days', '99999');
 document.getElementById('statsDaysLabel').textContent = '全部';
       } else {
@@ -235,7 +238,14 @@ function renderStats(data) {
   const dailyTbody = document.getElementById('daily_tbody');
 
   const daysLabel = document.getElementById('statsDaysLabel').textContent;
-  trendTitle.innerHTML = '每日趋势（最近<span id="statsDaysLabel">' + daysLabel + '</span>天）';
+  if ((daysVal === 'this_week' || daysVal === 'this_month') && daily.length > 0) {
+    // 日期格式为 "YYYY-MM-DD"，slice(5) 提取 "MM-DD" 部分
+    const start = daily[0].date.slice(5);
+    const end = daily[daily.length - 1].date.slice(5);
+    trendTitle.innerHTML = '每日趋势（<span id="statsDaysLabel">' + start + ' ~ ' + end + '</span>）';
+  } else {
+    trendTitle.innerHTML = '每日趋势（最近<span id="statsDaysLabel">' + daysLabel + '</span>天）';
+  }
   trendTimeHeader.textContent = '日期';
   if (daily.length === 0) {
     dailyTbody.innerHTML = '<tr><td colspan="8" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
