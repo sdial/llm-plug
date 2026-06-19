@@ -9,33 +9,8 @@
         "apiKey": "opencode101"
       },
       "models": {
-        "z-ai/glm-5.1": {
-          "name": "z-ai/glm-5.1",
-          "modalities": {
-            "input": [
-              "text"
-            ],
-            "output": [
-              "text"
-            ]
-          }
-        }
-        }
-    },
-    "mimo": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "MiMo",
-      "options": {
-        "baseURL": "https://token-plan-cn.xiaomimimo.com/v1",
-        "apiKey": "tp-celvlbwalvbtdd56bg8ubejca3h9zplnku7sk6da3d3mg7y9"
-      },
-      "models": {
         "mimo-v2.5-pro": {
           "name": "mimo-v2.5-pro",
-          "limit": {
-            "context": 1048576,
-            "output": 131072
-          },
           "modalities": {
             "input": [
               "text"
@@ -47,5 +22,5 @@
         }
       }
     }
-}
+  }
 }

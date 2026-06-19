@@ -488,7 +488,7 @@ async def aggregate_daily_stats(start_date: date, end_date: date) -> dict[str, A
     return await asyncio.to_thread(_aggregate_daily_stats_sync, start_date, end_date)
 
 
-def _local_date_to_utc_iso(local_date: date) -> str:
+def local_date_to_utc_iso(local_date: date) -> str:
     """将聚合时区某日 0 点转为 naive UTC 的 ISO 字符串（DB timestamp 用）。"""
     tz = _agg_tz()
     local = datetime.combine(local_date, datetime.min.time()).replace(tzinfo=tz)
@@ -552,7 +552,7 @@ def _get_daily_stats_from_requests_sync(
     start_date = agg_now().date() - timedelta(days=days - 1)
     offset_modifier = _agg_offset_sql()
     conditions = ["timestamp >= ?"]
-    args: list[Any] = [_local_date_to_utc_iso(start_date)]
+    args: list[Any] = [local_date_to_utc_iso(start_date)]
     if channel_id:
         conditions.append("channel_id = ?")
         args.append(channel_id)
@@ -601,7 +601,7 @@ def _refresh_missing_daily_stats_sync() -> dict[str, Any]:
         return {"refreshed_dates": [], "count": 0, "debug": {"db_available": False}}
     today = agg_now().date()
     offset_modifier = _agg_offset_sql()
-    today_start_utc = _local_date_to_utc_iso(today)
+    today_start_utc = local_date_to_utc_iso(today)
     with _open_conn() as conn:
         rows = conn.execute(
             f"""
@@ -779,12 +779,17 @@ async def get_overall_stats(days: int = 7) -> dict[str, Any]:
     return await asyncio.to_thread(_get_overall_stats_sync, days)
 
 
+async def get_overall_stats_since(since: str) -> dict[str, Any]:
+    """从指定 UTC 时间戳开始查询总体统计（naive UTC ISO 格式）。"""
+    return await asyncio.to_thread(_get_overall_stats_since_sync, since)
+
+
 async def get_today_stats() -> dict[str, Any]:
     """今天（聚合时区 0 点至今）的实时统计。"""
     if not _DB_AVAILABLE:
         return {"overall": _overall_zero(), "daily": []}
     today = agg_now().date()
-    start_of_today = _local_date_to_utc_iso(today)
+    start_of_today = local_date_to_utc_iso(today)
     overall = await asyncio.to_thread(_get_overall_stats_since_sync, start_of_today)
     daily_rows = await get_daily_stats_from_requests(days=1)
     daily = []

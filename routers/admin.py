@@ -7,7 +7,7 @@ import secrets
 import socket
 import tempfile
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Annotated
@@ -28,14 +28,17 @@ from proxy_core import _get_upstream_url
 from url_builder import build_models_url
 import whitelist as _whitelist_mod
 from stats import (
+    agg_now,
     aggregate_daily_stats,
     get_daily_stats,
     get_daily_stats_from_requests,
     get_overall_stats,
+    get_overall_stats_since,
     get_today_stats,
     refresh_missing_daily_stats,
     refresh_stats,
 )
+from stats import local_date_to_utc_iso
 from stats import (
     list_requests as stats_list_requests,
 )
@@ -782,13 +785,29 @@ async def get_log(filename: str):
 
 
 @router.get("/stats")
-async def get_stats(days: Annotated[int, Query(ge=1)] = 7):
+async def get_stats(
+    days: Annotated[int, Query(ge=1)] = 7,
+    range: Annotated[str | None, Query()] = None,
+):
     """获取统计数据"""
-    overall = await get_overall_stats(days=days)
-    raw_daily = await get_daily_stats(days=days)
+    range_type = range or ""
+    n_days = days
+    if range_type in ("this_week", "this_month"):
+        now_local = agg_now()
+        if range_type == "this_week":
+            start_date = now_local.date() - timedelta(days=now_local.weekday())
+        else:  # this_month
+            start_date = now_local.date().replace(day=1)
+        n_days = (now_local.date() - start_date).days + 1
+        since_utc = local_date_to_utc_iso(start_date)
+        overall = await get_overall_stats_since(since=since_utc)
+    else:
+        overall = await get_overall_stats(days=days)
+
+    raw_daily = await get_daily_stats(days=n_days)
     fallback_used = not bool(raw_daily)
     if fallback_used:
-        raw_daily = await get_daily_stats_from_requests(days=days)
+        raw_daily = await get_daily_stats_from_requests(days=n_days)
     daily_by_date: dict[str, dict] = {}
     for row in raw_daily:
         d = str(row["date"])
@@ -837,7 +856,8 @@ async def get_stats(days: Annotated[int, Query(ge=1)] = 7):
         "daily": daily,
         "_debug": {
             "server_now": datetime.now(timezone.utc).isoformat(),
-            "query_days": days,
+            "query_days": n_days,
+            "range": range_type,
             "raw_daily_count": len(raw_daily),
             "fallback_used": fallback_used,
         },
