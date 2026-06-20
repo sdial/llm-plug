@@ -1291,7 +1291,7 @@ class TestDoRequest:
             )
             _ = [chunk async for chunk in stream]
 
-        assert request_log_record.call_args.kwargs["input_tokens"] == 2095
+        assert request_log_record.call_args.kwargs["input_tokens"] == 2595
         assert request_log_record.call_args.kwargs["output_tokens"] == 154
         assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 500
 
@@ -1367,6 +1367,84 @@ class TestDoRequest:
 
         assert request_log_record.call_args.kwargs["input_tokens"] == 3000
         assert request_log_record.call_args.kwargs["output_tokens"] == 42
+
+    @pytest.mark.anyio
+    async def test_anthropic_stream_input_tokens_includes_cache_tokens(self):
+        """Anthropic→Anthropic 流式直通：记录的 input_tokens 应为总输入
+        (input_tokens + cache_creation_input_tokens + cache_read_input_tokens)，
+        与 OpenAI 的 prompt_tokens 语义对齐。"""
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: message_start"
+                yield 'data: {"type":"message_start","message":{"id":"msg_cache","type":"message","role":"assistant","usage":{"input_tokens":50,"cache_creation_input_tokens":300,"cache_read_input_tokens":8000,"output_tokens":0}}}'
+                yield ""
+                yield "event: content_block_start"
+                yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
+                yield ""
+                yield "event: content_block_delta"
+                yield 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}'
+                yield ""
+                yield "event: content_block_stop"
+                yield 'data: {"type":"content_block_stop","index":0}'
+                yield ""
+                yield "event: message_delta"
+                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}'
+                yield ""
+                yield "event: message_stop"
+                yield 'data: {"type":"message_stop"}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_anth_cache",
+            name="AnthropicCache",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3-5-sonnet-20241022"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "claude-3-5-sonnet-20241022", "stream": True},
+                response_converter=None,
+                source_type="anthropic",
+                target_api_type=APIType.ANTHROPIC,
+            )
+            _ = [chunk async for chunk in stream]
+
+        # input_tokens 应包含所有输入 token：50 + 300 + 8000 = 8350
+        assert request_log_record.call_args.kwargs["input_tokens"] == 8350
+        assert request_log_record.call_args.kwargs["output_tokens"] == 42
+        assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 8000
+        assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 300
 
     @pytest.mark.anyio
     async def test_client_disconnect_before_first_chunk_records_clear_stream_error(self):
@@ -1695,6 +1773,62 @@ class TestDoRequest:
 
         assert exc_info.value.response.status_code == 400
         assert calls == ["https://primary.example/v1/chat/completions"]
+
+    @pytest.mark.anyio
+    async def test_anthropic_non_stream_input_tokens_includes_cache_tokens(self):
+        """Anthropic→Anthropic 非流式直通：记录的 input_tokens 应为总输入
+        (input_tokens + cache_creation_input_tokens + cache_read_input_tokens)，
+        与 OpenAI 的 prompt_tokens 语义对齐。"""
+        upstream_response = {
+            "id": "msg_01X",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "hello"}],
+            "model": "claude-3-5-sonnet-20241022",
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 100,
+                "cache_creation_input_tokens": 200,
+                "cache_read_input_tokens": 5000,
+                "output_tokens": 200,
+            },
+        }
+
+        class FakeClient:
+            async def post(self, url, json, headers):
+                request = httpx.Request("POST", url)
+                return httpx.Response(200, json=upstream_response, request=request)
+
+        channel = Channel(
+            id="ch_anth_nonstream",
+            name="AnthropicNonStream",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3-5-sonnet-20241022"],
+        )
+
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            await _do_request(
+                channel,
+                {"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "hello"}]},
+                APIType.ANTHROPIC,
+                is_stream=False,
+            )
+
+        # input_tokens 应包含所有输入 token：100 + 200 + 5000 = 5300
+        assert request_log_record.call_args.kwargs["input_tokens"] == 5300
+        assert request_log_record.call_args.kwargs["output_tokens"] == 200
+        assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 5000
+        assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 200
 
 
 class TestDoStreamRequest:
