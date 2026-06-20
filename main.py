@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -147,6 +148,29 @@ async def _get_api_key_index() -> dict[str, dict]:
         return _api_key_index
 
 
+_V1_DEDUP = re.compile(r"^(/v1)+(/.*)")
+
+# 已知的裸端点前缀（按长度倒序，确保最长匹配优先）
+_BARE_PREFIXES = (
+    "/chat/completions",
+    "/anthropic/models",
+    "/responses",
+    "/messages",
+    "/models",
+)
+
+
+def normalize_path(path: str) -> str:
+    """路径归一化：重复 /v1 去重 + 已知裸端点补 /v1。"""
+    m = _V1_DEDUP.match(path)
+    if m:
+        return "/v1" + m.group(2)
+    for prefix in _BARE_PREFIXES:
+        if path == prefix or path.startswith(prefix + "/"):
+            return "/v1" + path
+    return path
+
+
 class CombinedMiddleware:
     """Pure ASGI middleware combining auth and logging - avoids BaseHTTPMiddleware streaming bug."""
 
@@ -159,7 +183,8 @@ class CombinedMiddleware:
             return
 
         method = scope["method"]
-        path = scope["path"]
+        path = normalize_path(scope["path"])
+        scope["path"] = path
 
         # IP 白名单检查（对所有 HTTP 请求生效）
         client_ip = (scope.get("client") or ("", 0))[0]
