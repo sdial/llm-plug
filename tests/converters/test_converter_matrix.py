@@ -87,6 +87,74 @@ class TestChatToAnthropic:
         assert "tool_choice" in result
 
 
+# ─── OpenAI Response → Anthropic ───
+
+
+class TestResponseToAnthropic:
+    """测试 OpenAI Response → Anthropic 转换"""
+
+    def setup_method(self):
+        self.converter = ToAnthropicConverter()
+
+    def test_consecutive_function_call_outputs_merged(self):
+        """连续 function_call_output 应合并到同一条 user 消息中（Anthropic 格式要求）"""
+        request = {
+            "model": "gpt-4o",
+            "input": [
+                {"role": "user", "content": "Use tools"},
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "call_id": "call_1",
+                    "name": "tool_a",
+                    "arguments": '{"x": 1}',
+                },
+                {
+                    "type": "function_call",
+                    "id": "call_2",
+                    "call_id": "call_2",
+                    "name": "tool_b",
+                    "arguments": '{"y": 2}',
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "result_a",
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_2",
+                    "output": "result_b",
+                },
+            ],
+            "max_output_tokens": 1024,
+        }
+        result = self.converter.convert_request(request, "openai-response")
+        messages = result["messages"]
+
+        # 找到包含 tool_result 的 user 消息
+        user_with_tool_result = [
+            m for m in messages
+            if m["role"] == "user"
+            and isinstance(m.get("content"), list)
+            and any(c.get("type") == "tool_result" for c in m["content"])
+        ]
+
+        # 两个连续 function_call_output 应合并为 1 条 user 消息，而非 2 条
+        assert len(user_with_tool_result) == 1, (
+            f"Expected 1 user message with merged tool_results, got {len(user_with_tool_result)}"
+        )
+
+        # 合并后的消息应包含 2 个 tool_result 块
+        tool_results = [
+            c for c in user_with_tool_result[0]["content"]
+            if c.get("type") == "tool_result"
+        ]
+        assert len(tool_results) == 2
+        assert tool_results[0]["tool_use_id"] == "call_1"
+        assert tool_results[1]["tool_use_id"] == "call_2"
+
+
 # ─── Anthropic → OpenAI Chat (Claude Code → OpenAI渠道) ───
 
 
