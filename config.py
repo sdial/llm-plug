@@ -94,6 +94,9 @@ _CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
     "allow_format_conversion": {"type": "bool", "default": True, "requires_restart": False},
     "max_fail_count": {"type": "int", "default": 5, "requires_restart": False},
     "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False},
+    "lb_strategy": {"type": "str", "default": "round_robin", "requires_restart": False},
+    "sticky_ttl": {"type": "int", "default": 1800, "requires_restart": False},
+    "sticky_cache_max_entries": {"type": "int", "default": 10000, "requires_restart": False},
     "response_state_max_entries": {"type": "int", "default": 1000, "requires_restart": False},
     "response_state_ttl_minutes": {"type": "int", "default": 60, "requires_restart": False},
     "response_state_cleanup_interval_minutes": {"type": "int", "default": 30, "requires_restart": False},
@@ -132,6 +135,9 @@ _CONFIG_CONSTRAINTS: dict[str, dict] = {
     "max_log_body_size": {"min": 0, "max": 256 * 1024 * 1024},
     "max_fail_count": {"min": 1, "max": 100000},
     "cooldown_seconds": {"min": 1, "max": 86400},
+    "lb_strategy": {"choices": ("round_robin", "backup", "sticky")},
+    "sticky_ttl": {"min": 60, "max": 86400},
+    "sticky_cache_max_entries": {"min": 100, "max": 1000000},
     "response_state_max_entries": {"min": 1, "max": 10_000_000},
     "response_state_ttl_minutes": {"min": 1, "max": 525600},
     "response_state_cleanup_interval_minutes": {"min": 1, "max": 1440},
@@ -236,6 +242,9 @@ async def _apply_lb_settings():
         await load_balancer.update_config(
             max_fail_count=_settings.get("max_fail_count", 5),
             cooldown_seconds=_settings.get("cooldown_seconds", 60),
+            strategy=_settings.get("lb_strategy", "round_robin"),
+            sticky_ttl=_settings.get("sticky_ttl", 1800),
+            sticky_cache_max_entries=_settings.get("sticky_cache_max_entries", 10000),
         )
     except Exception:
         pass
