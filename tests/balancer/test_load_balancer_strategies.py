@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 
 import pytest
 
@@ -90,3 +91,45 @@ async def test_backup_falls_to_same_priority_next_before_lower_priority():
     selected = await lb.select_channel([ch_a, ch_b, ch_low], exclude_ids={"a"})
 
     assert selected.id == "b"
+
+
+def test_build_session_fingerprint_prefers_x_session_id_and_hashes_value():
+    lb = LoadBalancer()
+
+    fingerprint = lb._build_session_fingerprint(
+        client_ip="10.0.0.5",
+        api_key_id="key-name",
+        client_headers={
+            "X-Session-ID": "session-secret",
+            "x-claude-code-session-id": "claude-session",
+            "Authorization": "Bearer raw-secret",
+            "x-api-key": "raw-api-key",
+            "User-Agent": "agent",
+        },
+    )
+
+    assert fingerprint == hashlib.sha256(b'{"session":"session-secret"}').hexdigest()
+    assert "session-secret" not in fingerprint
+    assert "raw-secret" not in fingerprint
+    assert "raw-api-key" not in fingerprint
+
+
+def test_build_session_fingerprint_uses_structured_non_sensitive_fallback():
+    lb = LoadBalancer()
+
+    fingerprint = lb._build_session_fingerprint(
+        client_ip="10.0.0.5",
+        api_key_id="key-name",
+        client_headers={
+            "Authorization": "Bearer raw-secret",
+            "x-api-key": "raw-api-key",
+            "User-Agent": "agent|None",
+        },
+    )
+
+    expected = hashlib.sha256(
+        b'{"api_key_id":"key-name","client_ip":"10.0.0.5","user_agent":"agent|None"}'
+    ).hexdigest()
+    assert fingerprint == expected
+    assert "raw-secret" not in fingerprint
+    assert "raw-api-key" not in fingerprint
