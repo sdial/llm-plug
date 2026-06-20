@@ -1221,6 +1221,154 @@ class TestDoRequest:
         assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 0
 
     @pytest.mark.anyio
+    async def test_anthropic_stream_input_tokens_from_message_delta_when_message_start_zero(self):
+        """Bug: 第三方 Anthropic 代理 message_start 中 input_tokens=0，
+        实际值在 message_delta 的 usage 中。应回退提取。"""
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: message_start"
+                yield 'data: {"type":"message_start","message":{"id":"msg_001","type":"message","role":"assistant","usage":{"input_tokens":0,"cache_read_input_tokens":500,"cache_creation_input_tokens":0,"output_tokens":0}}}'
+                yield ""
+                yield "event: content_block_start"
+                yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
+                yield ""
+                yield "event: content_block_delta"
+                yield 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}'
+                yield ""
+                yield "event: content_block_stop"
+                yield 'data: {"type":"content_block_stop","index":0}'
+                yield ""
+                yield "event: message_delta"
+                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":154,"input_tokens":2095}}'
+                yield ""
+                yield "event: message_stop"
+                yield 'data: {"type":"message_stop"}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_anth_delta_input",
+            name="AnthropicDeltaInput",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3-5-sonnet-20241022"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "claude-3-5-sonnet-20241022", "stream": True},
+                response_converter=None,
+                source_type="anthropic",
+                target_api_type=APIType.ANTHROPIC,
+            )
+            _ = [chunk async for chunk in stream]
+
+        assert request_log_record.call_args.kwargs["input_tokens"] == 2095
+        assert request_log_record.call_args.kwargs["output_tokens"] == 154
+        assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 500
+
+    @pytest.mark.anyio
+    async def test_anthropic_stream_input_tokens_from_prompt_tokens_in_message_start(self):
+        """某些 Anthropic 兼容 API 在 message_start 中用 prompt_tokens 代替 input_tokens。"""
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: message_start"
+                yield 'data: {"type":"message_start","message":{"id":"msg_002","type":"message","role":"assistant","usage":{"prompt_tokens":3000,"output_tokens":0}}}'
+                yield ""
+                yield "event: content_block_start"
+                yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
+                yield ""
+                yield "event: content_block_delta"
+                yield 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"OK"}}'
+                yield ""
+                yield "event: content_block_stop"
+                yield 'data: {"type":"content_block_stop","index":0}'
+                yield ""
+                yield "event: message_delta"
+                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}'
+                yield ""
+                yield "event: message_stop"
+                yield 'data: {"type":"message_stop"}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_anth_prompt_tokens",
+            name="AnthropicPromptTokens",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3-5-sonnet-20241022"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "claude-3-5-sonnet-20241022", "stream": True},
+                response_converter=None,
+                source_type="anthropic",
+                target_api_type=APIType.ANTHROPIC,
+            )
+            _ = [chunk async for chunk in stream]
+
+        assert request_log_record.call_args.kwargs["input_tokens"] == 3000
+        assert request_log_record.call_args.kwargs["output_tokens"] == 42
+
+    @pytest.mark.anyio
     async def test_client_disconnect_before_first_chunk_records_clear_stream_error(self):
         upstream_read_started = asyncio.Event()
 
