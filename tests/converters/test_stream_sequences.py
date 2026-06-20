@@ -1979,3 +1979,25 @@ def test_response_stream_aggregate_text_is_bounded(monkeypatch):
 
     assert completed["response"]["output_text"] == "abcdefghij"
     assert converter._stream_state["aggregate_truncated"] is True
+
+
+def test_anthropic_to_response_stream_aggregate_text_is_bounded(monkeypatch):
+    monkeypatch.setattr("converters.to_response.MAX_STREAM_AGGREGATE_TEXT_CHARS", 10)
+    converter = ToResponseConverter()
+
+    converter.convert_stream_chunk(
+        {"type": "message_start", "message": {"id": "msg_agg", "model": "claude-sonnet-4"}},
+        source_type="anthropic",
+    )
+    converter.convert_stream_chunk(
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+        source_type="anthropic",
+    )
+    delta_event = converter.convert_stream_chunk(
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "abcdefghijklmnop"}},
+        source_type="anthropic",
+    )
+    assert delta_event["delta"] == "abcdefghijklmnop"
+
+    assert converter._stream_state["accumulated_text"] == "abcdefghij"
+    assert converter._stream_state["aggregate_truncated"] is True

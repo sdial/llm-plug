@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -604,3 +605,38 @@ def test_post_responses_streaming_saves_completed_response(client):
                 {"role": "user", "content": "Hello"},
                 {"role": "assistant", "content": "Hello stream"},
             ]
+
+
+def test_post_responses_all_channels_exhausted_returns_upstream_status(client):
+    from proxy_core import AllChannelsExhausted
+
+    upstream_resp = MagicMock()
+    upstream_resp.status_code = 429
+    upstream_resp.headers = {"content-type": "application/json"}
+    upstream_resp.content = b'{"error":{"message":"rate limited"}}'
+    upstream_resp.text = '{"error":{"message":"rate limited"}}'
+    last_error = httpx.HTTPStatusError("429", request=MagicMock(), response=upstream_resp)
+
+    with patch("routers.proxy_response.proxy_request") as mock_proxy:
+        mock_proxy.side_effect = AllChannelsExhausted("all channels exhausted", last_error=last_error)
+
+        resp = client.post(
+            "/v1/responses",
+            json={"model": "gpt-4o", "input": "hi"},
+        )
+
+        assert resp.status_code == 429
+
+
+def test_post_responses_all_channels_exhausted_non_http_returns_502(client):
+    from proxy_core import AllChannelsExhausted
+
+    with patch("routers.proxy_response.proxy_request") as mock_proxy:
+        mock_proxy.side_effect = AllChannelsExhausted("all channels exhausted", last_error=RuntimeError("network down"))
+
+        resp = client.post(
+            "/v1/responses",
+            json={"model": "gpt-4o", "input": "hi"},
+        )
+
+        assert resp.status_code == 502

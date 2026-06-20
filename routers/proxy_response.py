@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from loguru import logger
 
 from models.api_types import APIType
-from proxy_core import ConverterError, proxy_request
+from proxy_core import AllChannelsExhausted, ConverterError, proxy_request
 from response_state import get_responses_store
 from routers.auth import check_proxy_authorization
 from routers.proxy_errors import (
@@ -193,6 +193,11 @@ async def post_response(request: Request, authorization: Annotated[str | None, H
     except httpx.HTTPStatusError as e:
         logger.error(f"[RESPONSES ERROR] /v1/responses upstream HTTP {e.response.status_code}: {e}")
         return _response_from_upstream_http_error(e)
+    except AllChannelsExhausted as e:
+        logger.error(f"[RESPONSES ERROR] /v1/responses AllChannelsExhausted: {e}")
+        if isinstance(e.last_error, httpx.HTTPStatusError):
+            return _response_from_upstream_http_error(e.last_error)
+        return response_from_proxy_exception(e.last_error or e)
     except Exception as e:
         logger.error(f"[RESPONSES ERROR] /v1/responses {type(e).__name__}: {e}")
         return response_from_proxy_exception(e)
