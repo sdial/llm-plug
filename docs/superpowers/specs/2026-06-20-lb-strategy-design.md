@@ -34,6 +34,7 @@
 - `_VALID_VALUES` 新增 `"lb_strategy": ["round_robin", "backup", "sticky"]`
 - `_VALID_VALUES` 新增 `"sticky_ttl": {"min": 60, "max": 86400}`
 - `_apply_lb_settings()` 热更新 `load_balancer.update_strategy()` 和 `sticky_ttl`
+- 策略切换时（如从 `sticky` 切到 `round_robin`）应清空 `_sticky_cache`
 
 ## select_channel 接口变更
 
@@ -54,7 +55,7 @@ async def select_channel(
 
 - `client_ip`：从 `CombinedMiddleware` 写入 `scope["state"]["client_ip"]` 获取
 - `api_key`：从 `scope["state"]["api_key_id"]` 获取
-- `extra_headers`：从请求 headers 中提取（过滤掉 `authorization`、`x-api-key` 等敏感头，或只传 sticky 策略需要的特定 headers）
+- `extra_headers`：从请求 headers 中完整传入（包含 `authorization`、`x-api-key` 等，sticky 策略需要用它们构建复合键；敏感头的过滤仅在 request_logs 记录时做）
 
 调用点（共 2 处主调用）：
 - `proxy_core.py:769` — 模型组 fallback 循环中的渠道选择
