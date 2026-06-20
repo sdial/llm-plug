@@ -627,14 +627,21 @@ class ToAnthropicConverter(BaseConverter):
                 item_type = item.get("type", "")
                 if item_type == "function_call_output":
                     tool_result_content = item.get("output", "")
-                    messages.append({
-                        "role": "user",
-                        "content": [{
-                            "type": "tool_result",
-                            "tool_use_id": item.get("call_id", ""),
-                            "content": tool_result_content,
-                        }],
-                    })
+                    tool_result_block = {
+                        "type": "tool_result",
+                        "tool_use_id": item.get("call_id", ""),
+                        "content": tool_result_content,
+                    }
+                    if messages and messages[-1]["role"] == "user":
+                        last_content = messages[-1].get("content")
+                        if isinstance(last_content, list) and any(
+                            c.get("type") == "tool_result" for c in last_content
+                        ):
+                            messages[-1]["content"].append(tool_result_block)
+                        else:
+                            messages.append({"role": "user", "content": [tool_result_block]})
+                    else:
+                        messages.append({"role": "user", "content": [tool_result_block]})
                 elif item_type == "function_call":
                     args = item.get("arguments", "{}")
                     args, _ = safe_parse_tool_args(args)
