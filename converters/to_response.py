@@ -889,7 +889,7 @@ class ToResponseConverter(BaseConverter):
             block = self._stream_state["anthropic_content_blocks"].get(chunk.get("index", 0), {})
             if delta.get("type") == "text_delta":
                 text = delta.get("text", "")
-                self._stream_state["accumulated_text"] += text
+                self._append_stream_aggregate("accumulated_text", text)
                 return {
                     "type": "response.output_text.delta",
                     "item_id": block.get("item_id", self._stream_state["message_id"]),
