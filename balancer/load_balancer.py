@@ -166,5 +166,37 @@ class LoadBalancer:
 
         return best
 
+    def _normalize_headers(self, client_headers: dict[str, str] | None) -> dict[str, str]:
+        if not client_headers:
+            return {}
+        return {str(k).lower(): str(v) for k, v in client_headers.items()}
+
+    def _build_session_fingerprint(
+        self,
+        *,
+        client_ip: str | None,
+        api_key_id: str | None,
+        client_headers: dict[str, str] | None,
+    ) -> str:
+        headers = self._normalize_headers(client_headers)
+        explicit_session = headers.get("x-session-id") or headers.get("x-claude-code-session-id")
+        if explicit_session:
+            canonical = json.dumps(
+                {"session": explicit_session[:512]},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        else:
+            canonical = json.dumps(
+                {
+                    "api_key_id": api_key_id or "",
+                    "client_ip": client_ip or "",
+                    "user_agent": headers.get("user-agent", ""),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
 
 load_balancer = LoadBalancer()
