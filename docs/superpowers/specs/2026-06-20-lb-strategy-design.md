@@ -88,23 +88,19 @@ async def select_channel(
 
 任一存在 → 直接使用其值作为哈希键。
 
-**优先级 2 — 复合键（拼接多个稳定 header + 源 IP）：**
+**优先级 2 — 复合键（全量拼接，保证非空）：**
 
-从请求 headers 中提取以下字段，用 `|` 拼接：
+将以下所有部分用 `|` 拼接，缺失的部分填空字符串：
 
-| 组成部分 | header 名 | 说明 |
-|----------|-----------|------|
-| API Key | `Authorization` 或 `x-api-key` 或 `X-API-Key`（取第一个存在的） | 客户端身份 |
-| User-Agent | `User-Agent` | 客户端类型 |
-| 源 IP | 从 `client_ip` 参数获取 | 请求来源 |
+| 组成部分 | 来源 | 缺失时 |
+|----------|------|--------|
+| API Key | `Authorization` 或 `x-api-key` 或 `X-API-Key`（取第一个存在的） | `""` |
+| User-Agent | `User-Agent` header | `""` |
+| 源 IP | `client_ip` 参数 | `""` |
 
 拼接格式：`{api_key_value}|{user_agent}|{client_ip}`
 
-**优先级 3 — 兜底：**
-- 仅 API Key header 值
-- 仅源 IP（无任何 key header 时）
-
-空值跳过，所有部分都为空时返回 `None`（退化为 round_robin 行为）。
+由于 `client_ip` 在正常请求中始终存在，复合键保证非空。无优先级 3。
 
 #### 第二步：一致性哈希选渠道
 
@@ -178,4 +174,4 @@ def _consistent_hash_select(
 2. **backup** — 同优先级内按 weight 排序；全部失败时 fallback 到低优先级
 3. **sticky** — 同一 session key 始终映射到同一渠道；渠道不可用时 fallback 到下一个健康渠道；一致性哈希的渠道增减稳定性
 4. **策略切换** — 设置页切换策略后热生效，无需重启
-5. **边界情况** — 所有渠道不可用时返回 None；session key 为空时退化为 round_robin
+5. **边界情况** — 所有渠道不可用时返回 None；无 session header 且无 API key 时复合键仅含 IP，仍正常工作
