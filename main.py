@@ -16,7 +16,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 import request_logs
 import whitelist as _whitelist
 from client import cleanup_stale_clients, close_all_clients
-from config import HOST, MAX_BODY_SIZE, PORT, get_setting, init_settings
+import config
+from config import HOST, PORT, get_setting, init_settings
 from response_state import get_responses_store, reload_responses_store
 from routers import admin, proxy_anthropic, proxy_chat, proxy_models, proxy_response
 from stats import close_pool as close_stats_pool
@@ -248,7 +249,7 @@ class CombinedMiddleware:
         content_length = headers_dict.get("content-length")
         if content_length:
             try:
-                if int(content_length) > MAX_BODY_SIZE:
+                if int(content_length) > config.MAX_BODY_SIZE:
                     await self._send_error(send, 413, "Request body too large")
                     self._log_request(ts_start, method, path, original_path, query, "", False, "", 413, start)
                     return
@@ -264,7 +265,7 @@ class CombinedMiddleware:
             chunk = message.get("body", b"")
             body_parts.append(chunk)
             total_size += len(chunk)
-            if total_size > MAX_BODY_SIZE:
+            if total_size > config.MAX_BODY_SIZE:
                 await self._send_error(send, 413, "Request body too large")
                 self._log_request(ts_start, method, path, original_path, query, "", False, "", 413, start)
                 return

@@ -3,7 +3,7 @@ import time
 
 import httpx
 
-from config import REQUEST_TIMEOUT
+import config
 from models.api_types import APIType
 from models.channel import Channel
 
@@ -29,7 +29,7 @@ def _cache_key(channel: Channel) -> str:
 
 async def get_or_create_client(channel: Channel, timeout: float | None = None) -> httpx.AsyncClient:
     if timeout is None:
-        timeout = float(REQUEST_TIMEOUT)
+        timeout = float(config.REQUEST_TIMEOUT)
     key = _cache_key(channel)
     async with _lock:
         client = _clients.get(key)
@@ -59,7 +59,7 @@ async def create_client(channel: Channel, timeout: float | None = None) -> httpx
 
 
 def create_stream_client(channel: Channel) -> httpx.AsyncClient:
-    timeout = float(REQUEST_TIMEOUT)
+    timeout = float(config.REQUEST_TIMEOUT)
     proxy = channel.socks5_proxy
     if proxy:
         return httpx.AsyncClient(

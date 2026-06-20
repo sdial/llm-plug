@@ -188,7 +188,6 @@ def middleware_app(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
     monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
     monkeypatch.setattr(config, "MAX_BODY_SIZE", 10 * 1024 * 1024)
-    monkeypatch.setattr(_main, "MAX_BODY_SIZE", 10 * 1024 * 1024)
 
     storage._cache = None
     storage._cache_ts = 0

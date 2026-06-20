@@ -81,10 +81,8 @@ def middleware_app(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
     monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
     # 设置一个较小的 max_body_size 以便测试 413
-    # main.py 用 from config import MAX_BODY_SIZE 创建了本地绑定，需要同时 patch
     monkeypatch.setattr(config, "MAX_BODY_SIZE", 1024)
     import main as _main
-    monkeypatch.setattr(_main, "MAX_BODY_SIZE", 1024)
 
     # 清缓存
     storage._cache = None
@@ -206,7 +204,6 @@ class TestBodySizeLimit:
         monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
         monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
         monkeypatch.setattr(config, "MAX_BODY_SIZE", 8)
-        monkeypatch.setattr(_main, "MAX_BODY_SIZE", 8)
         _main._whitelist_cache = _whitelist.WhitelistCache(str(wl_file))
         _main._api_key_index = None
         storage._cache = None
@@ -403,7 +400,6 @@ class TestIpWhitelist:
         monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
         monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
         monkeypatch.setattr(config, "MAX_BODY_SIZE", 10 * 1024 * 1024)
-        monkeypatch.setattr(_main, "MAX_BODY_SIZE", 10 * 1024 * 1024)
 
         storage._cache = None
         storage._cache_ts = 0
