@@ -1773,15 +1773,21 @@ async def _do_stream_request(
                     if is_upstream_anthropic:
                         if chunk.get("type") == "message_start":
                             start_usage = chunk.get("message", {}).get("usage", {})
-                            input_tokens = start_usage.get("input_tokens", 0) or start_usage.get("prompt_tokens", 0)
+                            # 某些第三方代理用 prompt_tokens 代替 input_tokens
+                            input_tokens = start_usage.get("input_tokens", 0)
+                            if input_tokens == 0:
+                                input_tokens = start_usage.get("prompt_tokens", 0)
                             token_details = cache_token_details(start_usage)
                             cache_read_input_tokens = token_details["cache_read_input_tokens"]
                             cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
                         elif chunk.get("type") == "message_delta":
                             delta_usage = chunk.get("usage", {})
                             output_tokens = delta_usage.get("output_tokens", output_tokens)
-                            if not input_tokens:
-                                input_tokens = delta_usage.get("input_tokens", 0) or delta_usage.get("prompt_tokens", 0)
+                            # 标准 API 的 message_delta 只有 output_tokens，但第三方代理可能附带 input_tokens
+                            if input_tokens == 0:
+                                input_tokens = delta_usage.get("input_tokens", 0)
+                                if input_tokens == 0:
+                                    input_tokens = delta_usage.get("prompt_tokens", 0)
                             token_details = cache_token_details(delta_usage)
                             if token_details["cache_read_input_tokens"] or token_details["cache_creation_input_tokens"]:
                                 cache_read_input_tokens = token_details["cache_read_input_tokens"]
