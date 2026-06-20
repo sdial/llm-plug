@@ -212,6 +212,56 @@ def test_settings_page_explains_zero_config_runtime():
     assert "data/request_logs.db" in html
 
 
+def test_lb_strategy_settings_schema_defaults():
+    from config import _CONFIG_SCHEMA
+
+    assert _CONFIG_SCHEMA["lb_strategy"]["default"] == "round_robin"
+    assert _CONFIG_SCHEMA["lb_strategy"]["requires_restart"] is False
+    assert _CONFIG_SCHEMA["sticky_ttl"]["default"] == 1800
+    assert _CONFIG_SCHEMA["sticky_cache_max_entries"]["default"] == 10000
+
+
+@pytest.mark.asyncio
+async def test_update_settings_validates_lb_strategy(monkeypatch):
+    import config
+
+    config._settings = {key: schema["default"] for key, schema in config._CONFIG_SCHEMA.items()}
+
+    with pytest.raises(ValueError, match="lb_strategy"):
+        await config.update_settings({"lb_strategy": "random"})
+
+
+@pytest.mark.asyncio
+async def test_apply_lb_settings_passes_strategy_and_sticky_values(monkeypatch):
+    import config
+
+    calls = []
+
+    class FakeBalancer:
+        async def update_config(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr("balancer.load_balancer.load_balancer", FakeBalancer())
+    config._settings = {
+        **{key: schema["default"] for key, schema in config._CONFIG_SCHEMA.items()},
+        "max_fail_count": 7,
+        "cooldown_seconds": 88,
+        "lb_strategy": "sticky",
+        "sticky_ttl": 600,
+        "sticky_cache_max_entries": 1234,
+    }
+
+    await config._apply_lb_settings()
+
+    assert calls == [{
+        "max_fail_count": 7,
+        "cooldown_seconds": 88,
+        "strategy": "sticky",
+        "sticky_ttl": 600,
+        "sticky_cache_max_entries": 1234,
+    }]
+
+
 def test_migrate_lb_config(tmp_path):
     """lb_config 自动迁移到 settings.json"""
     import json
