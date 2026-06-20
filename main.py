@@ -284,6 +284,7 @@ class CombinedMiddleware:
 
         # Initialize state
         scope.setdefault("state", {})
+        scope["state"]["client_ip"] = client_ip
 
         # Store body for downstream handlers
         scope["state"]["body_bytes"] = body_bytes

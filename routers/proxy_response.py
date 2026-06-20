@@ -171,7 +171,7 @@ async def post_response(request: Request, authorization: Annotated[str | None, H
     query_string = str(request.url.query) if request.url.query else None
     client_headers = dict(request.headers)
     api_key_id = getattr(request.state, "api_key_id", None)
-    client_ip = request.client.host if request.client else None
+    client_ip = getattr(request.state, "client_ip", None)
 
     logger.debug(f"[RESPONSES REQUEST] model={model} stream={is_stream} api_key_id={api_key_id}")
 

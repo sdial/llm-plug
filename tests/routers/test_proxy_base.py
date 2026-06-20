@@ -514,3 +514,60 @@ def test_stream_response_is_not_primed_again_at_router_layer():
 
     assert consumed_before_response == 0
     assert response.media_type == "text/event-stream"
+
+
+def test_proxy_request_receives_client_ip_from_request(monkeypatch):
+    """CombinedMiddleware 应将 client_ip 写入 scope state，供 proxy_request 使用。"""
+    captured = {}
+
+    async def fake_proxy_request(*args, **kwargs):
+        captured.update(kwargs)
+        channel = Channel(
+            id="ch",
+            name="Channel",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="http://example.com",
+            api_key="key",
+            models=["gpt-4"],
+        )
+        return {"id": "chatcmpl-test", "choices": []}, channel
+
+    monkeypatch.setattr("routers.proxy_base.proxy_request", fake_proxy_request)
+
+    with TestClient(app) as client:
+        response = client.post("/v1/chat/completions", json={"model": "gpt-4", "messages": []})
+
+    assert response.status_code == 200
+    assert captured["client_ip"] == "testclient"
+
+
+def test_middleware_writes_client_ip_to_scope_state():
+    """CombinedMiddleware 应在处理代理请求时将 client_ip 写入 scope["state"]["client_ip"]。"""
+    from main import CombinedMiddleware
+
+    async def receive():
+        return {"type": "http.request", "body": b'{"model":"gpt-4"}', "more_body": False}
+
+    async def send(message):
+        pass
+
+    downstream_scope = {}
+
+    async def downstream_app(scope, receive, send):
+        downstream_scope.update(scope)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": [],
+        "query_string": b"",
+        "client": ("192.168.1.100", 54321),
+    }
+
+    middleware = CombinedMiddleware(downstream_app)
+    with patch("main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}):
+        import anyio
+        anyio.run(middleware, scope, receive, send)
+
+    assert downstream_scope.get("state", {}).get("client_ip") == "192.168.1.100"
