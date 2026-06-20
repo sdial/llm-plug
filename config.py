@@ -317,6 +317,7 @@ async def update_settings(updates: dict) -> dict:
     global _settings
     updated_keys = []
     needs_restart = False
+    staged: dict[str, object] = {}
     async with _settings_lock:
         for key, value in updates.items():
             schema = _CONFIG_SCHEMA.get(key)
@@ -329,10 +330,11 @@ async def update_settings(updates: dict) -> dict:
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"{key} type cast failed: {exc}") from exc
             _validate_setting(key, casted)
-            _settings[key] = casted
+            staged[key] = casted
             updated_keys.append(key)
             if schema.get("requires_restart"):
                 needs_restart = True
+        _settings.update(staged)
         if updated_keys:
             await _save_settings_to_disk()
             _sync_module_vars()
