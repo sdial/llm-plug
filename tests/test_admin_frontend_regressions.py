@@ -5,6 +5,30 @@ STATIC_JS = Path("static/js")
 REQUESTS_FRAGMENT = Path("static/fragments/admin/requests.html")
 
 
+def test_settings_page_contains_lb_strategy_controls():
+    html = Path("static/fragments/admin/settings.html").read_text(encoding="utf-8")
+
+    assert 'id="set_lb_strategy"' in html
+    assert 'id="set_sticky_ttl"' in html
+    assert 'id="set_sticky_cache_max_entries"' in html
+    assert 'id="sticky_lb_options"' in html
+    assert 'value="round_robin"' in html
+    assert 'value="backup"' in html
+    assert 'value="sticky"' in html
+
+
+def test_settings_js_loads_saves_and_toggles_lb_strategy_controls():
+    js = Path("static/js/settings.js").read_text(encoding="utf-8")
+
+    assert "syncLbStrategyMode" in js
+    assert "set_lb_strategy" in js
+    assert "set_sticky_ttl" in js
+    assert "set_sticky_cache_max_entries" in js
+    assert "data.lb_strategy" in js
+    assert "data.sticky_ttl" in js
+    assert "data.sticky_cache_max_entries" in js
+
+
 def test_switching_to_requests_does_not_read_request_filters_before_fragment_loads():
     admin_js = (STATIC_JS / "admin.js").read_text(encoding="utf-8")
 

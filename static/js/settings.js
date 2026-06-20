@@ -22,11 +22,11 @@ function _updateSettingsDirtyIndicators() {
     const dot = btn.querySelector('.settings-dirty-dot');
     if (dot) {
       if (_settingsDirtySections.has(btn.dataset.section)) {
-dot.classList.remove('hidden');
-dot.classList.add('inline-block');
+        dot.classList.remove('hidden');
+        dot.classList.add('inline-block');
       } else {
-dot.classList.add('hidden');
-dot.classList.remove('inline-block');
+        dot.classList.add('hidden');
+        dot.classList.remove('inline-block');
       }
     }
   });
@@ -44,6 +44,12 @@ function _detectSettingsDirty() {
   if (maxFail !== (orig.max_fail_count ?? 5)) _settingsDirtySections.add('lb');
   const cooldown = parseInt(document.getElementById('set_cooldown_seconds').value) || 60;
   if (cooldown !== (orig.cooldown_seconds ?? 60)) _settingsDirtySections.add('lb');
+  const lbStrategy = document.getElementById('set_lb_strategy')?.value || 'round_robin';
+  if (lbStrategy !== (orig.lb_strategy || 'round_robin')) _settingsDirtySections.add('lb');
+  const stickyTtl = parseInt(document.getElementById('set_sticky_ttl')?.value) || 1800;
+  if (stickyTtl !== (orig.sticky_ttl ?? 1800)) _settingsDirtySections.add('lb');
+  const stickyCacheMax = parseInt(document.getElementById('set_sticky_cache_max_entries')?.value) || 10000;
+  if (stickyCacheMax !== (orig.sticky_cache_max_entries ?? 10000)) _settingsDirtySections.add('lb');
   const newLevel = document.getElementById('set_log_level').value;
   if (newLevel !== (orig.log_level || 'INFO').toUpperCase()) _settingsDirtySections.add('logs');
   const requestLogDbType = document.getElementById('set_request_log_db_type').value;
@@ -61,6 +67,21 @@ function _detectSettingsDirty() {
   const retentionDays = parseInt(document.getElementById('set_request_log_retention_days').value) || 0;
   if (retentionDays !== (orig.request_log_retention_days ?? 0)) _settingsDirtySections.add('database');
   _updateSettingsDirtyIndicators();
+}
+
+function syncLbStrategyMode() {
+  const strategyEl = document.getElementById('set_lb_strategy');
+  const stickyOptions = document.getElementById('sticky_lb_options');
+  const help = document.getElementById('lb_strategy_help');
+  if (!strategyEl || !stickyOptions || !help) return;
+  const strategy = strategyEl.value || 'round_robin';
+  stickyOptions.classList.toggle('hidden', strategy !== 'sticky');
+  const descriptions = {
+    round_robin: '同优先级内按权重轮询分发流量，低优先级渠道作为备份。',
+    backup: '按优先级和权重排序，始终使用最靠前的健康渠道，失败后才切换。',
+    sticky: '同一会话优先路由到同一渠道，用于复用上游缓存；会话标识会先脱敏再参与路由。',
+  };
+  help.textContent = descriptions[strategy] || descriptions.round_robin;
 }
 
 function syncRequestLogDbMode() {
@@ -86,6 +107,7 @@ function initSettings() {
     el.addEventListener('change', () => _detectSettingsDirty());
   });
   syncRequestLogDbMode();
+  syncLbStrategyMode();
 }
 
 async function loadSettings() {
@@ -119,6 +141,10 @@ async function loadSettings() {
     document.getElementById('set_request_log_retention_days').value = data.request_log_retention_days ?? 0;
     document.getElementById('set_max_fail_count').value = data.max_fail_count ?? 5;
     document.getElementById('set_cooldown_seconds').value = data.cooldown_seconds ?? 60;
+    document.getElementById('set_lb_strategy').value = data.lb_strategy || 'round_robin';
+    document.getElementById('set_sticky_ttl').value = data.sticky_ttl ?? 1800;
+    document.getElementById('set_sticky_cache_max_entries').value = data.sticky_cache_max_entries ?? 10000;
+    syncLbStrategyMode();
     document.getElementById('restartBtn').classList.add('hidden');
   } catch (e) {
     console.error('加载设置失败:', e);
@@ -155,6 +181,14 @@ async function saveSettings() {
   if (maxFailCount !== (orig.max_fail_count ?? 5)) data.max_fail_count = maxFailCount;
   const cooldownSeconds = parseInt(document.getElementById('set_cooldown_seconds').value) || 60;
   if (cooldownSeconds !== (orig.cooldown_seconds ?? 60)) data.cooldown_seconds = cooldownSeconds;
+  const lbStrategy = document.getElementById('set_lb_strategy').value || 'round_robin';
+  if (lbStrategy !== (orig.lb_strategy || 'round_robin')) data.lb_strategy = lbStrategy;
+  if (lbStrategy === 'sticky') {
+    const stickyTtl = parseInt(document.getElementById('set_sticky_ttl').value) || 1800;
+    if (stickyTtl !== (orig.sticky_ttl ?? 1800)) data.sticky_ttl = stickyTtl;
+    const stickyCacheMax = parseInt(document.getElementById('set_sticky_cache_max_entries').value) || 10000;
+    if (stickyCacheMax !== (orig.sticky_cache_max_entries ?? 10000)) data.sticky_cache_max_entries = stickyCacheMax;
+  }
 
   if (Object.keys(data).length === 0) {
     showGlobalToast('没有修改', 'info');
@@ -171,9 +205,9 @@ async function saveSettings() {
       const result = await resp.json();
       showGlobalToast('保存成功', 'success');
       if (result.needs_restart) {
-document.getElementById('restartBtn').classList.remove('hidden');
+        document.getElementById('restartBtn').classList.remove('hidden');
       } else {
-document.getElementById('restartBtn').classList.add('hidden');
+        document.getElementById('restartBtn').classList.add('hidden');
       }
       loadSettings();
     } else {
@@ -386,6 +420,7 @@ Object.assign(window, {
     switchSettingsSection,
     initSettings,
     syncRequestLogDbMode,
+    syncLbStrategyMode,
     loadSettings,
     saveSettings,
     restartServer,
