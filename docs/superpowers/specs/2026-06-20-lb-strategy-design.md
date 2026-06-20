@@ -90,17 +90,18 @@ async def select_channel(
 
 **优先级 2 — 复合键（全量拼接，保证非空）：**
 
-将以下所有部分用 `|` 拼接，缺失的部分填空字符串：
+将以下所有部分用 `|` 拼接，不存在的 header 置为 `None`：
 
 | 组成部分 | 来源 | 缺失时 |
 |----------|------|--------|
-| API Key | `Authorization` 或 `x-api-key` 或 `X-API-Key`（取第一个存在的） | `""` |
-| User-Agent | `User-Agent` header | `""` |
-| 源 IP | `client_ip` 参数 | `""` |
+| Authorization | `Authorization` header | `"None"` |
+| X-API-Key | `x-api-key` 或 `X-API-Key` header | `"None"` |
+| User-Agent | `User-Agent` header | `"None"` |
+| 源 IP | `client_ip` 参数 | `"None"` |
 
-拼接格式：`{api_key_value}|{user_agent}|{client_ip}`
+拼接格式：`{Authorization}|{x_api_key}|{User-Agent}|{client_ip}`
 
-由于 `client_ip` 在正常请求中始终存在，复合键保证非空。无优先级 3。
+所有 header 都不存在时，键为 `None|None|None|{client_ip}`，仍保证非空。
 
 #### 第二步：一致性哈希选渠道
 
@@ -150,7 +151,7 @@ def _consistent_hash_select(
 2. 策略下方的说明文字动态更新：
    - `round_robin` → "同优先级内按权重轮询分发流量，低优先级渠道作为备份。"
    - `backup` → "按优先级顺序逐个尝试，始终使用最靠前的健康渠道，失败后才切换到下一个。"
-   - `sticky` → "同一会话的请求始终路由到同一渠道，利用上游缓存。会话标识自动从 X-Session-ID / x-claude-code-session-id / API Key + User-Agent + IP 构建。"
+   - `sticky` → "同一会话的请求始终路由到同一渠道，利用上游缓存。会话标识自动从 X-Session-ID / x-claude-code-session-id / Authorization + x-api-key + User-Agent + IP 构建。"
 
 ### 渠道管理页
 
