@@ -103,6 +103,9 @@ class LoadBalancer:
         self,
         channels: list[Channel],
         exclude_ids: set[str] | None = None,
+        client_ip: str | None = None,
+        api_key_id: str | None = None,
+        client_headers: dict[str, str] | None = None,
     ) -> Optional[Channel]:
         """
         从候选渠道中选择一个：
@@ -114,24 +117,29 @@ class LoadBalancer:
         """
         exclude_ids = exclude_ids or set()
         async with self._lock:
-            available = [
-                ch
-                for ch in channels
-                if ch.enabled
-                and ch.id not in exclude_ids
-                and self._health[ch.id].is_healthy(self._max_fail_count, self._cooldown_seconds)
-            ]
-            if not available:
+            top_group = self._get_top_priority_group(channels, exclude_ids)
+            if not top_group:
                 return None
 
-            available.sort(key=lambda ch: ch.priority)
-            min_priority = available[0].priority
-            top_group = [ch for ch in available if ch.priority == min_priority]
+            if self._strategy == "backup":
+                return self._backup_select(top_group)
+            return self._weighted_round_robin(top_group) if len(top_group) > 1 else top_group[0]
 
-            if len(top_group) == 1:
-                return top_group[0]
+    def _get_top_priority_group(self, channels: list[Channel], exclude_ids: set[str]) -> list[Channel]:
+        available = [
+            ch
+            for ch in channels
+            if ch.enabled
+            and ch.id not in exclude_ids
+            and self._health[ch.id].is_healthy(self._max_fail_count, self._cooldown_seconds)
+        ]
+        if not available:
+            return []
+        min_priority = min(ch.priority for ch in available)
+        return [ch for ch in available if ch.priority == min_priority]
 
-            return self._weighted_round_robin(top_group)
+    def _backup_select(self, channels: list[Channel]) -> Channel:
+        return sorted(channels, key=lambda ch: (-ch.weight, ch.id))[0]
 
     def _weighted_round_robin(self, channels: list[Channel]) -> Channel:
         """平滑加权轮询算法
