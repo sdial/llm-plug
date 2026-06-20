@@ -1130,6 +1130,12 @@ async def _do_request(
         input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
         output_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
         token_details = cache_token_details(usage)
+        # Anthropic 语义：input_tokens 不含 cache_creation/cache_read（三者互斥）
+        # OpenAI Chat：prompt_tokens 含全部输入（cache 是子集）
+        # OpenAI Response：input_tokens 含全部输入（cache 是子集）
+        # 仅当纯 Anthropic 语义时归一化：加上缓存 token 使 input_tokens 表示总输入
+        if "prompt_tokens" not in usage and "input_tokens_details" not in usage:
+            input_tokens += token_details["cache_creation_input_tokens"] + token_details["cache_read_input_tokens"]
 
         # 提取 finish_reason
         finish_reason = None
@@ -1776,7 +1782,11 @@ async def _do_stream_request(
                             # 某些第三方代理用 prompt_tokens 代替 input_tokens
                             input_tokens = start_usage.get("input_tokens", 0)
                             if input_tokens == 0:
+                                # prompt_tokens 回退：值已含 cache，不额外加
                                 input_tokens = start_usage.get("prompt_tokens", 0)
+                            else:
+                                # Anthropic 语义：input_tokens 不含 cache，归一化为总输入
+                                input_tokens += start_usage.get("cache_creation_input_tokens", 0) + start_usage.get("cache_read_input_tokens", 0)
                             token_details = cache_token_details(start_usage)
                             cache_read_input_tokens = token_details["cache_read_input_tokens"]
                             cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
@@ -1787,7 +1797,11 @@ async def _do_stream_request(
                             if input_tokens == 0:
                                 input_tokens = delta_usage.get("input_tokens", 0)
                                 if input_tokens == 0:
+                                    # prompt_tokens 回退：值已含 cache，不额外加
                                     input_tokens = delta_usage.get("prompt_tokens", 0)
+                                else:
+                                    # Anthropic 语义：input_tokens 不含 cache，归一化为总输入
+                                    input_tokens += cache_read_input_tokens + cache_creation_input_tokens
                             token_details = cache_token_details(delta_usage)
                             if token_details["cache_read_input_tokens"] or token_details["cache_creation_input_tokens"]:
                                 cache_read_input_tokens = token_details["cache_read_input_tokens"]
