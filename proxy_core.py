@@ -2005,6 +2005,28 @@ async def _do_stream_request(
                 stop_reason = full_response.get("stop_reason")
                 if stop_reason:
                     finish_reason = stop_reason
+            else:
+                stream_error = "non_sse_json_parse_error"
+                logger.error(f"[STREAM NON-SSE PARSE FAILED] model={model} body={non_sse_stream_body[:200]}")
+                if output_anthropic_sse:
+                    yield _yield_anthropic_event("error", {
+                        "type": "error",
+                        "error": {"type": "api_error", "message": "Upstream returned unparseable response"},
+                    })
+                    yield _yield_anthropic_event("message_stop", {"type": "message_stop"})
+                elif output_responses_sse:
+                    yield _yield_anthropic_event("error", {
+                        "type": "error",
+                        "error": {"message": "Upstream returned unparseable response", "type": "api_error"},
+                    })
+                    yield _yield_anthropic_event("response.failed", {
+                        "type": "response.failed",
+                        "response": {"id": "", "object": "response", "status": "failed", "model": model, "output": [], "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}},
+                    })
+                else:
+                    yield f'data: {json.dumps({"error": {"message": "Upstream returned unparseable response", "type": "api_error"}}, ensure_ascii=False)}\n\n'
+                if not output_sse_events:
+                    yield "data: [DONE]\n\n"
 
         if stream_error is None:
             stream_success = True

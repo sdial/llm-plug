@@ -4551,3 +4551,57 @@ class TestDoRequestSetsIncludeUsage:
 
         assert captured.get("called") is True
         assert captured["flag"] is False
+
+    @pytest.mark.anyio
+    async def test_non_sse_json_parse_error_yields_error_and_done(self):
+        """上游返回非 JSON 文本且无法解析时，流式响应必须产出错误事件和 [DONE]，
+        而非静默退出导致客户端挂起。"""
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/plain"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "this is not json and not sse"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_broken",
+            name="Broken",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.example.com",
+            api_key="sk-test",
+            models=["gpt-4"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = await _do_request(
+                channel,
+                {"model": "gpt-4", "stream": True,
+                 "messages": [{"role": "user", "content": "hi"}]},
+                APIType.OPENAI_CHAT,
+                is_stream=True,
+            )
+            outputs = "".join([chunk async for chunk in stream])
+
+        assert "data: [DONE]" in outputs, "Missing [DONE] — client would hang"
+        assert "error" in outputs, "Missing error event — client gets no feedback"
