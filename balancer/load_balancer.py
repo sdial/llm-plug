@@ -123,6 +123,13 @@ class LoadBalancer:
 
             if self._strategy == "backup":
                 return self._backup_select(top_group)
+            if self._strategy == "sticky":
+                session_key = self._build_session_fingerprint(
+                    client_ip=client_ip,
+                    api_key_id=api_key_id,
+                    client_headers=client_headers,
+                )
+                return self._sticky_select_by_hrw(session_key, top_group)
             return self._weighted_round_robin(top_group) if len(top_group) > 1 else top_group[0]
 
     def _get_top_priority_group(self, channels: list[Channel], exclude_ids: set[str]) -> list[Channel]:
@@ -137,6 +144,19 @@ class LoadBalancer:
             return []
         min_priority = min(ch.priority for ch in available)
         return [ch for ch in available if ch.priority == min_priority]
+
+    def _sticky_select_by_hrw(self, session_key: str, candidates: list[Channel]) -> Channel:
+        best_channel: Optional[Channel] = None
+        best_score: float | None = None
+        for channel in candidates:
+            digest = hashlib.sha256(f"{session_key}:{channel.id}".encode("utf-8")).digest()
+            value = int.from_bytes(digest[:8], "big") / 2**64
+            value = max(value, 1e-12)
+            score = -math.log(value) / max(channel.weight, 1)
+            if best_score is None or score < best_score:
+                best_score = score
+                best_channel = channel
+        return best_channel
 
     def _backup_select(self, channels: list[Channel]) -> Channel:
         return sorted(channels, key=lambda ch: (-ch.weight, ch.id))[0]
