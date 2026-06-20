@@ -38,7 +38,7 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 
 `storage.load_data()` / `load_api_keys()` 内置 5 秒 TTL 缓存。**修改渠道或 API Key 数据时必须走 `atomic_update_data(mutator)` / `atomic_update_api_keys(mutator)`**（在锁内完成 read-modify-write 并同步缓存）；直接覆盖 `channels.json` 文件会导致缓存与磁盘不一致，请求最多延迟 5 秒才能感知变更。`save_data()` 仅在你已自行持锁或确定无竞态时使用。
 
-`config._CONFIG_SCHEMA` 中标 `requires_restart: True` 的项（`host` / `port` / `log_level`）保存后会立刻在响应里 `needs_restart: true`，但内存里 `LOG_LEVEL` 需重启或下次 `--log-level` 启动才生效。`request_timeout` 修改会自动调用 `client.invalidate_all_clients()` 重建连接池。`max_body_size` 虽可写入 `settings.json`，但 `main.py` 在模块加载时 `from config import MAX_BODY_SIZE`，设置页修改后中间件仍用旧值，需重启进程才生效。
+`config._CONFIG_SCHEMA` 中标 `requires_restart: True` 的项（`host` / `port` / `log_level`）保存后会立刻在响应里 `needs_restart: true`，但内存里 `LOG_LEVEL` 需重启或下次 `--log-level` 启动才生效。`request_timeout` 修改会自动调用 `client.invalidate_all_clients()` 重建连接池。`max_body_size` 和 `request_timeout` 均通过 `config.MAX_BODY_SIZE` / `config.REQUEST_TIMEOUT` 动态读取，设置页修改后立即生效，无需重启。
 
 ## 架构
 
@@ -128,7 +128,7 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 - **`CombinedMiddleware` 是纯 ASGI** — 显式选它是为了规避 `BaseHTTPMiddleware` 的流式 bug，新功能继续走 ASGI 中间件或路由级依赖
 - **同格式 Anthropic 直通不走 converter** — 设计如此。Anthropic→Anthropic 时 URL 拼接、版本/beta 头由 `client._apply_anthropic_headers()` + `url_builder.build_upstream_url()` 直接处理；不要把同类型场景硬塞进 `ToAnthropicConverter`
 - **能力过滤发生在转换之后** — `apply_capability_filter()` 作用于实际发往上游的格式，同格式透传时仍需应用
-- **请求体大小** — 默认 10MB（`config.py`），`CombinedMiddleware` 提前校验并返回 413；设置页修改 `max_body_size` 后须重启才作用于中间件（见上文配置说明）
+- **请求体大小** — 默认 10MB（`config.py`），`CombinedMiddleware` 提前校验并返回 413；设置页修改 `max_body_size` 后立即生效（中间件通过 `config.MAX_BODY_SIZE` 动态读取）
 - **无 API Key 即开放代理** — `api_keys.json` 为空时不校验客户端 key，部署生产环境前务必配置 API Key
 - **流式首包空** — `_prime_stream()` 触发 `_EmptyStreamError` 走故障转移；非流式空响应走另一条路径，参见 `proxy_core.py` 内注释
 - **Windows 端口占用** — 热重载退出后端口可能短时间占用，研发改用 `--no-reload`；残留进程用 `./kill_port.sh 55555`

@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-LLM API 转换器 — 支持三种 LLM API 格式互转（OpenAI Chat Completions、OpenAI Response、Anthropic），带负载均衡与故障转移。
+LLM API 转换器 — 支持两种 LLM API 格式互转（OpenAI Chat Completions、Anthropic），带负载均衡与故障转移，Response格式仅透传。
+
+## 原则
+- 只有重复5次以上的代码才需要提取为独立函数，其他函数直接调用。
+- 可读性和架构清晰性优先，避免过深的嵌套和复杂的逻辑。
 
 ## 常用命令
 
