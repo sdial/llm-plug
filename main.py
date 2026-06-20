@@ -183,7 +183,8 @@ class CombinedMiddleware:
             return
 
         method = scope["method"]
-        path = normalize_path(scope["path"])
+        original_path = scope["path"]
+        path = normalize_path(original_path)
         scope["path"] = path
 
         # IP 白名单检查（对所有 HTTP 请求生效）
@@ -249,7 +250,7 @@ class CombinedMiddleware:
             try:
                 if int(content_length) > MAX_BODY_SIZE:
                     await self._send_error(send, 413, "Request body too large")
-                    self._log_request(ts_start, method, path, query, "", False, "", 413, start)
+                    self._log_request(ts_start, method, path, original_path, query, "", False, "", 413, start)
                     return
             except ValueError:
                 pass
@@ -265,7 +266,7 @@ class CombinedMiddleware:
             total_size += len(chunk)
             if total_size > MAX_BODY_SIZE:
                 await self._send_error(send, 413, "Request body too large")
-                self._log_request(ts_start, method, path, query, "", False, "", 413, start)
+                self._log_request(ts_start, method, path, original_path, query, "", False, "", 413, start)
                 return
             more_body = message.get("more_body", False)
         body_bytes = b"".join(body_parts)
@@ -300,7 +301,7 @@ class CombinedMiddleware:
                 token = x_api_key
             else:
                 await self._send_error(send, 401, "Missing or invalid Authorization header")
-                self._log_request(ts_start, method, path, query, model, stream, "", 401, start)
+                self._log_request(ts_start, method, path, original_path, query, model, stream, "", 401, start)
                 return
 
             matched_key = api_key_index.get(token)
@@ -309,7 +310,7 @@ class CombinedMiddleware:
 
             if matched_key is None:
                 await self._send_error(send, 401, "Invalid API key")
-                self._log_request(ts_start, method, path, query, model, stream, "", 401, start)
+                self._log_request(ts_start, method, path, original_path, query, model, stream, "", 401, start)
                 return
 
             scope["state"]["api_key_id"] = matched_key.get("name") or matched_key.get("id")
@@ -317,7 +318,7 @@ class CombinedMiddleware:
             allowed_models = matched_key.get("allowed_models", [])
             if allowed_models and model and model not in allowed_models:
                 await self._send_error(send, 403, f"Model '{model}' is not allowed for this API key")
-                self._log_request(ts_start, method, path, query, model, stream, "", 403, start)
+                self._log_request(ts_start, method, path, original_path, query, model, stream, "", 403, start)
                 return
 
         scope["state"]["proxy_auth_checked"] = True
@@ -351,17 +352,18 @@ class CombinedMiddleware:
         finally:
             state = scope.get("state", {})
             channel = state.get("selected_channel_name", "")
-            self._log_request(ts_start, method, path, query, model, stream, channel, response_status or 500, start)
+            self._log_request(ts_start, method, path, original_path, query, model, stream, channel, response_status or 500, start)
 
-    def _log_request(self, ts_start: str, method: str, path: str, query: str,
+    def _log_request(self, ts_start: str, method: str, path: str, original_path: str, query: str,
                      model: str, stream: bool, channel: str, status: int, start: float) -> None:
         qs = f"?{query}" if query else ""
         channel_tag = f" channel={channel}" if channel else ""
+        original_tag = f" original={original_path}" if original_path != path else ""
         ts_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         tag = "OK" if status < 400 else "ERR"
         elapsed = time.time() - start
-        logger.info(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}")
-        logger.info(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s)")
+        logger.info(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}{original_tag}")
+        logger.info(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s){original_tag}")
 
     async def _send_error(self, send: Send, status: int, message: str, error_type: str = "auth_error") -> None:
         error_body = json.dumps({"error": {"message": message, "type": error_type}}).encode()

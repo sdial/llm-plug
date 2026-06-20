@@ -258,7 +258,7 @@ def test_body_stream_over_limit_is_logged_as_413():
 
         anyio.run(middleware, scope, receive, send)
 
-    assert logged and logged[0][7] == 413
+    assert logged and logged[0][8] == 413
 
 
 def test_exception_before_response_start_is_logged_as_500():
@@ -295,7 +295,7 @@ def test_exception_before_response_start_is_logged_as_500():
         with pytest.raises(RuntimeError):
             anyio.run(middleware, scope, receive, send)
 
-    assert logged[0][7] == 500
+    assert logged[0][8] == 500
 
 
 def test_upstream_http_error_status_and_body_are_passed_through():

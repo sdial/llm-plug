@@ -335,3 +335,67 @@ class TestMiddlewarePathNormalization:
             json={"model": "gpt-4o"},
         )
         assert resp.status_code == 401
+
+
+# ═══════════════════════════════════════════
+#  原始路径保留 & 日志
+# ═══════════════════════════════════════════
+
+class TestOriginalPathPreservation:
+    """验证归一化前的原始路径被保留，供日志和调试使用。"""
+
+    def test_log_shows_original_path_when_different(self):
+        """当原始路径与归一化路径不同时，日志应同时显示两者"""
+        import io
+        from loguru import logger
+        from main import CombinedMiddleware
+
+        sink = io.StringIO()
+        handler_id = logger.add(sink, level="INFO")
+        try:
+            mw = CombinedMiddleware.__new__(CombinedMiddleware)
+            mw._log_request(
+                ts_start="2026-06-20 12:00:00",
+                method="POST",
+                path="/v1/messages",
+                original_path="/v1/v1/messages",
+                query="",
+                model="claude-3",
+                stream=False,
+                channel="test-channel",
+                status=200,
+                start=0.0,
+            )
+            log_text = sink.getvalue()
+            assert "/v1/v1/messages" in log_text, f"原始路径应出现在日志中: {log_text}"
+            assert "/v1/messages" in log_text, f"归一化路径应出现在日志中: {log_text}"
+            assert "original=" in log_text, f"应显示 original= 标签: {log_text}"
+        finally:
+            logger.remove(handler_id)
+
+    def test_log_no_duplicate_when_paths_same(self):
+        """当原始路径与归一化路径相同时，日志不应重复显示"""
+        import io
+        from loguru import logger
+        from main import CombinedMiddleware
+
+        sink = io.StringIO()
+        handler_id = logger.add(sink, level="INFO")
+        try:
+            mw = CombinedMiddleware.__new__(CombinedMiddleware)
+            mw._log_request(
+                ts_start="2026-06-20 12:00:00",
+                method="POST",
+                path="/v1/messages",
+                original_path="/v1/messages",
+                query="",
+                model="claude-3",
+                stream=False,
+                channel="",
+                status=200,
+                start=0.0,
+            )
+            log_text = sink.getvalue()
+            assert "original=" not in log_text, f"路径相同时不应显示 original=: {log_text}"
+        finally:
+            logger.remove(handler_id)
