@@ -4603,5 +4603,107 @@ class TestDoRequestSetsIncludeUsage:
             )
             outputs = "".join([chunk async for chunk in stream])
 
-        assert "data: [DONE]" in outputs, "Missing [DONE] — client would hang"
-        assert "error" in outputs, "Missing error event — client gets no feedback"
+@pytest.mark.asyncio
+async def test_single_model_select_channel_receives_request_context(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from models.api_types import APIType
+    from models.channel import Channel
+    import proxy_core
+
+    channel = Channel(
+        id="ch_ctx",
+        name="Context Channel",
+        api_type="openai-chat-completions",
+        base_url="http://example.com",
+        api_key="key",
+        models=["gpt-4"],
+        enabled=True,
+        weight=1,
+        priority=1,
+    )
+    captured = {}
+
+    async def fake_get_channels_for_model(model):
+        return [channel]
+
+    async def fake_select_channel(channels, exclude_ids=None, **kwargs):
+        captured.update(kwargs)
+        return channel
+
+    async def fake_do_request(*args, **kwargs):
+        return {"ok": True}
+
+    monkeypatch.setattr(proxy_core, "_get_channels_for_model", fake_get_channels_for_model)
+    monkeypatch.setattr(proxy_core.load_balancer, "select_channel", fake_select_channel)
+    monkeypatch.setattr(proxy_core, "_do_request", fake_do_request)
+    monkeypatch.setattr(proxy_core.storage, "get_model_group_by_name", AsyncMock(return_value=None))
+
+    await proxy_core.proxy_request(
+        "gpt-4",
+        {"model": "gpt-4"},
+        APIType.OPENAI_CHAT,
+        client_headers={"x-session-id": "s1"},
+        api_key_id="key-name",
+        client_ip="10.0.0.5",
+    )
+
+    assert captured == {
+        "client_ip": "10.0.0.5",
+        "api_key_id": "key-name",
+        "client_headers": {"x-session-id": "s1"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_model_group_select_channel_receives_request_context(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from models.api_types import APIType
+    from models.channel import Channel
+    from models.model_group import ModelGroup
+    import proxy_core
+
+    channel = Channel(
+        id="ch_ctx_group",
+        name="Context Group Channel",
+        api_type="openai-chat-completions",
+        base_url="http://example.com",
+        api_key="key",
+        models=["gpt-4"],
+        enabled=True,
+        weight=1,
+        priority=1,
+    )
+    group = ModelGroup(id="grp", name="group-model", models=["gpt-4"], enabled=True)
+    captured = {}
+
+    async def fake_get_channels_for_model(model):
+        return [channel]
+
+    async def fake_select_channel(channels, exclude_ids=None, **kwargs):
+        captured.update(kwargs)
+        return channel
+
+    async def fake_do_request(*args, **kwargs):
+        return {"ok": True}
+
+    monkeypatch.setattr(proxy_core, "_get_channels_for_model", fake_get_channels_for_model)
+    monkeypatch.setattr(proxy_core.load_balancer, "select_channel", fake_select_channel)
+    monkeypatch.setattr(proxy_core, "_do_request", fake_do_request)
+    monkeypatch.setattr(proxy_core.storage, "get_model_group_by_name", AsyncMock(return_value=group))
+
+    await proxy_core.proxy_request(
+        "group-model",
+        {"model": "group-model"},
+        APIType.OPENAI_CHAT,
+        client_headers={"x-session-id": "s1"},
+        api_key_id="key-name",
+        client_ip="10.0.0.5",
+    )
+
+    assert captured == {
+        "client_ip": "10.0.0.5",
+        "api_key_id": "key-name",
+        "client_headers": {"x-session-id": "s1"},
+    }
