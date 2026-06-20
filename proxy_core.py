@@ -1992,6 +1992,9 @@ async def _do_stream_request(
                 input_tokens = full_usage.get("prompt_tokens", full_usage.get("input_tokens", input_tokens))
                 output_tokens = full_usage.get("completion_tokens", full_usage.get("output_tokens", output_tokens))
                 token_details = cache_token_details(full_usage)
+                # 非 SSE JSON 的 Anthropic 响应：input_tokens 不含 cache，归一化为总输入
+                if "prompt_tokens" not in full_usage and "input_tokens_details" not in full_usage:
+                    input_tokens += token_details["cache_creation_input_tokens"] + token_details["cache_read_input_tokens"]
                 cache_read_input_tokens = token_details["cache_read_input_tokens"]
                 cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
                 choices = full_response.get("choices", [])
