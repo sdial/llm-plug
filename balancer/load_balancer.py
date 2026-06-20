@@ -1,9 +1,22 @@
 import asyncio
+import hashlib
+import json
+import math
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+from dataclasses import dataclass
 from typing import Optional
 
 from models.channel import Channel
+
+
+VALID_STRATEGIES = {"round_robin", "backup", "sticky"}
+
+
+@dataclass
+class StickyCacheEntry:
+    channel_id: str
+    last_active_at: float
 
 
 class ChannelHealth:
@@ -41,12 +54,36 @@ class LoadBalancer:
         self._lock = asyncio.Lock()
         self._max_fail_count: int = 5
         self._cooldown_seconds: float = 60.0
+        self._strategy: str = "round_robin"
+        self._sticky_ttl: float = 1800.0
+        self._sticky_cache_max_entries: int = 10000
+        self._sticky_cache: OrderedDict[str, StickyCacheEntry] = OrderedDict()
 
-    async def update_config(self, max_fail_count: int = 5, cooldown_seconds: int = 60):
+    async def update_config(
+        self,
+        max_fail_count: int = 5,
+        cooldown_seconds: int = 60,
+        strategy: str = "round_robin",
+        sticky_ttl: int = 1800,
+        sticky_cache_max_entries: int = 10000,
+    ):
         """热更新配置参数"""
+        normalized_strategy = str(strategy).lower()
+        if normalized_strategy not in VALID_STRATEGIES:
+            raise ValueError(f"lb_strategy must be one of {sorted(VALID_STRATEGIES)}, got {strategy!r}")
         async with self._lock:
+            clear_sticky_cache = (
+                normalized_strategy != self._strategy
+                or float(sticky_ttl) != self._sticky_ttl
+                or int(sticky_cache_max_entries) != self._sticky_cache_max_entries
+            )
             self._max_fail_count = max_fail_count
             self._cooldown_seconds = float(cooldown_seconds)
+            self._strategy = normalized_strategy
+            self._sticky_ttl = float(sticky_ttl)
+            self._sticky_cache_max_entries = int(sticky_cache_max_entries)
+            if clear_sticky_cache:
+                self._sticky_cache.clear()
 
     async def record_success(self, channel_id: str):
         async with self._lock:
