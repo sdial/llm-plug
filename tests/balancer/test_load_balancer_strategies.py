@@ -133,3 +133,67 @@ def test_build_session_fingerprint_uses_structured_non_sensitive_fallback():
     assert fingerprint == expected
     assert "raw-secret" not in fingerprint
     assert "raw-api-key" not in fingerprint
+
+
+@pytest.mark.asyncio
+async def test_sticky_same_session_selects_same_channel():
+    lb = LoadBalancer()
+    await lb.update_config(strategy="sticky")
+    channels = [make_channel("a"), make_channel("b"), make_channel("c")]
+
+    first = await lb.select_channel(
+        channels,
+        client_ip="10.0.0.5",
+        api_key_id="key-name",
+        client_headers={"user-agent": "agent"},
+    )
+    second = await lb.select_channel(
+        channels,
+        client_ip="10.0.0.5",
+        api_key_id="key-name",
+        client_headers={"user-agent": "agent"},
+    )
+
+    assert second.id == first.id
+
+
+@pytest.mark.asyncio
+async def test_sticky_never_crosses_priority_when_high_priority_available():
+    lb = LoadBalancer()
+    await lb.update_config(strategy="sticky")
+    high_a = make_channel("high-a", priority=1)
+    high_b = make_channel("high-b", priority=1)
+    low = make_channel("low", priority=10, weight=1000)
+
+    for i in range(50):
+        selected = await lb.select_channel(
+            [low, high_a, high_b],
+            client_ip=f"10.0.0.{i}",
+            api_key_id="key-name",
+            client_headers={"user-agent": f"agent-{i}"},
+        )
+        assert selected.id in {"high-a", "high-b"}
+
+
+@pytest.mark.asyncio
+async def test_sticky_exclude_id_reselects_within_same_priority():
+    lb = LoadBalancer()
+    await lb.update_config(strategy="sticky")
+    channels = [make_channel("a"), make_channel("b")]
+    first = await lb.select_channel(
+        channels,
+        client_ip="10.0.0.5",
+        api_key_id="key-name",
+        client_headers={"x-session-id": "session-1"},
+    )
+
+    second = await lb.select_channel(
+        channels,
+        exclude_ids={first.id},
+        client_ip="10.0.0.5",
+        api_key_id="key-name",
+        client_headers={"x-session-id": "session-1"},
+    )
+
+    assert second.id != first.id
+    assert second.id in {"a", "b"}
