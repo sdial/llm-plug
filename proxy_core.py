@@ -766,7 +766,13 @@ async def _proxy_single_model_request(
     last_error: Exception | None = None
 
     while True:
-        selected = await load_balancer.select_channel(channels, exclude_ids=all_tried)
+        selected = await load_balancer.select_channel(
+            channels,
+            exclude_ids=all_tried,
+            client_ip=client_ip,
+            api_key_id=api_key_id,
+            client_headers=client_headers,
+        )
         if not selected:
             if last_error is not None:
                 raise last_error
@@ -824,7 +830,13 @@ async def _proxy_model_group_request(
 
         # 在该模型的渠道中尝试
         while True:
-            selected = await load_balancer.select_channel(channels, exclude_ids=tried_channels)
+            selected = await load_balancer.select_channel(
+                channels,
+                exclude_ids=tried_channels,
+                client_ip=client_ip,
+                api_key_id=api_key_id,
+                client_headers=client_headers,
+            )
             if not selected:
                 break  # 该模型所有渠道都试过了，切换下一个模型
 
