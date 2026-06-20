@@ -129,7 +129,7 @@ class LoadBalancer:
                     api_key_id=api_key_id,
                     client_headers=client_headers,
                 )
-                return self._sticky_select_by_hrw(session_key, top_group)
+                return self._sticky_select_cached(session_key, top_group)
             return self._weighted_round_robin(top_group) if len(top_group) > 1 else top_group[0]
 
     def _get_top_priority_group(self, channels: list[Channel], exclude_ids: set[str]) -> list[Channel]:
@@ -157,6 +157,35 @@ class LoadBalancer:
                 best_score = score
                 best_channel = channel
         return best_channel
+
+    def _sticky_select_cached(self, session_key: str, candidates: list[Channel]) -> Channel:
+        now = time.time()
+        candidate_by_id = {ch.id: ch for ch in candidates}
+        entry = self._sticky_cache.get(session_key)
+        if entry and now - entry.last_active_at < self._sticky_ttl and entry.channel_id in candidate_by_id:
+            entry.last_active_at = now
+            self._sticky_cache.move_to_end(session_key)
+            return candidate_by_id[entry.channel_id]
+        if entry:
+            self._sticky_cache.pop(session_key, None)
+
+        selected = self._sticky_select_by_hrw(session_key, candidates)
+        self._sticky_cache[session_key] = StickyCacheEntry(selected.id, now)
+        self._sticky_cache.move_to_end(session_key)
+        self._trim_sticky_cache(now)
+        return selected
+
+    def _trim_sticky_cache(self, now: float) -> None:
+        expired = []
+        for key, entry in self._sticky_cache.items():
+            if len(expired) >= 100:
+                break
+            if now - entry.last_active_at >= self._sticky_ttl:
+                expired.append(key)
+        for key in expired:
+            self._sticky_cache.pop(key, None)
+        while len(self._sticky_cache) > self._sticky_cache_max_entries:
+            self._sticky_cache.popitem(last=False)
 
     def _backup_select(self, channels: list[Channel]) -> Channel:
         return sorted(channels, key=lambda ch: (-ch.weight, ch.id))[0]
