@@ -146,6 +146,8 @@ class LoadBalancer:
         return [ch for ch in available if ch.priority == min_priority]
 
     def _sticky_select_by_hrw(self, session_key: str, candidates: list[Channel]) -> Channel:
+        if not candidates:
+            raise ValueError("candidates must not be empty")
         best_channel: Optional[Channel] = None
         best_score: float | None = None
         for channel in candidates:
@@ -159,6 +161,16 @@ class LoadBalancer:
         return best_channel
 
     def _sticky_select_cached(self, session_key: str, candidates: list[Channel]) -> Channel:
+        """带缓存的粘性选择。
+
+        缓存命中条件：未过期 且 缓存渠道仍在候选列表中。
+        缓存未命中时（过期、渠道被 exclude_ids 排除、或首次访问），
+        用 HRW 选出新渠道并覆盖缓存条目。
+
+        注意：当原渠道因故障转移被排除时，缓存会被新渠道永久替换，
+        即使原渠道后续恢复，会话也不会回切——这是有意为之的设计，
+        避免故障恢复后反复震荡导致流量分布不稳定。
+        """
         now = time.time()
         candidate_by_id = {ch.id: ch for ch in candidates}
         entry = self._sticky_cache.get(session_key)
