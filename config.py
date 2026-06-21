@@ -247,7 +247,7 @@ async def _apply_lb_settings():
             sticky_cache_max_entries=_settings.get("sticky_cache_max_entries", 10000),
         )
     except Exception:
-        pass
+        logger.warning("Failed to apply LB settings, load balancer will use previous config", exc_info=True)
 
 
 async def _save_settings_to_disk():
