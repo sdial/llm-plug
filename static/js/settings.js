@@ -183,12 +183,10 @@ async function saveSettings() {
   if (cooldownSeconds !== (orig.cooldown_seconds ?? 60)) data.cooldown_seconds = cooldownSeconds;
   const lbStrategy = document.getElementById('set_lb_strategy').value || 'round_robin';
   if (lbStrategy !== (orig.lb_strategy || 'round_robin')) data.lb_strategy = lbStrategy;
-  if (lbStrategy === 'sticky') {
-    const stickyTtl = parseInt(document.getElementById('set_sticky_ttl').value) || 1800;
-    if (stickyTtl !== (orig.sticky_ttl ?? 1800)) data.sticky_ttl = stickyTtl;
-    const stickyCacheMax = parseInt(document.getElementById('set_sticky_cache_max_entries').value) || 10000;
-    if (stickyCacheMax !== (orig.sticky_cache_max_entries ?? 10000)) data.sticky_cache_max_entries = stickyCacheMax;
-  }
+  const stickyTtl = parseInt(document.getElementById('set_sticky_ttl').value) || 1800;
+  if (stickyTtl !== (orig.sticky_ttl ?? 1800)) data.sticky_ttl = stickyTtl;
+  const stickyCacheMax = parseInt(document.getElementById('set_sticky_cache_max_entries').value) || 10000;
+  if (stickyCacheMax !== (orig.sticky_cache_max_entries ?? 10000)) data.sticky_cache_max_entries = stickyCacheMax;
 
   if (Object.keys(data).length === 0) {
     showGlobalToast('没有修改', 'info');

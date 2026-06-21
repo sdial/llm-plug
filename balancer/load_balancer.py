@@ -75,7 +75,6 @@ class LoadBalancer:
             clear_sticky_cache = (
                 normalized_strategy != self._strategy
                 or float(sticky_ttl) != self._sticky_ttl
-                or int(sticky_cache_max_entries) != self._sticky_cache_max_entries
             )
             self._max_fail_count = max_fail_count
             self._cooldown_seconds = float(cooldown_seconds)
@@ -84,6 +83,8 @@ class LoadBalancer:
             self._sticky_cache_max_entries = int(sticky_cache_max_entries)
             if clear_sticky_cache:
                 self._sticky_cache.clear()
+            else:
+                self._trim_sticky_cache(time.time())
 
     async def record_success(self, channel_id: str):
         async with self._lock:
