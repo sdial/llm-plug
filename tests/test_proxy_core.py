@@ -4601,7 +4601,7 @@ class TestDoRequestSetsIncludeUsage:
                 APIType.OPENAI_CHAT,
                 is_stream=True,
             )
-            outputs = "".join([chunk async for chunk in stream])
+            _ = "".join([chunk async for chunk in stream])
 
 @pytest.mark.asyncio
 async def test_single_model_select_channel_receives_request_context(monkeypatch):
