@@ -365,6 +365,7 @@ class ToAnthropicConverter(BaseConverter):
             "stop": "end_turn",
             "length": "max_tokens",
             "tool_calls": "tool_use",
+            "content_filter": "refusal",
         }
         if choices:
             fr = choices[0].get("finish_reason", "")
@@ -393,7 +394,7 @@ class ToAnthropicConverter(BaseConverter):
             return []
         if finish_reason is None:
             finish_reason = self._stream_state.get("pending_finish_reason") or "stop"
-        stop_map = {"stop": "end_turn", "length": "max_tokens", "tool_calls": "tool_use"}
+        stop_map = {"stop": "end_turn", "length": "max_tokens", "tool_calls": "tool_use", "content_filter": "refusal"}
         stop_reason = stop_map.get(finish_reason, "end_turn")
 
         usage_output = 0

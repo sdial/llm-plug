@@ -436,6 +436,20 @@ class TestChatToAnthropic:
         md = delta_events[-1][1]
         assert md["usage"] == {"output_tokens": 50}
 
+    def test_chat_to_anthropic_stream_content_filter_maps_to_refusal(self):
+        """Chat 流式 content_filter finish_reason 应映射为 Anthropic refusal stop_reason。"""
+        chunks = [
+            {"id": "chatcmpl-a", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "[filtered]"}, "finish_reason": None}]},
+            {"id": "chatcmpl-a", "choices": [{"index": 0, "delta": {}, "finish_reason": "content_filter"}],
+             "usage": {"prompt_tokens": 10, "completion_tokens": 5}},
+        ]
+        events: list[tuple[str, dict]] = []
+        for c in chunks:
+            events.extend(self.converter._chat_stream_chunk_to_anthropic(c))
+        delta_events = [e for e in events if e[0] == "message_delta"]
+        assert delta_events, "expected message_delta"
+        assert delta_events[-1][1]["delta"]["stop_reason"] == "refusal"
+
     def test_response_to_anthropic_nonstream_uses_input_tokens_details(self):
         """Response 响应的 input_tokens_details.cached_tokens 应转为 cache_read_input_tokens"""
         resp = {
