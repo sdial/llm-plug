@@ -201,7 +201,13 @@ class ToChatCompletionsConverter(BaseConverter):
 
                 if role == "assistant":
                     assistant_msg = {"role": "assistant"}
-                    if text_parts:
+                    if image_parts:
+                        assistant_content = []
+                        if text_parts:
+                            assistant_content.append({"type": "text", "text": "\n".join(text_parts)})
+                        assistant_content.extend(image_parts)
+                        assistant_msg["content"] = assistant_content
+                    elif text_parts:
                         assistant_msg["content"] = "\n".join(text_parts)
                     elif reasoning_parts and not tool_calls:
                         assistant_msg["content"] = ""

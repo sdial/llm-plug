@@ -273,6 +273,70 @@ class TestAnthropicToChat:
         assert result["choices"][0]["finish_reason"] == "content_filter"
 
 
+    def test_assistant_image_block_to_image_url(self):
+        """Anthropic assistant 消息中的 image 块应转为 OpenAI image_url，不再静默丢失。"""
+        request = {
+            "model": "claude-opus-4-7",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Here is the chart:"},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "iVBORw0KGgo=",
+                            },
+                        },
+                    ],
+                }
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.ANTHROPIC)
+        msg = result["messages"][0]
+        assert msg["role"] == "assistant"
+        assert msg["content"] == [
+            {"type": "text", "text": "Here is the chart:"},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "data:image/png;base64,iVBORw0KGgo=",
+                },
+            },
+        ]
+
+    def test_assistant_image_only_to_image_url_array(self):
+        """纯图片的 assistant 消息应保留为 image_url 数组。"""
+        request = {
+            "model": "claude-opus-4-7",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "url",
+                                "url": "https://example.com/chart.png",
+                            },
+                        },
+                    ],
+                }
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.ANTHROPIC)
+        msg = result["messages"][0]
+        assert msg["role"] == "assistant"
+        assert msg["content"] == [
+            {
+                "type": "image_url",
+                "image_url": {"url": "https://example.com/chart.png"},
+            },
+        ]
+
+
 class TestAnthropicToChatReviewFixes:
     """REVIEW.md #5 / #8 的回归测试。"""
 
