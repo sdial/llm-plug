@@ -114,8 +114,6 @@ async def lifespan(app):
         await request_logs.close_backend()
         await close_all_clients()
 
-_PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")
-
 _DATA_DIR = Path(__file__).parent / "data"
 _whitelist_cache = _whitelist.WhitelistCache(str(_DATA_DIR / "whitelist.csv"))
 
@@ -161,6 +159,11 @@ _BARE_PREFIXES = (
 )
 
 
+# 需要 API Key 认证的代理端点
+_PROXY_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")
+_PROTECTED_RESPONSE_PREFIX = "/v1/responses/"
+
+
 def normalize_path(path: str) -> str:
     """路径归一化：重复 /v1 去重 + 已知裸端点补 /v1。"""
     m = _V1_DEDUP.match(path)
@@ -170,6 +173,15 @@ def normalize_path(path: str) -> str:
         if path == prefix or path.startswith(prefix + "/"):
             return "/v1" + path
     return path
+
+
+def _is_protected_proxy_path(method: str, path: str) -> bool:
+    """判断请求是否需要经过 API Key 认证。"""
+    if method == "POST" and path in _PROXY_PATHS:
+        return True
+    if method in ("GET", "DELETE") and path.startswith(_PROTECTED_RESPONSE_PREFIX):
+        return True
+    return False
 
 
 class CombinedMiddleware:
@@ -237,7 +249,7 @@ class CombinedMiddleware:
                 return
 
         # Only process proxy API requests
-        if method != "POST" or path not in _PROXY_PATHS:
+        if not _is_protected_proxy_path(method, path):
             await self.app(scope, receive, send)
             return
 

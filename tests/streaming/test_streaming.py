@@ -75,14 +75,26 @@ class TestIterSseBlocks:
         assert data_lines == ["part1", "part2", "part3"]
 
     def test_multiple_data_lines_not_coalesced(self):
-        """coalesce_data_lines=False 时每个 data: 独立成 block"""
+        """coalesce_data_lines=False 时，同事件内多行 data: 仍按 SSE 规范合并。
+        空行才是事件边界；连续 data: 行属于同一事件，应合并。"""
         blocks = _collect_sse_blocks(
             ["data: part1", "data: part2", ""],
             coalesce=False,
         )
-        assert len(blocks) == 2
-        assert blocks[0][1] == ["part1"]
-        assert blocks[1][1] == ["part2"]
+        assert len(blocks) == 1
+        assert blocks[0][1] == ["part1", "part2"]
+
+    def test_multiline_data_no_coalesce_still_joined(self):
+        """Bug: coalesce_data_lines=False 时，同一 SSE 事件内的多行 data:
+        应按 SSE 规范拼接为一个 block（而非拆成多个不完整片段）。
+        多行 data: 在无空行分隔时属于同一事件，应合并。"""
+        blocks = _collect_sse_blocks(
+            ["data: {\"key\":", "data:  \"value\"}", ""],
+            coalesce=False,
+        )
+        assert len(blocks) == 1, f"期望 1 个 block，实际得到 {len(blocks)} 个"
+        _, data_lines, _ = blocks[0]
+        assert data_lines == ["{\"key\":", "\"value\"}"]
 
     def test_comment_lines_are_passthrough(self):
         """SSE 注释行（:开头）进入 passthrough"""

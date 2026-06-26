@@ -720,7 +720,25 @@ class ToChatCompletionsConverter(BaseConverter):
         if isinstance(input_data, str):
             messages.append({"role": "user", "content": input_data})
         else:
+            pending_tool_calls: list[dict] = []
             for item in input_data:
+                if isinstance(item, dict) and item.get("type") == "function_call":
+                    pending_tool_calls.append({
+                        "id": item.get("call_id", item.get("id", "")),
+                        "type": "function",
+                        "function": {
+                            "name": item.get("name", ""),
+                            "arguments": item.get("arguments", "{}"),
+                        },
+                    })
+                    continue
+                if pending_tool_calls:
+                    messages.append({
+                        "role": "assistant",
+                        "tool_calls": pending_tool_calls,
+                        "content": None,
+                    })
+                    pending_tool_calls = []
                 if isinstance(item, str):
                     messages.append({"role": "user", "content": item})
                 elif isinstance(item, dict):
@@ -734,22 +752,15 @@ class ToChatCompletionsConverter(BaseConverter):
                             "tool_call_id": item.get("call_id", ""),
                             "content": item.get("output", ""),
                         })
-                    elif item_type == "function_call":
-                        messages.append({
-                            "role": "assistant",
-                            "tool_calls": [{
-                                "id": item.get("call_id", item.get("id", "")),
-                                "type": "function",
-                                "function": {
-                                    "name": item.get("name", ""),
-                                    "arguments": item.get("arguments", "{}"),
-                                }
-                            }],
-                            "content": None,
-                        })
                     else:
                         content = self._response_content_to_chat_content(item.get("content", ""))
                         messages.append({"role": role, "content": content})
+            if pending_tool_calls:
+                messages.append({
+                    "role": "assistant",
+                    "tool_calls": pending_tool_calls,
+                    "content": None,
+                })
 
         result = {
             "model": data.get("model", ""),

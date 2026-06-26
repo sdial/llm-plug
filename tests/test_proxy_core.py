@@ -1,4 +1,5 @@
 import asyncio
+import json
 from unittest.mock import patch, AsyncMock
 
 import httpx
@@ -2226,6 +2227,79 @@ class TestDoStreamRequest:
         assert selected.id == "ch_fallback"
         assert "fallback" in "".join(outputs)
 
+    @pytest.mark.anyio
+    async def test_mid_stream_error_not_passed_through_converter(self):
+        """Bug: 首包后收到上游错误事件时，stream_error 被设置但未 break，
+        错误 chunk 继续进入 converter 被当正常数据处理，导致客户端收到格式混乱输出。
+        修复后：错误 chunk 不应进入 converter.convert_stream_chunk()。"""
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                # 1. 首个 chunk（产生 response.created）
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}'
+                yield ""
+                # 2. 第二个正常 chunk（触发前一个 chunk 的 text delta 输出）
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}'
+                yield ""
+                # 3. 上游错误 chunk（应终止流，不应进入 converter）
+                yield 'data: {"error":{"message":"upstream server error","type":"server_error"}}'
+                yield ""
+                # 4. 后续正常 chunk（不应被处理）
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"should not appear"},"finish_reason":null}]}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_1",
+            name="Test",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.openai.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "gpt-4o", "stream": True},
+                response_converter=ToResponseConverter(),
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_RESPONSE,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        joined = "".join(outputs)
+        # 正常 chunk 应该被转换输出
+        assert "response.created" in joined
+        # 错误 chunk 之后的内容不应出现在输出中
+        assert "should not appear" not in joined
+        # error chunk 以原始 SSE 格式输出（未经 converter 转换）
+        assert "upstream server error" in joined
+
 
 class TestAnthropicNonSseJsonFallbackEarly:
     """Anthropic 同类型流式请求收到非 SSE JSON 时，应输出完整的 Anthropic SSE 事件序列。"""
@@ -2754,7 +2828,9 @@ class TestAnthropicHeaderPriority:
 
             async def aiter_lines(self):
                 yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"glm-5","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}'
+                yield ""
                 yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"glm-5","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}'
+                yield ""
                 yield "data: [DONE]"
 
             async def __aenter__(self):
@@ -2881,7 +2957,9 @@ class TestAnthropicHeaderPriority:
 
             async def aiter_lines(self):
                 yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"mimo-v2.5-pro","choices":[{"index":0,"delta":{"role":"assistant","content":"","tool_calls":null},"finish_reason":null}]}'
+                yield ""
                 yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"mimo-v2.5-pro","choices":[{"index":0,"delta":{"content":"Hello","tool_calls":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}'
+                yield ""
                 yield "data: [DONE]"
 
             async def __aenter__(self):
@@ -3842,6 +3920,95 @@ class TestAnthropicNonSseJsonFallback:
                 assert block.startswith("event: "), (
                     f"Unexpected SSE block without event line: {block[:80]}"
                 )
+
+    @pytest.mark.anyio
+    async def test_anthropic_non_sse_json_tool_use_input_is_object(self):
+        """同类型 Anthropic 直通，上游返回普通 JSON 中包含 tool_use 时，
+        content_block_start 的 input 必须是 JSON 对象（空对象占位），而不是空字符串。"""
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "application/json"}
+            _consumed = False
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                if self._consumed:
+                    return
+                self._consumed = True
+                yield json.dumps(
+                    {
+                        "id": "msg_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "model": "claude-3",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "toolu_1",
+                                "name": "calc",
+                                "input": {"x": 1},
+                            }
+                        ],
+                        "stop_reason": "end_turn",
+                        "usage": {"input_tokens": 5, "output_tokens": 10},
+                    },
+                    ensure_ascii=False,
+                )
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_1",
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "claude-3", "stream": True},
+                response_converter=None,
+                source_type="anthropic",
+                target_api_type=APIType.ANTHROPIC,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        joined = "".join(outputs)
+        tool_use_start = None
+        for block in joined.strip().split("\n\n"):
+            if "event: content_block_start" in block:
+                data_line = [line for line in block.splitlines() if line.startswith("data: ")][0]
+                data = json.loads(data_line[len("data: "):])
+                if data["content_block"].get("type") == "tool_use":
+                    tool_use_start = data
+                    break
+
+        assert tool_use_start is not None, "未找到 tool_use 的 content_block_start"
+        assert isinstance(tool_use_start["content_block"]["input"], dict)
+        assert tool_use_start["content_block"]["input"] == {}
 
 
 class TestAnthropicSameTypeFailover:

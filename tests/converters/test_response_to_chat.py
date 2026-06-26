@@ -87,6 +87,39 @@ class TestResponseRequestToChat:
         assert tc["function"]["name"] == "search"
         assert tc["function"]["arguments"] == '{"query": "weather"}'
 
+    def test_parallel_function_calls_merged_into_single_assistant_message(self):
+        """并行的多个 function_call 应合并到同一条 assistant 消息"""
+        request = {
+            "model": "gpt-4o",
+            "input": [
+                {"role": "user", "content": "Search for weather and news"},
+                {
+                    "type": "function_call",
+                    "call_id": "call_weather",
+                    "name": "search_weather",
+                    "arguments": '{"q": "weather"}',
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "call_news",
+                    "name": "search_news",
+                    "arguments": '{"q": "news"}',
+                },
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+        assert result["messages"][0] == {
+            "role": "user",
+            "content": "Search for weather and news",
+        }
+        assistant_msg = result["messages"][1]
+        assert assistant_msg["role"] == "assistant"
+        assert assistant_msg["content"] is None
+        assert len(assistant_msg["tool_calls"]) == 2
+        assert assistant_msg["tool_calls"][0]["id"] == "call_weather"
+        assert assistant_msg["tool_calls"][1]["id"] == "call_news"
+
     def test_function_call_output_to_tool_message(self):
         """function_call_output 类型输入转换为 tool message"""
         request = {
