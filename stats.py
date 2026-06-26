@@ -275,15 +275,16 @@ def start_stats_workers():
 
 
 async def stop_stats_workers():
-    """停止统计写入后台 worker。"""
-    global _STATS_QUEUE, _STATS_QUEUE_LOOP
+    """停止统计写入后台 worker 并消费队列残留记录。"""
+    global _STATS_QUEUE_LOOP
     for task in _STATS_WORKERS:
         task.cancel()
     for task in _STATS_WORKERS:
         with contextlib.suppress(asyncio.CancelledError):
             await task
     _STATS_WORKERS.clear()
-    _STATS_QUEUE = None
+    # Workers 已取消，drain 队列中未消费的记录
+    await drain_queue()
     _STATS_QUEUE_LOOP = None
 
 

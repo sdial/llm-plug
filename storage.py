@@ -331,20 +331,21 @@ def _parse_model_groups(raw_groups: list[Any]) -> list[ModelGroup]:
 async def load_model_groups() -> list[ModelGroup]:
     global _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
     async with _get_model_groups_lock():
-        now = time.time()
-        if _MODEL_GROUPS_CACHE is not None and (now - _MODEL_GROUPS_CACHE_TS) < _CACHE_TTL:
-            return _MODEL_GROUPS_CACHE
+        while True:
+            now = time.time()
+            if _MODEL_GROUPS_CACHE is not None and (now - _MODEL_GROUPS_CACHE_TS) < _CACHE_TTL:
+                return _MODEL_GROUPS_CACHE
 
-        version = _MODEL_GROUPS_CACHE_VERSION
-        data = await load_data()
-        groups = _parse_model_groups(data.get("model_groups", []))
-        if version != _MODEL_GROUPS_CACHE_VERSION:
+            version = _MODEL_GROUPS_CACHE_VERSION
             data = await load_data()
             groups = _parse_model_groups(data.get("model_groups", []))
 
-        _MODEL_GROUPS_CACHE = groups
-        _MODEL_GROUPS_CACHE_TS = time.time()
-        return groups
+            if version != _MODEL_GROUPS_CACHE_VERSION:
+                continue
+
+            _MODEL_GROUPS_CACHE = groups
+            _MODEL_GROUPS_CACHE_TS = time.time()
+            return groups
 
 
 async def get_model_group_by_name(name: str) -> ModelGroup | None:
@@ -356,36 +357,50 @@ async def get_model_group_by_name(name: str) -> ModelGroup | None:
 
 
 async def save_model_groups(groups: list[ModelGroup]) -> None:
-    data = await load_data()
-    data["model_groups"] = [g.model_dump() for g in groups]
-    await save_data(data)
+    serialized = [g.model_dump() for g in groups]
+    await atomic_update_data(lambda data: data.__setitem__("model_groups", serialized))
 
 
 async def add_model_group(group: ModelGroup) -> ModelGroup:
-    groups = await load_model_groups()
-    groups.append(group)
-    await save_model_groups(groups)
+    def mutator(data):
+        groups = _parse_model_groups(data.get("model_groups", []))
+        groups.append(group)
+        data["model_groups"] = [g.model_dump() for g in groups]
+
+    await atomic_update_data(mutator)
     return group
 
 
 async def update_model_group(group_id: str, updates: dict) -> ModelGroup | None:
-    groups = await load_model_groups()
-    for i, g in enumerate(groups):
-        if g.id == group_id:
-            updated = g.model_copy(update=updates)
-            groups[i] = updated
-            await save_model_groups(groups)
-            return updated
-    return None
+    result: ModelGroup | None = None
+
+    def mutator(data):
+        nonlocal result
+        groups = _parse_model_groups(data.get("model_groups", []))
+        for i, g in enumerate(groups):
+            if g.id == group_id:
+                updated = g.model_copy(update=updates)
+                groups[i] = updated
+                result = updated
+                break
+        data["model_groups"] = [g.model_dump() for g in groups]
+
+    await atomic_update_data(mutator)
+    return result
 
 
 async def delete_model_group(group_id: str) -> bool:
-    groups = await load_model_groups()
-    new_groups = [g for g in groups if g.id != group_id]
-    if len(new_groups) == len(groups):
-        return False
-    await save_model_groups(new_groups)
-    return True
+    found = False
+
+    def mutator(data):
+        nonlocal found
+        groups = _parse_model_groups(data.get("model_groups", []))
+        new_groups = [g for g in groups if g.id != group_id]
+        found = len(new_groups) < len(groups)
+        data["model_groups"] = [g.model_dump() for g in new_groups]
+
+    await atomic_update_data(mutator)
+    return found
 
 
 async def invalidate_model_groups_cache() -> None:

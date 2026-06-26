@@ -250,7 +250,8 @@ async def _apply_lb_settings():
         logger.warning("Failed to apply LB settings, load balancer will use previous config", exc_info=True)
 
 
-async def _save_settings_to_disk():
+def _save_settings_to_disk_sync():
+    """同步写入 settings.json（原子写）"""
     dir_name = os.path.dirname(os.path.abspath(_SETTINGS_FILE)) or "."
     os.makedirs(dir_name, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -271,6 +272,10 @@ async def _save_settings_to_disk():
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
         raise
+
+
+async def _save_settings_to_disk():
+    await asyncio.to_thread(_save_settings_to_disk_sync)
 
 
 async def init_settings():

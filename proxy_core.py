@@ -1292,7 +1292,7 @@ def _convert_anthropic_response_to_events(converted: dict[str, Any]) -> list[tup
             events.append(("content_block_start", {"index": i, "content_block": {"type": "thinking", "thinking": ""}}))
             events.append(("content_block_delta", {"index": i, "delta": {"type": "thinking_delta", "thinking": block.get("thinking", "")}}))
         elif block_type == "tool_use":
-            events.append(("content_block_start", {"index": i, "content_block": {"type": "tool_use", "id": block.get("id", ""), "name": block.get("name", ""), "input": ""}}))
+            events.append(("content_block_start", {"index": i, "content_block": {"type": "tool_use", "id": block.get("id", ""), "name": block.get("name", ""), "input": {}}}))
             events.append(("content_block_delta", {"index": i, "delta": {"type": "input_json_delta", "partial_json": json.dumps(block.get("input", {}), ensure_ascii=False)}}))
         else:
             events.append(("content_block_start", {"index": i, "content_block": {"type": "text", "text": ""}}))
@@ -1456,12 +1456,6 @@ async def _iter_sse_blocks(lines, coalesce_data_lines: bool = True):
             continue
 
         if line.startswith("event:") and (event_type or data_lines or passthrough_lines):
-            yield event_type, data_lines, passthrough_lines
-            event_type = None
-            data_lines = []
-            passthrough_lines = []
-
-        if not coalesce_data_lines and line.startswith("data:") and data_lines:
             yield event_type, data_lines, passthrough_lines
             event_type = None
             data_lines = []
@@ -1785,6 +1779,19 @@ async def _do_stream_request(
                     if not emitted_output:
                         raise _StreamPreflightError(upstream_error)
                     stream_error = str(upstream_error)
+                    # 先输出 error 事件本身，再输出协议终止事件
+                    if output_sse_events and is_upstream_event_sse and upstream_event_type:
+                        sse = _format_sse(chunk, upstream_event_type)
+                    else:
+                        sse = _format_sse(chunk)
+                    _log_stream_event(sse)
+                    _mark_output()
+                    yield sse
+                    for terminal_sse in _terminal_events_for_error():
+                        _log_stream_event(terminal_sse)
+                        _mark_output()
+                        yield terminal_sse
+                    break
 
                 # 增量提取 token 用量和 finish_reason，避免 finally 中二次遍历
                 if isinstance(chunk, dict):

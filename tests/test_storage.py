@@ -370,6 +370,42 @@ class TestModelGroupsStorage:
         assert [g.id for g in storage._MODEL_GROUPS_CACHE] == ["grp_new"]
 
     @pytest.mark.anyio
+    async def test_load_model_groups_loops_until_version_stable(self, monkeypatch):
+        """If sync invalidation happens during multiple consecutive load_data()
+        calls, load_model_groups must keep retrying until the version is stable
+        and not cache stale data."""
+        stale_data = {
+            "channels": [],
+            "model_groups": [{"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}],
+        }
+        fresh_data = {
+            "channels": [],
+            "model_groups": [{"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}],
+        }
+        newest_data = {
+            "channels": [],
+            "model_groups": [{"id": "grp_newest", "name": "newest", "models": ["gpt-newest"], "enabled": True}],
+        }
+
+        async def load_data():
+            load_data.calls += 1
+            if load_data.calls == 1:
+                storage._invalidate_model_groups_cache_sync()
+                return stale_data
+            if load_data.calls == 2:
+                storage._invalidate_model_groups_cache_sync()
+                return fresh_data
+            return newest_data
+
+        load_data.calls = 0
+        monkeypatch.setattr(storage, "load_data", load_data)
+
+        groups = await storage.load_model_groups()
+
+        assert [g.id for g in groups] == ["grp_newest"]
+        assert [g.id for g in storage._MODEL_GROUPS_CACHE] == ["grp_newest"]
+
+    @pytest.mark.anyio
     async def test_save_data_during_load_model_groups_does_not_leave_stale_cache(self, monkeypatch):
         """When save_data triggers _invalidate_model_groups_cache_sync while
         load_model_groups is suspended at load_data(), the stale result must
@@ -471,3 +507,83 @@ class TestConcurrency:
             *[writer(i) for i in range(10)],
         )
         assert len(errors) == 0, f"并发读写出错: {errors}"
+
+
+class TestModelGroupsAtomicity:
+    """Verify that save_model_groups and the CRUD helpers use atomic_update_data
+    to prevent lost-update races with concurrent channel operations."""
+
+    @pytest.mark.anyio
+    async def test_concurrent_add_model_group_preserves_all_groups(self):
+        await storage.save_data({"channels": [], "model_groups": []})
+
+        async def add(idx: int):
+            group = storage.ModelGroup(name=f"grp_{idx}", models=[f"model_{idx}"])
+            return await storage.add_model_group(group)
+
+        await asyncio.gather(*(add(i) for i in range(10)))
+
+        groups = await storage.load_model_groups()
+        names = sorted(g.name for g in groups)
+        assert names == [f"grp_{i}" for i in range(10)]
+
+    @pytest.mark.anyio
+    async def test_concurrent_add_model_group_and_channel_update_preserves_both(self):
+        await storage.save_data(
+            {"channels": [{"id": "ch_existing"}], "model_groups": []}
+        )
+
+        async def add_group(idx: int):
+            group = storage.ModelGroup(name=f"grp_{idx}", models=[f"model_{idx}"])
+            await storage.add_model_group(group)
+
+        async def add_channel(idx: int):
+            await storage.atomic_update_data(
+                lambda data: data.setdefault("channels", []).append(
+                    {"id": f"ch_new_{idx}"}
+                )
+            )
+
+        await asyncio.gather(
+            *(add_group(i) for i in range(5)),
+            *(add_channel(i) for i in range(5)),
+        )
+
+        data = await storage.load_data()
+        channel_ids = sorted(ch["id"] for ch in data["channels"])
+        assert "ch_existing" in channel_ids
+        assert all(f"ch_new_{i}" in channel_ids for i in range(5))
+
+        groups = await storage.load_model_groups()
+        assert sorted(g.name for g in groups) == [f"grp_{i}" for i in range(5)]
+
+    @pytest.mark.anyio
+    async def test_save_model_groups_preserves_concurrent_channel_changes(self):
+        """save_model_groups must not overwrite channels modified concurrently."""
+        await storage.save_data(
+            {"channels": [{"id": "ch_1"}], "model_groups": []}
+        )
+
+        barrier = asyncio.Barrier(2)
+
+        async def update_channels():
+            await barrier.wait()
+            await storage.atomic_update_data(
+                lambda data: data["channels"].append({"id": "ch_2"})
+            )
+
+        async def save_groups():
+            await barrier.wait()
+            groups = [storage.ModelGroup(name="new_grp", models=["gpt-4"])]
+            await storage.save_model_groups(groups)
+
+        await asyncio.gather(update_channels(), save_groups())
+
+        data = await storage.load_data()
+        channel_ids = [ch["id"] for ch in data["channels"]]
+        assert "ch_1" in channel_ids
+        assert "ch_2" in channel_ids
+
+        groups = await storage.load_model_groups()
+        assert len(groups) == 1
+        assert groups[0].name == "new_grp"

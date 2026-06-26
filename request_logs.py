@@ -600,7 +600,13 @@ VALUES (:id, :timestamp, :model, :channel_id, :channel_name, :api_key_id,
             all_items.extend(result["items"])
 
         # Sort by timestamp DESC, compound_id DESC
-        all_items.sort(key=lambda x: (x["timestamp"], x["_compound_id"]), reverse=True)
+        # _compound_id is "YYYYMM_localid" — parse local_id as int to avoid
+        # string comparison bug where "9" > "10"
+        def _sort_key(item):
+            ym, lid = _decode_rotating_id(item["_compound_id"])
+            return (item["timestamp"], ym, lid)
+
+        all_items.sort(key=_sort_key, reverse=True)
 
         # Paginate
         offset = (page - 1) * page_size
@@ -1082,14 +1088,15 @@ def start_request_log_workers(worker_count: int | None = None) -> None:
 
 
 async def stop_request_log_workers() -> None:
-    global _REQUEST_QUEUE, _REQUEST_QUEUE_LOOP
+    global _REQUEST_QUEUE_LOOP
     for task in _REQUEST_WORKERS:
         task.cancel()
     for task in _REQUEST_WORKERS:
         with contextlib.suppress(asyncio.CancelledError):
             await task
     _REQUEST_WORKERS.clear()
-    _REQUEST_QUEUE = None
+    # Workers 已取消，drain 队列中未消费的记录
+    await drain_queue()
     _REQUEST_QUEUE_LOOP = None
 
 

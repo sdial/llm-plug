@@ -111,6 +111,14 @@ def middleware_app(tmp_path, monkeypatch):
     async def echo_anthropic(request: Request):
         return JSONResponse({"status": "ok", "auth_checked": getattr(request.state, "proxy_auth_checked", False)})
 
+    @inner_app.get("/v1/responses/{response_id}")
+    async def get_response(response_id: str, request: Request):
+        return JSONResponse({"status": "ok", "response_id": response_id, "auth_checked": getattr(request.state, "proxy_auth_checked", False)})
+
+    @inner_app.delete("/v1/responses/{response_id}")
+    async def delete_response(response_id: str, request: Request):
+        return JSONResponse({"status": "ok", "response_id": response_id, "auth_checked": getattr(request.state, "proxy_auth_checked", False)})
+
     @inner_app.get("/health")
     async def health():
         return JSONResponse({"status": "healthy"})
@@ -298,6 +306,53 @@ class TestApiKeyAuth:
             "/v1/chat/completions",
             json={"model": "gpt-4o"},
             headers={"Authorization": "Basic dXNlcjpwYXNz"},
+        )
+        assert resp.status_code == 401
+
+
+# ═══════════════════════════════════════════
+#  401 — Response 子资源认证
+# ═══════════════════════════════════════════
+
+class TestResponseSubresourceAuth:
+
+    def test_get_response_without_auth_returns_401(self, middleware_app):
+        """GET /v1/responses/{id} 缺少认证时应返回 401"""
+        resp = middleware_app.get("/v1/responses/resp_123")
+        assert resp.status_code == 401
+
+    def test_delete_response_without_auth_returns_401(self, middleware_app):
+        """DELETE /v1/responses/{id} 缺少认证时应返回 401"""
+        resp = middleware_app.delete("/v1/responses/resp_123")
+        assert resp.status_code == 401
+
+    def test_get_response_with_valid_auth_passes(self, middleware_app):
+        """GET /v1/responses/{id} 携带有效 API Key 应通过"""
+        resp = middleware_app.get(
+            "/v1/responses/resp_123",
+            headers={"Authorization": "Bearer sk-middleware-test"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["auth_checked"] is True
+        assert body["response_id"] == "resp_123"
+
+    def test_delete_response_with_valid_auth_passes(self, middleware_app):
+        """DELETE /v1/responses/{id} 携带有效 API Key 应通过"""
+        resp = middleware_app.delete(
+            "/v1/responses/resp_123",
+            headers={"Authorization": "Bearer sk-middleware-test"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["auth_checked"] is True
+        assert body["response_id"] == "resp_123"
+
+    def test_get_response_with_invalid_auth_returns_401(self, middleware_app):
+        """GET /v1/responses/{id} 携带无效 API Key 应返回 401"""
+        resp = middleware_app.get(
+            "/v1/responses/resp_123",
+            headers={"Authorization": "Bearer sk-wrong-key"},
         )
         assert resp.status_code == 401
 
