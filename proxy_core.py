@@ -271,18 +271,23 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
 def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
     """构建 OpenAI 格式的流式响应体。"""
     response_id = None
-    content_text = ""
-    reasoning_text = ""
-    finish_reason = None
     input_tokens = 0
     output_tokens = 0
     total_tokens: int | None = None
     prompt_details: dict | None = None
     completion_details: dict | None = None
-    role = "assistant"
-    # tool_calls 拼接：按 index 分组
-    # 每个 tool call 结构: {id, type: "function", function: {name, arguments}}
-    tool_calls_map: dict[int, dict] = {}
+    choice_states: dict[int, dict[str, Any]] = {}
+
+    def get_choice_state(index: int) -> dict[str, Any]:
+        if index not in choice_states:
+            choice_states[index] = {
+                "role": "assistant",
+                "content_text": "",
+                "reasoning_text": "",
+                "finish_reason": None,
+                "tool_calls_map": {},
+            }
+        return choice_states[index]
 
     for chunk in chunks:
         if not isinstance(chunk, dict):
@@ -292,53 +297,58 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
         if not response_id and chunk.get("id"):
             response_id = chunk["id"]
 
-        # 获取 role（某些实现可能在第一个 chunk 包含）
-        if chunk.get("choices"):
-            choice = chunk["choices"][0]
-            if isinstance(choice, dict):
-                delta = choice.get("delta", {})
-                if delta.get("role"):
-                    role = delta["role"]
-
-        # 拼接内容
+        # 拼接每个 choice 的内容；OpenAI stream 支持 n > 1。
         choices = chunk.get("choices", [])
-        if choices and isinstance(choices[0], dict):
-            delta = choices[0].get("delta", {})
-            if delta and "content" in delta and delta["content"]:
-                content_text += delta["content"]
-            # 拼接 reasoning_content（如 DeepSeek 的思考内容）
-            if delta and "reasoning_content" in delta and delta["reasoning_content"]:
-                reasoning_text += delta["reasoning_content"]
+        if isinstance(choices, list):
+            for position, choice in enumerate(choices):
+                if not isinstance(choice, dict):
+                    continue
+                index = choice.get("index", position)
+                if not isinstance(index, int):
+                    index = position
+                state = get_choice_state(index)
+                delta = choice.get("delta", {})
+                if not isinstance(delta, dict):
+                    delta = {}
 
-            # 拼接 tool_calls
-            tool_calls = delta.get("tool_calls") if delta else None
-            if tool_calls:
-                for tc in tool_calls:
-                    idx = tc.get("index", 0)
-                    if idx not in tool_calls_map:
-                        tool_calls_map[idx] = {
-                            "id": tc.get("id", ""),
-                            "type": tc.get("type", "function"),
-                            "function": {"name": "", "arguments": ""},
-                        }
-                    tool_call = tool_calls_map[idx]
-                    # 更新 id（第一个 chunk 可能有）
-                    if tc.get("id"):
-                        tool_call["id"] = tc["id"]
-                    # 更新 type
-                    if tc.get("type"):
-                        tool_call["type"] = tc["type"]
-                    # 拼接 function 字段
-                    func = tc.get("function", {})
-                    if func.get("name"):
-                        tool_call["function"]["name"] = func["name"]
-                    if func.get("arguments"):
-                        tool_call["function"]["arguments"] += func["arguments"]
+                if delta.get("role"):
+                    state["role"] = delta["role"]
+                if delta.get("content"):
+                    state["content_text"] += delta["content"]
+                # 拼接 reasoning_content（如 DeepSeek 的思考内容）
+                if delta.get("reasoning_content"):
+                    state["reasoning_text"] += delta["reasoning_content"]
 
-            # 获取 finish_reason
-            fr = choices[0].get("finish_reason")
-            if fr:
-                finish_reason = fr
+                # 拼接 tool_calls
+                tool_calls = delta.get("tool_calls")
+                if tool_calls:
+                    tool_calls_map = state["tool_calls_map"]
+                    for tc in tool_calls:
+                        idx = tc.get("index", 0)
+                        if idx not in tool_calls_map:
+                            tool_calls_map[idx] = {
+                                "id": tc.get("id", ""),
+                                "type": tc.get("type", "function"),
+                                "function": {"name": "", "arguments": ""},
+                            }
+                        tool_call = tool_calls_map[idx]
+                        # 更新 id（第一个 chunk 可能有）
+                        if tc.get("id"):
+                            tool_call["id"] = tc["id"]
+                        # 更新 type
+                        if tc.get("type"):
+                            tool_call["type"] = tc["type"]
+                        # 拼接 function 字段
+                        func = tc.get("function", {})
+                        if func.get("name"):
+                            tool_call["function"]["name"] = func["name"]
+                        if func.get("arguments"):
+                            tool_call["function"]["arguments"] += func["arguments"]
+
+                # 获取 finish_reason
+                fr = choice.get("finish_reason")
+                if fr:
+                    state["finish_reason"] = fr
 
         # 获取 usage（可能在最后一个 chunk）
         usage = chunk.get("usage")
@@ -360,18 +370,31 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
     if not response_id:
         response_id = f"chatcmpl-{secrets.token_hex(12)}"
 
-    message: dict = {
-        "role": role,
-        "content": content_text if content_text else None,
-    }
-    # 添加 reasoning_content（如有）
-    if reasoning_text:
-        message["reasoning_content"] = reasoning_text
+    if not choice_states:
+        get_choice_state(0)
 
-    # 如果有 tool_calls，按 index 顺序添加到 message
-    if tool_calls_map:
-        tool_calls_list = [tool_calls_map[i] for i in sorted(tool_calls_map.keys())]
-        message["tool_calls"] = tool_calls_list
+    response_choices: list[dict[str, Any]] = []
+    for index in sorted(choice_states):
+        state = choice_states[index]
+        message: dict[str, Any] = {
+            "role": state["role"],
+            "content": state["content_text"] if state["content_text"] else None,
+        }
+        # 添加 reasoning_content（如有）
+        if state["reasoning_text"]:
+            message["reasoning_content"] = state["reasoning_text"]
+
+        # 如果有 tool_calls，按 index 顺序添加到 message
+        tool_calls_map = state["tool_calls_map"]
+        if tool_calls_map:
+            tool_calls_list = [tool_calls_map[i] for i in sorted(tool_calls_map.keys())]
+            message["tool_calls"] = tool_calls_list
+
+        response_choices.append({
+            "index": index,
+            "message": message,
+            "finish_reason": state["finish_reason"],
+        })
 
     # 构建 usage 字段
     final_usage: dict[str, Any] = {
@@ -389,11 +412,7 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
         "object": "chat.completion",
         "created": int(time.time()),
         "model": model,
-        "choices": [{
-            "index": 0,
-            "message": message,
-            "finish_reason": finish_reason,
-        }],
+        "choices": response_choices,
         "usage": final_usage,
     }
 
@@ -1283,7 +1302,12 @@ def _yield_anthropic_event(event_type: str, data: dict[str, Any]) -> str:
 def _convert_anthropic_response_to_events(converted: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     events: list[tuple[str, dict[str, Any]]] = []
     message_for_start = {k: v for k, v in converted.items() if k not in ("stop_reason", "stop_sequence")}
-    message_for_start["usage"] = {"input_tokens": 0, "output_tokens": 0}
+    usage = converted.get("usage", {})
+    start_usage = {"input_tokens": usage.get("input_tokens", 0), "output_tokens": 0}
+    for key in ("cache_creation_input_tokens", "cache_read_input_tokens"):
+        if key in usage:
+            start_usage[key] = usage[key]
+    message_for_start["usage"] = start_usage
     events.append(("message_start", {"message": message_for_start}))
 
     for i, block in enumerate(converted.get("content", [])):

@@ -14,6 +14,7 @@ from proxy_core import (
     AllChannelsExhausted,
     _build_anthropic_stream_response,
     _build_openai_stream_response,
+    _convert_anthropic_response_to_events,
     _do_request,
     _do_stream_request,
     _get_channels_for_model,
@@ -4498,6 +4499,39 @@ class TestAnthropicHeaderPriorityEarly:
 
 
 class TestBuildOpenaiStreamResponsePreservesTokenDetails:
+    def test_preserves_multiple_choices_from_stream_chunks(self):
+        """OpenAI 非 SSE fallback 归档响应应保留所有 choice。"""
+        chunks = [
+            {
+                "id": "chatcmpl-multi",
+                "choices": [
+                    {"index": 0, "delta": {"role": "assistant", "content": "first"}, "finish_reason": None},
+                    {"index": 1, "delta": {"role": "assistant", "content": "second"}, "finish_reason": None},
+                ],
+            },
+            {
+                "id": "chatcmpl-multi",
+                "choices": [
+                    {"index": 0, "delta": {"content": " choice"}, "finish_reason": "stop"},
+                    {"index": 1, "delta": {"content": " choice"}, "finish_reason": "length"},
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 6,
+                    "total_tokens": 16,
+                },
+            },
+        ]
+
+        result = _build_openai_stream_response(chunks, "gpt-4o")
+
+        assert result is not None
+        assert [choice["index"] for choice in result["choices"]] == [0, 1]
+        assert result["choices"][0]["message"]["content"] == "first choice"
+        assert result["choices"][0]["finish_reason"] == "stop"
+        assert result["choices"][1]["message"]["content"] == "second choice"
+        assert result["choices"][1]["finish_reason"] == "length"
+
     def test_preserves_upstream_total_tokens_and_details(self):
         """_build_openai_stream_response 应该使用上游的 total_tokens，而不是自加；
         同时应该透传 prompt_tokens_details 和 completion_tokens_details。"""
@@ -4568,6 +4602,37 @@ class TestBuildOpenaiStreamResponsePreservesTokenDetails:
         # 不应该有 details 字段
         assert "prompt_tokens_details" not in result["usage"]
         assert "completion_tokens_details" not in result["usage"]
+
+
+class TestConvertAnthropicResponseToEvents:
+    def test_message_start_preserves_input_and_cache_usage(self):
+        """Anthropic 非 SSE fallback 拆分事件时 message_start 应保留输入 token。"""
+        events = _convert_anthropic_response_to_events(
+            {
+                "id": "msg_usage",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "hello"}],
+                "model": "claude-3",
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 12,
+                    "output_tokens": 3,
+                    "cache_creation_input_tokens": 2,
+                    "cache_read_input_tokens": 5,
+                },
+            }
+        )
+
+        message_start = events[0][1]["message"]
+        assert message_start["usage"] == {
+            "input_tokens": 12,
+            "output_tokens": 0,
+            "cache_creation_input_tokens": 2,
+            "cache_read_input_tokens": 5,
+        }
+        message_delta = [data for event_type, data in events if event_type == "message_delta"][0]
+        assert message_delta["usage"] == {"output_tokens": 3}
 
 
 class TestChatConverterSetStreamIncludeUsage:
