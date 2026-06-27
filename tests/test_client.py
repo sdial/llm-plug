@@ -317,6 +317,14 @@ class TestGetUpstreamHeaders:
         )
         assert headers["anthropic-version"] == "2025-01-01"
 
+    def test_anthropic_version_client_policy_requires_client_version(
+        self, anthropic_channel
+    ):
+        anthropic_channel.anthropic_version = "2024-10-22"
+        anthropic_channel.anthropic_version_policy = "client"
+
+        with pytest.raises(ValueError, match="anthropic-version"):
+            client.get_upstream_headers(anthropic_channel)
     def test_anthropic_version_channel_if_missing_uses_client_when_present(
         self, anthropic_channel
     ):

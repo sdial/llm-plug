@@ -1479,7 +1479,7 @@ async def _iter_sse_blocks(lines, coalesce_data_lines: bool = True):
             passthrough_lines = []
             continue
 
-        if line.startswith("event:") and (event_type or data_lines or passthrough_lines):
+        if line.startswith("event:") and (event_type or data_lines):
             yield event_type, data_lines, passthrough_lines
             event_type = None
             data_lines = []
@@ -1901,11 +1901,10 @@ async def _do_stream_request(
                     else:
                         sse = _format_sse(chunk)
                     if passthrough_lines:
-                        _sse_lines = []
+                        _sse_lines = list(passthrough_lines)
                         for _ln in sse.split("\n"):
                             if _ln.startswith("event: "):
                                 _sse_lines.append(_ln)
-                        _sse_lines.extend(passthrough_lines)
                         for _ln in sse.split("\n"):
                             if _ln.startswith("data:"):
                                 _sse_lines.append(_ln)
