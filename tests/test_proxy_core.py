@@ -1951,6 +1951,67 @@ class TestDoStreamRequest:
             assert block.startswith("event: ")
 
     @pytest.mark.anyio
+    async def test_same_type_anthropic_stream_preserves_sse_id_and_retry(
+        self,
+    ):
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "id: evt-1"
+                yield "retry: 1500"
+                yield "event: ping"
+                yield 'data: {"type":"ping"}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_1",
+            name="Anthropic",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "claude-3", "stream": True},
+                response_converter=None,
+                source_type="anthropic",
+                target_api_type=APIType.ANTHROPIC,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        joined = "".join(outputs)
+        assert "id: evt-1" in joined
+        assert "retry: 1500" in joined
+        assert joined.index("id: evt-1") < joined.index("event: ping")
+        assert joined.index("retry: 1500") < joined.index("event: ping")
+    @pytest.mark.anyio
     async def test_anthropic_stream_mid_error_emits_message_stop(self):
         class FakeStreamResponse:
             status_code = 200

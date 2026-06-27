@@ -157,7 +157,9 @@ def _apply_anthropic_headers(headers: dict, channel: Channel, extra_headers: dic
 
     channel_version = channel.anthropic_version or _DEFAULT_ANTHROPIC_VERSION
     version_policy = getattr(channel.anthropic_version_policy, "value", channel.anthropic_version_policy)
-    if version_policy == "client" and client_version:
+    if version_policy == "client":
+        if not client_version:
+            raise ValueError("anthropic-version is required when anthropic_version_policy is client")
         headers["anthropic-version"] = client_version
     elif version_policy == "channel_if_missing" and client_version:
         headers["anthropic-version"] = client_version
