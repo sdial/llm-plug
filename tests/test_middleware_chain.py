@@ -271,6 +271,19 @@ class TestApiKeyAuth:
         assert resp.status_code == 401
         assert "Missing" in resp.json()["error"]["message"] or "invalid" in resp.json()["error"]["message"].lower()
 
+    def test_missing_auth_header_on_messages_returns_anthropic_error(self, middleware_app):
+        """Anthropic Messages endpoint middleware auth errors use Anthropic error format."""
+        resp = middleware_app.post(
+            "/v1/messages",
+            json={"model": "claude-sonnet-4-20250514", "messages": []},
+        )
+
+        assert resp.status_code == 401
+        body = resp.json()
+        assert body["type"] == "error"
+        assert body["error"]["type"] == "authentication_error"
+        assert "Missing" in body["error"]["message"] or "invalid" in body["error"]["message"].lower()
+
     def test_invalid_bearer_token_returns_401(self, middleware_app):
         """Bearer token 不在已注册的 API Key 中应返回 401"""
         resp = middleware_app.post(

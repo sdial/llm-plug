@@ -205,7 +205,7 @@ class CombinedMiddleware:
         _wl_rules = _whitelist_cache.get_rules()
         _wl_allowed, _wl_reason = _whitelist.check_request(_wl_rules, path, method, client_ip)
         if not _wl_allowed:
-            await self._send_error(send, 403, _wl_reason, "ip_whitelist_error")
+            await self._send_error(send, 403, _wl_reason, "ip_whitelist_error", path=path)
             return
 
         if path in ("/admin", "/admin/"):
@@ -262,7 +262,7 @@ class CombinedMiddleware:
         if content_length:
             try:
                 if int(content_length) > config.MAX_BODY_SIZE:
-                    await self._send_error(send, 413, "Request body too large")
+                    await self._send_error(send, 413, "Request body too large", path=path)
                     self._log_request(ts_start, method, path, original_path, query, "", False, "", 413, start)
                     return
             except ValueError:
@@ -278,7 +278,7 @@ class CombinedMiddleware:
             body_parts.append(chunk)
             total_size += len(chunk)
             if total_size > config.MAX_BODY_SIZE:
-                await self._send_error(send, 413, "Request body too large")
+                await self._send_error(send, 413, "Request body too large", path=path)
                 self._log_request(ts_start, method, path, original_path, query, "", False, "", 413, start)
                 return
             more_body = message.get("more_body", False)
@@ -314,7 +314,7 @@ class CombinedMiddleware:
             elif x_api_key:
                 token = x_api_key
             else:
-                await self._send_error(send, 401, "Missing or invalid Authorization header")
+                await self._send_error(send, 401, "Missing or invalid Authorization header", path=path)
                 self._log_request(ts_start, method, path, original_path, query, model, stream, "", 401, start)
                 return
 
@@ -323,7 +323,7 @@ class CombinedMiddleware:
                 matched_key = None
 
             if matched_key is None:
-                await self._send_error(send, 401, "Invalid API key")
+                await self._send_error(send, 401, "Invalid API key", path=path)
                 self._log_request(ts_start, method, path, original_path, query, model, stream, "", 401, start)
                 return
 
@@ -331,7 +331,7 @@ class CombinedMiddleware:
 
             allowed_models = matched_key.get("allowed_models", [])
             if allowed_models and model and model not in allowed_models:
-                await self._send_error(send, 403, f"Model '{model}' is not allowed for this API key")
+                await self._send_error(send, 403, f"Model '{model}' is not allowed for this API key", path=path)
                 self._log_request(ts_start, method, path, original_path, query, model, stream, "", 403, start)
                 return
 
@@ -379,8 +379,25 @@ class CombinedMiddleware:
         logger.info(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}{original_tag}")
         logger.info(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s){original_tag}")
 
-    async def _send_error(self, send: Send, status: int, message: str, error_type: str = "auth_error") -> None:
-        error_body = json.dumps({"error": {"message": message, "type": error_type}}).encode()
+    async def _send_error(
+        self,
+        send: Send,
+        status: int,
+        message: str,
+        error_type: str = "auth_error",
+        path: str = "",
+    ) -> None:
+        if path == "/v1/messages":
+            anthropic_type = {
+                "auth_error": "authentication_error",
+                "ip_whitelist_error": "permission_error",
+            }.get(error_type, "api_error")
+            error_body = json.dumps({
+                "type": "error",
+                "error": {"type": anthropic_type, "message": message},
+            }).encode()
+        else:
+            error_body = json.dumps({"error": {"message": message, "type": error_type}}).encode()
         await send({
             "type": "http.response.start",
             "status": status,
