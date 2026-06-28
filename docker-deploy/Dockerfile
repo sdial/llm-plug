@@ -23,6 +23,16 @@ COPY --from=builder /app/.venv /app/.venv
 
 ENV PATH="/app/.venv/bin:$PATH"
 
+# SQLite 资源限制（PRAGMA 由业务代码在创建连接时读取并应用）
+# cache_size=-16000: 每连接 16MB cache,配合 mmap_size 共享 OS page cache,
+# 在 1GB 内存设备上平衡内存占用与查询性能
+ENV SQLITE_CACHE_SIZE=-16000
+# temp_store=FILE: 临时表落盘而非占用内存,优先保障业务内存
+ENV SQLITE_TEMP_STORE=FILE
+ENV SQLITE_MMAP_SIZE=33554432
+ENV SQLITE_JOURNAL_MODE=WAL
+ENV SQLITE_SYNCHRONOUS=NORMAL
+
 COPY . .
 
 RUN mkdir -p data logs

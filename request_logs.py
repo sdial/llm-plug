@@ -22,6 +22,35 @@ if TYPE_CHECKING:
 # 生产部署在 1 GB 内存的受限设备上,故保守取 64 MB。
 _SQLITE_MMAP_SIZE_BYTES = 64 * 1024 * 1024
 
+# ── PRAGMA 环境变量白名单 ──
+_VALID_SYNCHRONOUS = {"OFF", "NORMAL", "FULL", "EXTRA", "0", "1", "2", "3"}
+_VALID_TEMP_STORE = {"DEFAULT", "FILE", "MEMORY", "0", "1", "2"}
+_VALID_JOURNAL_MODE = {"DELETE", "TRUNCATE", "PERSIST", "MEMORY", "WAL", "OFF"}
+
+
+def _sanitize_pragma_env(name: str, default: str, valid: set[str]) -> str:
+    """读取环境变量并校验是否在白名单内,非法值回退到默认值并告警。"""
+    val = os.environ.get(name, default)
+    if val.upper() not in valid:
+        logger.warning("非法 {}={!r}, 回退默认 {}", name, val, default)
+        return default
+    return val
+
+
+def _sanitize_int_env(name: str | None, default: int | None) -> int | None:
+    """读取整型环境变量,校验是否为合法整数,非法值回退到默认值并告警。"""
+    if name is None:
+        return default
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        logger.warning("非法 {}={!r} 不是整数,回退默认 {}", name, val, default)
+        return default
+
+
 _RAW_FIELDS = {
     "request_headers",
     "response_headers",
@@ -296,9 +325,12 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
     def _connect_to(self, db_path: str) -> sqlite3.Connection:
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute(f"PRAGMA mmap_size={_SQLITE_MMAP_SIZE_BYTES}")
+        conn.execute(f"PRAGMA synchronous={_sanitize_pragma_env('SQLITE_SYNCHRONOUS', 'NORMAL', _VALID_SYNCHRONOUS)}")
+        conn.execute(f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'MEMORY', _VALID_TEMP_STORE)}")
+        cache_size = _sanitize_int_env("SQLITE_CACHE_SIZE", None)
+        if cache_size is not None:
+            conn.execute(f"PRAGMA cache_size={cache_size}")
+        conn.execute(f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE', _SQLITE_MMAP_SIZE_BYTES)}")
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -308,7 +340,7 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
         if not os.path.exists(path):
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             with closing(sqlite3.connect(path)) as conn, conn:
-                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute(f"PRAGMA journal_mode={_sanitize_pragma_env('SQLITE_JOURNAL_MODE', 'WAL', _VALID_JOURNAL_MODE)}")
                 conn.execute("PRAGMA busy_timeout=5000")
                 conn.executescript(_CREATE_TABLE_SQL)
                 _ensure_sqlite_columns(conn, "request_logs", _CREATE_TABLE_COLUMNS_MIGRATION)

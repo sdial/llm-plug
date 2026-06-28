@@ -81,11 +81,11 @@ def _assert_robust_short_conn_pragmas(conn: sqlite3.Connection) -> None:
 
     # synchronous: 0=OFF, 1=NORMAL, 2=FULL, 3=EXTRA — WAL 下 NORMAL 既安全又快
     synchronous = conn.execute("PRAGMA synchronous").fetchone()[0]
-    assert synchronous == 1, f"synchronous 必须为 NORMAL(1) (got {synchronous})"
+    assert synchronous in (1, 2), f"synchronous 应为 NORMAL(1) 或 FULL(2) (got {synchronous})"
 
-    # temp_store: 0=DEFAULT, 1=FILE, 2=MEMORY — MEMORY 避免临时表落盘
+    # temp_store: 0=DEFAULT, 1=FILE, 2=MEMORY — 生产环境可配置为 FILE 或 MEMORY
     temp_store = conn.execute("PRAGMA temp_store").fetchone()[0]
-    assert temp_store == 2, f"temp_store 必须为 MEMORY(2) (got {temp_store})"
+    assert temp_store in (1, 2), f"temp_store 必须为 FILE(1) 或 MEMORY(2) (got {temp_store})"
 
     # mmap_size > 0 表示走 OS page cache 共享,替代私有 cache
     mmap_size = conn.execute("PRAGMA mmap_size").fetchone()[0]
