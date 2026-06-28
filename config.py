@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import json
 import os
-import re
 import tempfile
 from typing import Literal, TypedDict
 
@@ -36,19 +35,9 @@ _CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
         "default": os.path.join(DATA_DIR, "stats.db"),
         "requires_restart": False,
     },
-    "request_log_db_type": {
-        "type": "str",
-        "default": "sqlite",
-        "requires_restart": False,
-    },
     "request_log_sqlite_path": {
         "type": "str",
         "default": os.path.join(DATA_DIR, "request_logs.db"),
-        "requires_restart": False,
-    },
-    "request_log_database_url": {
-        "type": "str",
-        "default": "",
         "requires_restart": False,
     },
     "save_request_headers": {
@@ -142,7 +131,6 @@ _CONFIG_CONSTRAINTS: dict[str, dict] = {
     "response_state_ttl_minutes": {"min": 1, "max": 525600},
     "response_state_cleanup_interval_minutes": {"min": 1, "max": 1440},
     "log_level": {"choices": ("trace", "debug", "info", "warning", "error", "critical")},
-    "request_log_db_type": {"choices": ("sqlite", "postgres")},
     "aggregation_timezone": {"validator": "iana_timezone"},
     "request_log_retention_days": {"min": 0},
     "request_log_raw_retention_days": {"min": 0},
@@ -224,16 +212,8 @@ def get_setting(key: str):
     return None
 
 
-def _mask_db_url(url: str) -> str:
-    return re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', url)
-
-
 def get_settings() -> dict:
-    result = dict(_settings)
-    if result.get("request_log_database_url"):
-        result["request_log_database_url"] = _mask_db_url(result["request_log_database_url"])
-    result["request_log_database_url_masked"] = result.get("request_log_database_url", "")
-    return result
+    return dict(_settings)
 
 
 async def _apply_lb_settings():
