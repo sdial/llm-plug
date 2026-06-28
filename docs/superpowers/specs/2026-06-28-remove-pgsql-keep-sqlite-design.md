@@ -36,7 +36,7 @@
 - 删除 `_BaseRequestLogBackend` 抽象类。
 - 删除 `PostgresRequestLogBackend` 类及其全部 SQL、连接池、JSONB 处理逻辑。
 - 删除 `_build_backend` 中的数据库类型分支，改为直接构造 `SQLiteRequestLogBackend`。
-- 保留 `_BaseRequestLogBackend` 原本定义的公共方法签名由 `SQLiteRequestLogBackend` 直接实现。
+- 将 `_BaseRequestLogBackend` 原定义的公共方法签名下沉到 `SQLiteRequestLogBackend` 直接实现，并删除抽象基类本身。
 
 简化后的 `_build_backend`：
 
