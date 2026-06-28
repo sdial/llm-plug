@@ -7,49 +7,15 @@ import contextlib
 import json
 import os
 import sqlite3
-from contextlib import closing
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from loguru import logger
 
 import config
 
-if TYPE_CHECKING:
-    import asyncpg
-
-# 64 MB mmap;走 OS page cache 共享内存,替代每连接私有 cache。
-# 生产部署在 1 GB 内存的受限设备上,故保守取 64 MB。
-_SQLITE_MMAP_SIZE_BYTES = 64 * 1024 * 1024
-
-# ── PRAGMA 环境变量白名单 ──
-_VALID_SYNCHRONOUS = {"OFF", "NORMAL", "FULL", "EXTRA", "0", "1", "2", "3"}
-_VALID_TEMP_STORE = {"DEFAULT", "FILE", "MEMORY", "0", "1", "2"}
-_VALID_JOURNAL_MODE = {"DELETE", "TRUNCATE", "PERSIST", "MEMORY", "WAL", "OFF"}
-
-
-def _sanitize_pragma_env(name: str, default: str, valid: set[str]) -> str:
-    """读取环境变量并校验是否在白名单内,非法值回退到默认值并告警。"""
-    val = os.environ.get(name, default)
-    if val.upper() not in valid:
-        logger.warning("非法 {}={!r}, 回退默认 {}", name, val, default)
-        return default
-    return val
-
-
-def _sanitize_int_env(name: str | None, default: int | None) -> int | None:
-    """读取整型环境变量,校验是否为合法整数,非法值回退到默认值并告警。"""
-    if name is None:
-        return default
-    val = os.environ.get(name)
-    if val is None:
-        return default
-    try:
-        return int(val)
-    except ValueError:
-        logger.warning("非法 {}={!r} 不是整数,回退默认 {}", name, val, default)
-        return default
-
+# 请求记录仅支持 SQLite3，不再扩展其他关系型数据库后端。
+BACKEND = "sqlite3"
 
 _RAW_FIELDS = {
     "request_headers",
@@ -58,86 +24,11 @@ _RAW_FIELDS = {
     "response_body",
 }
 
-# ---------------------------------------------------------------------------
-# Rotating ID encoding: YYYYMM_localId (e.g. "202606_12345")
-# ---------------------------------------------------------------------------
-
-
-def _encode_rotating_id(year_month: str, local_id: int) -> str:
-    return f"{year_month}_{local_id}"
-
-
-def _decode_rotating_id(rotating_id: str) -> tuple[str, int]:
-    parts = rotating_id.split("_", 1)
-    if len(parts) != 2 or not parts[0].isdigit() or len(parts[0]) != 6:
-        raise ValueError(f"Invalid rotating ID format: {rotating_id}")
-    return parts[0], int(parts[1])
-
-
-def _parse_id(raw: str) -> tuple[str | None, int]:
-    """Parse either a compound rotating ID or a plain integer ID."""
-    s = str(raw)
-    if "_" in s:
-        try:
-            ym, lid = _decode_rotating_id(s)
-            return ym, lid
-        except ValueError:
-            pass
-    return None, int(s)
-
-
-# ---------------------------------------------------------------------------
-# DDL constants
-# ---------------------------------------------------------------------------
-
-_CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS request_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT NOT NULL,
-    model TEXT NOT NULL,
-    channel_id TEXT NOT NULL,
-    channel_name TEXT NOT NULL,
-    api_key_id TEXT,
-    client_ip TEXT,
-    is_stream INTEGER NOT NULL,
-    input_tokens INTEGER NOT NULL DEFAULT 0,
-    output_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
-    latency_ms INTEGER NOT NULL,
-    lag_ms INTEGER,
-    finish_reason TEXT,
-    success INTEGER NOT NULL,
-    error_msg TEXT,
-    request_headers TEXT,
-    response_headers TEXT,
-    request_body TEXT,
-    response_body TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp);
-CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
-CREATE INDEX IF NOT EXISTS idx_request_logs_channel ON request_logs(channel_id, channel_name);
-CREATE INDEX IF NOT EXISTS idx_request_logs_api_key ON request_logs(api_key_id);
-CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip);
-"""
-
-_CREATE_TABLE_COLUMNS_MIGRATION = {
-    "cache_read_input_tokens": "INTEGER NOT NULL DEFAULT 0",
-    "cache_creation_input_tokens": "INTEGER NOT NULL DEFAULT 0",
-}
-
-_RAW_FIELD_SELECT_SQLITE: dict[str, str] = {
+_RAW_FIELD_SELECT: dict[str, str] = {
     "request_headers": "SELECT request_headers FROM request_logs WHERE id = ?",
     "response_headers": "SELECT response_headers FROM request_logs WHERE id = ?",
     "request_body": "SELECT request_body FROM request_logs WHERE id = ?",
     "response_body": "SELECT response_body FROM request_logs WHERE id = ?",
-}
-
-_RAW_FIELD_SELECT_POSTGRES: dict[str, str] = {
-    "request_headers": "SELECT request_headers FROM request_logs WHERE id = $1",
-    "response_headers": "SELECT response_headers FROM request_logs WHERE id = $1",
-    "request_body": "SELECT request_body FROM request_logs WHERE id = $1",
-    "response_body": "SELECT response_body FROM request_logs WHERE id = $1",
 }
 
 
@@ -148,7 +39,7 @@ _BACKEND_UNINITIALIZED_ERROR = "request log backend is not initialized"
 
 _OVERFLOW_LOG_FILENAME = "request_logs_overflow.jsonl"
 
-_backend: "_BaseRequestLogBackend | None" = None
+_backend: SQLiteRequestLogBackend | None = None
 _backend_error = _BACKEND_UNINITIALIZED_ERROR
 _backend_lock = asyncio.Lock()
 
@@ -215,12 +106,9 @@ def _base_item_from_mapping(row: dict[str, Any]) -> dict[str, Any]:
         "channel_id": row["channel_id"],
         "channel_name": row["channel_name"],
         "api_key_id": row.get("api_key_id"),
-        "client_ip": row.get("client_ip"),
         "is_stream": row["is_stream"],
         "input_tokens": row["input_tokens"],
         "output_tokens": row["output_tokens"],
-        "cache_read_input_tokens": row.get("cache_read_input_tokens", 0),
-        "cache_creation_input_tokens": row.get("cache_creation_input_tokens", 0),
         "latency_ms": row["latency_ms"],
         "lag_ms": row.get("lag_ms"),
         "finish_reason": row.get("finish_reason"),
@@ -236,55 +124,9 @@ def _base_item_from_mapping(row: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def _ensure_sqlite_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
-    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
-    for name, definition in columns.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
-
-
-class _BaseRequestLogBackend:
-    async def init(self) -> None:
-        raise NotImplementedError
-
-    async def close(self) -> None:
-        raise NotImplementedError
-
-    async def write_record(self, record: dict[str, Any]) -> None:
-        raise NotImplementedError
-
-    async def list_requests(
-        self,
-        model: str | None = None,
-        channel: str | None = None,
-        start: datetime | None = None,
-        end: datetime | None = None,
-        success: bool | None = None,
-        api_key_id: str | None = None,
-        client_ip: str | None = None,
-        is_stream: bool | None = None,
-        page: int = 1,
-        page_size: int = 10,
-    ) -> dict[str, Any]:
-        raise NotImplementedError
-
-    async def get_request_field(self, request_id: str, field: str) -> dict | None:
-        raise NotImplementedError
-
-    async def cleanup_old_records(self, retention_days: int, raw_retention_days: int) -> dict:
-        raise NotImplementedError
-
-
-class SQLiteRequestLogBackend(_BaseRequestLogBackend):
-    """SQLite backend with monthly rotation.
-
-    Each month's data is stored in a separate file:
-        data/request_raw_logs/request_logs_YYYY_MM.sqlite3
-    """
-
+class SQLiteRequestLogBackend:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self.data_dir = os.path.dirname(os.path.abspath(db_path))
 
     async def init(self) -> None:
         await asyncio.to_thread(self._init_sync)
@@ -292,173 +134,48 @@ class SQLiteRequestLogBackend(_BaseRequestLogBackend):
     async def close(self) -> None:
         return  # SQLite backend needs no cleanup
 
-    # ------------------------------------------------------------------
-    # Rotation helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _current_year_month() -> str:
-        return _utc_now().strftime("%Y%m")
-
-    @property
-    def _logs_dir(self) -> str:
-        return os.path.join(self.data_dir, "request_raw_logs")
-
-    def _month_db_path(self, year_month: str) -> str:
-        return os.path.join(self._logs_dir, f"request_logs_{year_month[:4]}_{year_month[4:]}.sqlite3")
-
-    def _discover_month_dbs(self) -> list[str]:
-        """Return sorted list of YYYYMM strings for existing monthly .sqlite3 files."""
-        import glob
-        logs_dir = self._logs_dir
-        if not os.path.isdir(logs_dir):
-            return []
-        pattern = os.path.join(logs_dir, "request_logs_????_??.sqlite3")
-        months: list[str] = []
-        for path in glob.glob(pattern):
-            basename = os.path.basename(path)
-            parts = basename.replace("request_logs_", "").replace(".sqlite3", "").split("_")
-            if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 2:
-                months.append(parts[0] + parts[1])
-        return sorted(months)
-
-    def _connect_to(self, db_path: str) -> sqlite3.Connection:
-        conn = sqlite3.connect(db_path)
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute(f"PRAGMA synchronous={_sanitize_pragma_env('SQLITE_SYNCHRONOUS', 'NORMAL', _VALID_SYNCHRONOUS)}")
-        conn.execute(f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'MEMORY', _VALID_TEMP_STORE)}")
-        cache_size = _sanitize_int_env("SQLITE_CACHE_SIZE", None)
-        if cache_size is not None:
-            conn.execute(f"PRAGMA cache_size={cache_size}")
-        conn.execute(f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE', _SQLITE_MMAP_SIZE_BYTES)}")
         conn.row_factory = sqlite3.Row
         return conn
 
-    def _ensure_month_db(self, year_month: str) -> str:
-        """Create monthly db with schema if it doesn't exist. Return path."""
-        path = self._month_db_path(year_month)
-        if not os.path.exists(path):
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            with closing(sqlite3.connect(path)) as conn, conn:
-                conn.execute(f"PRAGMA journal_mode={_sanitize_pragma_env('SQLITE_JOURNAL_MODE', 'WAL', _VALID_JOURNAL_MODE)}")
-                conn.execute("PRAGMA busy_timeout=5000")
-                conn.executescript(_CREATE_TABLE_SQL)
-                _ensure_sqlite_columns(conn, "request_logs", _CREATE_TABLE_COLUMNS_MIGRATION)
-        return path
-
-    # ------------------------------------------------------------------
-    # Init & migration
-    # ------------------------------------------------------------------
-
     def _init_sync(self) -> None:
-        os.makedirs(self.data_dir, exist_ok=True)
-        # Migrate legacy single db if present
-        if os.path.exists(self.db_path):
-            self._migrate_legacy_db()
-        # Ensure current month db exists
-        self._ensure_month_db(self._current_year_month())
+        directory = os.path.dirname(os.path.abspath(self.db_path))
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS request_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    channel_id TEXT NOT NULL,
+                    channel_name TEXT NOT NULL,
+                    api_key_id TEXT,
+                    is_stream INTEGER NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    latency_ms INTEGER NOT NULL,
+                    lag_ms INTEGER,
+                    finish_reason TEXT,
+                    success INTEGER NOT NULL,
+                    error_msg TEXT,
+                    request_headers TEXT,
+                    response_headers TEXT,
+                    request_body TEXT,
+                    response_body TEXT
+                );
 
-    # Columns that may be absent in the legacy DB; fill with defaults.
-    _MIGRATION_DEFAULTS: dict[str, Any] = {
-        "cache_read_input_tokens": 0,
-        "cache_creation_input_tokens": 0,
-        "lag_ms": None,
-        "finish_reason": None,
-        "api_key_id": None,
-        "client_ip": None,
-        "request_headers": None,
-        "response_headers": None,
-        "request_body": None,
-        "response_body": None,
-        "error_msg": None,
-    }
-
-    _MIGRATION_BATCH_SIZE = 100
-
-    def _migrate_legacy_db(self) -> None:
-        """Split legacy request_logs.db into monthly files, then rename to .migrated.
-
-        Uses batched streaming (fetchmany) to keep peak memory well under
-        1 MB — critical for memory-constrained devices (e.g. 1 GB routers).
-        """
-        legacy_path = self.db_path
-        _MIGRATION_INSERT_SQL = """\
-INSERT OR IGNORE INTO request_logs
-    (id, timestamp, model, channel_id, channel_name, api_key_id, client_ip,
-     is_stream, input_tokens, output_tokens, cache_read_input_tokens,
-     cache_creation_input_tokens, latency_ms, lag_ms, finish_reason,
-     success, error_msg, request_headers, response_headers,
-     request_body, response_body)
-VALUES (:id, :timestamp, :model, :channel_id, :channel_name, :api_key_id,
-        :client_ip, :is_stream, :input_tokens, :output_tokens,
-        :cache_read_input_tokens, :cache_creation_input_tokens,
-        :latency_ms, :lag_ms, :finish_reason, :success, :error_msg,
-        :request_headers, :response_headers, :request_body, :response_body)"""
-
-        total_rows = 0
-        month_files: set[str] = set()
-
-        try:
-            with closing(sqlite3.connect(legacy_path)) as src:
-                src.row_factory = sqlite3.Row
-
-                # Detect which columns exist in the source table so we can
-                # fill in defaults for any newly-added columns.
-                src_columns = {
-                    row[1] for row in src.execute("PRAGMA table_info(request_logs)")
-                }
-
-                cursor = src.execute(
-                    "SELECT * FROM request_logs ORDER BY id"
-                )
-
-                while True:
-                    batch = cursor.fetchmany(self._MIGRATION_BATCH_SIZE)
-                    if not batch:
-                        break
-
-                    # Group this batch by month
-                    month_groups: dict[str, list[dict]] = {}
-                    for row in batch:
-                        d = dict(row)
-                        # Fill missing columns with safe defaults
-                        for col, default in self._MIGRATION_DEFAULTS.items():
-                            if col not in src_columns:
-                                d[col] = default
-                        ts = d.get("timestamp") or ""
-                        ym = (
-                            ts[:4] + ts[5:7]
-                            if len(ts) >= 7
-                            else self._current_year_month()
-                        )
-                        month_groups.setdefault(ym, []).append(d)
-
-                    # Write each month group immediately, then discard
-                    for ym, group_rows in month_groups.items():
-                        db_path = self._ensure_month_db(ym)
-                        with closing(sqlite3.connect(db_path)) as dst, dst:
-                            dst.executemany(_MIGRATION_INSERT_SQL, group_rows)
-                        month_files.add(ym)
-
-                    total_rows += len(batch)
-
-            if total_rows == 0:
-                os.replace(legacy_path, legacy_path + ".migrated")
-                logger.info("Legacy request_logs.db was empty; renamed to .migrated")
-                return
-
-            os.replace(legacy_path, legacy_path + ".migrated")
-            logger.info(
-                f"Legacy request_logs.db migrated: {total_rows} rows "
-                f"into {len(month_files)} monthly file(s) ({month_files})"
+                CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp);
+                CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
+                CREATE INDEX IF NOT EXISTS idx_request_logs_channel ON request_logs(channel_id, channel_name);
+                CREATE INDEX IF NOT EXISTS idx_request_logs_api_key ON request_logs(api_key_id);
+                """
             )
-        except Exception as exc:
-            logger.error(f"Legacy db migration failed: {exc}")
-            # Leave legacy db in place so it can be retried
-
-    # ------------------------------------------------------------------
-    # Write
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _json_dumps(value: Any) -> str | None:
@@ -467,30 +184,25 @@ VALUES (:id, :timestamp, :model, :channel_id, :channel_name, :api_key_id,
         return json.dumps(value, ensure_ascii=False)
 
     def _write_record_sync(self, record: dict[str, Any]) -> None:
-        ts_str = _to_iso(record.get("timestamp"))
-        ym = ts_str[:4] + ts_str[5:7] if len(ts_str) >= 7 else self._current_year_month()
-        db_path = self._ensure_month_db(ym)
-        with closing(self._connect_to(db_path)) as conn, conn:
+        with self._connect() as conn:
             conn.execute(
-                """INSERT INTO request_logs
-                (timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
-                 input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
-                 latency_ms, lag_ms, finish_reason,
+                """
+                INSERT INTO request_logs
+                (timestamp, model, channel_id, channel_name, api_key_id, is_stream,
+                 input_tokens, output_tokens, latency_ms, lag_ms, finish_reason,
                  success, error_msg, request_headers, response_headers,
                  request_body, response_body)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
                 (
-                    ts_str,
+                    _to_iso(record.get("timestamp")),
                     record["model"],
                     record["channel_id"],
                     record["channel_name"],
                     record.get("api_key_id"),
-                    record.get("client_ip"),
                     1 if record["is_stream"] else 0,
                     int(record.get("input_tokens") or 0),
                     int(record.get("output_tokens") or 0),
-                    int(record.get("cache_read_input_tokens") or 0),
-                    int(record.get("cache_creation_input_tokens") or 0),
                     int(record["latency_ms"]),
                     record.get("lag_ms"),
                     record.get("finish_reason"),
@@ -506,21 +218,19 @@ VALUES (:id, :timestamp, :model, :channel_id, :channel_name, :api_key_id,
     async def write_record(self, record: dict[str, Any]) -> None:
         await asyncio.to_thread(self._write_record_sync, record)
 
-    # ------------------------------------------------------------------
-    # Query helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_where_clause(
-        model: str | None,
-        channel: str | None,
-        start: datetime | None,
-        end: datetime | None,
-        success: bool | None,
-        api_key_id: str | None,
-        client_ip: str | None,
-        is_stream: bool | None,
-    ) -> tuple[list[str], list[Any]]:
+    def _list_requests_sync(
+        self,
+        model: str | None = None,
+        channel: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        success: bool | None = None,
+        api_key_id: str | None = None,
+        is_stream: bool | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict[str, Any]:
+        page, page_size = _normalize_pagination(page, page_size)
         conditions = ["1 = 1"]
         args: list[Any] = []
         if model:
@@ -545,426 +255,28 @@ VALUES (:id, :timestamp, :model, :channel_id, :channel_name, :api_key_id,
         if api_key_id:
             conditions.append("api_key_id = ?")
             args.append(api_key_id)
-        if client_ip:
-            conditions.append("client_ip LIKE ? ESCAPE '\\'")
-            args.append(f"%{_escape_like(client_ip)}%")
         if is_stream is not None:
             conditions.append("is_stream = ?")
             args.append(1 if is_stream else 0)
-        return conditions, args
-
-    def _query_single_month(
-        self,
-        db_path: str,
-        year_month: str,
-        model: str | None,
-        channel: str | None,
-        start: datetime | None,
-        end: datetime | None,
-        success: bool | None,
-        api_key_id: str | None,
-        client_ip: str | None,
-        is_stream: bool | None,
-    ) -> dict[str, Any]:
-        conditions, args = self._build_where_clause(
-            model, channel, start, end, success, api_key_id, client_ip, is_stream,
-        )
-        where = " AND ".join(conditions)
-        with closing(self._connect_to(db_path)) as conn:
-            rows = conn.execute(
-                f"""SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                           client_ip, is_stream, input_tokens, output_tokens,
-                           cache_read_input_tokens, cache_creation_input_tokens,
-                           latency_ms, lag_ms, finish_reason, success, error_msg
-                    FROM request_logs WHERE {where}""",
-                args,
-            ).fetchall()
-        items: list[dict] = []
-        for row in rows:
-            d = dict(row)
-            d["_compound_id"] = _encode_rotating_id(year_month, d["id"])
-            items.append(d)
-        return {"count": len(items), "items": items}
-
-    # ------------------------------------------------------------------
-    # List requests (cross-month merge)
-    # ------------------------------------------------------------------
-
-    def _list_requests_sync(
-        self,
-        model: str | None = None,
-        channel: str | None = None,
-        start: datetime | None = None,
-        end: datetime | None = None,
-        success: bool | None = None,
-        api_key_id: str | None = None,
-        client_ip: str | None = None,
-        is_stream: bool | None = None,
-        page: int = 1,
-        page_size: int = 10,
-    ) -> dict[str, Any]:
-        page, page_size = _normalize_pagination(page, page_size)
-
-        months = self._discover_month_dbs()
-        if not months:
-            return {"available": True, "items": [], "total": 0, "page": page, "page_size": page_size}
-
-        # Filter months by time range
-        if start:
-            start_ym = _normalize_to_utc_naive(start).strftime("%Y%m")
-            months = [m for m in months if m >= start_ym]
-        if end:
-            end_ym = _normalize_to_utc_naive(end).strftime("%Y%m")
-            months = [m for m in months if m <= end_ym]
-
-        # Query each matching month
-        total = 0
-        all_items: list[dict] = []
-        for ym in months:
-            db_path = self._month_db_path(ym)
-            if not os.path.exists(db_path):
-                continue
-            result = self._query_single_month(
-                db_path, ym, model, channel, start, end,
-                success, api_key_id, client_ip, is_stream,
-            )
-            total += result["count"]
-            all_items.extend(result["items"])
-
-        # Sort by timestamp DESC, compound_id DESC
-        # _compound_id is "YYYYMM_localid" — parse local_id as int to avoid
-        # string comparison bug where "9" > "10"
-        def _sort_key(item):
-            ym, lid = _decode_rotating_id(item["_compound_id"])
-            return (item["timestamp"], ym, lid)
-
-        all_items.sort(key=_sort_key, reverse=True)
-
-        # Paginate
-        offset = (page - 1) * page_size
-        page_items = all_items[offset:offset + page_size]
-
-        result_items = []
-        for item in page_items:
-            base = _base_item_from_mapping(item)
-            base["id"] = item["_compound_id"]
-            result_items.append(base)
-
-        return {
-            "available": True,
-            "items": result_items,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-        }
-
-    async def list_requests(
-        self,
-        model: str | None = None,
-        channel: str | None = None,
-        start: datetime | None = None,
-        end: datetime | None = None,
-        success: bool | None = None,
-        api_key_id: str | None = None,
-        client_ip: str | None = None,
-        is_stream: bool | None = None,
-        page: int = 1,
-        page_size: int = 10,
-    ) -> dict[str, Any]:
-        return await asyncio.to_thread(
-            self._list_requests_sync,
-            model, channel, start, end, success,
-            api_key_id, client_ip, is_stream, page, page_size,
-        )
-
-    # ------------------------------------------------------------------
-    # Get single field (route by compound ID)
-    # ------------------------------------------------------------------
-
-    def _get_request_field_sync(self, request_id: str, field: str) -> dict | None:
-        sql = _RAW_FIELD_SELECT_SQLITE.get(field)
-        if sql is None:
-            return None
-
-        ym, local_id = _parse_id(str(request_id))
-
-        if ym is not None:
-            db_path = self._month_db_path(ym)
-            if not os.path.exists(db_path):
-                return None
-            with closing(self._connect_to(db_path)) as conn:
-                row = conn.execute(sql, (local_id,)).fetchone()
-        else:
-            # Legacy plain integer ID -- search all months (newest first)
-            row = None
-            for m in reversed(self._discover_month_dbs()):
-                db_path = self._month_db_path(m)
-                if not os.path.exists(db_path):
-                    continue
-                with closing(self._connect_to(db_path)) as conn:
-                    row = conn.execute(sql, (local_id,)).fetchone()
-                if row is not None:
-                    break
-
-        if row is None:
-            return None
-        if row[field] is None:
-            return {"data": None}
-        return {"data": json.loads(row[field])}
-
-    async def get_request_field(self, request_id: str, field: str) -> dict | None:
-        return await asyncio.to_thread(self._get_request_field_sync, request_id, field)
-
-    # ------------------------------------------------------------------
-    # Cleanup (file-level for old months, row-level for boundary month)
-    # ------------------------------------------------------------------
-
-    def _cleanup_old_records_sync(self, retention_days: int, raw_retention_days: int) -> dict:
-        from datetime import timedelta
-
-        result = {"raw_fields_cleared": 0, "rows_deleted": 0, "files_deleted": 0}
-        months = self._discover_month_dbs()
-
-        if retention_days > 0:
-            cutoff = _utc_now() - timedelta(days=retention_days)
-            cutoff_ym = cutoff.strftime("%Y%m")
-
-            # Delete entire monthly dbs older than cutoff
-            for ym in months:
-                if ym < cutoff_ym:
-                    db_path = self._month_db_path(ym)
-                    if os.path.exists(db_path):
-                        try:
-                            os.remove(db_path)
-                            result["files_deleted"] += 1
-                            for suffix in ("-wal", "-shm"):
-                                sidecar = db_path + suffix
-                                if os.path.exists(sidecar):
-                                    os.remove(sidecar)
-                        except OSError as exc:
-                            logger.warning(f"Failed to delete {db_path}: {exc}")
-
-            # Boundary month: per-row DELETE
-            if cutoff_ym in months:
-                db_path = self._month_db_path(cutoff_ym)
-                if os.path.exists(db_path):
-                    with closing(self._connect_to(db_path)) as conn, conn:
-                        cur = conn.execute(
-                            "DELETE FROM request_logs WHERE timestamp < datetime('now', ?)",
-                            (f"-{retention_days} days",),
-                        )
-                        result["rows_deleted"] += cur.rowcount
-
-        # Raw field cleanup within raw_retention_days
-        if raw_retention_days > 0 and (retention_days == 0 or raw_retention_days < retention_days):
-            raw_cutoff = _utc_now() - timedelta(days=raw_retention_days)
-            raw_cutoff_ym = raw_cutoff.strftime("%Y%m")
-            for ym in months:
-                if ym >= raw_cutoff_ym:
-                    db_path = self._month_db_path(ym)
-                    if os.path.exists(db_path):
-                        with closing(self._connect_to(db_path)) as conn, conn:
-                            cur = conn.execute(
-                                """UPDATE request_logs SET request_headers = NULL,
-                                   response_headers = NULL, request_body = NULL, response_body = NULL
-                                   WHERE timestamp < datetime('now', ?)
-                                   AND (request_headers IS NOT NULL OR response_headers IS NOT NULL
-                                        OR request_body IS NOT NULL OR response_body IS NOT NULL)""",
-                                (f"-{raw_retention_days} days",),
-                            )
-                            result["raw_fields_cleared"] += cur.rowcount
-
-        return result
-
-    async def cleanup_old_records(self, retention_days: int, raw_retention_days: int) -> dict:
-        return await asyncio.to_thread(self._cleanup_old_records_sync, retention_days, raw_retention_days)
-
-
-class PostgresRequestLogBackend(_BaseRequestLogBackend):
-    def __init__(self, database_url: str):
-        self.database_url = database_url
-        self.pool: asyncpg.Pool | None = None
-
-    async def init(self) -> None:
-        import asyncpg
-        if not self.database_url:
-            raise ValueError("request_log_database_url is required for postgres request logs")
-        self.pool = await asyncpg.create_pool(
-            self.database_url,
-            min_size=1,
-            max_size=5,
-            init=self._init_connection,
-            timeout=5,
-        )
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS request_logs (
-                    id SERIAL PRIMARY KEY,
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    model TEXT NOT NULL,
-                    channel_id TEXT NOT NULL,
-                    channel_name TEXT NOT NULL,
-                    api_key_id TEXT,
-                    client_ip TEXT,
-                    is_stream BOOLEAN NOT NULL,
-                    input_tokens INTEGER NOT NULL DEFAULT 0,
-                    output_tokens INTEGER NOT NULL DEFAULT 0,
-                    cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
-                    cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
-                    latency_ms INTEGER NOT NULL,
-                    lag_ms INTEGER,
-                    finish_reason TEXT,
-                    success BOOLEAN NOT NULL,
-                    error_msg TEXT,
-                    request_headers JSONB,
-                    response_headers JSONB,
-                    request_body JSONB,
-                    response_body JSONB
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp);
-                CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
-                CREATE INDEX IF NOT EXISTS idx_request_logs_channel ON request_logs(channel_id, channel_name);
-                CREATE INDEX IF NOT EXISTS idx_request_logs_api_key ON request_logs(api_key_id);
-                CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip);
-                """
-            )
-            await conn.execute(
-                "ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS "
-                "cache_read_input_tokens INTEGER NOT NULL DEFAULT 0"
-            )
-            await conn.execute(
-                "ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS "
-                "cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0"
-            )
-
-    async def _init_connection(self, conn: asyncpg.Connection) -> None:
-        await conn.set_type_codec(
-            "jsonb",
-            encoder=json.dumps,
-            decoder=json.loads,
-            schema="pg_catalog",
-        )
-
-    async def close(self) -> None:
-        if self.pool is not None:
-            await self.pool.close()
-            self.pool = None
-
-    def _require_pool(self) -> asyncpg.Pool:
-        if self.pool is None:
-            raise RuntimeError("postgres request log backend is not initialized")
-        return self.pool
-
-    async def write_record(self, record: dict[str, Any]) -> None:
-        pool = self._require_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO request_logs
-                (timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
-                 input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
-                 latency_ms, lag_ms, finish_reason,
-                 success, error_msg, request_headers, response_headers,
-                 request_body, response_body)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                        $12, $13, $14, $15, $16, $17, $18, $19, $20)
-                """,
-                record.get("timestamp") or _utc_now(),
-                record["model"],
-                record["channel_id"],
-                record["channel_name"],
-                record.get("api_key_id"),
-                record.get("client_ip"),
-                bool(record["is_stream"]),
-                int(record.get("input_tokens") or 0),
-                int(record.get("output_tokens") or 0),
-                int(record.get("cache_read_input_tokens") or 0),
-                int(record.get("cache_creation_input_tokens") or 0),
-                int(record["latency_ms"]),
-                record.get("lag_ms"),
-                record.get("finish_reason"),
-                bool(record["success"]),
-                record.get("error_msg"),
-                record.get("request_headers"),
-                record.get("response_headers"),
-                record.get("request_body"),
-                record.get("response_body"),
-            )
-
-    @staticmethod
-    def _placeholder(args: list[Any], value: Any) -> str:
-        args.append(value)
-        return f"${len(args)}"
-
-    async def list_requests(
-        self,
-        model: str | None = None,
-        channel: str | None = None,
-        start: datetime | None = None,
-        end: datetime | None = None,
-        success: bool | None = None,
-        api_key_id: str | None = None,
-        client_ip: str | None = None,
-        is_stream: bool | None = None,
-        page: int = 1,
-        page_size: int = 10,
-    ) -> dict[str, Any]:
-        pool = self._require_pool()
-        page, page_size = _normalize_pagination(page, page_size)
-        conditions = ["1 = 1"]
-        args: list[Any] = []
-        if model:
-            conditions.append(
-                f"model ILIKE {self._placeholder(args, f'%{_escape_like(model)}%')} ESCAPE '\\'"
-            )
-        if channel:
-            escaped = f"%{_escape_like(channel)}%"
-            name_param = self._placeholder(args, escaped)
-            id_param = self._placeholder(args, escaped)
-            conditions.append(
-                f"(channel_name ILIKE {name_param} ESCAPE '\\' "
-                f"OR channel_id ILIKE {id_param} ESCAPE '\\')"
-            )
-        if start:
-            conditions.append(f"timestamp >= {self._placeholder(args, _normalize_to_utc_aware(start))}")
-        if end:
-            conditions.append(f"timestamp < {self._placeholder(args, _normalize_to_utc_aware(end))}")
-        if success is not None:
-            conditions.append(f"success = {self._placeholder(args, bool(success))}")
-        if api_key_id:
-            conditions.append(f"api_key_id = {self._placeholder(args, api_key_id)}")
-        if client_ip:
-            conditions.append(
-                f"client_ip ILIKE {self._placeholder(args, f'%{_escape_like(client_ip)}%')} ESCAPE '\\'"
-            )
-        if is_stream is not None:
-            conditions.append(f"is_stream = {self._placeholder(args, bool(is_stream))}")
 
         where_clause = " AND ".join(conditions)
-        limit_param = f"${len(args) + 1}"
-        offset_param = f"${len(args) + 2}"
-        async with pool.acquire() as conn:
-            total = await conn.fetchval(
+        with self._connect() as conn:
+            total = conn.execute(
                 f"SELECT COUNT(*) FROM request_logs WHERE {where_clause}",
-                *args,
-            )
-            rows = await conn.fetch(
+                args,
+            ).fetchone()[0]
+            rows = conn.execute(
                 f"""
                 SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                       client_ip, is_stream, input_tokens, output_tokens,
-                       cache_read_input_tokens, cache_creation_input_tokens,
-                       latency_ms, lag_ms, finish_reason, success, error_msg
+                       is_stream, input_tokens, output_tokens, latency_ms, lag_ms,
+                       finish_reason, success, error_msg
                 FROM request_logs
                 WHERE {where_clause}
                 ORDER BY timestamp DESC, id DESC
-                LIMIT {limit_param} OFFSET {offset_param}
+                LIMIT ? OFFSET ?
                 """,
-                *args,
-                page_size,
-                (page - 1) * page_size,
-            )
+                [*args, page_size, (page - 1) * page_size],
+            ).fetchall()
         return {
             "available": True,
             "items": [_base_item_from_mapping(dict(row)) for row in rows],
@@ -973,68 +285,56 @@ class PostgresRequestLogBackend(_BaseRequestLogBackend):
             "page_size": page_size,
         }
 
-    async def get_request_field(self, request_id: str, field: str) -> dict | None:
-        sql = _RAW_FIELD_SELECT_POSTGRES.get(field)
+    async def list_requests(
+        self,
+        model: str | None = None,
+        channel: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        success: bool | None = None,
+        api_key_id: str | None = None,
+        is_stream: bool | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._list_requests_sync,
+            model,
+            channel,
+            start,
+            end,
+            success,
+            api_key_id,
+            is_stream,
+            page,
+            page_size,
+        )
+
+    def _get_request_field_sync(self, request_id: int, field: str) -> dict | None:
+        sql = _RAW_FIELD_SELECT.get(field)
         if sql is None:
             return None
-        # Extract local integer ID from compound or plain ID
-        _, local_id = _parse_id(str(request_id))
-        pool = self._require_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(sql, local_id)
+        with self._connect() as conn:
+            row = conn.execute(sql, (request_id,)).fetchone()
         if row is None:
             return None
         if row[field] is None:
             return {"data": None}
-        data = row[field]
-        if isinstance(data, str):
-            data = json.loads(data)
-        return {"data": data}
+        return {"data": json.loads(row[field])}
 
-    async def cleanup_old_records(self, retention_days: int, raw_retention_days: int) -> dict:
-        pool = self._require_pool()
-        result = {"raw_fields_cleared": 0, "rows_deleted": 0}
-        async with pool.acquire() as conn:
-            if raw_retention_days > 0 and (retention_days == 0 or raw_retention_days < retention_days):
-                tag = await conn.execute(
-                    """
-                    UPDATE request_logs
-                    SET request_headers = NULL,
-                        response_headers = NULL,
-                        request_body = NULL,
-                        response_body = NULL
-                    WHERE timestamp < NOW() - $1 * INTERVAL '1 day'
-                      AND (request_headers IS NOT NULL
-                           OR response_headers IS NOT NULL
-                           OR request_body IS NOT NULL
-                           OR response_body IS NOT NULL)
-                    """,
-                    raw_retention_days,
-                )
-                result["raw_fields_cleared"] = int(tag.split()[-1])
-            if retention_days > 0:
-                tag = await conn.execute(
-                    "DELETE FROM request_logs WHERE timestamp < NOW() - $1 * INTERVAL '1 day'",
-                    retention_days,
-                )
-                result["rows_deleted"] = int(tag.split()[-1])
-        return result
+    async def get_request_field(self, request_id: int, field: str) -> dict | None:
+        return await asyncio.to_thread(self._get_request_field_sync, request_id, field)
 
 
-def _build_backend(settings: dict | None = None) -> _BaseRequestLogBackend:
-    db_type = str(_get_setting(settings, "request_log_db_type") or "sqlite").lower()
-    if db_type == "sqlite":
-        db_path = _get_setting(settings, "request_log_sqlite_path")
-        if not db_path:
-            db_path = os.path.join(config.DATA_DIR, "request_logs.db")
-        return SQLiteRequestLogBackend(str(db_path))
-    if db_type == "postgres":
-        return PostgresRequestLogBackend(str(_get_setting(settings, "request_log_database_url") or ""))
-    raise ValueError(f"unsupported request_log_db_type: {db_type}")
+def _build_backend(settings: dict | None = None) -> SQLiteRequestLogBackend:
+    db_path = _get_setting(settings, "request_log_sqlite_path")
+    if not db_path:
+        db_path = os.path.join(config.DATA_DIR, "request_logs.db")
+    return SQLiteRequestLogBackend(str(db_path))
 
 
-async def _create_initialized_backend(settings: dict | None = None) -> tuple[_BaseRequestLogBackend | None, dict]:
-    backend: _BaseRequestLogBackend | None = None
+async def _create_initialized_backend(settings: dict | None = None) -> tuple[SQLiteRequestLogBackend | None, dict]:
+    backend: SQLiteRequestLogBackend | None = None
     try:
         backend = _build_backend(settings)
         await backend.init()
@@ -1120,15 +420,14 @@ def start_request_log_workers(worker_count: int | None = None) -> None:
 
 
 async def stop_request_log_workers() -> None:
-    global _REQUEST_QUEUE_LOOP
+    global _REQUEST_QUEUE, _REQUEST_QUEUE_LOOP
     for task in _REQUEST_WORKERS:
         task.cancel()
     for task in _REQUEST_WORKERS:
         with contextlib.suppress(asyncio.CancelledError):
             await task
     _REQUEST_WORKERS.clear()
-    # Workers 已取消，drain 队列中未消费的记录
-    await drain_queue()
+    _REQUEST_QUEUE = None
     _REQUEST_QUEUE_LOOP = None
 
 
@@ -1219,11 +518,8 @@ def record_request(
     output_tokens: int,
     latency_ms: int,
     success: bool,
-    cache_read_input_tokens: int = 0,
-    cache_creation_input_tokens: int = 0,
     error_msg: str | None = None,
     api_key_id: str | None = None,
-    client_ip: str | None = None,
     request_headers: dict[str, str] | None = None,
     response_headers: dict[str, str] | None = None,
     request_body: dict | None = None,
@@ -1246,13 +542,10 @@ def record_request(
         "is_stream": is_stream,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "cache_read_input_tokens": cache_read_input_tokens,
-        "cache_creation_input_tokens": cache_creation_input_tokens,
         "latency_ms": latency_ms,
         "success": success,
         "error_msg": error_msg,
         "api_key_id": api_key_id,
-        "client_ip": client_ip,
         "request_headers": _filtered_raw_value(flags, "save_request_headers", request_headers),
         "response_headers": _filtered_raw_value(flags, "save_response_headers", response_headers),
         "request_body": _filtered_raw_value(flags, "save_request_body", request_body),
@@ -1317,7 +610,6 @@ async def list_requests(
     end: datetime | None = None,
     success: bool | None = None,
     api_key_id: str | None = None,
-    client_ip: str | None = None,
     is_stream: bool | None = None,
     page: int = 1,
     page_size: int = 10,
@@ -1333,7 +625,6 @@ async def list_requests(
             end=end,
             success=success,
             api_key_id=api_key_id,
-            client_ip=client_ip,
             is_stream=is_stream,
             page=page,
             page_size=page_size,
@@ -1345,7 +636,7 @@ async def list_requests(
         return result
 
 
-async def get_request_field(request_id: str, field: str) -> dict | None:
+async def get_request_field(request_id: int, field: str) -> dict | None:
     if not _raw_field_allowed(field):
         return None
     backend = _backend
@@ -1357,26 +648,3 @@ async def get_request_field(request_id: str, field: str) -> dict | None:
     except Exception as exc:
         logger.warning(f"Request log field read failed: {exc}")
         return None
-
-
-async def cleanup_old_records(
-    retention_days: int | None = None,
-    raw_retention_days: int | None = None,
-) -> dict[str, Any]:
-    backend = _backend
-    if backend is None:
-        return {"error": _backend_error, "raw_fields_cleared": 0, "rows_deleted": 0}
-    r_days = retention_days if retention_days is not None else int(config.get_setting("request_log_retention_days") or 0)
-    raw_days = raw_retention_days if raw_retention_days is not None else int(config.get_setting("request_log_raw_retention_days") or 0)
-    try:
-        result = await backend.cleanup_old_records(r_days, raw_days)
-        if result.get("raw_fields_cleared") or result.get("rows_deleted"):
-            logger.info(
-                f"Request log cleanup: cleared raw fields for {result['raw_fields_cleared']} rows, "
-                f"deleted {result['rows_deleted']} rows "
-                f"(raw_retention={raw_days}d, retention={r_days}d)"
-            )
-        return result
-    except Exception as exc:
-        logger.warning(f"Request log cleanup failed: {exc}")
-        return {"error": str(exc), "raw_fields_cleared": 0, "rows_deleted": 0}
