@@ -32,11 +32,13 @@
 ### 4.1 `request_logs.py`
 
 - 删除 `if TYPE_CHECKING: import asyncpg`。
-- 删除 `_RAW_FIELD_SELECT_POSTGRES`。
+- 删除 `_RAW_FIELD_SELECT_POSTGRES`；将 `_RAW_FIELD_SELECT_SQLITE` 重命名为 `_RAW_FIELD_SELECT`（去除冗余后缀）。
 - 删除 `_BaseRequestLogBackend` 抽象类。
 - 删除 `PostgresRequestLogBackend` 类及其全部 SQL、连接池、JSONB 处理逻辑。
 - 删除 `_build_backend` 中的数据库类型分支，改为直接构造 `SQLiteRequestLogBackend`。
 - 将 `_BaseRequestLogBackend` 原定义的公共方法签名下沉到 `SQLiteRequestLogBackend` 直接实现，并删除抽象基类本身。
+- 更新模块内类型注解：`_backend: "_BaseRequestLogBackend | None"` 改为 `_backend: SQLiteRequestLogBackend | None`；`_create_initialized_backend` 的返回类型同步更新。
+- 在模块顶部（`_SQLITE_MMAP_SIZE_BYTES` 之前）添加 `BACKEND = "sqlite3"` 常量与注释，显式声明仅支持 SQLite3。
 
 简化后的 `_build_backend`：
 
@@ -48,6 +50,8 @@ def _build_backend(settings: dict | None = None) -> SQLiteRequestLogBackend:
     return SQLiteRequestLogBackend(str(db_path))
 ```
 
+> 注意：`_build_backend` 的调用方（如 `_create_initialized_backend`、`reload_backend`）中涉及 `_BaseRequestLogBackend` 类型注解的地方也需同步改为 `SQLiteRequestLogBackend`。
+
 ### 4.2 `config.py`
 
 - 从 `_CONFIG_SCHEMA` 删除：
@@ -56,6 +60,7 @@ def _build_backend(settings: dict | None = None) -> SQLiteRequestLogBackend:
 - 保留 `request_log_sqlite_path`（可展示为只读路径）。
 - 从 `_CONFIG_CONSTRAINTS` 删除 `request_log_db_type` 的 choices。
 - 从 `get_settings()` 删除 `request_log_database_url` 脱敏逻辑和 `request_log_database_url_masked` 字段。
+- 删除 `_mask_db_url()` 函数（第 227 行），该函数仅服务于 PG URL 脱敏，删除后无其他引用。
 
 ### 4.3 前端设置页
 
@@ -73,7 +78,7 @@ def _build_backend(settings: dict | None = None) -> SQLiteRequestLogBackend:
 
 - `tests/test_request_logs.py`：
   - 删除 `test_postgres_backend_smoke`。
-  - 调整 `test_reload_backend_keeps_old_sqlite_backend_when_new_init_fails`，改用非法 SQLite 路径触发初始化失败，而非 postgres 配置。
+  - 调整 `test_reload_backend_keeps_old_sqlite_backend_when_new_init_fails`，改用非法 SQLite 路径（如空字符串或指向一个只读目录的路径）触发初始化失败，而非 postgres 配置。
 - `tests/test_settings.py`：
   - 删除 `test_get_settings_masks_db_url`。
   - 调整 `test_config_defaults`、`test_config_requires_restart`、`test_settings_page_has_request_log_db_controls` 中关于已删除字段的断言。
@@ -123,3 +128,25 @@ def _build_backend(settings: dict | None = None) -> SQLiteRequestLogBackend:
 - [ ] 调整相关测试。
 - [ ] 更新项目文档。
 - [ ] 运行测试与 lint 验证。
+
+### 变更文件清单（快速检查）
+
+| # | 文件 | 变更类型 |
+|---|------|----------|
+| 1 | `request_logs.py` | 删除 PG 后端、抽象基类、PG 字段映射；重命名 `_RAW_FIELD_SELECT_SQLITE`；更新类型注解；添加 `BACKEND` 常量 |
+| 2 | `config.py` | 删除 `request_log_db_type`、`request_log_database_url`、`_mask_db_url()` 及相关约束/脱敏逻辑 |
+| 3 | `static/fragments/admin/settings.html` | 删除 PG 数据库类型下拉框与连接串输入框 |
+| 4 | `static/js/settings.js` | 删除 `syncRequestLogDbMode()` 及相关读写逻辑 |
+| 5 | `pyproject.toml` | 删除 `asyncpg>=0.29.0` |
+| 6 | `uv.lock` | 重新生成 |
+| 7 | `tests/test_request_logs.py` | 删除 PG 测试、调整 reload 测试 |
+| 8 | `tests/test_settings.py` | 删除脱敏测试、调整断言 |
+| 9 | `tests/routers/test_admin.py` | 移除 fixture 中 `request_log_db_type` |
+| 10 | `tests/routers/test_admin_whitelist.py` | 移除 fixture 中 `request_log_db_type` |
+| 11 | `tests/test_sqlite_hygiene.py` | 移除 fixture 中 `request_log_db_type` |
+| 12 | `README.md` | 更新描述 |
+| 13 | `agents.md` | 更新描述 |
+| 14 | `docs/modules.md` | 删除 PG 配置行 |
+| 15 | `docs/deployment.md` | 删除 PG 章节 |
+| 16 | `docs/troubleshooting.md` | 删除 PG 章节 |
+| 17 | `docs/architecture.md` | 更新描述 |
