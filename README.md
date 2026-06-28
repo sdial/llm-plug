@@ -9,7 +9,7 @@
 - **SOCKS5 代理支持**：每个渠道可独立配置代理
 - **Web 管理界面**：可视化配置渠道、API Key、模型组和业务设置
 - **零配置启动**：无需 `.env`，默认监听 `0.0.0.0:55555`，业务设置写入 `data/settings.json`
-- **请求记录与统计**：默认 SQLite，本地持久化，也可在前端切换请求记录到 PostgreSQL
+- **请求记录与统计**：请求记录使用 SQLite3，本地持久化，按月分库
 
 ## 技术栈
 
@@ -17,7 +17,7 @@
 |------|------|
 | 后端 | Python 3.11+ / FastAPI |
 | 前端 | 原生 HTML + TailwindCSS (CDN) |
-| 存储 | JSON 文件 / SQLite / PostgreSQL 请求记录 |
+| 存储 | JSON 文件 / SQLite3 |
 | HTTP | httpx[socks] |
 
 ## 快速开始

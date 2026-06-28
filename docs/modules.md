@@ -80,6 +80,7 @@
 
 `update_settings(updates)` 是前端设置页的后端入口：
 
+<<<<<<< HEAD
 1. 加锁遍历更新项，跳过 `readonly` 字段
 2. 类型转换 + 校验
 3. 写入磁盘（原子写入：临时文件 + `os.replace()`）
@@ -89,6 +90,9 @@
    - `response_state_*` → `reload_responses_store()`
    - `max_fail_count` / `cooldown_seconds` → `load_balancer.update_config()`
 6. 返回 `{updated: [...], needs_restart: bool}`
+=======
+代理鉴权通过前端 API Key 页面管理，数据写入 `data/api_keys.json`。请求记录使用 `data/request_logs.db`（SQLite3，按月分库）。
+>>>>>>> 2de5263 (docs: 移除 PostgreSQL 相关描述，明确仅支持 SQLite3)
 
 ### 负载均衡配置迁移
 
