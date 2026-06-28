@@ -54,7 +54,6 @@ async def setup_test_db(tmp_path, monkeypatch):
     await stats.init_db(str(tmp_path / "stats.db"))
     await request_logs.init_backend(
         {
-            "request_log_db_type": "sqlite",
             "request_log_sqlite_path": str(tmp_path / "request_logs.db"),
         }
     )
@@ -391,7 +390,7 @@ class TestSettingsEndpoint:
 
         resp = await client.put(
             "/admin/settings",
-            json={"request_log_db_type": "sqlite"},
+            json={"request_timeout": 600},
         )
 
         assert resp.status_code == 200

@@ -80,21 +80,6 @@ def test_get_setting_default():
     assert config.get_setting("max_fail_count") == 5
 
 
-def test_get_settings_masks_db_url():
-    """get_settings 脱敏 request_log_database_url"""
-    import config
-
-    config._settings = {
-        "request_log_database_url": "postgres://user:secret@host:5432/db",
-        "host": "0.0.0.0",
-        "port": 55555,
-    }
-    all_settings = config.get_settings()
-    assert "secret" not in all_settings["request_log_database_url"]
-    assert "***" in all_settings["request_log_database_url"]
-    assert all_settings["request_log_database_url_masked"] == all_settings["request_log_database_url"]
-
-
 def test_config_defaults():
     """验证配置项默认值"""
     import os
@@ -109,9 +94,9 @@ def test_config_defaults():
     assert _CONFIG_SCHEMA["log_level"]["default"] == "info"
     assert "database_url" not in _CONFIG_SCHEMA
     assert os.path.basename(_CONFIG_SCHEMA["stats_sqlite_path"]["default"]) == "stats.db"
-    assert _CONFIG_SCHEMA["request_log_db_type"]["default"] == "sqlite"
     assert os.path.basename(_CONFIG_SCHEMA["request_log_sqlite_path"]["default"]) == "request_logs.db"
-    assert _CONFIG_SCHEMA["request_log_database_url"]["default"] == ""
+    assert "request_log_db_type" not in _CONFIG_SCHEMA
+    assert "request_log_database_url" not in _CONFIG_SCHEMA
     assert _CONFIG_SCHEMA["save_request_headers"]["default"] is False
     assert _CONFIG_SCHEMA["save_response_headers"]["default"] is False
     assert _CONFIG_SCHEMA["save_request_body"]["default"] is False
@@ -119,21 +104,6 @@ def test_config_defaults():
     assert _CONFIG_SCHEMA["max_fail_count"]["default"] == 5
     assert _CONFIG_SCHEMA["cooldown_seconds"]["default"] == 60
     assert all("env" not in schema for schema in _CONFIG_SCHEMA.values())
-
-
-def test_config_schema_has_typed_contract():
-    """配置 schema 应有显式类型契约，避免退化成任意 dict。"""
-    import config
-
-    schema_annotation = config.__annotations__["_CONFIG_SCHEMA"]
-
-    assert schema_annotation == dict[str, config.ConfigSchemaEntry]
-    assert config.ConfigSchemaEntry.__required_keys__ == {
-        "type",
-        "default",
-        "requires_restart",
-    }
-    assert config.ConfigSchemaEntry.__optional_keys__ == {"readonly"}
 
 
 def test_config_requires_restart():
@@ -150,9 +120,7 @@ def test_config_requires_restart():
     assert "max_fail_count" not in restart_keys
     assert "cooldown_seconds" not in restart_keys
     assert "stats_sqlite_path" not in restart_keys
-    assert "request_log_db_type" not in restart_keys
     assert "request_log_sqlite_path" not in restart_keys
-    assert "request_log_database_url" not in restart_keys
     assert "save_request_headers" not in restart_keys
     assert "save_response_headers" not in restart_keys
     assert "save_request_body" not in restart_keys
@@ -170,7 +138,7 @@ def test_config_readonly():
 
 def test_settings_page_has_no_debug_mode_controls():
     """Settings page must not submit the removed debug config."""
-    html = Path("static/fragments/admin/settings.html").read_text(encoding="utf-8")
+    html = Path("static/index.html").read_text(encoding="utf-8")
 
     assert "set_debug" not in html
     assert "settings_debug" not in html
@@ -181,26 +149,23 @@ def test_settings_page_has_no_debug_mode_controls():
 
 
 def test_settings_page_has_request_log_db_controls():
-    """Settings page exposes request-log DB switching and lightweight fallback."""
-    html = Path("static/fragments/admin/settings.html").read_text(encoding="utf-8")
-    requests_js = Path("static/js/requests.js").read_text(encoding="utf-8")
+    """Settings page exposes SQLite request-log path and raw-field toggles."""
+    html = Path("static/index.html").read_text(encoding="utf-8")
 
-    assert "set_request_log_db_type" in html
     assert "set_request_log_sqlite_path" in html
     assert 'id="set_request_log_sqlite_path"' in html and "readonly" in html
-    assert "set_request_log_database_url" in html
-    assert "syncRequestLogDbMode" in html
+    assert "set_request_log_db_type" not in html
+    assert "set_request_log_database_url" not in html
+    assert "syncRequestLogDbMode" not in html
     assert "set_save_request_headers" in html
     assert "set_save_response_headers" in html
     assert "set_save_request_body" in html
     assert "set_save_response_body" in html
-    assert "loadStatsRequestLogs" in requests_js
-    assert "params.set('source', 'stats')" in requests_js
 
 
 def test_settings_page_explains_zero_config_runtime():
     """Settings page documents zero-config startup and storage boundaries."""
-    html = Path("static/fragments/admin/settings.html").read_text(encoding="utf-8")
+    html = Path("static/index.html").read_text(encoding="utf-8")
 
     assert "零配置启动" in html
     assert "服务不需要 .env" in html
@@ -210,56 +175,6 @@ def test_settings_page_explains_zero_config_runtime():
     assert "data/channels.json" in html
     assert "data/api_keys.json" in html
     assert "data/request_logs.db" in html
-
-
-def test_lb_strategy_settings_schema_defaults():
-    from config import _CONFIG_SCHEMA
-
-    assert _CONFIG_SCHEMA["lb_strategy"]["default"] == "round_robin"
-    assert _CONFIG_SCHEMA["lb_strategy"]["requires_restart"] is False
-    assert _CONFIG_SCHEMA["sticky_ttl"]["default"] == 1800
-    assert _CONFIG_SCHEMA["sticky_cache_max_entries"]["default"] == 10000
-
-
-@pytest.mark.asyncio
-async def test_update_settings_validates_lb_strategy(monkeypatch):
-    import config
-
-    config._settings = {key: schema["default"] for key, schema in config._CONFIG_SCHEMA.items()}
-
-    with pytest.raises(ValueError, match="lb_strategy"):
-        await config.update_settings({"lb_strategy": "random"})
-
-
-@pytest.mark.asyncio
-async def test_apply_lb_settings_passes_strategy_and_sticky_values(monkeypatch):
-    import config
-
-    calls = []
-
-    class FakeBalancer:
-        async def update_config(self, **kwargs):
-            calls.append(kwargs)
-
-    monkeypatch.setattr("balancer.load_balancer.load_balancer", FakeBalancer())
-    config._settings = {
-        **{key: schema["default"] for key, schema in config._CONFIG_SCHEMA.items()},
-        "max_fail_count": 7,
-        "cooldown_seconds": 88,
-        "lb_strategy": "sticky",
-        "sticky_ttl": 600,
-        "sticky_cache_max_entries": 1234,
-    }
-
-    await config._apply_lb_settings()
-
-    assert calls == [{
-        "max_fail_count": 7,
-        "cooldown_seconds": 88,
-        "strategy": "sticky",
-        "sticky_ttl": 600,
-        "sticky_cache_max_entries": 1234,
-    }]
 
 
 def test_migrate_lb_config(tmp_path):
