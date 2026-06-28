@@ -30,7 +30,7 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 | `data/admin_auth.json` | 管理员密码哈希（PBKDF2-SHA256 260k 轮）+ 已撤销会话 |
 | `data/whitelist.csv` | IP 白名单（`path_pattern,methods,cidr,desc` 四列 CSV） |
 | `data/stats.db` | SQLite 统计聚合（按渠道/模型/天） |
-| `data/request_logs.db` | SQLite 请求记录（可在设置页切到 PostgreSQL；SQLite 模式下按月分库） |
+| `data/request_logs.db` | SQLite 请求记录（按月分库） |
 | `data/responses_session/` | Responses API 的会话状态文件（`previous_response_id` 展开依赖） |
 | `logs/images/` | 请求中的图片文件（需开启 `save_images` 设置） |
 | `logs/audios/` | 请求中的音频文件（需开启 `save_audios` 设置） |
@@ -76,7 +76,7 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 - **`proxy_core.py`** — `_do_stream_request()` 是异步生成器，逐行解析 SSE，由 `_prime_stream()` 消费首个 chunk 触发首包前错误进故障转移。`_EmptyStreamError` 处理"上游连接成功但无任何 SSE 输出"的情况。`_do_request()` 内的 `latency_ms` 起点是 `create_client` 返回之后（避免把连接建立时间算进去）
 - **`client.py`** — 普通客户端按 `base_url|socks5_proxy` 缓存。`get_upstream_headers()` 对 Anthropic 发 `x-api-key` + `anthropic-version`（默认 `2023-06-01`）+ 可选 `anthropic-beta`；版本/beta 走 `AnthropicVersionPolicy` / `AnthropicBetaPolicy`（`channel` / `client` / `channel_if_missing` / `merge`）。`_apply_anthropic_headers()` 会从客户端 `extra_headers` 里 `pop` 走 `anthropic-version` 和 `anthropic-beta` 再按策略写回
 - **`storage.py`** — 原子写：临时文件 + `os.replace()`。提供 `register_save_callback()` / `register_api_keys_save_callback()` 给缓存失效逻辑订阅；`proxy_core._schedule_invalidate_model_channels_cache()` 和 `storage._invalidate_model_groups_cache_sync()` 都通过它串联
-- **`request_logs.py`** — 异步 worker 写入请求记录；SQLite 后端按月分库并支持 legacy DB 迁移，也可切 PostgreSQL；RAW 字段（headers/body/附件）受 settings 开关控制
+- **`request_logs.py`** — 异步 worker 写入请求记录；SQLite 后端按月分库并支持 legacy DB 迁移；RAW 字段（headers/body/附件）受 settings 开关控制
 - **`stats.py`** — SQLite 日聚合 + 后台 worker；管理端 `/admin/stats` 读聚合表，缺失时可 fallback 到 request_logs 实时统计
 - **`routers/admin.py`** — `AdminAuthRoute` 在路由级加会话校验 + CSRF 校验（写操作要 `X-CSRF-Token` 头）。上游 URL 创建前走 `_validate_outbound_url()` 防 SSRF（拒绝非公网、内网、本机地址）
 - **`balancer/load_balancer.py`** — 平滑加权轮询（SWRR，类似 Nginx）：`current_weight += weight` → 选最大 → 减去 `total_weight`。`ChannelHealth.fail_count` 内存存储，进程重启清零
