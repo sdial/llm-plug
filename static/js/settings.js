@@ -52,10 +52,6 @@ function _detectSettingsDirty() {
   if (stickyCacheMax !== (orig.sticky_cache_max_entries ?? 10000)) _settingsDirtySections.add('lb');
   const newLevel = document.getElementById('set_log_level').value;
   if (newLevel !== (orig.log_level || 'INFO').toUpperCase()) _settingsDirtySections.add('logs');
-  const requestLogDbType = document.getElementById('set_request_log_db_type').value;
-  if (requestLogDbType !== (orig.request_log_db_type || 'sqlite')) _settingsDirtySections.add('database');
-  const requestLogDbUrl = document.getElementById('set_request_log_database_url').value;
-  if (requestLogDbType === 'postgres' && requestLogDbUrl && requestLogDbUrl !== (orig.request_log_database_url_masked || '')) _settingsDirtySections.add('database');
   ['save_request_headers', 'save_response_headers', 'save_request_body', 'save_response_body', 'save_files', 'save_images', 'save_audios'].forEach(key => {
     const el = document.getElementById('set_' + key);
     if (el && el.checked !== Boolean(orig[key])) _settingsDirtySections.add('database');
@@ -84,17 +80,6 @@ function syncLbStrategyMode() {
   help.textContent = descriptions[strategy] || descriptions.round_robin;
 }
 
-function syncRequestLogDbMode() {
-  const typeEl = document.getElementById('set_request_log_db_type');
-  const pgUrlEl = document.getElementById('set_request_log_database_url');
-  if (!typeEl || !pgUrlEl) return;
-  const usingPostgres = typeEl.value === 'postgres';
-  pgUrlEl.disabled = !usingPostgres;
-  pgUrlEl.classList.toggle('bg-surface-50', !usingPostgres);
-  pgUrlEl.classList.toggle('text-ink-500', !usingPostgres);
-  pgUrlEl.classList.toggle('cursor-not-allowed', !usingPostgres);
-  pgUrlEl.placeholder = usingPostgres ? 'postgresql://user:pass@host:5432/db' : 'SQLite 模式下无需填写';
-}
 
 function initSettings() {
   const root = document.getElementById('settings_server') || document.getElementById('settings') || document.getElementById('settings_host');
@@ -106,7 +91,6 @@ function initSettings() {
     el.addEventListener('input', () => _detectSettingsDirty());
     el.addEventListener('change', () => _detectSettingsDirty());
   });
-  syncRequestLogDbMode();
   syncLbStrategyMode();
 }
 
@@ -125,10 +109,7 @@ async function loadSettings() {
     document.getElementById('set_max_body_size').value = data.max_body_size_mb ?? 10;
     document.getElementById('set_log_level').value = (data.log_level || 'INFO').toUpperCase();
     document.getElementById('set_aggregation_timezone').value = data.aggregation_timezone || '';
-    document.getElementById('set_request_log_db_type').value = data.request_log_db_type || 'sqlite';
     document.getElementById('set_request_log_sqlite_path').value = data.request_log_sqlite_path || '';
-    document.getElementById('set_request_log_database_url').value = data.request_log_database_url_masked || '';
-    syncRequestLogDbMode();
     document.getElementById('set_save_request_headers').checked = Boolean(data.save_request_headers);
     document.getElementById('set_save_response_headers').checked = Boolean(data.save_response_headers);
     document.getElementById('set_save_request_body').checked = Boolean(data.save_request_body);
@@ -163,10 +144,6 @@ async function saveSettings() {
   if (newLogLevel !== (orig.log_level || 'INFO').toUpperCase()) data.log_level = newLogLevel;
   const newAggTz = document.getElementById('set_aggregation_timezone').value.trim();
   if (newAggTz !== (orig.aggregation_timezone || '')) data.aggregation_timezone = newAggTz;
-  const requestLogDbType = document.getElementById('set_request_log_db_type').value;
-  if (requestLogDbType !== (orig.request_log_db_type || 'sqlite')) data.request_log_db_type = requestLogDbType;
-  const requestLogDbUrl = document.getElementById('set_request_log_database_url').value;
-  if (requestLogDbType === 'postgres' && requestLogDbUrl && requestLogDbUrl !== (orig.request_log_database_url_masked || '')) data.request_log_database_url = requestLogDbUrl;
   ['save_request_headers', 'save_response_headers', 'save_request_body', 'save_response_body', 'save_files', 'save_images', 'save_audios'].forEach(key => {
     const el = document.getElementById('set_' + key);
     if (el && el.checked !== Boolean(orig[key])) data[key] = el.checked;
@@ -417,7 +394,6 @@ async function _fcOnChannelChange(sel) {
 Object.assign(window, {
     switchSettingsSection,
     initSettings,
-    syncRequestLogDbMode,
     syncLbStrategyMode,
     loadSettings,
     saveSettings,

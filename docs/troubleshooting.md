@@ -252,27 +252,7 @@ http://localhost:55555/admin
 
 ## 数据库问题
 
-<<<<<<< HEAD
-### 请求记录 PostgreSQL 连接失败
-
-**现象**：日志显示数据库连接错误
-
-**原因**：
-- PostgreSQL 服务未启动
-- 连接字符串格式不正确
-- 防火墙阻止连接
-
-**解决方法**：
-1. 检查 PostgreSQL 服务状态
-2. 验证「设置」页中的连接串格式：`postgresql://user:pass@host:5432/dbname`
-3. 测试连接：`psql "postgresql://user:pass@host:5432/dbname"`
-
-> **注意**：请求记录数据库连接失败时，代理功能**不受影响**。请求会正常处理，只是不记录到数据库。也可以切回默认 SQLite。
-
-请求记录采用异步队列写入（`asyncio.Queue`，容量 1000，2 个后台 worker）。队列满时溢出记录写入 `logs/` 目录文件，不会阻塞代理请求。
-=======
 ### SOCKS5 代理连接失败
->>>>>>> 2de5263 (docs: 移除 PostgreSQL 相关描述，明确仅支持 SQLite3)
 
 ---
 

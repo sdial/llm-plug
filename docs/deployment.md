@@ -208,7 +208,6 @@ docker compose logs -f
 docker compose down
 ```
 
-<<<<<<< HEAD
 **端口映射**：默认映射为 `55555:55555`。如需改为其他对外端口（如 8000），修改 `ports` 为 `"8000:55555"`。
 
 **数据持久化**：`data/` 和 `logs/` 通过 volume 挂载到宿主机，容器重建不会丢失数据。
@@ -230,32 +229,6 @@ docker build -f docker-deploy/Dockerfile -t llm-plug:latest .
 
 # 指定自定义 tag
 ./docker-deploy/build.sh v1.0.0
-=======
-## 生产环境建议
-
-### 反向代理配置
-
-推荐使用 Nginx 作为反向代理：
-
-```nginx
-server {
-    listen 80;
-    server_name api.your-domain.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # SSE 支持
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_set_header X-Accel-Buffering no;
-    }
-}
->>>>>>> 2de5263 (docs: 移除 PostgreSQL 相关描述，明确仅支持 SQLite3)
 ```
 
 `build.sh` 使用 `docker buildx` 同时构建 `amd64` 和 `arm64` 架构，并自动推送到 CNB 仓库。
@@ -325,14 +298,10 @@ journalctl -u llm-plug -f
 
 ---
 
-<<<<<<< HEAD
-## 反向代理配置
-=======
 1. **启用鉴权**：在前端 API Key 页面创建访问 Key
 2. **HTTPS**：通过 Nginx 配置 SSL 证书
 3. **限制访问**：Nginx 配置 IP 白名单或限流
 4. **定期备份**：备份 `data/channels.json` 和 `data/` 目录
->>>>>>> 2de5263 (docs: 移除 PostgreSQL 相关描述，明确仅支持 SQLite3)
 
 生产环境推荐使用 Nginx 作为反向代理，提供 SSL 终止、静态缓存和访问控制。
 
@@ -376,23 +345,7 @@ server {
 
 ## 请求记录数据库
 
-请求记录默认使用 SQLite（`data/request_logs.db`）。如需切换到 PostgreSQL，在前端「设置」页修改数据库类型和连接串。
-
-### 创建 PostgreSQL 数据库
-
-```sql
-CREATE DATABASE llmplug;
-CREATE USER llmplug WITH PASSWORD 'your-password';
-GRANT ALL PRIVILEGES ON DATABASE llmplug TO llmplug;
-```
-
-连接字符串格式：
-
-```
-postgresql://llmplug:your-password@localhost:5432/llmplug
-```
-
-应用切换到 PostgreSQL 后会自动创建所需表。统计聚合始终使用本地 `data/stats.db`。
+请求记录使用 SQLite3（`data/request_logs.db`）。
 
 请求记录写入采用异步队列（`asyncio.Queue`，容量 1000）+ 2 个后台 worker，不会阻塞代理请求。队列满时溢出记录写入 `logs/` 目录下的文件。
 
@@ -488,15 +441,7 @@ cp channels.json.backup data/channels.json
 # 重启服务使缓存刷新（storage 有 5 秒 TTL 缓存）
 ```
 
-<<<<<<< HEAD
 > **注意**：直接覆盖 `channels.json` 文件后，内存缓存最多 5 秒才会更新。如需立即生效，重启服务。
-
-### PostgreSQL 重连
-
-数据库连接断开时会自动重连（异步队列 worker 每次写入时检测连接状态），无需重启服务。
-
-=======
->>>>>>> 2de5263 (docs: 移除 PostgreSQL 相关描述，明确仅支持 SQLite3)
 ### 渠道健康恢复
 
 不健康渠道在冷却期（默认 60 秒，可在设置页调整）后自动恢复探测，无需手动干预。重启服务可立即重置所有渠道的健康状态（内存存储，进程退出即清零）。

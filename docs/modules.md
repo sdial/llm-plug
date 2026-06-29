@@ -47,9 +47,7 @@
 | `max_body_size` | int | `10485760`（10MB） | 否 | 请求体最大体积 |
 | `log_level` | str | `"info"` | 是 | 日志级别，可选 trace/debug/info/warning/error/critical |
 | `stats_sqlite_path` | str | `data/stats.db` | 否 | 统计 SQLite 路径 |
-| `request_log_db_type` | str | `"sqlite"` | 否 | 请求记录后端：`sqlite` 或 `postgres` |
 | `request_log_sqlite_path` | str | `data/request_logs.db` | 否 | 请求记录 SQLite 路径 |
-| `request_log_database_url` | str | `""` | 否 | PostgreSQL 连接串（切换到 postgres 时使用） |
 | `save_request_headers` | bool | `false` | 否 | 是否保存请求头到请求记录 |
 | `save_response_headers` | bool | `false` | 否 | 是否保存响应头到请求记录 |
 | `save_request_body` | bool | `false` | 否 | 是否保存请求体到请求记录 |
@@ -80,7 +78,6 @@
 
 `update_settings(updates)` 是前端设置页的后端入口：
 
-<<<<<<< HEAD
 1. 加锁遍历更新项，跳过 `readonly` 字段
 2. 类型转换 + 校验
 3. 写入磁盘（原子写入：临时文件 + `os.replace()`）
@@ -90,9 +87,6 @@
    - `response_state_*` → `reload_responses_store()`
    - `max_fail_count` / `cooldown_seconds` → `load_balancer.update_config()`
 6. 返回 `{updated: [...], needs_restart: bool}`
-=======
-代理鉴权通过前端 API Key 页面管理，数据写入 `data/api_keys.json`。请求记录使用 `data/request_logs.db`（SQLite3，按月分库）。
->>>>>>> 2de5263 (docs: 移除 PostgreSQL 相关描述，明确仅支持 SQLite3)
 
 ### 负载均衡配置迁移
 
@@ -922,7 +916,7 @@ class WhitelistCache:
 
 ### 模块定位
 
-记录每条代理请求的详细信息（token 用量、延迟、错误、请求/响应头等），支持 SQLite 和 PostgreSQL 两种后端。
+记录每条代理请求的详细信息（token 用量、延迟、错误、请求/响应头等），仅支持 SQLite3 后端。
 
 ### 架构
 
@@ -939,9 +933,7 @@ proxy_core._record_request()
 | 后端 | 说明 |
 |------|------|
 | `SQLiteRequestLogBackend` | 默认，使用 WAL 模式 + 64MB mmap |
-| `PostgresRequestLogBackend` | 可选，连接池 min=1 max=5，JSONB 存储 |
-
-两种后端共享相同的 `_BaseRequestLogBackend` 接口：`init()` / `close()` / `write_record()` / `list_requests()` / `get_request_field()` / `cleanup_old_records()`。
+`SQLiteRequestLogBackend` 提供 `init()` / `close()` / `write_record()` / `list_requests()` / `get_request_field()` / `cleanup_old_records()`。
 
 ### RAW 字段
 

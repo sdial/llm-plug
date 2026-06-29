@@ -139,7 +139,6 @@ LLM-Plug 是一个 **LLM API 格式转换代理服务**：客户端用一种 API
    - **请求体解析**：缓冲 body，校验体积（默认上限 10MB），解析 `model` 和 `stream` 字段
    - **状态写入**：将解析结果写入 `scope["state"]`，供下游路由使用
 
-<<<<<<< HEAD
 2. **路由分发**：`proxy_base.py` 的工厂函数 `make_proxy_router()` 为三个端点生成处理器，仅做格式分发
 3. **渠道选择**：从 storage 加载匹配 model 的已启用渠道，按 `allow_format_conversion` 过滤，通过 `LoadBalancer.select_channel()` 选择
 4. **请求转换**：根据客户端 API 类型与上游渠道类型，从 `CONVERTER_MAP` 选取对应 converter 转换请求体
@@ -148,43 +147,6 @@ LLM-Plug 是一个 **LLM API 格式转换代理服务**：客户端用一种 API
 7. **响应转换**：converter 将上游响应转换回客户端格式（非流式 JSON 或流式 SSE chunks）
 8. **思考过滤**：如果上游是 DeepSeek 等需要过滤 `💭` 标记的提供商，用 `ThinkFilter` 状态机过滤思考内容
 9. **故障转移**：请求失败时记录故障，排除已试渠道后重新选择，直到成功或所有渠道耗尽
-=======
-## 模块职责
-
-```
-llm-plug/
-├── main.py              # FastAPI 入口：路由注册、静态文件、中间件
-├── config.py            # 配置管理：环境变量读取
-├── storage.py           # 存储层：JSON 文件读写（线程安全 + 缓存）
-├── client.py            # HTTP 客户端：httpx 缓存池 + SOCKS5
-├── proxy_core.py        # 代理核心：负载均衡调度、格式转换协调
-├── stats.py             # 统计模块：SQLite3 请求记录
-│
-├── models/              # 数据模型
-│   ├── api_types.py     # APIType 枚举
-│   ├── channel.py       # Channel Pydantic 模型
-│   ├── api_key.py       # ApiKey Pydantic 模型
-│   └── model_group.py   # ModelGroup Pydantic 模型
-│
-├── routers/             # 路由层
-│   ├── proxy_base.py    # 代理路由工厂（核心）
-│   ├── proxy_*.py       # 三种代理端点
-│   ├── admin.py         # 管理 API
-│   └── auth.py          # 代理鉴权
-│
-├── converters/          # 格式转换器
-│   ├── base.py          # 抽象基类
-│   ├── to_chat.py       # → OpenAI Chat Completions
-│   ├── to_response.py   # → OpenAI Response
-│   └── to_anthropic.py  # → Anthropic Messages
-│
-├── balancer/            # 负载均衡
-│   └── load_balancer.py # 优先级分组 + 加权轮询 + 健康检查
-│
-└── static/              # 管理界面
-    └── index.html       # TailwindCSS 单页应用
-```
->>>>>>> 2de5263 (docs: 移除 PostgreSQL 相关描述，明确仅支持 SQLite3)
 
 ## 转换矩阵
 
@@ -381,7 +343,7 @@ llm-plug/
 ├── url_builder.py       # URL 构建：上游地址拼接、query 合并
 ├── whitelist.py         # IP 白名单：CSV 解析 + 路径/CIDR 匹配
 ├── admin_auth.py        # 管理员鉴权：密码哈希、会话管理、CSRF
-├── request_logs.py      # 请求记录：SQLite/PostgreSQL 后端 + 异步队列写入
+├── request_logs.py      # 请求记录：SQLite3 后端 + 异步队列写入
 ├── response_state.py    # Responses 状态入口：FileStore 实例管理
 ├── state_store.py       # 文件状态存储：LRU + TTL 淘汰
 ├── stats.py             # 统计模块：SQLite 聚合统计
@@ -568,11 +530,7 @@ class ModelGroup(BaseModel):
 
 ### 添加统计存储后端
 
-<<<<<<< HEAD
-实现 `stats.py` 中的接口，替换 SQLite 为其他存储。
-=======
 实现 `stats.py` 中的接口，替换 SQLite3 为其他存储。
->>>>>>> 2de5263 (docs: 移除 PostgreSQL 相关描述，明确仅支持 SQLite3)
 
 ---
 
