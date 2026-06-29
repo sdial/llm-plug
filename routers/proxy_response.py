@@ -1,13 +1,18 @@
 import json
-from collections.abc import AsyncGenerator
-from typing import Annotated, Any
+from collections.abc import AsyncGenerator, Awaitable
+from typing import Annotated, Any, Callable
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from loguru import logger
 
+from balancer.load_balancer import load_balancer
+from client import create_client, get_upstream_headers
 from models.api_types import APIType
+from models.channel import Channel
+from storage import load_data
+from url_builder import append_api_path, append_query
 from proxy_core import AllChannelsExhausted, ConverterError, proxy_request
 from response_state import get_responses_store
 from routers.auth import check_proxy_authorization
@@ -21,6 +26,131 @@ from routers.proxy_errors import (
 router = APIRouter(tags=["代理"])
 
 _store = get_responses_store()
+
+_SKIP_FORWARD_HEADERS = {
+    "host", "authorization", "x-api-key", "content-type", "content-length",
+    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "te", "trailer", "transfer-encoding", "upgrade",
+}
+
+
+def _json_response_from_upstream(resp: httpx.Response) -> Response:
+    media_type = resp.headers.get("content-type")
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=media_type,
+    )
+
+
+def _forward_headers(channel: Channel, client_headers: dict[str, str] | None, has_body: bool) -> dict[str, str]:
+    forwarded = {
+        key: value
+        for key, value in (client_headers or {}).items()
+        if key.lower() not in _SKIP_FORWARD_HEADERS
+    }
+    headers = get_upstream_headers(channel, forwarded)
+    if has_body:
+        headers["Content-Type"] = "application/json"
+    return headers
+
+
+async def _select_responses_channel(
+    *,
+    model: str | None = None,
+    exclude_ids: set[str] | None = None,
+    client_ip: str | None = None,
+    api_key_id: str | None = None,
+    client_headers: dict[str, str] | None = None,
+) -> Channel:
+    data = await load_data()
+    channels: list[Channel] = []
+    for raw_channel in data.get("channels", []):
+        try:
+            channel = Channel(**raw_channel)
+        except Exception as exc:
+            channel_id = raw_channel.get("id") if isinstance(raw_channel, dict) else None
+            logger.warning(f"skip invalid channel entry id={channel_id}: {exc}")
+            continue
+        if channel.api_type != APIType.OPENAI_RESPONSE or not channel.enabled:
+            continue
+        if model and model not in channel.models:
+            continue
+        channels.append(channel)
+
+    if not channels:
+        if model:
+            raise ValueError(f"没有可用的 OpenAI Responses 渠道支持模型: {model}")
+        raise ValueError("没有可用的 OpenAI Responses 渠道")
+
+    selected = await load_balancer.select_channel(
+        channels,
+        exclude_ids=exclude_ids,
+        client_ip=client_ip,
+        api_key_id=api_key_id,
+        client_headers=client_headers,
+    )
+    if selected is None:
+        raise ValueError("没有健康的 OpenAI Responses 渠道")
+    return selected
+
+
+async def _read_json_body(request: Request) -> dict[str, Any]:
+    body_bytes = await request.body()
+    if not body_bytes:
+        return {}
+    try:
+        body = json.loads(body_bytes)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON: {exc}") from exc
+    if not isinstance(body, dict):
+        raise ValueError("Request body must be a JSON object")
+    return body
+
+
+async def _forward_responses_request(
+    request: Request,
+    path: str,
+    *,
+    method: str,
+    model: str | None = None,
+    body_loader: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+) -> Response:
+    client_headers = dict(request.headers)
+    api_key_id = getattr(request.state, "api_key_id", None)
+    client_ip = getattr(request.state, "client_ip", None)
+    body: dict[str, Any] | None = None
+    if body_loader is not None:
+        body = await body_loader()
+        if model is None:
+            model = body.get("model")
+
+    channel = await _select_responses_channel(
+        model=model,
+        client_ip=client_ip,
+        api_key_id=api_key_id,
+        client_headers=client_headers,
+    )
+    request.state.selected_channel_name = channel.name
+    url = append_api_path(channel.base_url, path)
+    url = append_query(url, str(request.url.query) if request.url.query else None)
+    headers = _forward_headers(channel, client_headers, body is not None)
+    client = await create_client(channel)
+    resp = await client.request(method, url, json=body, headers=headers)
+    await load_balancer.record_success(channel.id)
+    return _json_response_from_upstream(resp)
+
+
+async def _handle_forward_error(exc: BaseException) -> Response:
+    if isinstance(exc, ValueError):
+        return invalid_request(str(exc))
+    if isinstance(exc, httpx.HTTPStatusError):
+        return _response_from_upstream_http_error(exc)
+    if isinstance(exc, httpx.TimeoutException):
+        return response_from_proxy_exception(exc)
+    if isinstance(exc, httpx.RequestError):
+        return response_from_proxy_exception(exc)
+    return response_from_proxy_exception(exc)
 
 
 def _input_to_items(input_data: Any) -> list[dict[str, Any]]:
@@ -223,20 +353,111 @@ async def post_response(request: Request, authorization: Annotated[str | None, H
     return JSONResponse(content=result)
 
 
+@router.post("/v1/responses/input_tokens")
+async def count_response_input_tokens(request: Request, authorization: Annotated[str | None, Header()] = None):
+    if not check_proxy_authorization(authorization, request.state):
+        return unauthorized()
+    try:
+        return await _forward_responses_request(
+            request,
+            "/responses/input_tokens",
+            method="POST",
+            body_loader=lambda: _read_json_body(request),
+        )
+    except Exception as exc:
+        logger.error(f"[RESPONSES ERROR] /v1/responses/input_tokens {type(exc).__name__}: {exc}")
+        return await _handle_forward_error(exc)
+
+
+@router.post("/v1/responses/compact")
+async def compact_response(request: Request, authorization: Annotated[str | None, Header()] = None):
+    if not check_proxy_authorization(authorization, request.state):
+        return unauthorized()
+    try:
+        return await _forward_responses_request(
+            request,
+            "/responses/compact",
+            method="POST",
+            body_loader=lambda: _read_json_body(request),
+        )
+    except Exception as exc:
+        logger.error(f"[RESPONSES ERROR] /v1/responses/compact {type(exc).__name__}: {exc}")
+        return await _handle_forward_error(exc)
+
+
+@router.get("/v1/responses/{response_id}/input_items")
+async def list_response_input_items(
+    response_id: str,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+):
+    if not check_proxy_authorization(authorization, request.state):
+        return unauthorized()
+    try:
+        return await _forward_responses_request(
+            request,
+            f"/responses/{response_id}/input_items",
+            method="GET",
+        )
+    except Exception as exc:
+        logger.error(f"[RESPONSES ERROR] /v1/responses/{response_id}/input_items {type(exc).__name__}: {exc}")
+        return await _handle_forward_error(exc)
+
+
+@router.post("/v1/responses/{response_id}/cancel")
+async def cancel_response(
+    response_id: str,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+):
+    if not check_proxy_authorization(authorization, request.state):
+        return unauthorized()
+    try:
+        return await _forward_responses_request(
+            request,
+            f"/responses/{response_id}/cancel",
+            method="POST",
+        )
+    except Exception as exc:
+        logger.error(f"[RESPONSES ERROR] /v1/responses/{response_id}/cancel {type(exc).__name__}: {exc}")
+        return await _handle_forward_error(exc)
+
 @router.get("/v1/responses/{response_id}")
-async def get_response(response_id: str):
-    response = await _store.get_response(response_id)
-    if response is None:
-        raise HTTPException(status_code=404, detail=f"Response {response_id} not found")
-    return response
+async def get_response(
+    response_id: str,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+):
+    if not check_proxy_authorization(authorization, request.state):
+        return unauthorized()
+    try:
+        return await _forward_responses_request(
+            request,
+            f"/responses/{response_id}",
+            method="GET",
+        )
+    except Exception as exc:
+        logger.error(f"[RESPONSES ERROR] /v1/responses/{response_id} {type(exc).__name__}: {exc}")
+        return await _handle_forward_error(exc)
 
 
 @router.delete("/v1/responses/{response_id}")
-async def delete_response(response_id: str):
-    deleted = await _store.delete(response_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail=f"Response {response_id} not found")
-    return {"deleted": True, "id": response_id}
+async def delete_response(
+    response_id: str,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+):
+    if not check_proxy_authorization(authorization, request.state):
+        return unauthorized()
+    try:
+        return await _forward_responses_request(
+            request,
+            f"/responses/{response_id}",
+            method="DELETE",
+        )
+    except Exception as exc:
+        logger.error(f"[RESPONSES ERROR] DELETE /v1/responses/{response_id} {type(exc).__name__}: {exc}")
+        return await _handle_forward_error(exc)
 
 
 def _response_from_upstream_http_error(exc: httpx.HTTPStatusError) -> Response:
@@ -252,3 +473,5 @@ def _response_from_upstream_http_error(exc: httpx.HTTPStatusError) -> Response:
         status_code=exc.response.status_code,
         media_type=media_type,
     )
+
+

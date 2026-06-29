@@ -1098,22 +1098,29 @@ async def _do_request(
     # 能力描述的是上游真实约束（MiniMax 单 system、DeepSeek 不支持 parallel_tool_calls 等），
     # 与是否做格式转换无关 —— 同格式透传时也必须应用。
     model = upstream_data.get("model", "")
+    strict_response_passthrough = (
+        request_converter is None
+        and response_converter is None
+        and target_api_type == APIType.OPENAI_RESPONSE
+        and source_type == APIType.OPENAI_RESPONSE.value
+    )
 
     # 保存请求中的多模态文件（在 capability 过滤前，保留原始内容）
     await _save_multimodal_files(upstream_data, model, channel)
 
     caps = infer_capabilities(channel, model)
-    upstream_data = apply_capability_filter(upstream_data, caps, channel.name, model)
+    if not strict_response_passthrough:
+        upstream_data = apply_capability_filter(upstream_data, caps, channel.name, model)
 
     # MiniMax 特殊处理：合并多条 system 消息
-    if caps.requires_single_system_message and "messages" in upstream_data:
+    if not strict_response_passthrough and caps.requires_single_system_message and "messages" in upstream_data:
         original_count = len([m for m in upstream_data["messages"] if m.get("role") == "system"])
         upstream_data["messages"] = merge_system_messages(upstream_data["messages"])
         new_count = len([m for m in upstream_data["messages"] if m.get("role") == "system"])
         if original_count > 1:
             logger.debug(f"[CAPABILITY] MiniMax: 合并 {original_count} 条 system 消息为 {new_count} 条")
 
-    need_think_filter = bool(caps.filter_think_content)
+    need_think_filter = bool(caps.filter_think_content and not strict_response_passthrough)
 
     url = _get_upstream_url(channel)
     if query_string:
@@ -1499,6 +1506,18 @@ async def _iter_sse_blocks(lines, coalesce_data_lines: bool = True):
         yield event_type, data_lines, passthrough_lines
 
 
+
+def _format_passthrough_sse_block(
+    event_type: str | None,
+    data_lines: list[str],
+    passthrough_lines: list[str],
+) -> str:
+    lines = list(passthrough_lines)
+    if event_type:
+        lines.append(f"event: {event_type}")
+    for data_line in data_lines:
+        lines.append(f"data: {data_line}")
+    return "\n".join(lines) + "\n\n"
 def _format_raw_sse(event_type: str | None, data: str) -> str:
     lines = []
     if event_type:
@@ -1805,31 +1824,45 @@ async def _do_stream_request(
                         raise _StreamPreflightError(upstream_error)
                     stream_error = str(upstream_error)
                     # 先输出 error 事件本身，再输出协议终止事件
-                    if output_sse_events and is_upstream_event_sse and upstream_event_type:
+                    if source_type == APIType.OPENAI_RESPONSE.value and is_upstream_event_sse:
+                        sse = _format_passthrough_sse_block(
+                            upstream_event_type,
+                            data_lines,
+                            passthrough_lines,
+                        )
+                    elif output_sse_events and is_upstream_event_sse and upstream_event_type:
                         sse = _format_sse(chunk, upstream_event_type)
                     else:
                         sse = _format_sse(chunk)
+                    if passthrough_lines and source_type != APIType.OPENAI_RESPONSE.value:
+                        _sse_lines = list(passthrough_lines)
+                        for _ln in sse.split("\n"):
+                            if _ln.startswith("event: "):
+                                _sse_lines.append(_ln)
+                        for _ln in sse.split("\n"):
+                            if _ln.startswith("data:"):
+                                _sse_lines.append(_ln)
+                        sse = "\n".join(_sse_lines) + "\n\n"
                     _log_stream_event(sse)
                     _mark_output()
                     yield sse
-                    for terminal_sse in _terminal_events_for_error():
-                        _log_stream_event(terminal_sse)
-                        _mark_output()
-                        yield terminal_sse
-                    break
+                    if stream_error:
+                        for terminal_sse in _terminal_events_for_error():
+                            _log_stream_event(terminal_sse)
+                            _mark_output()
+                            yield terminal_sse
+                        break
+
 
                 # 增量提取 token 用量和 finish_reason，避免 finally 中二次遍历
                 if isinstance(chunk, dict):
                     if is_upstream_anthropic:
                         if chunk.get("type") == "message_start":
                             start_usage = chunk.get("message", {}).get("usage", {})
-                            # 某些第三方代理用 prompt_tokens 代替 input_tokens
                             input_tokens = start_usage.get("input_tokens", 0)
                             if input_tokens == 0:
-                                # prompt_tokens 回退：值已含 cache，不额外加
                                 input_tokens = start_usage.get("prompt_tokens", 0)
                             else:
-                                # Anthropic 语义：input_tokens 不含 cache，归一化为总输入
                                 input_tokens += start_usage.get("cache_creation_input_tokens", 0) + start_usage.get("cache_read_input_tokens", 0)
                             token_details = cache_token_details(start_usage)
                             cache_read_input_tokens = token_details["cache_read_input_tokens"]
@@ -1837,14 +1870,11 @@ async def _do_stream_request(
                         elif chunk.get("type") == "message_delta":
                             delta_usage = chunk.get("usage", {})
                             output_tokens = delta_usage.get("output_tokens", output_tokens)
-                            # 标准 API 的 message_delta 只有 output_tokens，但第三方代理可能附带 input_tokens
                             if input_tokens == 0:
                                 input_tokens = delta_usage.get("input_tokens", 0)
                                 if input_tokens == 0:
-                                    # prompt_tokens 回退：值已含 cache，不额外加
                                     input_tokens = delta_usage.get("prompt_tokens", 0)
                                 else:
-                                    # Anthropic 语义：input_tokens 不含 cache，归一化为总输入
                                     input_tokens += cache_read_input_tokens + cache_creation_input_tokens
                             token_details = cache_token_details(delta_usage)
                             if token_details["cache_read_input_tokens"] or token_details["cache_creation_input_tokens"]:
@@ -1857,8 +1887,8 @@ async def _do_stream_request(
                         usage = chunk.get("usage")
                         if usage:
                             logger.info(f"[STREAM USAGE] upstream returned usage: {usage}")
-                            input_tokens = usage.get("prompt_tokens", input_tokens)
-                            output_tokens = usage.get("completion_tokens", output_tokens)
+                            input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", input_tokens))
+                            output_tokens = usage.get("completion_tokens", usage.get("output_tokens", output_tokens))
                             token_details = cache_token_details(usage)
                             cache_read_input_tokens = token_details["cache_read_input_tokens"]
                             cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
@@ -1878,7 +1908,6 @@ async def _do_stream_request(
                         raise ConverterError(f"流式 chunk 转换失败: {conv_err}") from conv_err
                     logger.debug(f"[CONVERT_CHUNK] converted={converted is not None} type={converted.get('type') if converted else None}")
                     if converted is not None:
-                        # 应用 ThinkFilter 过滤思考内容
                         if think_filter and isinstance(converted, dict):
                             converted = _filter_think_in_stream_chunk(converted, think_filter)
                         if converted is not None:
@@ -1891,17 +1920,21 @@ async def _do_stream_request(
                         _mark_output()
                         yield extra_sse
                 else:
-                    # 同格式透传：think 过滤仍需生效。
-                    # Anthropic 协议的思考走 type: thinking 块，不存在 💭...💭 标记，跳过过滤。
                     if think_filter and not is_upstream_anthropic and isinstance(chunk, dict):
                         chunk = _filter_think_in_stream_chunk(chunk, think_filter)
                         if chunk is None:
                             continue
-                    if output_sse_events and is_upstream_event_sse and upstream_event_type:
+                    if source_type == APIType.OPENAI_RESPONSE.value and is_upstream_event_sse:
+                        sse = _format_passthrough_sse_block(
+                            upstream_event_type,
+                            data_lines,
+                            passthrough_lines,
+                        )
+                    elif output_sse_events and is_upstream_event_sse and upstream_event_type:
                         sse = _format_sse(chunk, upstream_event_type)
                     else:
                         sse = _format_sse(chunk)
-                    if passthrough_lines:
+                    if passthrough_lines and source_type != APIType.OPENAI_RESPONSE.value:
                         _sse_lines = list(passthrough_lines)
                         for _ln in sse.split("\n"):
                             if _ln.startswith("event: "):
@@ -1919,7 +1952,6 @@ async def _do_stream_request(
                             _mark_output()
                             yield terminal_sse
                         break
-
         logger.debug(f"[STREAM LOOP END] model={model} lines={_line_count} done={_done_received}")
         logger.debug(f"[STREAM ASYNC WITH EXIT] model={model}")
         # 尽早标记成功：流循环已正常结束，所有 chunks 已处理。
@@ -2218,3 +2250,6 @@ async def _raise_preflight_stream_errors(gen):
         aclose = getattr(gen, "aclose", None)
         if aclose is not None:
             await aclose()
+
+
+

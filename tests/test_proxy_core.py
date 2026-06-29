@@ -871,9 +871,8 @@ class TestDoRequest:
         assert "visible" in outputs
 
     @pytest.mark.anyio
-    async def test_same_type_response_stream_passthrough_applies_think_filter(self):
-        """同格式透传 + Response→Response 流式 + filter_think_content：
-        response.output_text.delta 中的 💭...💭 应被剥除。
+    async def test_same_type_response_stream_passthrough_does_not_apply_think_filter(self):
+        """同格式 Responses 流式透传必须保留上游原始 SSE 内容，不应用 think 过滤。
         """
 
         class FakeStreamResponse:
@@ -926,8 +925,8 @@ class TestDoRequest:
             )
             outputs = "".join([chunk async for chunk in stream])
 
-        assert "thinking" not in outputs
-        assert "💭" not in outputs
+        assert "thinking" in outputs
+        assert "💭" in outputs
         assert "shown" in outputs
 
     @pytest.mark.anyio
@@ -2195,7 +2194,7 @@ class TestDoStreamRequest:
         assert "event: response.created" in joined
         assert "event: response.output_text.delta" in joined
         assert "event: response.completed" in joined
-        assert '"delta": "Hello"' in joined
+        assert '"delta":"Hello"' in joined
 
     @pytest.mark.anyio
     async def test_stream_retries_next_channel_when_first_channel_fails_before_output(
@@ -5000,3 +4999,7 @@ async def test_model_group_select_channel_receives_request_context(monkeypatch):
         "api_key_id": "key-name",
         "client_headers": {"x-session-id": "s1"},
     }
+
+
+
+
