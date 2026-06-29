@@ -28,7 +28,8 @@ from capability_manager import (
     merge_system_messages,
 )
 from client import create_client, create_stream_client, get_upstream_headers
-from config import LOG_LEVEL, get_setting
+import config
+from config import get_setting
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
@@ -1530,7 +1531,7 @@ async def _do_stream_request(
     finish_reason = None
     stream_chunks: list[Any] = []
     stream_chunk_count = 0
-    _stream_log_enabled = LOG_LEVEL == "debug"
+    _stream_log_enabled = config.LOG_LEVEL == "debug"
     _stream_log_count = 0  # 流式事件日志计数器
     _STREAM_LOG_MAX = 20   # 最多记录前 20 个事件
 

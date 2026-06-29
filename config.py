@@ -29,7 +29,6 @@ _CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
     "port": {"type": "int", "default": 55555, "requires_restart": True, "readonly": True},
     "request_timeout": {"type": "int", "default": 300, "requires_restart": False},
     "max_body_size": {"type": "int", "default": 10 * 1024 * 1024, "requires_restart": False},
-    "log_level": {"type": "str", "default": "info", "requires_restart": True},
     "stats_sqlite_path": {
         "type": "str",
         "default": os.path.join(DATA_DIR, "stats.db"),
@@ -116,7 +115,7 @@ ADMIN_AUTH_FILE = os.path.join(DATA_DIR, "admin_auth.json")
 REQUEST_TIMEOUT = _CONFIG_SCHEMA["request_timeout"]["default"]
 MAX_BODY_SIZE = _CONFIG_SCHEMA["max_body_size"]["default"]
 
-LOG_LEVEL = _CONFIG_SCHEMA["log_level"]["default"]
+LOG_LEVEL = "info"  # 仅通过 --log-level CLI 参数设置
 
 _CONFIG_CONSTRAINTS: dict[str, dict] = {
     "request_timeout": {"min": 1, "max": 3600},
@@ -130,7 +129,6 @@ _CONFIG_CONSTRAINTS: dict[str, dict] = {
     "response_state_max_entries": {"min": 1, "max": 10_000_000},
     "response_state_ttl_minutes": {"min": 1, "max": 525600},
     "response_state_cleanup_interval_minutes": {"min": 1, "max": 1440},
-    "log_level": {"choices": ("trace", "debug", "info", "warning", "error", "critical")},
     "aggregation_timezone": {"validator": "iana_timezone"},
     "request_log_retention_days": {"min": 0},
     "request_log_raw_retention_days": {"min": 0},
@@ -195,10 +193,9 @@ def _init_settings_sync():
 
 
 def _sync_module_vars():
-    global HOST, PORT, LOG_LEVEL, REQUEST_TIMEOUT, MAX_BODY_SIZE
+    global HOST, PORT, REQUEST_TIMEOUT, MAX_BODY_SIZE
     HOST = _settings.get("host", "0.0.0.0")
     PORT = _settings.get("port", 55555)
-    LOG_LEVEL = _settings.get("log_level", "info")
     REQUEST_TIMEOUT = _settings.get("request_timeout", 300)
     MAX_BODY_SIZE = _settings.get("max_body_size", 10 * 1024 * 1024)
 
