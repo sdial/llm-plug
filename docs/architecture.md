@@ -507,7 +507,7 @@ class ModelGroup(BaseModel):
 
 ### 配置热更新
 
-`config._CONFIG_SCHEMA` 中标 `requires_restart: True` 的项（`host` / `port` / `log_level`）保存后会在响应里返回 `needs_restart: true`，需重启才生效。其余配置保存后立即生效：
+`config._CONFIG_SCHEMA` 中标 `requires_restart: True` 的项（`host` / `port`）保存后会在响应里返回 `needs_restart: true`，需重启才生效。`log_level` 已从 `_CONFIG_SCHEMA` 移除，仅通过 `--log-level` CLI 参数设置。其余配置保存后立即生效：
 - `request_timeout` 变更会自动调用 `client.invalidate_all_clients()` 重建连接池
 - `response_state_*` 变更会自动调用 `reload_responses_store()` 刷新
 - `max_fail_count` / `cooldown_seconds` 变更会自动调用 `load_balancer.update_config()`

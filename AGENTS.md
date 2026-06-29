@@ -39,7 +39,7 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 
 `storage.load_data()` / `load_api_keys()` 内置 5 秒 TTL 缓存。**修改渠道或 API Key 数据时必须走 `atomic_update_data(mutator)` / `atomic_update_api_keys(mutator)`**（在锁内完成 read-modify-write 并同步缓存）；直接覆盖 `channels.json` 文件会导致缓存与磁盘不一致，请求最多延迟 5 秒才能感知变更。`save_data()` 仅在你已自行持锁或确定无竞态时使用。
 
-`config._CONFIG_SCHEMA` 中标 `requires_restart: True` 的项（`host` / `port` / `log_level`）保存后会立刻在响应里 `needs_restart: true`，但内存里 `LOG_LEVEL` 需重启或下次 `--log-level` 启动才生效。`request_timeout` 修改会自动调用 `client.invalidate_all_clients()` 重建连接池。`max_body_size` 和 `request_timeout` 均通过 `config.MAX_BODY_SIZE` / `config.REQUEST_TIMEOUT` 动态读取，设置页修改后立即生效，无需重启。
+`config._CONFIG_SCHEMA` 中标 `requires_restart: True` 的项（`host` / `port`）保存后会立刻在响应里 `needs_restart: true`。`log_level` 已从 `_CONFIG_SCHEMA` 移除，仅通过 `--log-level` CLI 参数设置（`config.LOG_LEVEL` 模块级变量）。`request_timeout` 修改会自动调用 `client.invalidate_all_clients()` 重建连接池。`max_body_size` 和 `request_timeout` 均通过 `config.MAX_BODY_SIZE` / `config.REQUEST_TIMEOUT` 动态读取，设置页修改后立即生效，无需重启。
 
 ## 架构
 

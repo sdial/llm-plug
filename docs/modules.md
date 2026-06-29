@@ -45,7 +45,6 @@
 | `port` | int | `55555` | 是 | 监听端口（只读，前端不可改） |
 | `request_timeout` | int | `300` | 否 | 上游请求超时（秒），变更后自动重建连接池 |
 | `max_body_size` | int | `10485760`（10MB） | 否 | 请求体最大体积 |
-| `log_level` | str | `"info"` | 是 | 日志级别，可选 trace/debug/info/warning/error/critical |
 | `stats_sqlite_path` | str | `data/stats.db` | 否 | 统计 SQLite 路径 |
 | `request_log_sqlite_path` | str | `data/request_logs.db` | 否 | 请求记录 SQLite 路径 |
 | `save_request_headers` | bool | `false` | 否 | 是否保存请求头到请求记录 |
@@ -65,6 +64,8 @@
 | `aggregation_timezone` | str | `""` | 否 | 统计聚合时区（IANA 格式，空=UTC） |
 | `request_log_retention_days` | int | `0` | 否 | 请求记录保留天数（0=不清理） |
 | `request_log_raw_retention_days` | int | `0` | 否 | RAW 字段（headers/body）保留天数（0=不清理） |
+
+> **注意**：`log_level` 不在 `_CONFIG_SCHEMA` 中，仅通过 `--log-level` CLI 参数设置（默认 `info`），前端设置页不可修改。
 
 ### 配置校验 (_CONFIG_CONSTRAINTS)
 

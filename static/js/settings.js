@@ -50,8 +50,6 @@ function _detectSettingsDirty() {
   if (stickyTtl !== (orig.sticky_ttl ?? 1800)) _settingsDirtySections.add('lb');
   const stickyCacheMax = parseInt(document.getElementById('set_sticky_cache_max_entries')?.value) || 10000;
   if (stickyCacheMax !== (orig.sticky_cache_max_entries ?? 10000)) _settingsDirtySections.add('lb');
-  const newLevel = document.getElementById('set_log_level').value;
-  if (newLevel !== (orig.log_level || 'INFO').toUpperCase()) _settingsDirtySections.add('logs');
   ['save_request_headers', 'save_response_headers', 'save_request_body', 'save_response_body', 'save_files', 'save_images', 'save_audios'].forEach(key => {
     const el = document.getElementById('set_' + key);
     if (el && el.checked !== Boolean(orig[key])) _settingsDirtySections.add('database');
@@ -107,7 +105,6 @@ async function loadSettings() {
     document.getElementById('set_port').value = data.port || 55555;
     document.getElementById('set_request_timeout').value = data.request_timeout ?? 300;
     document.getElementById('set_max_body_size').value = data.max_body_size_mb ?? 10;
-    document.getElementById('set_log_level').value = (data.log_level || 'INFO').toUpperCase();
     document.getElementById('set_aggregation_timezone').value = data.aggregation_timezone || '';
     document.getElementById('set_request_log_sqlite_path').value = data.request_log_sqlite_path || '';
     document.getElementById('set_save_request_headers').checked = Boolean(data.save_request_headers);
@@ -140,8 +137,6 @@ async function saveSettings() {
   const maxBodyMB = parseInt(document.getElementById('set_max_body_size').value) || 10;
   const origMaxBodyMB = orig.max_body_size_mb ?? 10;
   if (maxBodyMB !== origMaxBodyMB) data.max_body_size = maxBodyMB * 1024 * 1024;
-  const newLogLevel = document.getElementById('set_log_level').value;
-  if (newLogLevel !== (orig.log_level || 'INFO').toUpperCase()) data.log_level = newLogLevel;
   const newAggTz = document.getElementById('set_aggregation_timezone').value.trim();
   if (newAggTz !== (orig.aggregation_timezone || '')) data.aggregation_timezone = newAggTz;
   ['save_request_headers', 'save_response_headers', 'save_request_body', 'save_response_body', 'save_files', 'save_images', 'save_audios'].forEach(key => {

@@ -185,23 +185,10 @@
         <div id="settings_logs" class="settings-section hidden">
           <div class="mb-5">
             <h2 class="text-base font-semibold text-ink-900">日志</h2>
-            <p class="text-sm text-ink-600 mt-0.5">控制服务端输出级别。配置会写入 settings.json，重启后生效。</p>
+            <p class="text-sm text-ink-600 mt-0.5">日志相关配置。日志级别通过启动参数 --log-level 设置。</p>
           </div>
           <div class="card p-5">
             <div>
-              <div class="flex items-center gap-2 mb-1.5">
-                <span class="text-sm font-medium text-ink-900">日志级别</span>
-                <span class="pill pill-warning">需重启</span>
-              </div>
-              <select id="set_log_level" data-section="logs" class="settings-input w-full text-sm border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-                <option value="DEBUG">DEBUG</option>
-                <option value="INFO">INFO</option>
-                <option value="WARNING">WARNING</option>
-                <option value="ERROR">ERROR</option>
-              </select>
-              <p class="text-xs text-ink-400 mt-1">DEBUG 会输出更多代理细节；生产环境通常使用 INFO 或 WARNING。</p>
-            </div>
-            <div class="mt-5">
               <div class="flex items-center gap-2 mb-1.5">
                 <span class="text-sm font-medium text-ink-900">统计时区</span>
                 <span class="pill pill-success">热更新</span>
