@@ -179,8 +179,8 @@ def _is_protected_proxy_path(method: str, path: str) -> bool:
     """判断请求是否需要经过 API Key 认证。"""
     if method == "POST" and path in _PROXY_PATHS:
         return True
-    if method in ("GET", "DELETE") and path.startswith(_PROTECTED_RESPONSE_PREFIX):
-        return True
+    if path.startswith(_PROTECTED_RESPONSE_PREFIX):
+        return method in ("GET", "POST", "DELETE")
     return False
 
 
@@ -550,3 +550,5 @@ if __name__ == "__main__":
         # 热重载模式：注意 Windows 下 Ctrl+C 后端口可能短暂占用
         uvicorn.run("main:app", host=HOST, port=PORT, reload=True,
         log_level=args.log_level, log_config=log_config, http="httptools", loop="auto")
+
+
