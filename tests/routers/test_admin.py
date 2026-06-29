@@ -157,7 +157,7 @@ class TestListRequestsEndpoint:
         async def fake_list_requests(**kwargs):
             return {
                 "available": False,
-                "error": "PostgreSQL unavailable",
+                "error": "request log backend unavailable",
                 "items": [],
                 "total": 0,
                 "page": kwargs["page"],
@@ -173,7 +173,7 @@ class TestListRequestsEndpoint:
         finally:
             admin.request_log_list_requests = original
         assert resp.status_code == 503
-        assert "PostgreSQL unavailable" in resp.json()["detail"]
+        assert "request log backend unavailable" in resp.json()["detail"]
 
     async def test_pagination(self, client):
         for i in range(15):

@@ -163,7 +163,6 @@ async def request_logs_db(tmp_path, monkeypatch):
     db_path = tmp_path / "request_logs.db"
     result = await request_logs.init_backend(
         {
-            "request_log_db_type": "sqlite",
             "request_log_sqlite_path": str(db_path),
         }
     )
