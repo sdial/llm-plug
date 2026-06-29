@@ -138,7 +138,7 @@ def test_config_readonly():
 
 def test_settings_page_has_no_debug_mode_controls():
     """Settings page must not submit the removed debug config."""
-    html = Path("static/index.html").read_text(encoding="utf-8")
+    html = Path("static/fragments/admin/settings.html").read_text(encoding="utf-8")
 
     assert "set_debug" not in html
     assert "settings_debug" not in html
@@ -150,7 +150,7 @@ def test_settings_page_has_no_debug_mode_controls():
 
 def test_settings_page_has_request_log_db_controls():
     """Settings page exposes SQLite request-log path and raw-field toggles."""
-    html = Path("static/index.html").read_text(encoding="utf-8")
+    html = Path("static/fragments/admin/settings.html").read_text(encoding="utf-8")
 
     assert "set_request_log_sqlite_path" in html
     assert 'id="set_request_log_sqlite_path"' in html and "readonly" in html
@@ -165,7 +165,7 @@ def test_settings_page_has_request_log_db_controls():
 
 def test_settings_page_explains_zero_config_runtime():
     """Settings page documents zero-config startup and storage boundaries."""
-    html = Path("static/index.html").read_text(encoding="utf-8")
+    html = Path("static/fragments/admin/settings.html").read_text(encoding="utf-8")
 
     assert "零配置启动" in html
     assert "服务不需要 .env" in html

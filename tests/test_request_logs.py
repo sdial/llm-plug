@@ -25,6 +25,9 @@ def _sample_record(**overrides):
         "latency_ms": 123,
         "success": True,
         "api_key_id": "key_a",
+        "client_ip": "203.0.113.10",
+        "cache_read_input_tokens": 3,
+        "cache_creation_input_tokens": 2,
         "request_headers": {"x-app": "test"},
         "response_headers": {"x-request-id": "upstream"},
         "request_body": {"messages": [{"role": "user", "content": "hello"}]},
@@ -76,6 +79,9 @@ async def test_sqlite_backend_initializes_writes_and_lists_paginated(sqlite_requ
     assert page_1["items"][0]["channel_id"] == "ch_new"
     assert page_1["items"][0]["success"] is True
     assert page_1["items"][0]["is_stream"] is False
+    assert page_1["items"][0]["client_ip"] == "203.0.113.10"
+    assert page_1["items"][0]["cache_read_input_tokens"] == 3
+    assert page_1["items"][0]["cache_creation_input_tokens"] == 2
     assert RAW_FIELDS.isdisjoint(page_1["items"][0])
     assert page_2["items"][0]["channel_id"] == "ch_old"
 
@@ -140,8 +146,9 @@ async def test_reload_backend_keeps_old_sqlite_backend_when_new_init_fails(sqlit
     _sample_record(channel_id="ch_keep", channel_name="Keep")
     await request_logs.drain_queue()
 
-    # 使用目录路径作为 SQLite 路径，触发 init 失败
-    result = await request_logs.reload_backend({"request_log_sqlite_path": str(tmp_path)})
+    not_dir = tmp_path / "not_dir"
+    not_dir.write_text("not a directory", encoding="utf-8")
+    result = await request_logs.reload_backend({"request_log_sqlite_path": str(not_dir / "request_logs.db")})
     listed = await request_logs.list_requests()
 
     assert result["available"] is False
@@ -151,7 +158,7 @@ async def test_reload_backend_keeps_old_sqlite_backend_when_new_init_fails(sqlit
     assert listed["items"][0]["channel_id"] == "ch_keep"
 
 
-async def test_filters_by_model_channel_time_success_api_key_and_stream(sqlite_request_logs):
+async def test_filters_by_model_channel_time_success_api_key_client_ip_and_stream(sqlite_request_logs):
     _sample_record(
         channel_id="ch_alpha",
         channel_name="Alpha",
@@ -159,6 +166,7 @@ async def test_filters_by_model_channel_time_success_api_key_and_stream(sqlite_r
         is_stream=True,
         success=True,
         api_key_id="key_alpha",
+        client_ip="203.0.113.10",
     )
     _sample_record(
         channel_id="ch_beta",
@@ -167,6 +175,7 @@ async def test_filters_by_model_channel_time_success_api_key_and_stream(sqlite_r
         is_stream=False,
         success=False,
         api_key_id="key_beta",
+        client_ip="198.51.100.20",
         error_msg="boom",
     )
     await request_logs.drain_queue()
@@ -175,7 +184,56 @@ async def test_filters_by_model_channel_time_success_api_key_and_stream(sqlite_r
     assert (await request_logs.list_requests(channel="Beta"))["items"][0]["channel_id"] == "ch_beta"
     assert (await request_logs.list_requests(success=False))["items"][0]["api_key_id"] == "key_beta"
     assert (await request_logs.list_requests(api_key_id="key_alpha"))["items"][0]["model"] == "gpt-alpha"
+    assert (await request_logs.list_requests(client_ip="198.51.100"))["items"][0]["model"] == "gpt-beta"
     assert (await request_logs.list_requests(is_stream=True))["items"][0]["channel_name"] == "Alpha"
+
+
+async def test_cleanup_old_records_clears_raw_fields_and_deletes_rows(sqlite_request_logs, monkeypatch):
+    monkeypatch.setattr(
+        request_logs,
+        "_get_save_flags",
+        lambda: {
+            "save_request_headers": True,
+            "save_response_headers": True,
+            "save_request_body": True,
+            "save_response_body": True,
+        },
+    )
+    old_ts = request_logs._utc_now().replace(year=2000)
+    record = {
+        "timestamp": old_ts,
+        "channel_id": "ch_old",
+        "channel_name": "Primary",
+        "model": "gpt-4o",
+        "is_stream": False,
+        "input_tokens": 11,
+        "output_tokens": 7,
+        "cache_read_input_tokens": 3,
+        "cache_creation_input_tokens": 2,
+        "latency_ms": 123,
+        "success": True,
+        "api_key_id": "key_a",
+        "client_ip": "203.0.113.10",
+        "request_headers": {"x-app": "test"},
+        "response_headers": {"x-request-id": "upstream"},
+        "request_body": {"messages": [{"role": "user", "content": "hello"}]},
+        "response_body": {"choices": [{"message": {"content": "hi"}}]},
+        "lag_ms": 21,
+        "finish_reason": "stop",
+    }
+    await request_logs._backend.write_record(record)
+
+    cleared = await request_logs.cleanup_old_records(retention_days=0, raw_retention_days=1)
+    request_id = (await request_logs.list_requests())["items"][0]["id"]
+
+    assert cleared["raw_fields_cleared"] == 1
+    assert cleared["rows_deleted"] == 0
+    assert await request_logs.get_request_field(request_id, "request_body") == {"data": None}
+
+    deleted = await request_logs.cleanup_old_records(retention_days=1, raw_retention_days=0)
+
+    assert deleted["rows_deleted"] == 1
+    assert (await request_logs.list_requests())["total"] == 0
 
 
 async def test_invalid_request_field_returns_none(sqlite_request_logs):
