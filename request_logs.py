@@ -75,7 +75,7 @@ _REQUEST_QUEUE: asyncio.Queue | None = None
 _REQUEST_QUEUE_LOOP: asyncio.AbstractEventLoop | None = None
 _REQUEST_QUEUE_MAX_SIZE = 1000
 _REQUEST_WORKERS: list[asyncio.Task] = []
-_REQUEST_WORKER_COUNT = 2
+_REQUEST_WORKER_COUNT = _sanitize_int_env("REQUEST_LOG_WORKER_COUNT", 2)
 _REQUEST_WRITE_TIMEOUT = 60
 
 
@@ -192,11 +192,11 @@ class SQLiteRequestLogBackend:
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(f"PRAGMA synchronous={_sanitize_pragma_env('SQLITE_SYNCHRONOUS', 'NORMAL', _VALID_SYNCHRONOUS)}")
-        conn.execute(f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'MEMORY', _VALID_TEMP_STORE)}")
+        conn.execute(f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'FILE', _VALID_TEMP_STORE)}")
         cache_size = _sanitize_int_env("SQLITE_CACHE_SIZE", None)
         if cache_size is not None:
             conn.execute(f"PRAGMA cache_size={cache_size}")
-        conn.execute(f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE', _SQLITE_MMAP_SIZE_BYTES)}")
+        conn.execute(f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE_LOGS', _SQLITE_MMAP_SIZE_BYTES)}")
         conn.row_factory = sqlite3.Row
         return conn
 

@@ -22,14 +22,13 @@ _STATS_QUEUE: asyncio.Queue | None = None
 _STATS_QUEUE_LOOP: asyncio.AbstractEventLoop | None = None
 _STATS_WORKERS: list[asyncio.Task] = []
 _STATS_QUEUE_MAX_SIZE = 1000
-_STATS_WORKER_COUNT = 4
 _STATS_WRITE_TIMEOUT = 60
 
 _STATS_OVERFLOW_FILENAME = "stats_overflow.jsonl"
 
-# 64 MB mmap;走 OS page cache 共享内存,替代每连接私有 cache。
-# 生产部署在 1 GB 内存的受限设备上,故保守取 64 MB。
-_MMAP_SIZE_BYTES = 64 * 1024 * 1024
+# 32 MB mmap;走 OS page cache 共享内存,替代每连接私有 cache。
+# 统计库数据量小,32 MB 足够覆盖热数据。
+_MMAP_SIZE_BYTES = 32 * 1024 * 1024
 
 # ── PRAGMA 环境变量白名单 ──
 _VALID_SYNCHRONOUS = {"OFF", "NORMAL", "FULL", "EXTRA", "0", "1", "2", "3"}
@@ -58,6 +57,9 @@ def _sanitize_int_env(name: str | None, default: int | None) -> int | None:
     except ValueError:
         logger.warning("非法 {}={!r} 不是整数,回退默认 {}", name, val, default)
         return default
+
+
+_STATS_WORKER_COUNT = _sanitize_int_env("STATS_WORKER_COUNT", 4)
 
 
 _RAW_FIELDS = {
@@ -131,11 +133,11 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(_DB_PATH)
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(f"PRAGMA synchronous={_sanitize_pragma_env('SQLITE_SYNCHRONOUS', 'NORMAL', _VALID_SYNCHRONOUS)}")
-    conn.execute(f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'MEMORY', _VALID_TEMP_STORE)}")
+    conn.execute(f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'FILE', _VALID_TEMP_STORE)}")
     cache_size = _sanitize_int_env("SQLITE_CACHE_SIZE", None)
     if cache_size is not None:
         conn.execute(f"PRAGMA cache_size={cache_size}")
-    conn.execute(f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE', _MMAP_SIZE_BYTES)}")
+    conn.execute(f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE_STATS', _MMAP_SIZE_BYTES)}")
     conn.row_factory = sqlite3.Row
     return conn
 

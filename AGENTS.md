@@ -17,6 +17,7 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 | `uv run pytest tests/converters/test_converter_matrix.py -v` | 跑单个测试文件 |
 | `uv run pytest -k test_name` | 按名字匹配跑测试 |
 | `uv run ruff check .` / `uv run ruff check . --fix` | lint / 自动修复 |
+| `uv run ruff format .` / `uv run ruff format . --check` | 格式化 / 检查（不修改） |
 
 ## 数据存储
 

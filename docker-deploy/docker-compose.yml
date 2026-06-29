@@ -11,12 +11,19 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
     environment:
-      - HOST=0.0.0.0
-      - PORT=55555
-      - PROXY_API_KEY=${PROXY_API_KEY:-}
-      - MAX_FAIL_COUNT=${MAX_FAIL_COUNT:-5}
-      - COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-60}
-      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-300}
-      - DATABASE_URL=${DATABASE_URL:-}
-      - DEBUG=${DEBUG:-true}
-      - TZ=Asia/Shanghai
+      # ── uvicorn 启动参数 ──
+      - WORKERS=${WORKERS:-1}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TIMEOUT_KEEP_ALIVE=${TIMEOUT_KEEP_ALIVE:-360}
+      # ── 内部异步 worker 协程数 ──
+      - STATS_WORKER_COUNT=${STATS_WORKER_COUNT:-4}
+      - REQUEST_LOG_WORKER_COUNT=${REQUEST_LOG_WORKER_COUNT:-2}
+      # ── SQLite PRAGMA 调优 ──
+      - SQLITE_CACHE_SIZE=${SQLITE_CACHE_SIZE:--16000}
+      - SQLITE_TEMP_STORE=${SQLITE_TEMP_STORE:-FILE}
+      - SQLITE_MMAP_SIZE_LOGS=${SQLITE_MMAP_SIZE_LOGS:-67108864}
+      - SQLITE_MMAP_SIZE_STATS=${SQLITE_MMAP_SIZE_STATS:-33554432}
+      - SQLITE_JOURNAL_MODE=${SQLITE_JOURNAL_MODE:-WAL}
+      - SQLITE_SYNCHRONOUS=${SQLITE_SYNCHRONOUS:-NORMAL}
+      # ── 容器环境 ──
+      - TZ=${TZ:-Asia/Shanghai}
