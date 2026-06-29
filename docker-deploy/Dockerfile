@@ -29,7 +29,8 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV SQLITE_CACHE_SIZE=-16000
 # temp_store=FILE: 临时表落盘而非占用内存,优先保障业务内存
 ENV SQLITE_TEMP_STORE=FILE
-ENV SQLITE_MMAP_SIZE=33554432
+ENV SQLITE_MMAP_SIZE_LOGS=67108864
+ENV SQLITE_MMAP_SIZE_STATS=33554432
 ENV SQLITE_JOURNAL_MODE=WAL
 ENV SQLITE_SYNCHRONOUS=NORMAL
 
@@ -42,15 +43,20 @@ EXPOSE 55555
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:55555/v1/models')" || exit 1
 
-CMD ["uvicorn", "main:app", \
-     "--host", "0.0.0.0", \
-     "--port", "55555", \
-     "--http", "httptools", \
-     "--workers", "1", \
-     "--timeout-keep-alive", "360", \
-     "--log-level", "info", \
-     "--no-use-colors", \
-     "--no-server-header", \
-     "--ws", "none", \
-     "--loop", "uvloop", \
-     "--backlog", "2048"]
+ENV WORKERS=1
+ENV LOG_LEVEL=info
+ENV TIMEOUT_KEEP_ALIVE=360
+
+CMD ["sh", "-c", "\
+uvicorn main:app \
+  --host 0.0.0.0 \
+  --port 55555 \
+  --http httptools \
+  --workers ${WORKERS} \
+  --timeout-keep-alive ${TIMEOUT_KEEP_ALIVE} \
+  --log-level ${LOG_LEVEL} \
+  --no-use-colors \
+  --no-server-header \
+  --ws none \
+  --loop uvloop \
+  --backlog 2048"]
