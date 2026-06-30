@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import stat
 import time
 
 import pytest
@@ -115,6 +116,14 @@ class TestSaveData:
         with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
             on_disk = json.load(f)
         assert on_disk == payload
+
+    @pytest.mark.anyio
+    async def test_channels_file_is_not_world_readable(self):
+        payload = {"channels": [{"id": "ch_2", "name": "saved"}]}
+        await storage.save_data(payload)
+
+        mode = stat.S_IMODE(os.stat(config.CHANNELS_FILE).st_mode)
+        assert mode == 0o600
 
     @pytest.mark.anyio
     async def test_updates_cache_after_save(self):
@@ -249,6 +258,14 @@ class TestApiKeysStorage:
         storage._keys_cache_ts = 0
         data = await storage.load_api_keys()
         assert data == payload
+
+    @pytest.mark.anyio
+    async def test_api_keys_file_is_not_world_readable(self):
+        payload = {"api_keys": [{"id": "key_1", "name": "test-key"}]}
+        await storage.save_api_keys(payload)
+
+        mode = stat.S_IMODE(os.stat(config.API_KEYS_FILE).st_mode)
+        assert mode == 0o600
 
     @pytest.mark.anyio
     async def test_keys_cache_uses_ttl(self):
