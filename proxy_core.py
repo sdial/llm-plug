@@ -44,9 +44,6 @@ from url_builder import append_query, build_upstream_url
 # Responses 状态存储
 _responses_store = get_responses_store()
 
-# 流式响应最大记录chunk数量，防止内存溢出
-MAX_STREAM_CHUNKS = 2000
-
 
 def _record_request(**kwargs) -> None:
     """Write lightweight stats and optional debug request log without blocking responses."""
@@ -1605,12 +1602,23 @@ async def _do_stream_request(
         elif data_summary:
             logger.debug(f"data: {data_summary}")
 
+    _chunk_truncate_warned = False
+
     def _record_chunk(item: Any):
-        """记录stream chunk，超过限制后停止记录"""
-        nonlocal stream_chunk_count
-        if stream_chunk_count < MAX_STREAM_CHUNKS:
+        """记录stream chunk，超过限制后停止记录并警告一次"""
+        nonlocal stream_chunk_count, _chunk_truncate_warned
+        max_stream_chunks = int(config.get_setting("max_stream_chunks") or 10000)
+        if stream_chunk_count < max_stream_chunks:
             stream_chunks.append(item)
             stream_chunk_count += 1
+        elif not _chunk_truncate_warned:
+            _chunk_truncate_warned = True
+            logger.warning(
+                f"[STREAM CHUNK TRUNCATED] model={model} "
+                f"exceeded max_stream_chunks={max_stream_chunks}, "
+                f"subsequent chunks will not be recorded; "
+                f"reconstructed response body in request logs will be incomplete"
+            )
     resp_status_code = None
     resp_headers = None
     client = create_stream_client(channel)
