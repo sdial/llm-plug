@@ -1,5 +1,8 @@
 import time
 
+import pytest
+
+from admin_auth import change_admin_password, setup_admin_password, get_admin_auth_state
 from config import _CONFIG_SCHEMA, _CONFIG_CONSTRAINTS
 
 
@@ -92,3 +95,73 @@ def test_lockout_tier_escalation():
     assert allowed is False
     assert retry_after > 60
     assert retry_after <= 120
+
+
+@pytest.mark.asyncio
+async def test_change_password_success(tmp_path, monkeypatch):
+    """验证成功修改密码"""
+    monkeypatch.setattr("admin_auth._auth_file", lambda: tmp_path / "admin_auth.json")
+
+    # 先设置初始密码
+    await setup_admin_password("old_password")
+
+    # 修改密码
+    result = await change_admin_password("old_password", "new_password", "new_password")
+    assert result is True
+
+    # 验证新密码生效
+    state = await get_admin_auth_state()
+    from admin_auth import _verify_password
+    assert _verify_password("new_password", state["password_hash"]) is True
+
+
+@pytest.mark.asyncio
+async def test_change_password_wrong_old(tmp_path, monkeypatch):
+    """验证旧密码错误"""
+    monkeypatch.setattr("admin_auth._auth_file", lambda: tmp_path / "admin_auth.json")
+
+    await setup_admin_password("old_password")
+
+    with pytest.raises(ValueError, match="旧密码错误"):
+        await change_admin_password("wrong_password", "new_password", "new_password")
+
+
+@pytest.mark.asyncio
+async def test_change_password_mismatch(tmp_path, monkeypatch):
+    """验证新密码不一致"""
+    monkeypatch.setattr("admin_auth._auth_file", lambda: tmp_path / "admin_auth.json")
+
+    await setup_admin_password("old_password")
+
+    with pytest.raises(ValueError, match="两次输入的新密码不一致"):
+        await change_admin_password("old_password", "new_password", "different_password")
+
+
+@pytest.mark.asyncio
+async def test_change_password_too_short(tmp_path, monkeypatch):
+    """验证密码过短"""
+    monkeypatch.setattr("admin_auth._auth_file", lambda: tmp_path / "admin_auth.json")
+
+    await setup_admin_password("old_password")
+
+    with pytest.raises(ValueError, match="新密码长度不能少于6位"):
+        await change_admin_password("old_password", "12345", "12345")
+
+
+@pytest.mark.asyncio
+async def test_change_password_revokes_sessions(tmp_path, monkeypatch):
+    """验证修改密码后撤销所有会话"""
+    monkeypatch.setattr("admin_auth._auth_file", lambda: tmp_path / "admin_auth.json")
+
+    await setup_admin_password("old_password")
+
+    # 创建一个会话
+    from admin_auth import create_admin_session, validate_admin_session
+    token = await create_admin_session()
+    assert await validate_admin_session(token) is True
+
+    # 修改密码
+    await change_admin_password("old_password", "new_password", "new_password")
+
+    # 旧会话应该失效
+    assert await validate_admin_session(token) is False
