@@ -73,6 +73,12 @@ class AdminPasswordSetup(BaseModel):
 class AdminLoginRequest(BaseModel):
     password: str
 
+
+class AdminChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+    confirm_password: str
+
 request_log_list_requests = request_logs.list_requests
 request_log_get_request_field = request_logs.get_request_field
 
@@ -355,6 +361,20 @@ async def auth_setup_login(body: AdminLoginRequest, request: Request):
     response = JSONResponse({"message": "登录成功", "csrf_token": csrf_token})
     response.headers["Set-Cookie"] = admin_auth.build_session_cookie(token)
     return response
+
+
+@router.post("/auth/change-password")
+async def auth_change_password(body: AdminChangePasswordRequest, request: Request):
+    """修改管理员密码，需登录+CSRF"""
+    try:
+        await admin_auth.change_admin_password(
+            body.old_password,
+            body.new_password,
+            body.confirm_password,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "密码修改成功"}
 
 
 async def _get_channels() -> list[Channel]:
