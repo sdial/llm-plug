@@ -1,9 +1,51 @@
+import json
 import time
 
 import pytest
+import pytest_asyncio
+import httpx
 
+import config
+import storage
 from admin_auth import change_admin_password, setup_admin_password, get_admin_auth_state
 from config import _CONFIG_SCHEMA, _CONFIG_CONSTRAINTS
+from main import app
+from tests.admin_auth_utils import login_admin
+
+pytestmark = pytest.mark.asyncio
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def setup_test_db(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    channels_path = data_dir / "channels.json"
+    keys_path = data_dir / "api_keys.json"
+    settings_path = data_dir / "settings.json"
+    channels_path.write_text(json.dumps({"channels": []}), encoding="utf-8")
+    keys_path.write_text(json.dumps({"api_keys": []}), encoding="utf-8")
+    settings_path.write_text(json.dumps({}), encoding="utf-8")
+
+    monkeypatch.setattr(config, "DATA_DIR", str(data_dir))
+    monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_path))
+    monkeypatch.setattr(config, "API_KEYS_FILE", str(keys_path))
+    monkeypatch.setattr(config, "_SETTINGS_FILE", str(settings_path))
+    config._init_settings_sync()
+    storage._cache = None
+    storage._cache_ts = 0
+    storage._keys_cache = None
+    storage._keys_cache_ts = 0
+    storage._channels_lock = None
+    storage._keys_lock = None
+    yield
+
+
+@pytest_asyncio.fixture
+async def client():
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as c:
+        yield c
 
 
 def test_admin_security_config_schema():
@@ -165,3 +207,71 @@ async def test_change_password_revokes_sessions(tmp_path, monkeypatch):
 
     # 旧会话应该失效
     assert await validate_admin_session(token) is False
+
+
+@pytest.mark.asyncio
+async def test_change_password_endpoint(client):
+    """测试修改密码API端点"""
+    await login_admin(client, "old_password")
+
+    # 修改密码
+    resp = await client.post(
+        "/admin/auth/change-password",
+        json={
+            "old_password": "old_password",
+            "new_password": "new_password",
+            "confirm_password": "new_password",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["message"] == "密码修改成功"
+
+
+@pytest.mark.asyncio
+async def test_change_password_endpoint_wrong_old(client):
+    """测试修改密码API - 旧密码错误"""
+    await login_admin(client, "old_password")
+
+    resp = await client.post(
+        "/admin/auth/change-password",
+        json={
+            "old_password": "wrong_password",
+            "new_password": "new_password",
+            "confirm_password": "new_password",
+        },
+    )
+    assert resp.status_code == 400
+    assert "旧密码错误" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_change_password_endpoint_requires_auth(client):
+    """测试修改密码API - 需要登录"""
+    resp = await client.post(
+        "/admin/auth/change-password",
+        json={
+            "old_password": "old_password",
+            "new_password": "new_password",
+            "confirm_password": "new_password",
+        },
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_change_password_endpoint_requires_csrf(client):
+    """测试修改密码API - 需要CSRF"""
+    await login_admin(client, "old_password")
+
+    # 移除CSRF头
+    client.headers.pop("X-CSRF-Token", None)
+
+    resp = await client.post(
+        "/admin/auth/change-password",
+        json={
+            "old_password": "old_password",
+            "new_password": "new_password",
+            "confirm_password": "new_password",
+        },
+    )
+    assert resp.status_code == 403
