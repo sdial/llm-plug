@@ -321,3 +321,46 @@ def build_cleared_session_cookie() -> str:
     return (
         f"{_SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
     )
+
+
+async def change_admin_password(
+    old_password: str,
+    new_password: str,
+    confirm_password: str,
+) -> bool:
+    """修改管理员密码。
+
+    验证旧密码、检查新密码一致性、检查密码长度。
+    成功后撤销所有现有会话，强制重新登录。
+
+    Raises:
+        ValueError: 验证失败时抛出
+    """
+    if not old_password or not old_password.strip():
+        raise ValueError("旧密码不能为空")
+    if not new_password or not new_password.strip():
+        raise ValueError("新密码不能为空")
+    if new_password != confirm_password:
+        raise ValueError("两次输入的新密码不一致")
+    if len(new_password) < 6:
+        raise ValueError("新密码长度不能少于6位")
+
+    async with _auth_lock:
+        data = _normalize_auth_data(await _read_auth_file())
+        password_hash = data.get("password_hash", "")
+
+        if not password_hash:
+            raise RuntimeError("管理员密码尚未设置")
+
+        if not _verify_password(old_password, password_hash):
+            raise ValueError("旧密码错误")
+
+        # 更新密码哈希
+        data["password_hash"] = _hash_password(new_password)
+        data["updated_at"] = int(_now())
+        # 清空所有撤销会话（因为所有旧会话都将失效）
+        data["revoked_sessions"] = {}
+
+        await _write_auth_file(data)
+
+    return True
