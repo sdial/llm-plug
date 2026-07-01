@@ -377,6 +377,69 @@ async def auth_change_password(body: AdminChangePasswordRequest, request: Reques
     return {"message": "密码修改成功"}
 
 
+def _format_duration(seconds: int) -> str:
+    """格式化时长为中文"""
+    if seconds < 60:
+        return f"{seconds}秒"
+    elif seconds < 3600:
+        return f"{seconds // 60}分钟"
+    elif seconds < 86400:
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        if minutes == 0:
+            return f"{hours}小时"
+        return f"{hours}小时{minutes}分钟"
+    else:
+        days = seconds // 86400
+        return f"{days}天"
+
+
+@router.get("/auth/security-config")
+async def auth_security_config_get():
+    """获取安全配置"""
+    from config import get_setting
+
+    max_attempts = get_setting("admin_max_attempts") or 10
+    base_seconds = get_setting("admin_lockout_base_seconds") or 60
+
+    multipliers = _LOCKOUT_MULTIPLIERS
+    tiers = []
+    for i, m in enumerate(multipliers):
+        tier_seconds = base_seconds * m
+        start = i * max_attempts + 1
+        end = (i + 1) * max_attempts
+        tiers.append({
+            "range": f"{start}-{end}",
+            "seconds": tier_seconds,
+            "display": _format_duration(tier_seconds),
+        })
+
+    return {
+        "admin_max_attempts": max_attempts,
+        "admin_lockout_base_seconds": base_seconds,
+        "lockout_tiers": tiers,
+    }
+
+
+@router.put("/auth/security-config")
+async def auth_security_config_update(body: dict, request: Request):
+    """更新安全配置"""
+    from config import update_settings
+
+    allowed_keys = {"admin_max_attempts", "admin_lockout_base_seconds"}
+    updates = {k: v for k, v in body.items() if k in allowed_keys}
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="无有效配置项")
+
+    try:
+        await update_settings(updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"message": "安全配置已更新"}
+
+
 async def _get_channels() -> list[Channel]:
     data = await load_data()
     return [Channel(**ch) for ch in data.get("channels", [])]
