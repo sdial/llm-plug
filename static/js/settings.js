@@ -81,6 +81,84 @@ function syncLbStrategyMode() {
 }
 
 
+// 修改密码表单提交
+function _bindChangePasswordForm() {
+    const form = document.getElementById('changePasswordForm');
+    if (!form || form.dataset.bound === '1') return;
+    form.dataset.bound = '1';
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const msg = document.getElementById('cp_message');
+        msg.classList.add('hidden');
+        msg.classList.remove('text-rose-600', 'text-green-600');
+
+        const old_password = document.getElementById('cp_old_password').value;
+        const new_password = document.getElementById('cp_new_password').value;
+        const confirm_password = document.getElementById('cp_confirm_password').value;
+
+        if (new_password !== confirm_password) {
+            msg.textContent = '两次输入的新密码不一致';
+            msg.classList.add('text-rose-600');
+            msg.classList.remove('hidden');
+            return;
+        }
+
+        try {
+            const csrf = await getCsrfToken();
+            const resp = await fetch('/admin/auth/change-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-csrf-token': csrf,
+                },
+                body: JSON.stringify({ old_password, new_password, confirm_password }),
+            });
+
+            if (!resp.ok) {
+                const data = await resp.json().catch(() => ({}));
+                throw new Error(data.detail || '修改失败');
+            }
+
+            msg.textContent = '密码修改成功，请重新登录';
+            msg.classList.add('text-green-600');
+            msg.classList.remove('hidden');
+            document.getElementById('changePasswordForm').reset();
+
+            // 2秒后跳转到登录页
+            setTimeout(() => {
+                window.location.href = '/admin/login';
+            }, 2000);
+        } catch (err) {
+            msg.textContent = err.message;
+            msg.classList.add('text-rose-600');
+            msg.classList.remove('hidden');
+        }
+    });
+}
+
+// 加载安全配置
+async function loadSecurityConfig() {
+    try {
+        const resp = await fetch('/admin/auth/security-config');
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        document.getElementById('set_admin_max_attempts').value = data.admin_max_attempts;
+        document.getElementById('set_admin_lockout_base_seconds').value = data.admin_lockout_base_seconds;
+
+        // 填充阶梯表
+        const tbody = document.getElementById('lockoutTiersBody');
+        tbody.innerHTML = '';
+        for (const tier of data.lockout_tiers) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td class="py-1">${tier.range} 次</td><td>${tier.display}</td>`;
+            tbody.appendChild(tr);
+        }
+    } catch (err) {
+        console.error('Failed to load security config:', err);
+    }
+}
+
 function initSettings() {
   const root = document.getElementById('settings_server') || document.getElementById('settings') || document.getElementById('settings_host');
   if (!root || root === _settingsInitRoot) return;
@@ -126,6 +204,8 @@ async function loadSettings() {
     document.getElementById('set_sticky_ttl').value = data.sticky_ttl ?? 1800;
     document.getElementById('set_sticky_cache_max_entries').value = data.sticky_cache_max_entries ?? 10000;
     syncLbStrategyMode();
+    await loadSecurityConfig();
+    _bindChangePasswordForm();
     document.getElementById('restartBtn').classList.add('hidden');
   } catch (e) {
     console.error('加载设置失败:', e);
@@ -399,6 +479,7 @@ Object.assign(window, {
     saveSettings,
     restartServer,
     loadFormatConversionPanel,
+    loadSecurityConfig,
 });
 window.adminSettings = { getOriginal: getOriginalSettings };
 })();
