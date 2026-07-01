@@ -323,3 +323,52 @@ async def test_security_config_validation(client):
         headers={"X-CSRF-Token": client.headers.get("X-CSRF-Token", "")},
     )
     assert resp.status_code == 400
+
+
+def test_full_security_flow(e2e_client):
+    """完整的安全功能端到端测试"""
+    from routers.admin import _login_attempts
+
+    _login_attempts.clear()
+
+    client = e2e_client
+
+    # 1. 初始设置密码
+    resp = client.post("/admin/auth/setup-login", json={"password": "initial_pass"})
+    assert resp.status_code == 200
+    csrf = resp.json()["csrf_token"]
+
+    # 2. 修改密码
+    resp = client.post(
+        "/admin/auth/change-password",
+        json={
+            "old_password": "initial_pass",
+            "new_password": "new_pass_123",
+            "confirm_password": "new_pass_123",
+        },
+        headers={"x-csrf-token": csrf},
+    )
+    assert resp.status_code == 200
+
+    # 3. 用旧密码登录应该失败
+    resp = client.post("/admin/auth/login", json={"password": "initial_pass"})
+    assert resp.status_code == 401
+
+    # 清除失败记录以便继续测试
+    _login_attempts.clear()
+
+    # 4. 用新密码登录应该成功
+    resp = client.post("/admin/auth/login", json={"password": "new_pass_123"})
+    assert resp.status_code == 200
+
+    # 5. 连续失败触发封锁
+    for _ in range(10):
+        client.post("/admin/auth/login", json={"password": "wrong"})
+
+    resp = client.post("/admin/auth/login", json={"password": "new_pass_123"})
+    assert resp.status_code == 429
+
+    # 6. 验证安全配置可读
+    resp = client.get("/admin/auth/security-config")
+    assert resp.status_code == 200
+    assert resp.json()["admin_max_attempts"] == 10
