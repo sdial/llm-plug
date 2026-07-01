@@ -84,9 +84,12 @@ _AUTH_PUBLIC_PATHS = {
     "/admin/auth/login",
     "/admin/auth/setup-login",
 }
-_LOGIN_RATE_LIMIT_MAX_FAILURES = 5
-_LOGIN_RATE_LIMIT_WINDOW_SECONDS = 60
-_login_rate_limit_state: dict[tuple[str, str], list[float]] = {}
+_LOGIN_RATE_LIMIT_WINDOW_SECONDS = 86400  # 24小时过期
+
+# 阶梯封锁系数（固定）
+_LOCKOUT_MULTIPLIERS = [1, 2, 4, 10, 60, 1440]
+
+_login_attempts: dict[str, list[float]] = {}
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -155,47 +158,60 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _login_rate_limit_key(request: Request) -> tuple[str, str]:
-    return (str(admin_auth._auth_file()), _client_ip(request))
+def _get_lockout_seconds(failure_count: int) -> int:
+    """根据失败次数计算封锁时间（秒）"""
+    from config import get_setting
+
+    max_attempts = get_setting("admin_max_attempts") or 10
+    base_seconds = get_setting("admin_lockout_base_seconds") or 60
+
+    if failure_count <= 0:
+        return 0
+
+    # 计算所在阶梯（从0开始）
+    tier = min((failure_count - 1) // max_attempts, len(_LOCKOUT_MULTIPLIERS) - 1)
+    return base_seconds * _LOCKOUT_MULTIPLIERS[tier]
 
 
-def _cleanup_stale_login_rate_limits() -> None:
-    """清理所有过期的登录速率限制条目，防止孤立 key 导致内存泄漏。"""
+def _cleanup_expired_attempts(ip: str, now: float) -> list[float]:
+    """清理过期的失败记录"""
+    attempts = _login_attempts.get(ip, [])
+    cutoff = now - _LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    return [ts for ts in attempts if ts > cutoff]
+
+
+def _check_login_allowed(ip: str) -> tuple[bool, int]:
+    """检查IP是否允许登录，返回 (是否允许, 重试等待秒数)"""
     now = time.monotonic()
-    stale_keys = [
-        k for k, v in _login_rate_limit_state.items()
-        if all(ts < now - _LOGIN_RATE_LIMIT_WINDOW_SECONDS for ts in v)
-    ]
-    for k in stale_keys:
-        del _login_rate_limit_state[k]
+    attempts = _cleanup_expired_attempts(ip, now)
+    _login_attempts[ip] = attempts
+
+    if not attempts:
+        return True, 0
+
+    failure_count = len(attempts)
+    lockout_seconds = _get_lockout_seconds(failure_count)
+    last_attempt = max(attempts)
+    unlock_time = last_attempt + lockout_seconds
+
+    if now < unlock_time:
+        remaining = int(unlock_time - now) + 1
+        return False, remaining
+
+    return True, 0
 
 
-def _is_login_rate_limited(request: Request) -> bool:
+def _record_login_failure(ip: str) -> None:
+    """记录一次登录失败"""
     now = time.monotonic()
-    key = _login_rate_limit_key(request)
-    failures = [
-        ts for ts in _login_rate_limit_state.get(key, [])
-        if now - ts < _LOGIN_RATE_LIMIT_WINDOW_SECONDS
-    ]
-    _login_rate_limit_state[key] = failures
-    _cleanup_stale_login_rate_limits()
-    return len(failures) >= _LOGIN_RATE_LIMIT_MAX_FAILURES
+    attempts = _cleanup_expired_attempts(ip, now)
+    attempts.append(now)
+    _login_attempts[ip] = attempts
 
 
-def _record_login_failure(request: Request) -> None:
-    now = time.monotonic()
-    key = _login_rate_limit_key(request)
-    failures = [
-        ts for ts in _login_rate_limit_state.get(key, [])
-        if now - ts < _LOGIN_RATE_LIMIT_WINDOW_SECONDS
-    ]
-    failures.append(now)
-    _login_rate_limit_state[key] = failures
-    _cleanup_stale_login_rate_limits()
-
-
-def _clear_login_failures(request: Request) -> None:
-    _login_rate_limit_state.pop(_login_rate_limit_key(request), None)
+def _clear_login_failures(ip: str) -> None:
+    """清除IP的失败记录"""
+    _login_attempts.pop(ip, None)
 
 
 def _csrf_error_response() -> JSONResponse:
@@ -285,12 +301,18 @@ async def auth_setup(body: AdminPasswordSetup):
 async def auth_login(body: AdminLoginRequest, request: Request):
     if not await admin_auth.is_admin_password_configured():
         raise HTTPException(status_code=401, detail="管理员密码尚未设置")
-    if _is_login_rate_limited(request):
-        raise HTTPException(status_code=429, detail="登录失败次数过多，请稍后再试")
+    ip = _client_ip(request)
+    allowed, retry_after = _check_login_allowed(ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="登录失败次数过多，请稍后再试",
+            headers={"Retry-After": str(retry_after)},
+        )
     if not await admin_auth.verify_admin_password(body.password):
-        _record_login_failure(request)
+        _record_login_failure(ip)
         raise HTTPException(status_code=401, detail="密码错误")
-    _clear_login_failures(request)
+    _clear_login_failures(ip)
     token = await admin_auth.create_admin_session()
     csrf_token = await admin_auth.create_admin_csrf_token(token)
     response = JSONResponse({"message": "登录成功", "csrf_token": csrf_token})
@@ -313,16 +335,22 @@ async def auth_setup_login(body: AdminLoginRequest, request: Request):
 
     消除 setup → login 两步流程的竞态条件和重复网络请求。
     """
-    if _is_login_rate_limited(request):
-        raise HTTPException(status_code=429, detail="登录失败次数过多，请稍后再试")
+    ip = _client_ip(request)
+    allowed, retry_after = _check_login_allowed(ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="登录失败次数过多，请稍后再试",
+            headers={"Retry-After": str(retry_after)},
+        )
     try:
         token = await admin_auth.setup_and_login(body.password)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if token is None:
-        _record_login_failure(request)
+        _record_login_failure(ip)
         raise HTTPException(status_code=401, detail="密码错误")
-    _clear_login_failures(request)
+    _clear_login_failures(ip)
     csrf_token = await admin_auth.create_admin_csrf_token(token)
     response = JSONResponse({"message": "登录成功", "csrf_token": csrf_token})
     response.headers["Set-Cookie"] = admin_auth.build_session_cookie(token)
