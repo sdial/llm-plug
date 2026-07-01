@@ -104,6 +104,16 @@ _CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
         "default": 1,
         "requires_restart": False,
     },
+    "admin_max_attempts": {
+        "type": "int",
+        "default": 10,
+        "requires_restart": False,
+    },
+    "admin_lockout_base_seconds": {
+        "type": "int",
+        "default": 60,
+        "requires_restart": False,
+    },
 }
 
 _settings: dict = {}
@@ -138,6 +148,8 @@ _CONFIG_CONSTRAINTS: dict[str, dict] = {
     "aggregation_timezone": {"validator": "iana_timezone"},
     "request_log_retention_days": {"min": 0},
     "request_log_raw_retention_days": {"min": 0},
+    "admin_max_attempts": {"min": 1, "max": 100},
+    "admin_lockout_base_seconds": {"min": 10, "max": 86400},
 }
 
 
