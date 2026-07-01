@@ -203,6 +203,17 @@ def test_settings_page_explains_zero_config_runtime():
     assert "data/request_logs.db" in html
 
 
+def test_settings_js_saves_security_config_controls():
+    """Security settings controls must participate in save and dirty detection."""
+    js = Path("static/js/settings.js").read_text(encoding="utf-8")
+
+    assert "set_admin_max_attempts" in js
+    assert "set_admin_lockout_base_seconds" in js
+    assert "_settingsDirtySections.add('security')" in js
+    assert "data.admin_max_attempts = adminMaxAttempts" in js
+    assert "data.admin_lockout_base_seconds = adminLockoutBaseSeconds" in js
+
+
 def test_migrate_lb_config(tmp_path):
     """lb_config 自动迁移到 settings.json"""
     import json
