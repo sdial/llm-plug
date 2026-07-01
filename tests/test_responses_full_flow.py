@@ -13,7 +13,11 @@ def client(monkeypatch):
     import routers.proxy_response as proxy_response
     from routers.proxy_response import router
 
-    monkeypatch.setattr(proxy_response, "check_proxy_authorization", lambda authorization, request_state=None: True)
+    monkeypatch.setattr(
+        proxy_response,
+        "check_proxy_authorization",
+        lambda authorization, request_state=None: True,
+    )
     app = FastAPI()
     app.include_router(router)
     return TestClient(app)
@@ -469,7 +473,12 @@ def test_post_responses_hosted_tools_are_degraded_instead_of_400(client):
                             "id": "msg_resp_compat_1",
                             "status": "completed",
                             "role": "assistant",
-                            "content": [{"type": "output_text", "text": "Search fallback answer"}],
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "Search fallback answer",
+                                }
+                            ],
                         }
                     ],
                     "usage": {"input_tokens": 3, "output_tokens": 4, "total_tokens": 7},
@@ -518,7 +527,9 @@ def test_post_responses_returns_400_for_proxy_core_converter_error(client):
             mock_store.put.assert_not_awaited()
 
 
-def test_post_responses_chat_upstream_compatible_response_is_saved_after_degrade(client):
+def test_post_responses_chat_upstream_compatible_response_is_saved_after_degrade(
+    client,
+):
     with patch("routers.proxy_response._store") as mock_store:
         mock_store.put = AsyncMock()
         mock_store.get_conversation = AsyncMock(return_value=None)
@@ -537,10 +548,16 @@ def test_post_responses_chat_upstream_compatible_response_is_saved_after_degrade
                             "id": "msg_resp_saved_after_degrade",
                             "status": "completed",
                             "role": "assistant",
-                            "content": [{"type": "output_text", "text": "Fallback completed"}],
+                            "content": [
+                                {"type": "output_text", "text": "Fallback completed"}
+                            ],
                         }
                     ],
-                    "usage": {"input_tokens": 9, "output_tokens": 5, "total_tokens": 14},
+                    "usage": {
+                        "input_tokens": 9,
+                        "output_tokens": 5,
+                        "total_tokens": 14,
+                    },
                 },
                 MagicMock(id="ch1", name="chat-upstream", api_type=APIType.OPENAI_CHAT),
             )
@@ -615,10 +632,14 @@ def test_post_responses_all_channels_exhausted_returns_upstream_status(client):
     upstream_resp.headers = {"content-type": "application/json"}
     upstream_resp.content = b'{"error":{"message":"rate limited"}}'
     upstream_resp.text = '{"error":{"message":"rate limited"}}'
-    last_error = httpx.HTTPStatusError("429", request=MagicMock(), response=upstream_resp)
+    last_error = httpx.HTTPStatusError(
+        "429", request=MagicMock(), response=upstream_resp
+    )
 
     with patch("routers.proxy_response.proxy_request") as mock_proxy:
-        mock_proxy.side_effect = AllChannelsExhausted("all channels exhausted", last_error=last_error)
+        mock_proxy.side_effect = AllChannelsExhausted(
+            "all channels exhausted", last_error=last_error
+        )
 
         resp = client.post(
             "/v1/responses",
@@ -632,7 +653,9 @@ def test_post_responses_all_channels_exhausted_non_http_returns_502(client):
     from proxy_core import AllChannelsExhausted
 
     with patch("routers.proxy_response.proxy_request") as mock_proxy:
-        mock_proxy.side_effect = AllChannelsExhausted("all channels exhausted", last_error=RuntimeError("network down"))
+        mock_proxy.side_effect = AllChannelsExhausted(
+            "all channels exhausted", last_error=RuntimeError("network down")
+        )
 
         resp = client.post(
             "/v1/responses",

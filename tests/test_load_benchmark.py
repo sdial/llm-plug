@@ -43,8 +43,8 @@ def _make_channel(
 #  负载均衡器并发选择性能
 # ═══════════════════════════════════════════
 
-class TestLoadBalancerConcurrency:
 
+class TestLoadBalancerConcurrency:
     @pytest.mark.asyncio
     async def test_100_concurrent_selects(self):
         """100 次并发 select_channel 应在 1 秒内完成"""
@@ -62,7 +62,9 @@ class TestLoadBalancerConcurrency:
 
         # 所有选择都应返回有效渠道
         assert all(r is not None for r in results)
-        assert elapsed < 1.0, f"100 concurrent selects took {elapsed:.2f}s, expected < 1s"
+        assert elapsed < 1.0, (
+            f"100 concurrent selects took {elapsed:.2f}s, expected < 1s"
+        )
 
     @pytest.mark.asyncio
     async def test_1000_concurrent_selects_with_health(self):
@@ -70,7 +72,9 @@ class TestLoadBalancerConcurrency:
         from balancer.load_balancer import LoadBalancer
 
         lb = LoadBalancer()
-        channels = [_make_channel(id=f"ch_{i}", weight=1, priority=1) for i in range(10)]
+        channels = [
+            _make_channel(id=f"ch_{i}", weight=1, priority=1) for i in range(10)
+        ]
 
         async def do_select():
             return await lb.select_channel(channels)
@@ -96,7 +100,9 @@ class TestLoadBalancerConcurrency:
 
         # 不应有任何异常
         exceptions = [r for r in results if isinstance(r, Exception)]
-        assert len(exceptions) == 0, f"Got {len(exceptions)} exceptions in concurrent ops"
+        assert len(exceptions) == 0, (
+            f"Got {len(exceptions)} exceptions in concurrent ops"
+        )
         assert elapsed < 5.0, f"1000 mixed ops took {elapsed:.2f}s, expected < 5s"
 
 
@@ -104,17 +110,18 @@ class TestLoadBalancerConcurrency:
 #  客户端池高频创建/销毁稳定性
 # ═══════════════════════════════════════════
 
-class TestClientPoolStability:
 
+class TestClientPoolStability:
     @pytest.mark.asyncio
     async def test_rapid_create_and_close(self):
         """快速创建/销毁 100 个客户端不应泄漏或崩溃"""
-        from client import get_or_create_client, close_all_clients, invalidate_all_clients
+        from client import (
+            get_or_create_client,
+            close_all_clients,
+            invalidate_all_clients,
+        )
 
-        channels = [
-            _make_channel(id=f"ch_pool_{i}")
-            for i in range(10)
-        ]
+        channels = [_make_channel(id=f"ch_pool_{i}") for i in range(10)]
 
         # 快速创建
         for ch in channels:
@@ -155,8 +162,8 @@ class TestClientPoolStability:
 #  存储层高频读写吞吐
 # ═══════════════════════════════════════════
 
-class TestStorageThroughput:
 
+class TestStorageThroughput:
     @pytest.mark.asyncio
     async def test_concurrent_reads(self, tmp_path, monkeypatch):
         """50 次并发读取应在 1 秒内完成"""
@@ -217,8 +224,8 @@ class TestStorageThroughput:
 #  统计记录高频写入不阻塞
 # ═══════════════════════════════════════════
 
-class TestStatsWriteThroughput:
 
+class TestStatsWriteThroughput:
     @pytest.mark.asyncio
     async def test_rapid_record_request(self, tmp_path, monkeypatch):
         """100 次 record_request 调用不应阻塞（走队列）"""

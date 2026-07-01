@@ -34,8 +34,8 @@ def _make_channel(
 #  ChannelHealth 状态转换
 # ═══════════════════════════════════════════
 
-class TestChannelHealth:
 
+class TestChannelHealth:
     def test_initial_state_is_healthy(self):
         h = ChannelHealth()
         assert h.is_healthy(max_fail_count=5, cooldown_seconds=60) is True
@@ -95,8 +95,8 @@ class TestChannelHealth:
 #  LoadBalancer.select_channel — 优先级分组
 # ═══════════════════════════════════════════
 
-class TestSelectChannelPriority:
 
+class TestSelectChannelPriority:
     @pytest.mark.asyncio
     async def test_selects_highest_priority(self):
         lb = LoadBalancer()
@@ -201,8 +201,8 @@ class TestSelectChannelPriority:
 #  LoadBalancer — 健康记录
 # ═══════════════════════════════════════════
 
-class TestLoadBalancerHealth:
 
+class TestLoadBalancerHealth:
     @pytest.mark.asyncio
     async def test_record_success_resets_health(self):
         lb = LoadBalancer()
@@ -244,8 +244,8 @@ class TestLoadBalancerHealth:
 #  LoadBalancer.cleanup_removed_channels
 # ═══════════════════════════════════════════
 
-class TestCleanupRemovedChannels:
 
+class TestCleanupRemovedChannels:
     @pytest.mark.asyncio
     async def test_removes_stale_health_entries(self):
         lb = LoadBalancer()

@@ -48,7 +48,12 @@ def channels_file(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "_SETTINGS_FILE", str(settings_path))
     config._init_settings_sync()
     import main
-    monkeypatch.setattr(main, "_whitelist_cache", main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")))
+
+    monkeypatch.setattr(
+        main,
+        "_whitelist_cache",
+        main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
+    )
     storage._cache = None
     storage._cache_ts = 0
     storage._keys_cache = None

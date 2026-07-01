@@ -33,7 +33,10 @@ def test_switching_to_requests_does_not_read_request_filters_before_fragment_loa
     admin_js = (STATIC_JS / "admin.js").read_text(encoding="utf-8")
 
     assert "function updateRequestHashSafely()" in admin_js
-    assert "if (typeof syncRequestHash === 'function' && document.getElementById('reqFilterModel'))" in admin_js
+    assert (
+        "if (typeof syncRequestHash === 'function' && document.getElementById('reqFilterModel'))"
+        in admin_js
+    )
     assert "if (tab === 'requests') {\n            syncRequestHash();" not in admin_js
 
 
@@ -80,8 +83,14 @@ def test_requests_table_shows_zero_cache_read_tokens_when_field_exists():
     requests_js = (STATIC_JS / "requests.js").read_text(encoding="utf-8")
     admin_css = Path("static/css/admin.css").read_text(encoding="utf-8")
 
-    assert "if (cachedTokens === null) return renderMissingCacheReadToken('null');" in requests_js
-    assert "if (cachedTokens === undefined) return renderMissingCacheReadToken('undefined');" in requests_js
+    assert (
+        "if (cachedTokens === null) return renderMissingCacheReadToken('null');"
+        in requests_js
+    )
+    assert (
+        "if (cachedTokens === undefined) return renderMissingCacheReadToken('undefined');"
+        in requests_js
+    )
     assert "renderTokenUsage(inputTokens, req.cache_read_input_tokens)" in requests_js
     assert "request-cache-missing" in admin_css
     assert 'content: "cache";' in admin_css
@@ -92,7 +101,9 @@ def test_request_analyzer_link_passes_api_type_from_channel_metadata():
 
     assert "function getRequestAnalyzerApiType(req)" in requests_js
     assert "if (req.api_type) return req.api_type;" in requests_js
-    assert "api_type=${encodeURIComponent(getRequestAnalyzerApiType(req))}" in requests_js
+    assert (
+        "api_type=${encodeURIComponent(getRequestAnalyzerApiType(req))}" in requests_js
+    )
 
 
 def test_request_analyzer_normalizes_chat_and_anthropic_contexts():
@@ -201,7 +212,10 @@ def test_request_analyzer_renders_responses_terminal_execute_arguments():
 
     assert "function normalizeResponsesToolUseBlock(item)" in analyzer_js
     assert "'terminal_execute'" in analyzer_js
-    assert "input: prettyJsonString(item.arguments || item.input || item.function?.arguments || {})" in analyzer_js
+    assert (
+        "input: prettyJsonString(item.arguments || item.input || item.function?.arguments || {})"
+        in analyzer_js
+    )
     assert "blocks: [normalizeResponsesToolUseBlock(item)]" in analyzer_js
     assert "return [normalizeResponsesToolUseBlock(item)];" in analyzer_js
 
@@ -212,4 +226,7 @@ def test_stats_today_merge_uses_configured_aggregation_timezone():
     assert "8 * 3600000" not in stats_js
     assert "function getStatsAggregationTimezone()" in stats_js
     assert "function formatStatsDateInTimezone(" in stats_js
-    assert "const todayStr = formatStatsDateInTimezone(new Date(), getStatsAggregationTimezone());" in stats_js
+    assert (
+        "const todayStr = formatStatsDateInTimezone(new Date(), getStatsAggregationTimezone());"
+        in stats_js
+    )

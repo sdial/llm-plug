@@ -252,9 +252,13 @@ class TestStreamPreflight:
         async def gen():
             nonlocal closed
             try:
-                request = httpx.Request("POST", "https://api.example.com/v1/chat/completions")
+                request = httpx.Request(
+                    "POST", "https://api.example.com/v1/chat/completions"
+                )
                 response = httpx.Response(500, request=request)
-                raise httpx.HTTPStatusError("upstream error", request=request, response=response)
+                raise httpx.HTTPStatusError(
+                    "upstream error", request=request, response=response
+                )
                 yield b"unreachable"
             finally:
                 closed = True
@@ -272,7 +276,9 @@ class TestChannelConfigError:
         request = httpx.Request("POST", "https://upstream.example/v1/messages")
         for status_code in (401, 403, 404):
             response = httpx.Response(status_code, request=request)
-            exc = httpx.HTTPStatusError("upstream error", request=request, response=response)
+            exc = httpx.HTTPStatusError(
+                "upstream error", request=request, response=response
+            )
 
             assert _is_channel_config_error(exc) is True
 
@@ -344,7 +350,9 @@ class TestModelGroupFallbackErrors:
 
         async def fake_do_request(channel, request_data, *args, **kwargs):
             request = httpx.Request("POST", f"{channel.base_url}/v1/chat/completions")
-            response = httpx.Response(503, json={"error": "unavailable"}, request=request)
+            response = httpx.Response(
+                503, json={"error": "unavailable"}, request=request
+            )
             raise httpx.HTTPStatusError(
                 f"{request_data['model']} unavailable",
                 request=request,
@@ -359,7 +367,10 @@ class TestModelGroupFallbackErrors:
             with pytest.raises(AllChannelsExhausted) as exc_info:
                 await _proxy_model_group_request(
                     group,
-                    {"model": group.name, "messages": [{"role": "user", "content": "hi"}]},
+                    {
+                        "model": group.name,
+                        "messages": [{"role": "user", "content": "hi"}],
+                    },
                     APIType.OPENAI_CHAT,
                     False,
                     None,
@@ -793,8 +804,11 @@ class TestDoRequest:
         ):
             stream = await _do_request(
                 channel,
-                {"model": "deepseek-chat", "stream": True,
-                 "messages": [{"role": "user", "content": "hi"}]},
+                {
+                    "model": "deepseek-chat",
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 APIType.OPENAI_CHAT,
                 is_stream=True,
             )
@@ -857,8 +871,11 @@ class TestDoRequest:
         ):
             stream = await _do_request(
                 channel,
-                {"model": "deepseek-chat", "stream": True,
-                 "messages": [{"role": "user", "content": "hi"}]},
+                {
+                    "model": "deepseek-chat",
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 APIType.OPENAI_CHAT,
                 is_stream=True,
             )
@@ -871,9 +888,10 @@ class TestDoRequest:
         assert "visible" in outputs
 
     @pytest.mark.anyio
-    async def test_same_type_response_stream_passthrough_does_not_apply_think_filter(self):
-        """同格式 Responses 流式透传必须保留上游原始 SSE 内容，不应用 think 过滤。
-        """
+    async def test_same_type_response_stream_passthrough_does_not_apply_think_filter(
+        self,
+    ):
+        """同格式 Responses 流式透传必须保留上游原始 SSE 内容，不应用 think 过滤。"""
 
         class FakeStreamResponse:
             status_code = 200
@@ -1222,7 +1240,9 @@ class TestDoRequest:
         assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 0
 
     @pytest.mark.anyio
-    async def test_anthropic_stream_input_tokens_from_message_delta_when_message_start_zero(self):
+    async def test_anthropic_stream_input_tokens_from_message_delta_when_message_start_zero(
+        self,
+    ):
         """Bug: 第三方 Anthropic 代理 message_start 中 input_tokens=0，
         实际值在 message_delta 的 usage 中。应回退提取。"""
 
@@ -1297,7 +1317,9 @@ class TestDoRequest:
         assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 500
 
     @pytest.mark.anyio
-    async def test_anthropic_stream_input_tokens_from_prompt_tokens_in_message_start(self):
+    async def test_anthropic_stream_input_tokens_from_prompt_tokens_in_message_start(
+        self,
+    ):
         """某些 Anthropic 兼容 API 在 message_start 中用 prompt_tokens 代替 input_tokens。"""
 
         class FakeStreamResponse:
@@ -1448,7 +1470,9 @@ class TestDoRequest:
         assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 300
 
     @pytest.mark.anyio
-    async def test_client_disconnect_before_first_chunk_records_clear_stream_error(self):
+    async def test_client_disconnect_before_first_chunk_records_clear_stream_error(
+        self,
+    ):
         upstream_read_started = asyncio.Event()
 
         class FakeStreamResponse:
@@ -1507,7 +1531,10 @@ class TestDoRequest:
                 await task
 
         assert request_log_record.call_args.kwargs["success"] is False
-        assert request_log_record.call_args.kwargs["error_msg"] == "client_disconnected_before_first_chunk"
+        assert (
+            request_log_record.call_args.kwargs["error_msg"]
+            == "client_disconnected_before_first_chunk"
+        )
 
     @pytest.mark.anyio
     async def test_client_disconnect_mid_stream_records_clear_stream_error(self):
@@ -1575,7 +1602,10 @@ class TestDoRequest:
                 await task
 
         assert request_log_record.call_args.kwargs["success"] is False
-        assert request_log_record.call_args.kwargs["error_msg"] == "client_disconnected_mid_stream"
+        assert (
+            request_log_record.call_args.kwargs["error_msg"]
+            == "client_disconnected_mid_stream"
+        )
 
     @pytest.mark.anyio
     async def test_same_type_openai_response_non_stream_forwards_body_and_response_unchanged(
@@ -1820,7 +1850,10 @@ class TestDoRequest:
         ):
             await _do_request(
                 channel,
-                {"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "hello"}]},
+                {
+                    "model": "claude-3-5-sonnet-20241022",
+                    "messages": [{"role": "user", "content": "hello"}],
+                },
                 APIType.ANTHROPIC,
                 is_stream=False,
             )
@@ -2010,6 +2043,7 @@ class TestDoStreamRequest:
         assert "retry: 1500" in joined
         assert joined.index("id: evt-1") < joined.index("event: ping")
         assert joined.index("retry: 1500") < joined.index("event: ping")
+
     @pytest.mark.anyio
     async def test_anthropic_stream_mid_error_emits_message_stop(self):
         class FakeStreamResponse:
@@ -3004,7 +3038,9 @@ class TestAnthropicHeaderPriority:
             if not block or not block.startswith(("event:", "data:", ":")):
                 continue
             if "data:" in block:
-                assert block.startswith("event:"), f"missing event: line in block: {block!r}"
+                assert block.startswith("event:"), (
+                    f"missing event: line in block: {block!r}"
+                )
 
     @pytest.mark.anyio
     async def test_openai_stream_with_null_tool_calls_still_records_request(self):
@@ -3064,7 +3100,12 @@ class TestAnthropicHeaderPriority:
         assert outputs[-1] == "data: [DONE]\n\n"
         request_log_record.assert_called_once()
         assert request_log_record.call_args.kwargs["model"] == "mimo-v2.5-pro"
-        assert request_log_record.call_args.kwargs["response_body"]["choices"][0]["message"]["content"] == "Hello"
+        assert (
+            request_log_record.call_args.kwargs["response_body"]["choices"][0][
+                "message"
+            ]["content"]
+            == "Hello"
+        )
 
     @pytest.mark.anyio
     async def test_openai_stream_eof_without_done_emits_terminal_frame(self):
@@ -3210,7 +3251,9 @@ class TestFailoverOn401:
                 side_effect=fake_create_client,
             ),
             patch("proxy_core.stats.record_request"),
-            patch("proxy_core.load_balancer.record_failure", new_callable=AsyncMock) as record_failure,
+            patch(
+                "proxy_core.load_balancer.record_failure", new_callable=AsyncMock
+            ) as record_failure,
         ):
             response, channel = await _proxy_single_model_request(
                 model="gpt-4o",
@@ -3301,7 +3344,9 @@ class TestFailoverOn401:
                 side_effect=fake_create_client,
             ),
             patch("proxy_core.stats.record_request"),
-            patch("proxy_core.load_balancer.record_failure", new_callable=AsyncMock) as record_failure,
+            patch(
+                "proxy_core.load_balancer.record_failure", new_callable=AsyncMock
+            ) as record_failure,
         ):
             response, channel = await _proxy_single_model_request(
                 model="gpt-4o",
@@ -4061,8 +4106,10 @@ class TestAnthropicNonSseJsonFallback:
         tool_use_start = None
         for block in joined.strip().split("\n\n"):
             if "event: content_block_start" in block:
-                data_line = [line for line in block.splitlines() if line.startswith("data: ")][0]
-                data = json.loads(data_line[len("data: "):])
+                data_line = [
+                    line for line in block.splitlines() if line.startswith("data: ")
+                ][0]
+                data = json.loads(data_line[len("data: ") :])
                 if data["content_block"].get("type") == "tool_use":
                     tool_use_start = data
                     break
@@ -4565,15 +4612,31 @@ class TestBuildOpenaiStreamResponsePreservesTokenDetails:
             {
                 "id": "chatcmpl-multi",
                 "choices": [
-                    {"index": 0, "delta": {"role": "assistant", "content": "first"}, "finish_reason": None},
-                    {"index": 1, "delta": {"role": "assistant", "content": "second"}, "finish_reason": None},
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": "first"},
+                        "finish_reason": None,
+                    },
+                    {
+                        "index": 1,
+                        "delta": {"role": "assistant", "content": "second"},
+                        "finish_reason": None,
+                    },
                 ],
             },
             {
                 "id": "chatcmpl-multi",
                 "choices": [
-                    {"index": 0, "delta": {"content": " choice"}, "finish_reason": "stop"},
-                    {"index": 1, "delta": {"content": " choice"}, "finish_reason": "length"},
+                    {
+                        "index": 0,
+                        "delta": {"content": " choice"},
+                        "finish_reason": "stop",
+                    },
+                    {
+                        "index": 1,
+                        "delta": {"content": " choice"},
+                        "finish_reason": "length",
+                    },
                 ],
                 "usage": {
                     "prompt_tokens": 10,
@@ -4599,7 +4662,11 @@ class TestBuildOpenaiStreamResponsePreservesTokenDetails:
             {
                 "id": "chatcmpl-x",
                 "choices": [
-                    {"index": 0, "delta": {"role": "assistant", "content": "hi"}, "finish_reason": None}
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": "hi"},
+                        "finish_reason": None,
+                    }
                 ],
             },
             {
@@ -4627,7 +4694,9 @@ class TestBuildOpenaiStreamResponsePreservesTokenDetails:
         chunks = [
             {
                 "id": "chatcmpl-x",
-                "choices": [{"index": 0, "delta": {"content": "hi"}, "finish_reason": "stop"}],
+                "choices": [
+                    {"index": 0, "delta": {"content": "hi"}, "finish_reason": "stop"}
+                ],
                 "usage": {
                     "prompt_tokens": 100,
                     "completion_tokens": 20,
@@ -4646,7 +4715,9 @@ class TestBuildOpenaiStreamResponsePreservesTokenDetails:
         chunks = [
             {
                 "id": "chatcmpl-x",
-                "choices": [{"index": 0, "delta": {"content": "ok"}, "finish_reason": "stop"}],
+                "choices": [
+                    {"index": 0, "delta": {"content": "ok"}, "finish_reason": "stop"}
+                ],
                 "usage": {
                     "prompt_tokens": 50,
                     "completion_tokens": 10,
@@ -4691,7 +4762,9 @@ class TestConvertAnthropicResponseToEvents:
             "cache_creation_input_tokens": 2,
             "cache_read_input_tokens": 5,
         }
-        message_delta = [data for event_type, data in events if event_type == "message_delta"][0]
+        message_delta = [
+            data for event_type, data in events if event_type == "message_delta"
+        ][0]
         assert message_delta["usage"] == {"output_tokens": 3}
 
 
@@ -4888,12 +4961,16 @@ class TestDoRequestSetsIncludeUsage:
         ):
             stream = await _do_request(
                 channel,
-                {"model": "gpt-4", "stream": True,
-                 "messages": [{"role": "user", "content": "hi"}]},
+                {
+                    "model": "gpt-4",
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 APIType.OPENAI_CHAT,
                 is_stream=True,
             )
             _ = "".join([chunk async for chunk in stream])
+
 
 @pytest.mark.asyncio
 async def test_single_model_select_channel_receives_request_context(monkeypatch):
@@ -4926,10 +5003,14 @@ async def test_single_model_select_channel_receives_request_context(monkeypatch)
     async def fake_do_request(*args, **kwargs):
         return {"ok": True}
 
-    monkeypatch.setattr(proxy_core, "_get_channels_for_model", fake_get_channels_for_model)
+    monkeypatch.setattr(
+        proxy_core, "_get_channels_for_model", fake_get_channels_for_model
+    )
     monkeypatch.setattr(proxy_core.load_balancer, "select_channel", fake_select_channel)
     monkeypatch.setattr(proxy_core, "_do_request", fake_do_request)
-    monkeypatch.setattr(proxy_core.storage, "get_model_group_by_name", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        proxy_core.storage, "get_model_group_by_name", AsyncMock(return_value=None)
+    )
 
     await proxy_core.proxy_request(
         "gpt-4",
@@ -4980,10 +5061,14 @@ async def test_model_group_select_channel_receives_request_context(monkeypatch):
     async def fake_do_request(*args, **kwargs):
         return {"ok": True}
 
-    monkeypatch.setattr(proxy_core, "_get_channels_for_model", fake_get_channels_for_model)
+    monkeypatch.setattr(
+        proxy_core, "_get_channels_for_model", fake_get_channels_for_model
+    )
     monkeypatch.setattr(proxy_core.load_balancer, "select_channel", fake_select_channel)
     monkeypatch.setattr(proxy_core, "_do_request", fake_do_request)
-    monkeypatch.setattr(proxy_core.storage, "get_model_group_by_name", AsyncMock(return_value=group))
+    monkeypatch.setattr(
+        proxy_core.storage, "get_model_group_by_name", AsyncMock(return_value=group)
+    )
 
     await proxy_core.proxy_request(
         "group-model",
@@ -4999,7 +5084,3 @@ async def test_model_group_select_channel_receives_request_context(monkeypatch):
         "api_key_id": "key-name",
         "client_headers": {"x-session-id": "s1"},
     }
-
-
-
-

@@ -3,6 +3,7 @@ Provider Capability 管理模块
 
 根据渠道配置推断上游提供商的能力，并在请求转发前过滤不支持的参数。
 """
+
 from dataclasses import dataclass
 
 from loguru import logger
@@ -11,6 +12,7 @@ from loguru import logger
 @dataclass
 class ProviderCapabilities:
     """提供商能力配置"""
+
     supports_parallel_tool_calls: bool = True
     supports_tool_choice_auto: bool = True
     supports_response_format: bool = True
@@ -45,20 +47,28 @@ def infer_capabilities(channel, model_name: str = "") -> ProviderCapabilities:
     base_url = (channel.base_url or "").lower()
 
     # 优先使用用户配置的渠道级能力
-    if hasattr(channel, 'capabilities') and channel.capabilities:
-        caps_dict = channel.capabilities if isinstance(channel.capabilities, dict) else {}
+    if hasattr(channel, "capabilities") and channel.capabilities:
+        caps_dict = (
+            channel.capabilities if isinstance(channel.capabilities, dict) else {}
+        )
         caps = ProviderCapabilities(
-            supports_parallel_tool_calls=caps_dict.get('supports_parallel_tool_calls', True),
-            supports_tool_choice_auto=caps_dict.get('supports_tool_choice_auto', True),
-            supports_response_format=caps_dict.get('supports_response_format', True),
-            supports_reasoning_effort=caps_dict.get('supports_reasoning_effort', True),
-            supports_file_content=caps_dict.get('supports_file_content', False),
-            supports_audio_content=caps_dict.get('supports_audio_content', False),
-            supports_image_content=caps_dict.get('supports_image_content', False),
-            supports_tool_choice_required=caps_dict.get('supports_tool_choice_required', True),
-            supports_strict_tools=caps_dict.get('supports_strict_tools', True),
-            requires_single_system_message=caps_dict.get('requires_single_system_message', False),
-            filter_think_content=caps_dict.get('filter_think_content', False),
+            supports_parallel_tool_calls=caps_dict.get(
+                "supports_parallel_tool_calls", True
+            ),
+            supports_tool_choice_auto=caps_dict.get("supports_tool_choice_auto", True),
+            supports_response_format=caps_dict.get("supports_response_format", True),
+            supports_reasoning_effort=caps_dict.get("supports_reasoning_effort", True),
+            supports_file_content=caps_dict.get("supports_file_content", False),
+            supports_audio_content=caps_dict.get("supports_audio_content", False),
+            supports_image_content=caps_dict.get("supports_image_content", False),
+            supports_tool_choice_required=caps_dict.get(
+                "supports_tool_choice_required", True
+            ),
+            supports_strict_tools=caps_dict.get("supports_strict_tools", True),
+            requires_single_system_message=caps_dict.get(
+                "requires_single_system_message", False
+            ),
+            filter_think_content=caps_dict.get("filter_think_content", False),
         )
     # DeepSeek: 不支持并行工具调用，需要过滤 💭
     elif "deepseek" in base_url:
@@ -76,7 +86,11 @@ def infer_capabilities(channel, model_name: str = "") -> ProviderCapabilities:
         caps = ProviderCapabilities()
 
     # 模型级覆盖：仅作用于多模态能力
-    if model_name and hasattr(channel, 'model_capabilities') and channel.model_capabilities:
+    if (
+        model_name
+        and hasattr(channel, "model_capabilities")
+        and channel.model_capabilities
+    ):
         model_caps = channel.model_capabilities.get(model_name)
         if model_caps:
             caps.supports_image_content = model_caps.supports_image_content
@@ -113,7 +127,9 @@ def apply_capability_filter(
     if not caps.supports_parallel_tool_calls:
         if "parallel_tool_calls" in result:
             del result["parallel_tool_calls"]
-            logger.warning("[CAPABILITY] 降级: parallel_tool_calls 被移除（渠道不支持）")
+            logger.warning(
+                "[CAPABILITY] 降级: parallel_tool_calls 被移除（渠道不支持）"
+            )
 
     # 过滤 tool_choice=auto
     # 注意：不能把 auto 改成 none —— 这是语义反转（auto=允许调用工具，none=禁止）。
@@ -122,14 +138,18 @@ def apply_capability_filter(
         tc = result.get("tool_choice")
         if tc == "auto":
             del result["tool_choice"]
-            logger.warning("[CAPABILITY] 降级: tool_choice auto 被移除，回退上游默认（渠道不支持显式 auto）")
+            logger.warning(
+                "[CAPABILITY] 降级: tool_choice auto 被移除，回退上游默认（渠道不支持显式 auto）"
+            )
 
     # 过滤 tool_choice=required
     if not caps.supports_tool_choice_required:
         tc = result.get("tool_choice")
         if tc == "required":
             del result["tool_choice"]
-            logger.warning("[CAPABILITY] 降级: tool_choice required 被移除（渠道不支持）")
+            logger.warning(
+                "[CAPABILITY] 降级: tool_choice required 被移除（渠道不支持）"
+            )
 
     # 过滤 response_format
     if not caps.supports_response_format:
@@ -152,7 +172,9 @@ def apply_capability_filter(
                     func = tool["function"]
                     if isinstance(func, dict) and "strict" in func:
                         del func["strict"]
-                        logger.warning("[CAPABILITY] 降级: function strict 被移除（渠道不支持）")
+                        logger.warning(
+                            "[CAPABILITY] 降级: function strict 被移除（渠道不支持）"
+                        )
 
     # 过滤 messages 中的多模态内容
     messages = result.get("messages")
@@ -191,7 +213,9 @@ def apply_capability_filter(
     return result
 
 
-def _filter_content_type(messages: list, content_types: list[str]) -> tuple[list, tuple[int, int]]:
+def _filter_content_type(
+    messages: list, content_types: list[str]
+) -> tuple[list, tuple[int, int]]:
     """从消息列表中移除指定类型的内容块，返回新列表和统计信息。
 
     Args:

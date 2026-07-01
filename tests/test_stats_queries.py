@@ -40,8 +40,8 @@ def _record(**kwargs):
 #  get_api_key_stats
 # ═══════════════════════════════════════════
 
-class TestGetApiKeyStats:
 
+class TestGetApiKeyStats:
     @pytest.mark.asyncio
     async def test_empty_db(self):
         result = await stats.get_api_key_stats()
@@ -100,8 +100,8 @@ class TestGetApiKeyStats:
 #  refresh_stats
 # ═══════════════════════════════════════════
 
-class TestRefreshStats:
 
+class TestRefreshStats:
     @pytest.mark.asyncio
     async def test_refresh_empty_db(self):
         result = await stats.refresh_stats()
@@ -142,8 +142,8 @@ class TestRefreshStats:
 #  get_today_stats
 # ═══════════════════════════════════════════
 
-class TestGetTodayStats:
 
+class TestGetTodayStats:
     @pytest.mark.asyncio
     async def test_empty_db_returns_structure(self):
         result = await stats.get_today_stats()
@@ -188,8 +188,8 @@ class TestGetTodayStats:
 #  get_overall_stats
 # ═══════════════════════════════════════════
 
-class TestGetOverallStats:
 
+class TestGetOverallStats:
     @pytest.mark.asyncio
     async def test_zero_stats_when_empty(self):
         result = await stats.get_overall_stats(days=7)

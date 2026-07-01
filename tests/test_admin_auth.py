@@ -50,13 +50,16 @@ def admin_auth_files(tmp_path, monkeypatch):
     storage._keys_cache_ts = 0
     storage._channels_lock = asyncio.Lock()
     storage._keys_lock = asyncio.Lock()
-    admin._login_rate_limit_state.clear()
+    admin._login_attempts.clear()
 
     import main
-    main._whitelist_cache = main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv"))
+
+    main._whitelist_cache = main._whitelist.WhitelistCache(
+        str(data_dir / "whitelist.csv")
+    )
 
     yield
-    admin._login_rate_limit_state.clear()
+    admin._login_attempts.clear()
 
 
 @pytest.mark.anyio
@@ -260,6 +263,6 @@ async def test_admin_login_rate_limits_failed_attempts(admin_auth_files):
             json={"password": "correct horse battery staple"},
         )
 
-    assert [resp.status_code for resp in responses[:5]] == [401] * 5
-    assert responses[5].status_code == 429
+    assert [resp.status_code for resp in responses[:10]] == [401] * 10
+    assert responses[10].status_code == 429
     assert valid_after_limit.status_code == 429

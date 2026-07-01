@@ -298,7 +298,9 @@ async def create_admin_csrf_token(session_token: str | None) -> str | None:
     ).hexdigest()
 
 
-async def validate_admin_csrf_token(session_token: str | None, csrf_token: str | None) -> bool:
+async def validate_admin_csrf_token(
+    session_token: str | None, csrf_token: str | None
+) -> bool:
     if not csrf_token:
         return False
     expected = await create_admin_csrf_token(session_token)
@@ -312,15 +314,11 @@ def get_session_cookie_name() -> str:
 
 
 def build_session_cookie(token: str) -> str:
-    return (
-        f"{_SESSION_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Lax"
-    )
+    return f"{_SESSION_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Lax"
 
 
 def build_cleared_session_cookie() -> str:
-    return (
-        f"{_SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
-    )
+    return f"{_SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
 
 
 async def change_admin_password(

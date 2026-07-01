@@ -1,6 +1,7 @@
 """
 通用代理逻辑，供三个代理路由共用
 """
+
 import asyncio
 import base64
 import hashlib
@@ -92,7 +93,10 @@ def _filter_think_in_response(response_data: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(content, list):
                     new_content = []
                     for part in content:
-                        if isinstance(part, dict) and part.get("type") in ("output_text", "input_text"):
+                        if isinstance(part, dict) and part.get("type") in (
+                            "output_text",
+                            "input_text",
+                        ):
                             text = part.get("text", "")
                             part = dict(part, text=filter_think_content_static(text))
                         new_content.append(part)
@@ -107,7 +111,9 @@ def _filter_think_in_response(response_data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _filter_think_in_stream_chunk(chunk: dict[str, Any], think_filter: ThinkFilter) -> dict[str, Any] | None:
+def _filter_think_in_stream_chunk(
+    chunk: dict[str, Any], think_filter: ThinkFilter
+) -> dict[str, Any] | None:
     """过滤流式 chunk 中的 💭 内容。
 
     处理两种格式：
@@ -216,11 +222,15 @@ def _build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | No
                 block["text"] = block.get("text", "") + delta.get("text", "")
             elif delta_type == "thinking_delta":
                 block["type"] = block.get("type") or "thinking"
-                block["thinking"] = block.get("thinking", "") + delta.get("thinking", "")
+                block["thinking"] = block.get("thinking", "") + delta.get(
+                    "thinking", ""
+                )
             elif delta_type == "signature_delta":
                 block["signature"] = delta.get("signature", "")
             elif delta_type == "input_json_delta":
-                tool_json_buffers[block_idx] = tool_json_buffers.get(block_idx, "") + delta.get("partial_json", "")
+                tool_json_buffers[block_idx] = tool_json_buffers.get(
+                    block_idx, ""
+                ) + delta.get("partial_json", "")
 
         elif chunk_type == "content_block_stop":
             block_idx = chunk.get("index", 0)
@@ -388,17 +398,21 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
             tool_calls_list = [tool_calls_map[i] for i in sorted(tool_calls_map.keys())]
             message["tool_calls"] = tool_calls_list
 
-        response_choices.append({
-            "index": index,
-            "message": message,
-            "finish_reason": state["finish_reason"],
-        })
+        response_choices.append(
+            {
+                "index": index,
+                "message": message,
+                "finish_reason": state["finish_reason"],
+            }
+        )
 
     # 构建 usage 字段
     final_usage: dict[str, Any] = {
         "prompt_tokens": input_tokens,
         "completion_tokens": output_tokens,
-        "total_tokens": total_tokens if total_tokens is not None else input_tokens + output_tokens,
+        "total_tokens": total_tokens
+        if total_tokens is not None
+        else input_tokens + output_tokens,
     }
     if prompt_details is not None:
         final_usage["prompt_tokens_details"] = prompt_details
@@ -413,8 +427,6 @@ def _build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
         "choices": response_choices,
         "usage": final_usage,
     }
-
-
 
 
 _model_channels_cache: dict[str, list[Channel]] | None = None
@@ -471,7 +483,9 @@ async def _get_channels_for_model(model: str) -> list[Channel]:
                 try:
                     channels.append(Channel(**raw_channel))
                 except (TypeError, ValidationError) as exc:
-                    channel_id = raw_channel.get("id") if isinstance(raw_channel, dict) else None
+                    channel_id = (
+                        raw_channel.get("id") if isinstance(raw_channel, dict) else None
+                    )
                     logger.warning(
                         f"skip invalid channel entry index={idx} id={channel_id}: {exc}"
                     )
@@ -495,12 +509,24 @@ CONVERTER_MAP: dict[tuple[str, str], tuple[type, type]] = {
     # value: (RequestConverter, ResponseConverter)
     # RequestConverter: 把客户端格式(target)转换为上游格式(source)
     # ResponseConverter: 把上游格式(source)转换为客户端格式(target)
-    ("openai-chat-completions", "anthropic"): (ToChatCompletionsConverter, ToAnthropicConverter),
+    ("openai-chat-completions", "anthropic"): (
+        ToChatCompletionsConverter,
+        ToAnthropicConverter,
+    ),
     ("openai-response", "anthropic"): (ToResponseConverter, ToAnthropicConverter),
-    ("openai-response", "openai-chat-completions"): (ToResponseConverter, ToChatCompletionsConverter),
-    ("anthropic", "openai-chat-completions"): (ToAnthropicConverter, ToChatCompletionsConverter),
+    ("openai-response", "openai-chat-completions"): (
+        ToResponseConverter,
+        ToChatCompletionsConverter,
+    ),
+    ("anthropic", "openai-chat-completions"): (
+        ToAnthropicConverter,
+        ToChatCompletionsConverter,
+    ),
     ("anthropic", "openai-response"): (ToAnthropicConverter, ToResponseConverter),
-    ("openai-chat-completions", "openai-response"): (ToChatCompletionsConverter, ToResponseConverter),
+    ("openai-chat-completions", "openai-response"): (
+        ToChatCompletionsConverter,
+        ToResponseConverter,
+    ),
 }
 
 
@@ -561,10 +587,20 @@ def _build_upstream_headers(
 ) -> dict:
     forwarded_headers = {}
     skip_headers = {
-        "host", "authorization", "x-api-key", "content-type", "content-length",
+        "host",
+        "authorization",
+        "x-api-key",
+        "content-type",
+        "content-length",
         # hop-by-hop headers (RFC 2616 Section 13.5.1)
-        "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-        "te", "trailer", "transfer-encoding", "upgrade",
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
     }
     for key, val in (client_headers or {}).items():
         if key.lower() not in skip_headers:
@@ -585,6 +621,7 @@ _RETRYABLE_EXCEPTIONS = (
 
 class ConverterError(Exception):
     """格式转换失败，允许外层故障转移到其他渠道。"""
+
     pass
 
 
@@ -675,7 +712,9 @@ async def _prepare_openai_response_request_for_upstream(
         raise ValueError(f"Response {previous_response_id} not found")
 
     prepared = dict(request_data)
-    prepared["input"] = list(conversation.get("messages", [])) + _response_input_to_items(request_data.get("input"))
+    prepared["input"] = list(
+        conversation.get("messages", [])
+    ) + _response_input_to_items(request_data.get("input"))
     if not prepared.get("instructions") and conversation.get("instructions"):
         prepared["instructions"] = conversation["instructions"]
     prepared.pop("previous_response_id", None)
@@ -747,14 +786,26 @@ async def proxy_request(
     if group:
         # 模型组请求：按 Fallback 顺序尝试每个模型
         return await _proxy_model_group_request(
-            group, request_data, target_api_type, is_stream,
-            query_string, client_headers, api_key_id, client_ip
+            group,
+            request_data,
+            target_api_type,
+            is_stream,
+            query_string,
+            client_headers,
+            api_key_id,
+            client_ip,
         )
     else:
         # 单模型请求：现有逻辑
         return await _proxy_single_model_request(
-            model, request_data, target_api_type, is_stream,
-            query_string, client_headers, api_key_id, client_ip
+            model,
+            request_data,
+            target_api_type,
+            is_stream,
+            query_string,
+            client_headers,
+            api_key_id,
+            client_ip,
         )
 
 
@@ -797,8 +848,12 @@ async def _proxy_single_model_request(
 
         try:
             result = await _do_request(
-                selected, request_data, target_api_type, is_stream,
-                query_string=query_string, client_headers=client_headers,
+                selected,
+                request_data,
+                target_api_type,
+                is_stream,
+                query_string=query_string,
+                client_headers=client_headers,
                 api_key_id=api_key_id,
                 client_ip=client_ip,
             )
@@ -861,8 +916,12 @@ async def _proxy_model_group_request(
                 # 修改请求中的模型名
                 modified_request = {**request_data, "model": current_model}
                 result = await _do_request(
-                    selected, modified_request, target_api_type, is_stream,
-                    query_string=query_string, client_headers=client_headers,
+                    selected,
+                    modified_request,
+                    target_api_type,
+                    is_stream,
+                    query_string=query_string,
+                    client_headers=client_headers,
                     api_key_id=api_key_id,
                     client_ip=client_ip,
                 )
@@ -969,7 +1028,9 @@ def _extract_base64_data(part: dict) -> tuple[bytes, str] | None:
     return None
 
 
-async def _save_multimodal_files(request_data: dict, model_name: str, channel: Channel) -> None:
+async def _save_multimodal_files(
+    request_data: dict, model_name: str, channel: Channel
+) -> None:
     """
     将请求中的多模态文件保存到 logs/{images,audios,files}/ 目录。
 
@@ -1025,7 +1086,8 @@ async def _save_multimodal_files(request_data: dict, model_name: str, channel: C
 
             file_hash = hashlib.sha256(data).hexdigest()[:8]
             safe_model = "".join(
-                c if c.isalnum() or c in "-_" else "_" for c in (model_name or "unknown")
+                c if c.isalnum() or c in "-_" else "_"
+                for c in (model_name or "unknown")
             )
             filename = f"{timestamp}_{safe_model}_{file_hash}.{ext}"
             file_dir = logs_dir / category
@@ -1033,7 +1095,9 @@ async def _save_multimodal_files(request_data: dict, model_name: str, channel: C
 
             try:
                 await asyncio.to_thread(_write_media_file, file_dir, file_path, data)
-                saved_count[{"images": "image", "audios": "audio", "files": "file"}[category]] += 1
+                saved_count[
+                    {"images": "image", "audios": "audio", "files": "file"}[category]
+                ] += 1
             except Exception as e:
                 logger.warning(f"[SAVE_MEDIA] 保存多模态文件失败: {file_path}: {e}")
 
@@ -1067,11 +1131,15 @@ async def _do_request(
     client_ip: str | None = None,
 ):
     upstream_data = request_data  # 兜底：若后续转换步骤抛异常，except 仍可安全引用
-    request_converter, response_converter, source_type = _get_converter_and_upstream_type(channel, target_api_type)
+    request_converter, response_converter, source_type = (
+        _get_converter_and_upstream_type(channel, target_api_type)
+    )
 
     # 透传 OpenAI Chat 客户端的 stream_options.include_usage 到 response_converter
     if is_stream and isinstance(response_converter, ToChatCompletionsConverter):
-        include_usage = bool((request_data.get("stream_options") or {}).get("include_usage", False))
+        include_usage = bool(
+            (request_data.get("stream_options") or {}).get("include_usage", False)
+        )
         response_converter.set_stream_include_usage(include_usage)
 
     request_data = await _prepare_openai_response_request_for_upstream(
@@ -1083,7 +1151,9 @@ async def _do_request(
     # 转换请求：客户端格式 → 上游格式
     if request_converter:
         try:
-            upstream_data = request_converter.convert_request(request_data, target_api_type.value)
+            upstream_data = request_converter.convert_request(
+                request_data, target_api_type.value
+            )
         except Exception as conv_err:
             logger.warning(f"请求转换失败: {type(conv_err).__name__}: {conv_err}")
             raise ConverterError(f"请求转换失败: {conv_err}") from conv_err
@@ -1107,17 +1177,31 @@ async def _do_request(
 
     caps = infer_capabilities(channel, model)
     if not strict_response_passthrough:
-        upstream_data = apply_capability_filter(upstream_data, caps, channel.name, model)
+        upstream_data = apply_capability_filter(
+            upstream_data, caps, channel.name, model
+        )
 
     # MiniMax 特殊处理：合并多条 system 消息
-    if not strict_response_passthrough and caps.requires_single_system_message and "messages" in upstream_data:
-        original_count = len([m for m in upstream_data["messages"] if m.get("role") == "system"])
+    if (
+        not strict_response_passthrough
+        and caps.requires_single_system_message
+        and "messages" in upstream_data
+    ):
+        original_count = len(
+            [m for m in upstream_data["messages"] if m.get("role") == "system"]
+        )
         upstream_data["messages"] = merge_system_messages(upstream_data["messages"])
-        new_count = len([m for m in upstream_data["messages"] if m.get("role") == "system"])
+        new_count = len(
+            [m for m in upstream_data["messages"] if m.get("role") == "system"]
+        )
         if original_count > 1:
-            logger.debug(f"[CAPABILITY] MiniMax: 合并 {original_count} 条 system 消息为 {new_count} 条")
+            logger.debug(
+                f"[CAPABILITY] MiniMax: 合并 {original_count} 条 system 消息为 {new_count} 条"
+            )
 
-    need_think_filter = bool(caps.filter_think_content and not strict_response_passthrough)
+    need_think_filter = bool(
+        caps.filter_think_content and not strict_response_passthrough
+    )
 
     url = _get_upstream_url(channel)
     if query_string:
@@ -1129,7 +1213,13 @@ async def _do_request(
 
     if is_stream:
         stream = _do_stream_request(
-            channel, url, headers, upstream_data, response_converter, source_type, target_api_type,
+            channel,
+            url,
+            headers,
+            upstream_data,
+            response_converter,
+            source_type,
+            target_api_type,
             api_key_id=api_key_id,
             client_ip=client_ip,
             need_think_filter=need_think_filter,
@@ -1149,7 +1239,9 @@ async def _do_request(
         # 转换响应：上游格式 → 客户端格式
         if response_converter:
             try:
-                response_data = response_converter.convert_response(response_data, source_type)
+                response_data = response_converter.convert_response(
+                    response_data, source_type
+                )
             except Exception as conv_err:
                 logger.warning(f"响应转换失败: {type(conv_err).__name__}: {conv_err}")
                 raise ConverterError(f"响应转换失败: {conv_err}") from conv_err
@@ -1162,7 +1254,9 @@ async def _do_request(
 
         # 提取 token 使用量
         # 注意：某些 API（如 Kimi）的 input_tokens 可能为 0（表示缓存后），实际值在 prompt_tokens
-        usage = response_data.get("usage", {}) if isinstance(response_data, dict) else {}
+        usage = (
+            response_data.get("usage", {}) if isinstance(response_data, dict) else {}
+        )
         input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
         output_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
         token_details = cache_token_details(usage)
@@ -1171,7 +1265,10 @@ async def _do_request(
         # OpenAI Response：input_tokens 含全部输入（cache 是子集）
         # 仅当纯 Anthropic 语义时归一化：加上缓存 token 使 input_tokens 表示总输入
         if "prompt_tokens" not in usage and "input_tokens_details" not in usage:
-            input_tokens += token_details["cache_creation_input_tokens"] + token_details["cache_read_input_tokens"]
+            input_tokens += (
+                token_details["cache_creation_input_tokens"]
+                + token_details["cache_read_input_tokens"]
+            )
 
         # 提取 finish_reason
         finish_reason = None
@@ -1198,7 +1295,11 @@ async def _do_request(
             finish_reason=finish_reason,
             api_key_id=api_key_id,
             client_ip=client_ip,
-            request_headers={k: v for k, v in headers.items() if k.lower() not in ("authorization", "x-api-key")},
+            request_headers={
+                k: v
+                for k, v in headers.items()
+                if k.lower() not in ("authorization", "x-api-key")
+            },
             response_headers=dict(resp.headers),
             request_body=upstream_data,
             response_body=response_data,
@@ -1217,9 +1318,9 @@ async def _do_request(
                         summary.append("?")
                         continue
                     if c.get("type") == "text":
-                        summary.append(f'text({len(c.get("text", ""))}chars)')
+                        summary.append(f"text({len(c.get('text', ''))}chars)")
                     elif c.get("type") == "tool_use":
-                        summary.append(f'tool_use({c.get("name", "")})')
+                        summary.append(f"tool_use({c.get('name', '')})")
                     else:
                         summary.append(c.get("type", "?"))
                 stop_label = response_data.get("stop_reason")
@@ -1227,17 +1328,31 @@ async def _do_request(
             # OpenAI Chat: choices[].message
             else:
                 choices = response_data.get("choices")
-                if isinstance(choices, list) and choices and isinstance(choices[0], dict):
-                    msg = choices[0].get("message") if isinstance(choices[0].get("message"), dict) else {}
+                if (
+                    isinstance(choices, list)
+                    and choices
+                    and isinstance(choices[0], dict)
+                ):
+                    msg = (
+                        choices[0].get("message")
+                        if isinstance(choices[0].get("message"), dict)
+                        else {}
+                    )
                     msg_content = msg.get("content") if isinstance(msg, dict) else None
                     if isinstance(msg_content, str) and msg_content:
                         summary.append(f"text({len(msg_content)}chars)")
-                    tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
+                    tool_calls = (
+                        msg.get("tool_calls") if isinstance(msg, dict) else None
+                    )
                     if isinstance(tool_calls, list):
                         for tc in tool_calls:
                             if isinstance(tc, dict):
-                                func = tc.get("function") if isinstance(tc.get("function"), dict) else {}
-                                summary.append(f'tool_use({func.get("name", "")})')
+                                func = (
+                                    tc.get("function")
+                                    if isinstance(tc.get("function"), dict)
+                                    else {}
+                                )
+                                summary.append(f"tool_use({func.get('name', '')})")
                     stop_label = choices[0].get("finish_reason")
                 else:
                     # OpenAI Response: output[].content[]
@@ -1252,14 +1367,18 @@ async def _do_request(
                                     if not isinstance(part, dict):
                                         continue
                                     if part.get("type") == "output_text":
-                                        summary.append(f'text({len(part.get("text", ""))}chars)')
+                                        summary.append(
+                                            f"text({len(part.get('text', ''))}chars)"
+                                        )
                                     else:
                                         summary.append(part.get("type", "?"))
                             elif item_type == "function_call":
-                                summary.append(f'tool_use({item.get("name", "")})')
+                                summary.append(f"tool_use({item.get('name', '')})")
                             elif item_type:
                                 summary.append(item_type)
-                    stop_label = response_data.get("status") or response_data.get("stop_reason")
+                    stop_label = response_data.get("status") or response_data.get(
+                        "stop_reason"
+                    )
 
             if summary:
                 logger.debug(f"content: [{', '.join(summary)}]")
@@ -1285,7 +1404,11 @@ async def _do_request(
             finish_reason=None,
             api_key_id=api_key_id,
             client_ip=client_ip,
-            request_headers={k: v for k, v in headers.items() if k.lower() not in ("authorization", "x-api-key")},
+            request_headers={
+                k: v
+                for k, v in headers.items()
+                if k.lower() not in ("authorization", "x-api-key")
+            },
             request_body=upstream_data,
         )
         # 控制台输出详细错误
@@ -1304,9 +1427,13 @@ def _yield_anthropic_event(event_type: str, data: dict[str, Any]) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _convert_anthropic_response_to_events(converted: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+def _convert_anthropic_response_to_events(
+    converted: dict[str, Any],
+) -> list[tuple[str, dict[str, Any]]]:
     events: list[tuple[str, dict[str, Any]]] = []
-    message_for_start = {k: v for k, v in converted.items() if k not in ("stop_reason", "stop_sequence")}
+    message_for_start = {
+        k: v for k, v in converted.items() if k not in ("stop_reason", "stop_sequence")
+    }
     usage = converted.get("usage", {})
     start_usage = {"input_tokens": usage.get("input_tokens", 0), "output_tokens": 0}
     for key in ("cache_creation_input_tokens", "cache_read_input_tokens"):
@@ -1318,24 +1445,90 @@ def _convert_anthropic_response_to_events(converted: dict[str, Any]) -> list[tup
     for i, block in enumerate(converted.get("content", [])):
         block_type = block.get("type", "text")
         if block_type == "thinking":
-            events.append(("content_block_start", {"index": i, "content_block": {"type": "thinking", "thinking": ""}}))
-            events.append(("content_block_delta", {"index": i, "delta": {"type": "thinking_delta", "thinking": block.get("thinking", "")}}))
+            events.append(
+                (
+                    "content_block_start",
+                    {"index": i, "content_block": {"type": "thinking", "thinking": ""}},
+                )
+            )
+            events.append(
+                (
+                    "content_block_delta",
+                    {
+                        "index": i,
+                        "delta": {
+                            "type": "thinking_delta",
+                            "thinking": block.get("thinking", ""),
+                        },
+                    },
+                )
+            )
         elif block_type == "tool_use":
-            events.append(("content_block_start", {"index": i, "content_block": {"type": "tool_use", "id": block.get("id", ""), "name": block.get("name", ""), "input": {}}}))
-            events.append(("content_block_delta", {"index": i, "delta": {"type": "input_json_delta", "partial_json": json.dumps(block.get("input", {}), ensure_ascii=False)}}))
+            events.append(
+                (
+                    "content_block_start",
+                    {
+                        "index": i,
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": block.get("id", ""),
+                            "name": block.get("name", ""),
+                            "input": {},
+                        },
+                    },
+                )
+            )
+            events.append(
+                (
+                    "content_block_delta",
+                    {
+                        "index": i,
+                        "delta": {
+                            "type": "input_json_delta",
+                            "partial_json": json.dumps(
+                                block.get("input", {}), ensure_ascii=False
+                            ),
+                        },
+                    },
+                )
+            )
         else:
-            events.append(("content_block_start", {"index": i, "content_block": {"type": "text", "text": ""}}))
-            events.append(("content_block_delta", {"index": i, "delta": {"type": "text_delta", "text": block.get("text", "")}}))
+            events.append(
+                (
+                    "content_block_start",
+                    {"index": i, "content_block": {"type": "text", "text": ""}},
+                )
+            )
+            events.append(
+                (
+                    "content_block_delta",
+                    {
+                        "index": i,
+                        "delta": {"type": "text_delta", "text": block.get("text", "")},
+                    },
+                )
+            )
         events.append(("content_block_stop", {"index": i}))
 
     usage = converted.get("usage", {})
-    events.append(("message_delta", {"delta": {"stop_reason": converted.get("stop_reason", "end_turn")}, "usage": {"output_tokens": usage.get("output_tokens", 0)}}))
+    events.append(
+        (
+            "message_delta",
+            {
+                "delta": {"stop_reason": converted.get("stop_reason", "end_turn")},
+                "usage": {"output_tokens": usage.get("output_tokens", 0)},
+            },
+        )
+    )
     events.append(("message_stop", {}))
     return events
 
 
 def _convert_non_stream_to_stream_events(
-    full_response: dict[str, Any], response_converter, source_type: str, output_responses_sse: bool,
+    full_response: dict[str, Any],
+    response_converter,
+    source_type: str,
+    output_responses_sse: bool,
 ) -> list[str]:
     if not output_responses_sse:
         return []
@@ -1349,24 +1542,71 @@ def _convert_non_stream_to_stream_events(
 def _build_responses_stream_events_from_object(converted: dict[str, Any]) -> list[str]:
     """把一个 Response 形态的完整对象拆成 Responses SSE 事件序列。"""
     events: list[str] = []
-    events.append(_format_sse_for_list({"type": "response.created", "response": converted}))
+    events.append(
+        _format_sse_for_list({"type": "response.created", "response": converted})
+    )
     for idx, item in enumerate(converted.get("output", [])):
-        events.append(_format_sse_for_list({"type": "response.output_item.added", "output_index": idx, "item": item}))
+        events.append(
+            _format_sse_for_list(
+                {
+                    "type": "response.output_item.added",
+                    "output_index": idx,
+                    "item": item,
+                }
+            )
+        )
         if item.get("type") == "message":
             for part_idx, part in enumerate(item.get("content", [])):
                 if part.get("type") == "output_text":
-                    events.append(_format_sse_for_list({"type": "response.content_part.added", "output_index": idx, "content_index": part_idx, "part": {"type": "output_text", "text": ""}}))
+                    events.append(
+                        _format_sse_for_list(
+                            {
+                                "type": "response.content_part.added",
+                                "output_index": idx,
+                                "content_index": part_idx,
+                                "part": {"type": "output_text", "text": ""},
+                            }
+                        )
+                    )
                     text = part.get("text", "")
                     if text:
-                        events.append(_format_sse_for_list({"type": "response.output_text.delta", "output_index": idx, "content_index": part_idx, "delta": text}))
-                    events.append(_format_sse_for_list({"type": "response.content_part.done", "output_index": idx, "content_index": part_idx, "part": part}))
-        events.append(_format_sse_for_list({"type": "response.output_item.done", "output_index": idx, "item": item}))
+                        events.append(
+                            _format_sse_for_list(
+                                {
+                                    "type": "response.output_text.delta",
+                                    "output_index": idx,
+                                    "content_index": part_idx,
+                                    "delta": text,
+                                }
+                            )
+                        )
+                    events.append(
+                        _format_sse_for_list(
+                            {
+                                "type": "response.content_part.done",
+                                "output_index": idx,
+                                "content_index": part_idx,
+                                "part": part,
+                            }
+                        )
+                    )
+        events.append(
+            _format_sse_for_list(
+                {"type": "response.output_item.done", "output_index": idx, "item": item}
+            )
+        )
     status = converted.get("status", "completed")
-    events.append(_format_sse_for_list({"type": "response.completed", "response": {**converted, "status": status}}))
+    events.append(
+        _format_sse_for_list(
+            {"type": "response.completed", "response": {**converted, "status": status}}
+        )
+    )
     return events
 
 
-def _build_chat_stream_chunks_from_object(full_response: dict[str, Any], model: str) -> list[dict[str, Any]]:
+def _build_chat_stream_chunks_from_object(
+    full_response: dict[str, Any], model: str
+) -> list[dict[str, Any]]:
     """把一个 Chat Completion 完整对象拆成 chat.completion.chunk 列表（不含 [DONE]）。
 
     用于上游对 stream=true 仍返回整块 JSON 的兜底场景，避免直接吐整块对象破坏流式协议。
@@ -1382,7 +1622,9 @@ def _build_chat_stream_chunks_from_object(full_response: dict[str, Any], model: 
     for ch_idx, choice in enumerate(choices):
         if not isinstance(choice, dict):
             continue
-        message = choice.get("message", {}) if isinstance(choice.get("message"), dict) else {}
+        message = (
+            choice.get("message", {}) if isinstance(choice.get("message"), dict) else {}
+        )
         role = message.get("role", "assistant")
         content = message.get("content")
         reasoning_content = message.get("reasoning_content")
@@ -1390,75 +1632,115 @@ def _build_chat_stream_chunks_from_object(full_response: dict[str, Any], model: 
         finish_reason = choice.get("finish_reason")
 
         # 首帧：role 头
-        chunks.append({
-            "id": response_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": resp_model,
-            "choices": [{"index": ch_idx, "delta": {"role": role}, "finish_reason": None}],
-        })
+        chunks.append(
+            {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": resp_model,
+                "choices": [
+                    {"index": ch_idx, "delta": {"role": role}, "finish_reason": None}
+                ],
+            }
+        )
 
         if isinstance(reasoning_content, str) and reasoning_content:
-            chunks.append({
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": resp_model,
-                "choices": [{"index": ch_idx, "delta": {"reasoning_content": reasoning_content}, "finish_reason": None}],
-            })
+            chunks.append(
+                {
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": resp_model,
+                    "choices": [
+                        {
+                            "index": ch_idx,
+                            "delta": {"reasoning_content": reasoning_content},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
 
         if isinstance(content, str) and content:
-            chunks.append({
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": resp_model,
-                "choices": [{"index": ch_idx, "delta": {"content": content}, "finish_reason": None}],
-            })
+            chunks.append(
+                {
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": resp_model,
+                    "choices": [
+                        {
+                            "index": ch_idx,
+                            "delta": {"content": content},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
 
         if isinstance(tool_calls, list) and tool_calls:
             tc_delta = []
             for tc_idx, tc in enumerate(tool_calls):
                 if not isinstance(tc, dict):
                     continue
-                func = tc.get("function", {}) if isinstance(tc.get("function"), dict) else {}
-                tc_delta.append({
-                    "index": tc_idx,
-                    "id": tc.get("id", ""),
-                    "type": tc.get("type", "function"),
-                    "function": {
-                        "name": func.get("name", ""),
-                        "arguments": func.get("arguments", ""),
-                    },
-                })
+                func = (
+                    tc.get("function", {})
+                    if isinstance(tc.get("function"), dict)
+                    else {}
+                )
+                tc_delta.append(
+                    {
+                        "index": tc_idx,
+                        "id": tc.get("id", ""),
+                        "type": tc.get("type", "function"),
+                        "function": {
+                            "name": func.get("name", ""),
+                            "arguments": func.get("arguments", ""),
+                        },
+                    }
+                )
             if tc_delta:
-                chunks.append({
-                    "id": response_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": resp_model,
-                    "choices": [{"index": ch_idx, "delta": {"tool_calls": tc_delta}, "finish_reason": None}],
-                })
+                chunks.append(
+                    {
+                        "id": response_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": resp_model,
+                        "choices": [
+                            {
+                                "index": ch_idx,
+                                "delta": {"tool_calls": tc_delta},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                )
 
         # 末帧：finish_reason
-        chunks.append({
-            "id": response_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": resp_model,
-            "choices": [{"index": ch_idx, "delta": {}, "finish_reason": finish_reason}],
-        })
+        chunks.append(
+            {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": resp_model,
+                "choices": [
+                    {"index": ch_idx, "delta": {}, "finish_reason": finish_reason}
+                ],
+            }
+        )
 
     usage = full_response.get("usage")
     if isinstance(usage, dict):
-        chunks.append({
-            "id": response_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": resp_model,
-            "choices": [],
-            "usage": usage,
-        })
+        chunks.append(
+            {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": resp_model,
+                "choices": [],
+                "usage": usage,
+            }
+        )
 
     return chunks
 
@@ -1503,7 +1785,6 @@ async def _iter_sse_blocks(lines, coalesce_data_lines: bool = True):
         yield event_type, data_lines, passthrough_lines
 
 
-
 def _format_passthrough_sse_block(
     event_type: str | None,
     data_lines: list[str],
@@ -1515,6 +1796,8 @@ def _format_passthrough_sse_block(
     for data_line in data_lines:
         lines.append(f"data: {data_line}")
     return "\n".join(lines) + "\n\n"
+
+
 def _format_raw_sse(event_type: str | None, data: str) -> str:
     lines = []
     if event_type:
@@ -1525,8 +1808,14 @@ def _format_raw_sse(event_type: str | None, data: str) -> str:
 
 
 async def _do_stream_request(
-    channel: Channel, url: str, headers: dict, upstream_data: dict, response_converter, source_type: str,
-    target_api_type: APIType = APIType.OPENAI_CHAT, api_key_id: str | None = None,
+    channel: Channel,
+    url: str,
+    headers: dict,
+    upstream_data: dict,
+    response_converter,
+    source_type: str,
+    target_api_type: APIType = APIType.OPENAI_CHAT,
+    api_key_id: str | None = None,
     client_ip: str | None = None,
     need_think_filter: bool = False,
 ):
@@ -1549,7 +1838,7 @@ async def _do_stream_request(
     stream_chunk_count = 0
     _stream_log_enabled = config.LOG_LEVEL == "debug"
     _stream_log_count = 0  # 流式事件日志计数器
-    _STREAM_LOG_MAX = 20   # 最多记录前 20 个事件
+    _STREAM_LOG_MAX = 20  # 最多记录前 20 个事件
 
     # 创建 ThinkFilter 实例用于流式过滤
     think_filter = ThinkFilter() if need_think_filter else None
@@ -1575,24 +1864,28 @@ async def _do_stream_request(
                     # 关键字段摘要
                     if d.get("type") == "content_block_start":
                         cb = d.get("content_block", {})
-                        data_summary = f'cb_start({cb.get("type","")}{"," + cb.get("name","") if cb.get("name") else ""})'
+                        data_summary = f"cb_start({cb.get('type', '')}{',' + cb.get('name', '') if cb.get('name') else ''})"
                     elif d.get("type") == "content_block_delta":
                         delta = d.get("delta", {})
                         dtype = delta.get("type", "")
                         if dtype == "text_delta":
-                            data_summary = f'text({len(delta.get("text",""))}chars)'
+                            data_summary = f"text({len(delta.get('text', ''))}chars)"
                         elif dtype == "input_json_delta":
-                            data_summary = f'json({delta.get("partial_json","")})'
+                            data_summary = f"json({delta.get('partial_json', '')})"
                         elif dtype == "thinking_delta":
-                            data_summary = f'thinking({len(delta.get("thinking",""))}chars)'
+                            data_summary = (
+                                f"thinking({len(delta.get('thinking', ''))}chars)"
+                            )
                         else:
                             data_summary = dtype
                     elif d.get("type") == "content_block_stop":
-                        data_summary = f'cb_stop(idx={d.get("index","")})'
+                        data_summary = f"cb_stop(idx={d.get('index', '')})"
                     elif d.get("type") == "message_start":
-                        data_summary = f'id={d.get("message",{}).get("id","")}'
+                        data_summary = f"id={d.get('message', {}).get('id', '')}"
                     elif d.get("type") == "message_delta":
-                        data_summary = f'stop={d.get("delta",{}).get("stop_reason","")}'
+                        data_summary = (
+                            f"stop={d.get('delta', {}).get('stop_reason', '')}"
+                        )
                     else:
                         data_summary = d.get("type", str(d)[:80])
                 except json.JSONDecodeError:
@@ -1620,6 +1913,7 @@ async def _do_stream_request(
                 f"subsequent chunks will not be recorded; "
                 f"reconstructed response body in request logs will be incomplete"
             )
+
     resp_status_code = None
     resp_headers = None
     client = create_stream_client(channel)
@@ -1634,15 +1928,21 @@ async def _do_stream_request(
     emitted_output = False
     failure_recorded = False
     cancelled = False
-    logger.debug(f"[STREAM START] model={model} url={url} target={target_api_type.value}")
+    logger.debug(
+        f"[STREAM START] model={model} url={url} target={target_api_type.value}"
+    )
     try:
-        async with client.stream("POST", url, json=upstream_data, headers=headers) as resp:
+        async with client.stream(
+            "POST", url, json=upstream_data, headers=headers
+        ) as resp:
             if resp.is_error:
                 await resp.aread()
             resp.raise_for_status()
             resp_status_code = resp.status_code
             resp_headers = dict(resp.headers)
-            logger.debug(f"[STREAM CONNECTED] status={resp_status_code} headers={resp_headers}")
+            logger.debug(
+                f"[STREAM CONNECTED] status={resp_status_code} headers={resp_headers}"
+            )
 
             upstream_event_type = None
 
@@ -1659,11 +1959,17 @@ async def _do_stream_request(
                 try:
                     if event_type:
                         return _yield_anthropic_event(event_type, data)
-                    if output_responses_sse and isinstance(data, dict) and data.get("type"):
+                    if (
+                        output_responses_sse
+                        and isinstance(data, dict)
+                        and data.get("type")
+                    ):
                         return _yield_anthropic_event(data["type"], data)
                     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
                 except Exception as sse_err:
-                    logger.error(f"[FORMAT SSE ERROR] {type(sse_err).__name__}: {sse_err} data={data}")
+                    logger.error(
+                        f"[FORMAT SSE ERROR] {type(sse_err).__name__}: {sse_err} data={data}"
+                    )
                     logger.exception("[FORMAT SSE ERROR TRACEBACK]")
                     raise
 
@@ -1692,7 +1998,9 @@ async def _do_stream_request(
                             _log_stream_event(sse)
                             results.append(sse)
                 except Exception as format_err:
-                    logger.error(f"[FORMAT EXTRA ERROR] {type(format_err).__name__}: {format_err}")
+                    logger.error(
+                        f"[FORMAT EXTRA ERROR] {type(format_err).__name__}: {format_err}"
+                    )
                     logger.exception("[FORMAT EXTRA ERROR TRACEBACK]")
                     raise
                 return results
@@ -1712,23 +2020,35 @@ async def _do_stream_request(
                 ):
                     return []
                 if output_anthropic_sse:
-                    return [_yield_anthropic_event("message_stop", {"type": "message_stop"})]
+                    return [
+                        _yield_anthropic_event("message_stop", {"type": "message_stop"})
+                    ]
                 if not output_sse_events:
                     return ["data: [DONE]\n\n"]
                 return []
 
-            async for upstream_event_type, data_lines, passthrough_lines in _iter_sse_blocks(
+            async for (
+                upstream_event_type,
+                data_lines,
+                passthrough_lines,
+            ) in _iter_sse_blocks(
                 resp.aiter_lines(),
                 coalesce_data_lines=is_upstream_event_sse,
             ):
-                _line_count += len(data_lines) + len(passthrough_lines) + (1 if upstream_event_type else 0)
+                _line_count += (
+                    len(data_lines)
+                    + len(passthrough_lines)
+                    + (1 if upstream_event_type else 0)
+                )
                 if data_lines:
                     _first_line_checked = True
                     data_str = "\n".join(data_lines)
                 else:
                     if not _first_line_checked:
                         # 检查是否为 SSE 注释/心跳行（以 : 开头）
-                        has_sse_comments = any(line.strip().startswith(":") for line in passthrough_lines)
+                        has_sse_comments = any(
+                            line.strip().startswith(":") for line in passthrough_lines
+                        )
                         if has_sse_comments:
                             # SSE 注释/心跳行，直接透传并继续读取
                             passthrough = "\n".join(passthrough_lines) + "\n\n"
@@ -1749,7 +2069,9 @@ async def _do_stream_request(
                     _record_chunk("[DONE]")
                     _done_received = True
                     stream_success = True
-                    logger.debug(f"[STREAM DONE] model={model} lines={_line_count} chunks={len(stream_chunks)}")
+                    logger.debug(
+                        f"[STREAM DONE] model={model} lines={_line_count} chunks={len(stream_chunks)}"
+                    )
                     try:
                         # 输出 ThinkFilter 残余内容
                         if think_filter:
@@ -1757,7 +2079,10 @@ async def _do_stream_request(
                             if remaining:
                                 # 构造一个 delta 事件输出残余内容
                                 if output_responses_sse:
-                                    remaining_evt = {"type": "response.output_text.delta", "delta": remaining}
+                                    remaining_evt = {
+                                        "type": "response.output_text.delta",
+                                        "delta": remaining,
+                                    }
                                     sse = _format_sse(remaining_evt)
                                     _log_stream_event(sse)
                                     _mark_output()
@@ -1769,7 +2094,13 @@ async def _do_stream_request(
                                         "object": "chat.completion.chunk",
                                         "created": 0,
                                         "model": model,
-                                        "choices": [{"index": 0, "delta": {"content": remaining}, "finish_reason": None}]
+                                        "choices": [
+                                            {
+                                                "index": 0,
+                                                "delta": {"content": remaining},
+                                                "finish_reason": None,
+                                            }
+                                        ],
                                     }
                                     sse = _format_sse(remaining_chunk)
                                     _log_stream_event(sse)
@@ -1777,13 +2108,19 @@ async def _do_stream_request(
                                     yield sse
 
                         if response_converter:
-                            final_events = response_converter.finalize_stream(source_type)
-                            logger.debug(f"[STREAM FINALIZE] model={model} events={len(final_events)}")
+                            final_events = response_converter.finalize_stream(
+                                source_type
+                            )
+                            logger.debug(
+                                f"[STREAM FINALIZE] model={model} events={len(final_events)}"
+                            )
                             for final_event in _format_extra_events(final_events):
                                 _mark_output()
                                 yield final_event
                             extra_events = _yield_extra_events({})
-                            logger.debug(f"[STREAM EXTRA] model={model} events={len(extra_events)}")
+                            logger.debug(
+                                f"[STREAM EXTRA] model={model} events={len(extra_events)}"
+                            )
                             for extra_sse in extra_events:
                                 _mark_output()
                                 yield extra_sse
@@ -1791,7 +2128,9 @@ async def _do_stream_request(
                             _mark_output()
                             yield "data: [DONE]\n\n"
                     except Exception as done_err:
-                        logger.error(f"[STREAM DONE ERROR] model={model} error={type(done_err).__name__}: {done_err}")
+                        logger.error(
+                            f"[STREAM DONE ERROR] model={model} error={type(done_err).__name__}: {done_err}"
+                        )
                         logger.exception("[STREAM DONE ERROR TRACEBACK]")
                         raise
                     continue
@@ -1802,7 +2141,9 @@ async def _do_stream_request(
                     _record_chunk(data_str)
                     _mark_first_token()
                     if response_converter:
-                        raise ConverterError(f"流式 chunk 不是有效 JSON: {data_str[:120]}") from None
+                        raise ConverterError(
+                            f"流式 chunk 不是有效 JSON: {data_str[:120]}"
+                        ) from None
                     sse = _format_raw_sse(upstream_event_type, data_str)
                     _log_stream_event(sse)
                     _mark_output()
@@ -1824,7 +2165,9 @@ async def _do_stream_request(
                         or chunk.get("type") == "response.failed"
                     ):
                         upstream_error_detected = True
-                    elif source_type == "openai-chat-completions" and isinstance(chunk.get("error"), dict):
+                    elif source_type == "openai-chat-completions" and isinstance(
+                        chunk.get("error"), dict
+                    ):
                         upstream_error_detected = True
 
                 if upstream_error_detected:
@@ -1833,17 +2176,27 @@ async def _do_stream_request(
                         raise _StreamPreflightError(upstream_error)
                     stream_error = str(upstream_error)
                     # 先输出 error 事件本身，再输出协议终止事件
-                    if source_type == APIType.OPENAI_RESPONSE.value and is_upstream_event_sse:
+                    if (
+                        source_type == APIType.OPENAI_RESPONSE.value
+                        and is_upstream_event_sse
+                    ):
                         sse = _format_passthrough_sse_block(
                             upstream_event_type,
                             data_lines,
                             passthrough_lines,
                         )
-                    elif output_sse_events and is_upstream_event_sse and upstream_event_type:
+                    elif (
+                        output_sse_events
+                        and is_upstream_event_sse
+                        and upstream_event_type
+                    ):
                         sse = _format_sse(chunk, upstream_event_type)
                     else:
                         sse = _format_sse(chunk)
-                    if passthrough_lines and source_type != APIType.OPENAI_RESPONSE.value:
+                    if (
+                        passthrough_lines
+                        and source_type != APIType.OPENAI_RESPONSE.value
+                    ):
                         _sse_lines = list(passthrough_lines)
                         for _ln in sse.split("\n"):
                             if _ln.startswith("event: "):
@@ -1861,7 +2214,6 @@ async def _do_stream_request(
                             _mark_output()
                             yield terminal_sse
                         break
-
 
                 # 增量提取 token 用量和 finish_reason，避免 finally 中二次遍历
                 if isinstance(chunk, dict):
@@ -1872,35 +2224,64 @@ async def _do_stream_request(
                             if input_tokens == 0:
                                 input_tokens = start_usage.get("prompt_tokens", 0)
                             else:
-                                input_tokens += start_usage.get("cache_creation_input_tokens", 0) + start_usage.get("cache_read_input_tokens", 0)
+                                input_tokens += start_usage.get(
+                                    "cache_creation_input_tokens", 0
+                                ) + start_usage.get("cache_read_input_tokens", 0)
                             token_details = cache_token_details(start_usage)
-                            cache_read_input_tokens = token_details["cache_read_input_tokens"]
-                            cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
+                            cache_read_input_tokens = token_details[
+                                "cache_read_input_tokens"
+                            ]
+                            cache_creation_input_tokens = token_details[
+                                "cache_creation_input_tokens"
+                            ]
                         elif chunk.get("type") == "message_delta":
                             delta_usage = chunk.get("usage", {})
-                            output_tokens = delta_usage.get("output_tokens", output_tokens)
+                            output_tokens = delta_usage.get(
+                                "output_tokens", output_tokens
+                            )
                             if input_tokens == 0:
                                 input_tokens = delta_usage.get("input_tokens", 0)
                                 if input_tokens == 0:
                                     input_tokens = delta_usage.get("prompt_tokens", 0)
                                 else:
-                                    input_tokens += cache_read_input_tokens + cache_creation_input_tokens
+                                    input_tokens += (
+                                        cache_read_input_tokens
+                                        + cache_creation_input_tokens
+                                    )
                             token_details = cache_token_details(delta_usage)
-                            if token_details["cache_read_input_tokens"] or token_details["cache_creation_input_tokens"]:
-                                cache_read_input_tokens = token_details["cache_read_input_tokens"]
-                                cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
+                            if (
+                                token_details["cache_read_input_tokens"]
+                                or token_details["cache_creation_input_tokens"]
+                            ):
+                                cache_read_input_tokens = token_details[
+                                    "cache_read_input_tokens"
+                                ]
+                                cache_creation_input_tokens = token_details[
+                                    "cache_creation_input_tokens"
+                                ]
                             fr = chunk.get("delta", {}).get("stop_reason")
                             if fr:
                                 finish_reason = fr
                     else:
                         usage = chunk.get("usage")
                         if usage:
-                            logger.info(f"[STREAM USAGE] upstream returned usage: {usage}")
-                            input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", input_tokens))
-                            output_tokens = usage.get("completion_tokens", usage.get("output_tokens", output_tokens))
+                            logger.info(
+                                f"[STREAM USAGE] upstream returned usage: {usage}"
+                            )
+                            input_tokens = usage.get(
+                                "prompt_tokens", usage.get("input_tokens", input_tokens)
+                            )
+                            output_tokens = usage.get(
+                                "completion_tokens",
+                                usage.get("output_tokens", output_tokens),
+                            )
                             token_details = cache_token_details(usage)
-                            cache_read_input_tokens = token_details["cache_read_input_tokens"]
-                            cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
+                            cache_read_input_tokens = token_details[
+                                "cache_read_input_tokens"
+                            ]
+                            cache_creation_input_tokens = token_details[
+                                "cache_creation_input_tokens"
+                            ]
                         choices = chunk.get("choices", [])
                         if choices and isinstance(choices[0], dict):
                             fr = choices[0].get("finish_reason")
@@ -1911,16 +2292,32 @@ async def _do_stream_request(
                     if is_upstream_anthropic and upstream_event_type is not None:
                         chunk = {**chunk, "_event_type": upstream_event_type}
                     try:
-                        converted = response_converter.convert_stream_chunk(chunk, source_type)
+                        converted = response_converter.convert_stream_chunk(
+                            chunk, source_type
+                        )
                     except Exception as conv_err:
-                        logger.warning(f"流式 chunk 转换失败: {type(conv_err).__name__}: {conv_err}")
-                        raise ConverterError(f"流式 chunk 转换失败: {conv_err}") from conv_err
-                    logger.debug(f"[CONVERT_CHUNK] converted={converted is not None} type={converted.get('type') if converted else None}")
+                        logger.warning(
+                            f"流式 chunk 转换失败: {type(conv_err).__name__}: {conv_err}"
+                        )
+                        raise ConverterError(
+                            f"流式 chunk 转换失败: {conv_err}"
+                        ) from conv_err
+                    logger.debug(
+                        f"[CONVERT_CHUNK] converted={converted is not None} type={converted.get('type') if converted else None}"
+                    )
                     if converted is not None:
                         if think_filter and isinstance(converted, dict):
-                            converted = _filter_think_in_stream_chunk(converted, think_filter)
+                            converted = _filter_think_in_stream_chunk(
+                                converted, think_filter
+                            )
                         if converted is not None:
-                            evt_type = response_converter.get_stream_event_type(chunk, source_type) if output_anthropic_sse else None
+                            evt_type = (
+                                response_converter.get_stream_event_type(
+                                    chunk, source_type
+                                )
+                                if output_anthropic_sse
+                                else None
+                            )
                             sse = _format_sse(converted, evt_type)
                             _log_stream_event(sse)
                             _mark_output()
@@ -1929,21 +2326,35 @@ async def _do_stream_request(
                         _mark_output()
                         yield extra_sse
                 else:
-                    if think_filter and not is_upstream_anthropic and isinstance(chunk, dict):
+                    if (
+                        think_filter
+                        and not is_upstream_anthropic
+                        and isinstance(chunk, dict)
+                    ):
                         chunk = _filter_think_in_stream_chunk(chunk, think_filter)
                         if chunk is None:
                             continue
-                    if source_type == APIType.OPENAI_RESPONSE.value and is_upstream_event_sse:
+                    if (
+                        source_type == APIType.OPENAI_RESPONSE.value
+                        and is_upstream_event_sse
+                    ):
                         sse = _format_passthrough_sse_block(
                             upstream_event_type,
                             data_lines,
                             passthrough_lines,
                         )
-                    elif output_sse_events and is_upstream_event_sse and upstream_event_type:
+                    elif (
+                        output_sse_events
+                        and is_upstream_event_sse
+                        and upstream_event_type
+                    ):
                         sse = _format_sse(chunk, upstream_event_type)
                     else:
                         sse = _format_sse(chunk)
-                    if passthrough_lines and source_type != APIType.OPENAI_RESPONSE.value:
+                    if (
+                        passthrough_lines
+                        and source_type != APIType.OPENAI_RESPONSE.value
+                    ):
                         _sse_lines = list(passthrough_lines)
                         for _ln in sse.split("\n"):
                             if _ln.startswith("event: "):
@@ -1961,7 +2372,9 @@ async def _do_stream_request(
                             _mark_output()
                             yield terminal_sse
                         break
-        logger.debug(f"[STREAM LOOP END] model={model} lines={_line_count} done={_done_received}")
+        logger.debug(
+            f"[STREAM LOOP END] model={model} lines={_line_count} done={_done_received}"
+        )
         logger.debug(f"[STREAM ASYNC WITH EXIT] model={model}")
         # 尽早标记成功：流循环已正常结束，所有 chunks 已处理。
         # 放在后续 yield 点之前，避免 GeneratorExit 导致 success 未设置。
@@ -1980,7 +2393,10 @@ async def _do_stream_request(
                     remaining = think_filter.flush()
                     if remaining:
                         if output_responses_sse:
-                            remaining_evt = {"type": "response.output_text.delta", "delta": remaining}
+                            remaining_evt = {
+                                "type": "response.output_text.delta",
+                                "delta": remaining,
+                            }
                             sse = _format_sse(remaining_evt)
                             _log_stream_event(sse)
                             _mark_output()
@@ -1991,7 +2407,13 @@ async def _do_stream_request(
                                 "object": "chat.completion.chunk",
                                 "created": 0,
                                 "model": model,
-                                "choices": [{"index": 0, "delta": {"content": remaining}, "finish_reason": None}]
+                                "choices": [
+                                    {
+                                        "index": 0,
+                                        "delta": {"content": remaining},
+                                        "finish_reason": None,
+                                    }
+                                ],
                             }
                             sse = _format_sse(remaining_chunk)
                             _log_stream_event(sse)
@@ -2000,7 +2422,9 @@ async def _do_stream_request(
                 # 2. 调用 converter finalize 补发协议终止事件
                 if response_converter:
                     final_events = response_converter.finalize_stream(source_type)
-                    logger.debug(f"[STREAM EOF FINALIZE] model={model} events={len(final_events)}")
+                    logger.debug(
+                        f"[STREAM EOF FINALIZE] model={model} events={len(final_events)}"
+                    )
                     for final_event in _format_extra_events(final_events):
                         _mark_output()
                         yield final_event
@@ -2013,20 +2437,28 @@ async def _do_stream_request(
                     _mark_output()
                     yield "data: [DONE]\n\n"
         if non_sse_stream_body is not None:
-            logger.debug(f"[STREAM NON-SSE] model={model} body_length={len(non_sse_stream_body)}")
+            logger.debug(
+                f"[STREAM NON-SSE] model={model} body_length={len(non_sse_stream_body)}"
+            )
             try:
                 full_response = json.loads(non_sse_stream_body)
             except json.JSONDecodeError:
                 full_response = None
                 logger.warning(f"[STREAM NON-SSE JSON ERROR] model={model}")
             if isinstance(full_response, dict):
-                logger.warning(f"[STREAM NON-SSE] upstream returned non-SSE JSON for streaming request (object={full_response.get('object')}), converting to stream events")
+                logger.warning(
+                    f"[STREAM NON-SSE] upstream returned non-SSE JSON for streaming request (object={full_response.get('object')}), converting to stream events"
+                )
                 _record_chunk(full_response)
                 _mark_first_token()
                 if output_anthropic_sse:
                     if response_converter:
-                        converted = response_converter.convert_response(full_response, source_type)
-                        for evt_type, evt_data in _convert_anthropic_response_to_events(converted):
+                        converted = response_converter.convert_response(
+                            full_response, source_type
+                        )
+                        for evt_type, evt_data in _convert_anthropic_response_to_events(
+                            converted
+                        ):
                             sse = _yield_anthropic_event(evt_type, evt_data)
                             _log_stream_event(sse)
                             _mark_output()
@@ -2034,7 +2466,9 @@ async def _do_stream_request(
                     else:
                         # 同类型 Anthropic 直通：非 SSE JSON 也需拆分为
                         # message_start / content_block_start / ... / message_stop 事件序列
-                        for evt_type, evt_data in _convert_anthropic_response_to_events(full_response):
+                        for evt_type, evt_data in _convert_anthropic_response_to_events(
+                            full_response
+                        ):
                             sse = _yield_anthropic_event(evt_type, evt_data)
                             _log_stream_event(sse)
                             _mark_output()
@@ -2042,7 +2476,10 @@ async def _do_stream_request(
                 elif output_responses_sse:
                     # Response→Response 透传或跨格式都走拆事件，避免裸吐整块 JSON。
                     stream_events = _convert_non_stream_to_stream_events(
-                        full_response, response_converter, source_type, output_responses_sse,
+                        full_response,
+                        response_converter,
+                        source_type,
+                        output_responses_sse,
                     )
                     for sse in stream_events:
                         _log_stream_event(sse)
@@ -2051,13 +2488,17 @@ async def _do_stream_request(
                 else:
                     # Chat→Chat 透传：把整块 chat.completion 拆成 chat.completion.chunk 序列，
                     # 避免客户端拿到非流式形态破坏 SSE 协议。
-                    chat_chunks = _build_chat_stream_chunks_from_object(full_response, model)
+                    chat_chunks = _build_chat_stream_chunks_from_object(
+                        full_response, model
+                    )
                     if chat_chunks:
                         for chunk_obj in chat_chunks:
                             # 同格式透传：think 过滤仍需生效（对齐 1611-1616 流式分支）。
                             # Anthropic 上游用 type: thinking 块，不存在 💭 标记，跳过过滤。
                             if think_filter and not is_upstream_anthropic:
-                                chunk_obj = _filter_think_in_stream_chunk(chunk_obj, think_filter)
+                                chunk_obj = _filter_think_in_stream_chunk(
+                                    chunk_obj, think_filter
+                                )
                                 if chunk_obj is None:
                                     continue
                             sse = _format_sse(chunk_obj)
@@ -2073,14 +2514,26 @@ async def _do_stream_request(
                     _mark_output()
                     yield "data: [DONE]\n\n"
                 full_usage = full_response.get("usage", {})
-                input_tokens = full_usage.get("prompt_tokens", full_usage.get("input_tokens", input_tokens))
-                output_tokens = full_usage.get("completion_tokens", full_usage.get("output_tokens", output_tokens))
+                input_tokens = full_usage.get(
+                    "prompt_tokens", full_usage.get("input_tokens", input_tokens)
+                )
+                output_tokens = full_usage.get(
+                    "completion_tokens", full_usage.get("output_tokens", output_tokens)
+                )
                 token_details = cache_token_details(full_usage)
                 # 非 SSE JSON 的 Anthropic 响应：input_tokens 不含 cache，归一化为总输入
-                if "prompt_tokens" not in full_usage and "input_tokens_details" not in full_usage:
-                    input_tokens += token_details["cache_creation_input_tokens"] + token_details["cache_read_input_tokens"]
+                if (
+                    "prompt_tokens" not in full_usage
+                    and "input_tokens_details" not in full_usage
+                ):
+                    input_tokens += (
+                        token_details["cache_creation_input_tokens"]
+                        + token_details["cache_read_input_tokens"]
+                    )
                 cache_read_input_tokens = token_details["cache_read_input_tokens"]
-                cache_creation_input_tokens = token_details["cache_creation_input_tokens"]
+                cache_creation_input_tokens = token_details[
+                    "cache_creation_input_tokens"
+                ]
                 choices = full_response.get("choices", [])
                 if choices and isinstance(choices[0], dict):
                     fr = choices[0].get("finish_reason")
@@ -2091,31 +2544,65 @@ async def _do_stream_request(
                     finish_reason = stop_reason
             else:
                 stream_error = "non_sse_json_parse_error"
-                logger.error(f"[STREAM NON-SSE PARSE FAILED] model={model} body={non_sse_stream_body[:200]}")
+                logger.error(
+                    f"[STREAM NON-SSE PARSE FAILED] model={model} body={non_sse_stream_body[:200]}"
+                )
                 if output_anthropic_sse:
-                    yield _yield_anthropic_event("error", {
-                        "type": "error",
-                        "error": {"type": "api_error", "message": "Upstream returned unparseable response"},
-                    })
-                    yield _yield_anthropic_event("message_stop", {"type": "message_stop"})
+                    yield _yield_anthropic_event(
+                        "error",
+                        {
+                            "type": "error",
+                            "error": {
+                                "type": "api_error",
+                                "message": "Upstream returned unparseable response",
+                            },
+                        },
+                    )
+                    yield _yield_anthropic_event(
+                        "message_stop", {"type": "message_stop"}
+                    )
                 elif output_responses_sse:
-                    yield _yield_anthropic_event("error", {
-                        "type": "error",
-                        "error": {"message": "Upstream returned unparseable response", "type": "api_error"},
-                    })
-                    yield _yield_anthropic_event("response.failed", {
-                        "type": "response.failed",
-                        "response": {"id": "", "object": "response", "status": "failed", "model": model, "output": [], "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}},
-                    })
+                    yield _yield_anthropic_event(
+                        "error",
+                        {
+                            "type": "error",
+                            "error": {
+                                "message": "Upstream returned unparseable response",
+                                "type": "api_error",
+                            },
+                        },
+                    )
+                    yield _yield_anthropic_event(
+                        "response.failed",
+                        {
+                            "type": "response.failed",
+                            "response": {
+                                "id": "",
+                                "object": "response",
+                                "status": "failed",
+                                "model": model,
+                                "output": [],
+                                "usage": {
+                                    "input_tokens": 0,
+                                    "output_tokens": 0,
+                                    "total_tokens": 0,
+                                },
+                            },
+                        },
+                    )
                 else:
-                    yield f'data: {json.dumps({"error": {"message": "Upstream returned unparseable response", "type": "api_error"}}, ensure_ascii=False)}\n\n'
+                    yield f"data: {json.dumps({'error': {'message': 'Upstream returned unparseable response', 'type': 'api_error'}}, ensure_ascii=False)}\n\n"
                 if not output_sse_events:
                     yield "data: [DONE]\n\n"
 
         if stream_error is None:
             stream_success = True
-        logger.debug(f"[STREAM FINISH] model={model} done_received={_done_received} non_sse_body={'yes' if non_sse_stream_body else 'no'} chunks={len(stream_chunks)}")
-        logger.debug(f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} output_tokens={output_tokens} finish_reason={finish_reason}")
+        logger.debug(
+            f"[STREAM FINISH] model={model} done_received={_done_received} non_sse_body={'yes' if non_sse_stream_body else 'no'} chunks={len(stream_chunks)}"
+        )
+        logger.debug(
+            f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} output_tokens={output_tokens} finish_reason={finish_reason}"
+        )
     except asyncio.CancelledError:
         cancelled = True
         if not emitted_output:
@@ -2139,9 +2626,13 @@ async def _do_stream_request(
                 err_body = e.response.text[:500]
             except Exception:
                 pass
-            logger.error(f"[STREAM ERROR] upstream {e.response.status_code} {url} body={err_body}")
+            logger.error(
+                f"[STREAM ERROR] upstream {e.response.status_code} {url} body={err_body}"
+            )
         else:
-            logger.error(f"[STREAM ERROR] {type(e).__name__}: {e} model={model} url={url}")
+            logger.error(
+                f"[STREAM ERROR] {type(e).__name__}: {e} model={model} url={url}"
+            )
 
         if not emitted_output:
             if _is_retryable_exception(e) or _is_channel_config_error(e):
@@ -2151,13 +2642,19 @@ async def _do_stream_request(
         failure_recorded = True
         if output_anthropic_sse:
             emitted_output = True
-            yield _yield_anthropic_event("error", {
-                "type": "error",
-                "error": {"type": "api_error", "message": str(e)},
-            })
+            yield _yield_anthropic_event(
+                "error",
+                {
+                    "type": "error",
+                    "error": {"type": "api_error", "message": str(e)},
+                },
+            )
             yield _yield_anthropic_event("message_stop", {"type": "message_stop"})
         elif output_responses_sse:
-            error_data = {"type": "error", "error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
+            error_data = {
+                "type": "error",
+                "error": {"message": f"流式传输错误: {e}", "type": "api_error"},
+            }
             emitted_output = True
             yield _yield_anthropic_event("error", error_data)
             # 发送 response.failed 事件以便客户端正确识别流结束
@@ -2175,7 +2672,9 @@ async def _do_stream_request(
             emitted_output = True
             yield _yield_anthropic_event("response.failed", failed_data)
         else:
-            error_data = {"error": {"message": f"流式传输错误: {e}", "type": "api_error"}}
+            error_data = {
+                "error": {"message": f"流式传输错误: {e}", "type": "api_error"}
+            }
             emitted_output = True
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
         if not output_sse_events:
@@ -2199,7 +2698,9 @@ async def _do_stream_request(
 
         # 2. 记录请求日志
         try:
-            logger.debug(f"[STREAM STATS] model={model} success={stream_success} error={stream_error} latency={latency_ms}ms lag={lag_ms}ms chunks={len(stream_chunks)} input={input_tokens} output={output_tokens} finish={finish_reason}")
+            logger.debug(
+                f"[STREAM STATS] model={model} success={stream_success} error={stream_error} latency={latency_ms}ms lag={lag_ms}ms chunks={len(stream_chunks)} input={input_tokens} output={output_tokens} finish={finish_reason}"
+            )
             _record_request(
                 channel_id=channel.id,
                 channel_name=channel.name,
@@ -2216,7 +2717,11 @@ async def _do_stream_request(
                 finish_reason=finish_reason,
                 api_key_id=api_key_id,
                 client_ip=client_ip,
-                request_headers={k: v for k, v in headers.items() if k.lower() not in ("authorization", "x-api-key")},
+                request_headers={
+                    k: v
+                    for k, v in headers.items()
+                    if k.lower() not in ("authorization", "x-api-key")
+                },
                 response_headers=resp_headers,
                 request_body=upstream_data,
                 response_body=response_body,
@@ -2230,12 +2735,21 @@ async def _do_stream_request(
                 await load_balancer.record_success(channel.id)
                 logger.debug(f"[STREAM RECORDED SUCCESS] channel={channel.name}")
             else:
-                if stream_error and emitted_output and not failure_recorded and not cancelled:
+                if (
+                    stream_error
+                    and emitted_output
+                    and not failure_recorded
+                    and not cancelled
+                ):
                     await load_balancer.record_failure(channel.id)
                 if cancelled:
-                    logger.warning(f"[STREAM RECORDED CANCELLED] channel={channel.name} error={stream_error}")
+                    logger.warning(
+                        f"[STREAM RECORDED CANCELLED] channel={channel.name} error={stream_error}"
+                    )
                 else:
-                    logger.warning(f"[STREAM RECORDED FAILURE] channel={channel.name} error={stream_error}")
+                    logger.warning(
+                        f"[STREAM RECORDED FAILURE] channel={channel.name} error={stream_error}"
+                    )
         except Exception as lb_err:
             logger.warning(f"stream load balancer record error: {lb_err}")
 
@@ -2245,6 +2759,7 @@ async def _do_stream_request(
         except Exception as e:
             logger.warning(f"close stream client error: {e}")
 
+
 async def _raise_preflight_stream_errors(gen):
     has_yielded = False
     try:
@@ -2252,13 +2767,12 @@ async def _raise_preflight_stream_errors(gen):
             has_yielded = True
             yield chunk
     except Exception as exc:
-        if not has_yielded and (_is_retryable_exception(exc) or _is_channel_config_error(exc)):
+        if not has_yielded and (
+            _is_retryable_exception(exc) or _is_channel_config_error(exc)
+        ):
             raise _StreamPreflightError(exc) from exc
         raise
     finally:
         aclose = getattr(gen, "aclose", None)
         if aclose is not None:
             await aclose()
-
-
-

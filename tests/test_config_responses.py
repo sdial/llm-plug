@@ -30,10 +30,14 @@ def test_response_state_store_is_shared_across_modules():
 def test_response_state_store_can_reload_runtime_settings(monkeypatch):
     import response_state
 
-    monkeypatch.setattr(response_state, "get_setting", lambda key: {
-        "response_state_max_entries": 17,
-        "response_state_ttl_minutes": 3,
-    }.get(key))
+    monkeypatch.setattr(
+        response_state,
+        "get_setting",
+        lambda key: {
+            "response_state_max_entries": 17,
+            "response_state_ttl_minutes": 3,
+        }.get(key),
+    )
 
     response_state.reload_responses_store()
 

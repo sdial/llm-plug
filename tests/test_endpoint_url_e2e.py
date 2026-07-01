@@ -24,7 +24,6 @@ from url_builder import build_upstream_url, build_models_url
 
 
 class TestEndpointUrlInBuildUpstreamUrl:
-
     def _make_channel(self, **overrides):
         defaults = {
             "id": "ch_ep",
@@ -90,7 +89,6 @@ class TestEndpointUrlInBuildUpstreamUrl:
 
 
 class TestModelsUrlInBuildModelsUrl:
-
     def test_explicit_models_url_takes_priority(self):
         """显式 models_url 应完全覆盖默认路径"""
         url = build_models_url(
@@ -128,6 +126,7 @@ class TestModelsUrlInBuildModelsUrl:
 # ═══════════════════════════════════════════
 #  真实代理流程中 endpoint_url 的 E2E 测试
 # ═══════════════════════════════════════════
+
 
 class TestEndpointUrlInProxyFlow:
     """在完整代理请求链路中验证 endpoint_url 覆盖"""
@@ -172,6 +171,7 @@ class TestEndpointUrlInProxyFlow:
 
         # 验证 URL 构建使用了 endpoint_url
         from url_builder import build_upstream_url
+
         url = build_upstream_url(ch)
         assert url == "http://127.0.0.1:19876/custom/endpoint"
         assert "should-not-be-used" not in url
@@ -201,15 +201,19 @@ class TestEndpointUrlInProxyFlow:
 
         # 验证 converter 选择：OpenAI Chat → Anthropic
         from models.api_types import APIType
+
         source_type = APIType.OPENAI_CHAT
         target_type = APIType.ANTHROPIC
         converter_map = proxy_core.CONVERTER_MAP
         key = (source_type.value, target_type.value)
-        assert key in converter_map, f"Converter for {source_type.value} → {target_type.value} should exist"
+        assert key in converter_map, (
+            f"Converter for {source_type.value} → {target_type.value} should exist"
+        )
 
     def test_endpoint_url_empty_uses_base_url_in_proxy(self):
         """空 endpoint_url 在代理流程中应回退到标准路径"""
         from url_builder import build_upstream_url
+
         ch = Channel(
             id="ch_fb",
             name="Fallback",

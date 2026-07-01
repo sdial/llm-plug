@@ -4,6 +4,7 @@
 速率限制按 TCP-level client.host 计数等。每个测试的 docstring 描述具体问题。
 当问题被修复后，相关测试会失败，提示修改者同时更新测试以匹配新行为。
 """
+
 import asyncio
 import inspect
 import json
@@ -53,10 +54,13 @@ def admin_files(tmp_path, monkeypatch):
     storage._keys_lock = asyncio.Lock()
 
     # 重置登录速率限制状态以避免跨测试污染
-    admin._login_rate_limit_state.clear()
+    admin._login_attempts.clear()
 
     import main
-    main._whitelist_cache = main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv"))
+
+    main._whitelist_cache = main._whitelist.WhitelistCache(
+        str(data_dir / "whitelist.csv")
+    )
     yield
 
 
@@ -240,10 +244,10 @@ class TestN9LoginRateLimitInMemory:
     def test_rate_limit_state_lives_in_module_level_dict_not_disk(self):
         """Bug N9: state 是一个普通的模块级 dict, 没有任何持久化。"""
         source = inspect.getsource(admin)
-        assert "_login_rate_limit_state: dict[" in source
+        assert "_login_attempts: dict[" in source
         # 不存在任何针对速率限制状态的写盘逻辑
         assert "login_attempts.json" not in source
-        assert "_login_rate_limit_state) " not in source or "json.dump" not in source
+        assert "_login_attempts) " not in source or "json.dump" not in source
 
     async def test_clearing_in_memory_state_immediately_resets_limit(self, admin_files):
         """Bug N9: 直接清空 dict 就能重置攻击者的失败窗口, 等价于一次进程重启。"""
@@ -252,16 +256,14 @@ class TestN9LoginRateLimitInMemory:
         ) as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
 
-            for _ in range(11):
+            for _ in range(12):
                 await client.post("/admin/auth/login", json={"password": "wrong"})
 
             # 命中限流
-            limited = await client.post(
-                "/admin/auth/login", json={"password": "pw"}
-            )
+            limited = await client.post("/admin/auth/login", json={"password": "pw"})
 
             # 模拟 "进程重启": 清空内存 state
-            admin._login_rate_limit_state.clear()
+            admin._login_attempts.clear()
 
             after_restart = await client.post(
                 "/admin/auth/login", json={"password": "pw"}

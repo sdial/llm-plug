@@ -27,7 +27,9 @@ def _cache_key(channel: Channel) -> str:
     return f"{channel.base_url}|{channel.socks5_proxy or ''}"
 
 
-async def get_or_create_client(channel: Channel, timeout: float | None = None) -> httpx.AsyncClient:
+async def get_or_create_client(
+    channel: Channel, timeout: float | None = None
+) -> httpx.AsyncClient:
     if timeout is None:
         timeout = float(config.REQUEST_TIMEOUT)
     key = _cache_key(channel)
@@ -54,7 +56,9 @@ async def get_or_create_client(channel: Channel, timeout: float | None = None) -
         return client
 
 
-async def create_client(channel: Channel, timeout: float | None = None) -> httpx.AsyncClient:
+async def create_client(
+    channel: Channel, timeout: float | None = None
+) -> httpx.AsyncClient:
     return await get_or_create_client(channel, timeout)
 
 
@@ -151,22 +155,30 @@ def get_upstream_headers(channel: Channel, extra_headers: dict | None = None) ->
     return headers
 
 
-def _apply_anthropic_headers(headers: dict, channel: Channel, extra_headers: dict) -> None:
+def _apply_anthropic_headers(
+    headers: dict, channel: Channel, extra_headers: dict
+) -> None:
     client_version = extra_headers.pop("anthropic-version", None)
     client_beta = extra_headers.pop("anthropic-beta", None)
 
     channel_version = channel.anthropic_version or _DEFAULT_ANTHROPIC_VERSION
-    version_policy = getattr(channel.anthropic_version_policy, "value", channel.anthropic_version_policy)
+    version_policy = getattr(
+        channel.anthropic_version_policy, "value", channel.anthropic_version_policy
+    )
     if version_policy == "client":
         if not client_version:
-            raise ValueError("anthropic-version is required when anthropic_version_policy is client")
+            raise ValueError(
+                "anthropic-version is required when anthropic_version_policy is client"
+            )
         headers["anthropic-version"] = client_version
     elif version_policy == "channel_if_missing" and client_version:
         headers["anthropic-version"] = client_version
     else:
         headers["anthropic-version"] = channel_version
 
-    beta_policy = getattr(channel.anthropic_beta_policy, "value", channel.anthropic_beta_policy)
+    beta_policy = getattr(
+        channel.anthropic_beta_policy, "value", channel.anthropic_beta_policy
+    )
     if beta_policy == "client":
         beta_value = client_beta or channel.anthropic_beta
     elif beta_policy == "channel_if_missing":
@@ -180,7 +192,9 @@ def _apply_anthropic_headers(headers: dict, channel: Channel, extra_headers: dic
         headers["anthropic-beta"] = beta_value
 
 
-def _merge_anthropic_beta(channel_beta: str | None, client_beta: str | None) -> str | None:
+def _merge_anthropic_beta(
+    channel_beta: str | None, client_beta: str | None
+) -> str | None:
     values: list[str] = []
     for raw in (channel_beta, client_beta):
         if not raw:

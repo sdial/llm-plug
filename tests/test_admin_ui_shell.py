@@ -34,7 +34,12 @@ def admin_ui_data_dir(tmp_path, monkeypatch):
     storage._keys_lock = None
 
     import main
-    monkeypatch.setattr(main, "_whitelist_cache", main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")))
+
+    monkeypatch.setattr(
+        main,
+        "_whitelist_cache",
+        main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
+    )
 
 
 @pytest_asyncio.fixture

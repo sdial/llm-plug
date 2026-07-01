@@ -25,10 +25,24 @@ class ConfigSchemaEntry(_ConfigSchemaRequired, total=False):
 
 
 _CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
-    "host": {"type": "str", "default": "0.0.0.0", "requires_restart": True, "readonly": True},
-    "port": {"type": "int", "default": 55555, "requires_restart": True, "readonly": True},
+    "host": {
+        "type": "str",
+        "default": "0.0.0.0",
+        "requires_restart": True,
+        "readonly": True,
+    },
+    "port": {
+        "type": "int",
+        "default": 55555,
+        "requires_restart": True,
+        "readonly": True,
+    },
     "request_timeout": {"type": "int", "default": 300, "requires_restart": False},
-    "max_body_size": {"type": "int", "default": 10 * 1024 * 1024, "requires_restart": False},
+    "max_body_size": {
+        "type": "int",
+        "default": 10 * 1024 * 1024,
+        "requires_restart": False,
+    },
     "stats_sqlite_path": {
         "type": "str",
         "default": os.path.join(DATA_DIR, "stats.db"),
@@ -84,15 +98,35 @@ _CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
         "default": 10000,
         "requires_restart": False,
     },
-    "allow_format_conversion": {"type": "bool", "default": True, "requires_restart": False},
+    "allow_format_conversion": {
+        "type": "bool",
+        "default": True,
+        "requires_restart": False,
+    },
     "max_fail_count": {"type": "int", "default": 5, "requires_restart": False},
     "cooldown_seconds": {"type": "int", "default": 60, "requires_restart": False},
     "lb_strategy": {"type": "str", "default": "round_robin", "requires_restart": False},
     "sticky_ttl": {"type": "int", "default": 1800, "requires_restart": False},
-    "sticky_cache_max_entries": {"type": "int", "default": 10000, "requires_restart": False},
-    "response_state_max_entries": {"type": "int", "default": 1000, "requires_restart": False},
-    "response_state_ttl_minutes": {"type": "int", "default": 60, "requires_restart": False},
-    "response_state_cleanup_interval_minutes": {"type": "int", "default": 30, "requires_restart": False},
+    "sticky_cache_max_entries": {
+        "type": "int",
+        "default": 10000,
+        "requires_restart": False,
+    },
+    "response_state_max_entries": {
+        "type": "int",
+        "default": 1000,
+        "requires_restart": False,
+    },
+    "response_state_ttl_minutes": {
+        "type": "int",
+        "default": 60,
+        "requires_restart": False,
+    },
+    "response_state_cleanup_interval_minutes": {
+        "type": "int",
+        "default": 30,
+        "requires_restart": False,
+    },
     "aggregation_timezone": {"type": "str", "default": "", "requires_restart": False},
     "request_log_retention_days": {
         "type": "int",
@@ -157,10 +191,13 @@ def _validate_iana_timezone(value: str):
     if not value:
         return
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
     try:
         ZoneInfo(value)
     except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise ValueError(f"aggregation_timezone 不是有效的 IANA 时区名: {value!r}") from exc
+        raise ValueError(
+            f"aggregation_timezone 不是有效的 IANA 时区名: {value!r}"
+        ) from exc
 
 
 def _validate_setting(key: str, value):
@@ -240,6 +277,7 @@ def get_settings() -> dict:
 async def _apply_lb_settings():
     try:
         from balancer.load_balancer import load_balancer
+
         await load_balancer.update_config(
             max_fail_count=_settings.get("max_fail_count", 5),
             cooldown_seconds=_settings.get("cooldown_seconds", 60),
@@ -248,7 +286,10 @@ async def _apply_lb_settings():
             sticky_cache_max_entries=_settings.get("sticky_cache_max_entries", 10000),
         )
     except Exception:
-        logger.warning("Failed to apply LB settings, load balancer will use previous config", exc_info=True)
+        logger.warning(
+            "Failed to apply LB settings, load balancer will use previous config",
+            exc_info=True,
+        )
 
 
 def _save_settings_to_disk_sync():
@@ -309,8 +350,12 @@ def _migrate_lb_config_sync(channels_file: str):
         del data["lb_config"]
         dir_name = os.path.dirname(os.path.abspath(channels_file)) or "."
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=dir_name, delete=False,
-            prefix=".channels_", suffix=".tmp.json",
+            mode="w",
+            encoding="utf-8",
+            dir=dir_name,
+            delete=False,
+            prefix=".channels_",
+            suffix=".tmp.json",
         ) as f:
             tmp_path = f.name
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -358,13 +403,17 @@ async def update_settings(updates: dict) -> dict:
     if "request_timeout" in updated_keys:
         try:
             from client import invalidate_all_clients
+
             await invalidate_all_clients()
         except Exception as e:
             logger.warning(f"Failed to invalidate clients after timeout change: {e}")
     if any(key.startswith("response_state_") for key in updated_keys):
         try:
             from response_state import reload_responses_store
+
             reload_responses_store()
         except Exception as e:
-            logger.warning(f"Failed to reload response state store after settings change: {e}")
+            logger.warning(
+                f"Failed to reload response state store after settings change: {e}"
+            )
     return {"updated": updated_keys, "needs_restart": needs_restart}

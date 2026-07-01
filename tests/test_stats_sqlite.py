@@ -255,7 +255,9 @@ async def test_init_db_migrates_existing_stats_db_for_cache_token_columns(tmp_pa
     assert listed["items"][0]["cache_creation_input_tokens"] == 6
 
 
-async def test_refresh_missing_daily_stats_uses_timestamp_index_for_date_cutoff(sqlite_stats_db, monkeypatch):
+async def test_refresh_missing_daily_stats_uses_timestamp_index_for_date_cutoff(
+    sqlite_stats_db, monkeypatch
+):
     old_ts = (datetime.now(timezone.utc) - timedelta(days=3)).replace(tzinfo=None)
     conn = sqlite3.connect(str(sqlite_stats_db))
     conn.row_factory = sqlite3.Row
@@ -287,9 +289,11 @@ async def test_refresh_missing_daily_stats_uses_timestamp_index_for_date_cutoff(
 
     traced_sql: list[str] = []
     conn.set_trace_callback(
-        lambda sql: traced_sql.append(sql)
-        if "SELECT DISTINCT" in sql and "FROM request_stats_raw" in sql
-        else None
+        lambda sql: (
+            traced_sql.append(sql)
+            if "SELECT DISTINCT" in sql and "FROM request_stats_raw" in sql
+            else None
+        )
     )
     # 直接 patch _open_conn 让多次调用复用同一个 conn(测试需要稳定的 trace callback),
     # 而 _open_conn 在生产里会显式 close。用 nullcontext 跳过 close + commit,测试 conn

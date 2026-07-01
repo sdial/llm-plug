@@ -66,7 +66,9 @@ async def sqlite_request_logs(tmp_path, monkeypatch):
     await request_logs.close_backend()
 
 
-async def test_sqlite_backend_initializes_writes_and_lists_paginated(sqlite_request_logs):
+async def test_sqlite_backend_initializes_writes_and_lists_paginated(
+    sqlite_request_logs,
+):
     _sample_record(channel_id="ch_old", channel_name="Old", model="gpt-old")
     _sample_record(channel_id="ch_new", channel_name="New", model="gpt-new")
     await request_logs.drain_queue()
@@ -126,8 +128,12 @@ async def test_save_flags_control_raw_fields(sqlite_request_logs, monkeypatch):
     assert await request_logs.get_request_field(request_id, "request_body") == {
         "data": {"messages": [{"role": "user", "content": "hello"}]}
     }
-    assert await request_logs.get_request_field(request_id, "response_headers") == {"data": None}
-    assert await request_logs.get_request_field(request_id, "response_body") == {"data": None}
+    assert await request_logs.get_request_field(request_id, "response_headers") == {
+        "data": None
+    }
+    assert await request_logs.get_request_field(request_id, "response_body") == {
+        "data": None
+    }
 
 
 async def test_list_requests_returns_unavailable_when_backend_is_unavailable():
@@ -145,13 +151,17 @@ async def test_list_requests_returns_unavailable_when_backend_is_unavailable():
     }
 
 
-async def test_reload_backend_keeps_old_sqlite_backend_when_new_init_fails(sqlite_request_logs, tmp_path):
+async def test_reload_backend_keeps_old_sqlite_backend_when_new_init_fails(
+    sqlite_request_logs, tmp_path
+):
     _sample_record(channel_id="ch_keep", channel_name="Keep")
     await request_logs.drain_queue()
 
     not_dir = tmp_path / "not_dir"
     not_dir.write_text("not a directory", encoding="utf-8")
-    result = await request_logs.reload_backend({"request_log_sqlite_path": str(not_dir / "request_logs.db")})
+    result = await request_logs.reload_backend(
+        {"request_log_sqlite_path": str(not_dir / "request_logs.db")}
+    )
     listed = await request_logs.list_requests()
 
     assert result["available"] is False
@@ -161,7 +171,9 @@ async def test_reload_backend_keeps_old_sqlite_backend_when_new_init_fails(sqlit
     assert listed["items"][0]["channel_id"] == "ch_keep"
 
 
-async def test_filters_by_model_channel_time_success_api_key_client_ip_and_stream(sqlite_request_logs):
+async def test_filters_by_model_channel_time_success_api_key_client_ip_and_stream(
+    sqlite_request_logs,
+):
     _sample_record(
         channel_id="ch_alpha",
         channel_name="Alpha",
@@ -184,11 +196,21 @@ async def test_filters_by_model_channel_time_success_api_key_client_ip_and_strea
     await request_logs.drain_queue()
 
     assert (await request_logs.list_requests(model="alpha"))["total"] == 1
-    assert (await request_logs.list_requests(channel="Beta"))["items"][0]["channel_id"] == "ch_beta"
-    assert (await request_logs.list_requests(success=False))["items"][0]["api_key_id"] == "key_beta"
-    assert (await request_logs.list_requests(api_key_id="key_alpha"))["items"][0]["model"] == "gpt-alpha"
-    assert (await request_logs.list_requests(client_ip="198.51.100"))["items"][0]["model"] == "gpt-beta"
-    assert (await request_logs.list_requests(is_stream=True))["items"][0]["channel_name"] == "Alpha"
+    assert (await request_logs.list_requests(channel="Beta"))["items"][0][
+        "channel_id"
+    ] == "ch_beta"
+    assert (await request_logs.list_requests(success=False))["items"][0][
+        "api_key_id"
+    ] == "key_beta"
+    assert (await request_logs.list_requests(api_key_id="key_alpha"))["items"][0][
+        "model"
+    ] == "gpt-alpha"
+    assert (await request_logs.list_requests(client_ip="198.51.100"))["items"][0][
+        "model"
+    ] == "gpt-beta"
+    assert (await request_logs.list_requests(is_stream=True))["items"][0][
+        "channel_name"
+    ] == "Alpha"
 
 
 async def test_list_requests_uses_database_pagination_instead_of_full_month_load(
@@ -217,6 +239,7 @@ async def test_list_requests_uses_database_pagination_instead_of_full_month_load
     assert result["items"][0]["channel_id"] == "ch_2"
     assert calls
     assert all(call[-2] <= 1 for call in calls)
+
 
 async def test_list_requests_counts_later_months_without_select_after_page_is_full(
     sqlite_request_logs, monkeypatch
@@ -260,11 +283,15 @@ async def test_list_requests_counts_later_months_without_select_after_page_is_fu
 
     assert result["total"] == 3
     assert [item["channel_id"] for item in result["items"]] == ["ch_202602"]
-    january_call = [call for call in calls if call[0] == backend._month_db_path("202601")]
+    january_call = [
+        call for call in calls if call[0] == backend._month_db_path("202601")
+    ]
     assert january_call == [(backend._month_db_path("202601"), 0, 0)]
 
 
-async def test_remove_sqlite_files_ignores_files_locked_by_another_connection(tmp_path, monkeypatch):
+async def test_remove_sqlite_files_ignores_files_locked_by_another_connection(
+    tmp_path, monkeypatch
+):
     db_path = tmp_path / "request_logs_2026_01.sqlite3"
     db_path.write_text("locked", encoding="utf-8")
 
@@ -314,7 +341,10 @@ async def test_list_requests_skips_month_removed_between_discovery_and_query(
     assert result["items"] == []
     assert result["total"] == 0
 
-async def test_cleanup_old_records_clears_raw_fields_and_deletes_rows(sqlite_request_logs, monkeypatch):
+
+async def test_cleanup_old_records_clears_raw_fields_and_deletes_rows(
+    sqlite_request_logs, monkeypatch
+):
     monkeypatch.setattr(
         request_logs,
         "_get_save_flags",
@@ -349,21 +379,29 @@ async def test_cleanup_old_records_clears_raw_fields_and_deletes_rows(sqlite_req
     }
     await request_logs._backend.write_record(record)
 
-    cleared = await request_logs.cleanup_old_records(retention_days=0, raw_retention_days=1)
+    cleared = await request_logs.cleanup_old_records(
+        retention_days=0, raw_retention_days=1
+    )
     request_id = (await request_logs.list_requests())["items"][0]["id"]
 
     assert cleared["raw_fields_cleared"] == 1
     assert cleared["rows_deleted"] == 0
-    assert await request_logs.get_request_field(request_id, "request_body") == {"data": None}
+    assert await request_logs.get_request_field(request_id, "request_body") == {
+        "data": None
+    }
 
-    deleted = await request_logs.cleanup_old_records(retention_days=1, raw_retention_days=0)
+    deleted = await request_logs.cleanup_old_records(
+        retention_days=1, raw_retention_days=0
+    )
 
     assert deleted["rows_deleted"] == 0
     assert deleted["month_dbs_deleted"] == 1
     assert (await request_logs.list_requests())["total"] == 0
 
 
-async def test_cleanup_old_records_removes_fully_expired_month_database(sqlite_request_logs):
+async def test_cleanup_old_records_removes_fully_expired_month_database(
+    sqlite_request_logs,
+):
     backend = request_logs._backend
     assert isinstance(backend, request_logs.SQLiteRequestLogBackend)
     old_db = backend._ensure_month_db("200001")
@@ -389,7 +427,9 @@ async def test_cleanup_old_records_removes_fully_expired_month_database(sqlite_r
     await backend.write_record(old_record)
     assert request_logs.os.path.exists(old_db)
 
-    result = await request_logs.cleanup_old_records(retention_days=30, raw_retention_days=0)
+    result = await request_logs.cleanup_old_records(
+        retention_days=30, raw_retention_days=0
+    )
 
     assert result["month_dbs_deleted"] == 1
     assert not request_logs.os.path.exists(old_db)
@@ -402,4 +442,3 @@ async def test_invalid_request_field_returns_none(sqlite_request_logs):
 
     assert await request_logs.get_request_field(request_id, "not_allowed") is None
     assert await request_logs.get_request_field(999999, "request_body") is None
-

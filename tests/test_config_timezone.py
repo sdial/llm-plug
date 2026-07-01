@@ -6,7 +6,6 @@ from config import _validate_iana_timezone
 
 
 class TestValidateIanaTimezone:
-
     def test_empty_string_is_valid(self):
         """空字符串视为合法（使用系统默认）"""
         _validate_iana_timezone("")  # 不应抛出

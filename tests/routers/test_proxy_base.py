@@ -231,7 +231,11 @@ def test_body_stream_over_limit_is_logged_as_413():
     from config import MAX_BODY_SIZE
 
     async def receive():
-        return {"type": "http.request", "body": b"x" * (MAX_BODY_SIZE + 1), "more_body": False}
+        return {
+            "type": "http.request",
+            "body": b"x" * (MAX_BODY_SIZE + 1),
+            "more_body": False,
+        }
 
     async def send(message):
         pass
@@ -251,8 +255,12 @@ def test_body_stream_over_limit_is_logged_as_413():
 
     middleware = CombinedMiddleware(downstream)
     with (
-        patch("main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}),
-        patch.object(middleware, "_log_request", side_effect=lambda *args: logged.append(args)),
+        patch(
+            "main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}
+        ),
+        patch.object(
+            middleware, "_log_request", side_effect=lambda *args: logged.append(args)
+        ),
     ):
         import anyio
 
@@ -267,7 +275,11 @@ def test_exception_before_response_start_is_logged_as_500():
     logged = []
 
     async def receive():
-        return {"type": "http.request", "body": b'{"model":"gpt-4o"}', "more_body": False}
+        return {
+            "type": "http.request",
+            "body": b'{"model":"gpt-4o"}',
+            "more_body": False,
+        }
 
     async def send(message):
         sent.append(message)
@@ -287,8 +299,12 @@ def test_exception_before_response_start_is_logged_as_500():
 
     middleware = CombinedMiddleware(app)
     with (
-        patch("main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}),
-        patch.object(middleware, "_log_request", side_effect=lambda *args: logged.append(args)),
+        patch(
+            "main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}
+        ),
+        patch.object(
+            middleware, "_log_request", side_effect=lambda *args: logged.append(args)
+        ),
     ):
         import anyio
 
@@ -357,6 +373,7 @@ def test_stream_upstream_http_error_before_first_chunk_is_passed_through():
         request=request,
         response=upstream_response,
     )
+
     async def fake_proxy_request(*args, **kwargs):
         raise upstream_error
 
@@ -483,11 +500,13 @@ def test_stream_response_is_not_primed_again_at_router_layer():
         return stream(), channel
 
     async def call_endpoint():
-        body = json.dumps({
-            "model": "gpt-4o",
-            "stream": True,
-            "messages": [{"role": "user", "content": "hello"}],
-        }).encode()
+        body = json.dumps(
+            {
+                "model": "gpt-4o",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            }
+        ).encode()
 
         async def receive():
             return {"type": "http.request", "body": body, "more_body": False}
@@ -535,7 +554,9 @@ def test_proxy_request_receives_client_ip_from_request(monkeypatch):
     monkeypatch.setattr("routers.proxy_base.proxy_request", fake_proxy_request)
 
     with TestClient(app) as client:
-        response = client.post("/v1/chat/completions", json={"model": "gpt-4", "messages": []})
+        response = client.post(
+            "/v1/chat/completions", json={"model": "gpt-4", "messages": []}
+        )
 
     assert response.status_code == 200
     assert captured["client_ip"] == "testclient"
@@ -546,7 +567,11 @@ def test_middleware_writes_client_ip_to_scope_state():
     from main import CombinedMiddleware
 
     async def receive():
-        return {"type": "http.request", "body": b'{"model":"gpt-4"}', "more_body": False}
+        return {
+            "type": "http.request",
+            "body": b'{"model":"gpt-4"}',
+            "more_body": False,
+        }
 
     async def send(message):
         pass
@@ -566,8 +591,11 @@ def test_middleware_writes_client_ip_to_scope_state():
     }
 
     middleware = CombinedMiddleware(downstream_app)
-    with patch("main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}):
+    with patch(
+        "main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}
+    ):
         import anyio
+
         anyio.run(middleware, scope, receive, send)
 
     assert downstream_scope.get("state", {}).get("client_ip") == "192.168.1.100"

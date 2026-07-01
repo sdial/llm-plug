@@ -185,13 +185,18 @@ class TestAtomicUpdateData:
             on_disk = json.load(f)
         assert [ch["id"] for ch in on_disk["channels"]] == ["ch_existing", "ch_new"]
 
-        assert [ch["id"] for ch in storage._cache["channels"]] == ["ch_existing", "ch_new"]
+        assert [ch["id"] for ch in storage._cache["channels"]] == [
+            "ch_existing",
+            "ch_new",
+        ]
 
     @pytest.mark.anyio
     async def test_atomic_update_data_serializes_concurrent_mutators(self):
         async def add_channel(index: int):
             await storage.atomic_update_data(
-                lambda data: data.setdefault("channels", []).append({"id": f"ch_{index}"})
+                lambda data: data.setdefault("channels", []).append(
+                    {"id": f"ch_{index}"}
+                )
             )
 
         await asyncio.gather(*(add_channel(i) for i in range(20)))
@@ -201,14 +206,14 @@ class TestAtomicUpdateData:
         assert sorted(
             (ch["id"] for ch in on_disk["channels"]),
             key=lambda item: int(item.split("_")[1]),
-        ) == [
-            f"ch_{i}" for i in range(20)
-        ]
+        ) == [f"ch_{i}" for i in range(20)]
 
 
 class TestAtomicUpdateApiKeys:
     @pytest.mark.anyio
-    async def test_atomic_update_api_keys_reads_latest_disk_state_and_updates_cache(self):
+    async def test_atomic_update_api_keys_reads_latest_disk_state_and_updates_cache(
+        self,
+    ):
         await storage.save_api_keys({"api_keys": [{"id": "key_existing"}]})
 
         def mutator(data):
@@ -220,7 +225,10 @@ class TestAtomicUpdateApiKeys:
             on_disk = json.load(f)
         assert [key["id"] for key in on_disk["api_keys"]] == ["key_existing", "key_new"]
 
-        assert [key["id"] for key in storage._keys_cache["api_keys"]] == ["key_existing", "key_new"]
+        assert [key["id"] for key in storage._keys_cache["api_keys"]] == [
+            "key_existing",
+            "key_new",
+        ]
 
 
 class TestInvalidateCache:
@@ -315,7 +323,12 @@ class TestModelGroupsStorage:
             "channels": [],
             "model_groups": [
                 {"id": "broken", "enabled": True},
-                {"id": "grp_valid", "name": "valid", "models": ["gpt-4"], "enabled": True},
+                {
+                    "id": "grp_valid",
+                    "name": "valid",
+                    "models": ["gpt-4"],
+                    "enabled": True,
+                },
             ],
         }
         with open(config.CHANNELS_FILE, "w", encoding="utf-8") as f:
@@ -326,14 +339,20 @@ class TestModelGroupsStorage:
         assert [g.id for g in groups] == ["grp_valid"]
 
     @pytest.mark.anyio
-    async def test_load_model_groups_does_not_overwrite_invalidation_with_stale_data(self, monkeypatch):
+    async def test_load_model_groups_does_not_overwrite_invalidation_with_stale_data(
+        self, monkeypatch
+    ):
         stale_data = {
             "channels": [],
-            "model_groups": [{"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}],
+            "model_groups": [
+                {"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}
+            ],
         }
         fresh_data = {
             "channels": [],
-            "model_groups": [{"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}],
+            "model_groups": [
+                {"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}
+            ],
         }
         release_load = asyncio.Event()
 
@@ -360,14 +379,20 @@ class TestModelGroupsStorage:
         assert [g.id for g in groups] == ["grp_new"]
 
     @pytest.mark.anyio
-    async def test_load_model_groups_retries_when_sync_invalidation_happens_during_load(self, monkeypatch):
+    async def test_load_model_groups_retries_when_sync_invalidation_happens_during_load(
+        self, monkeypatch
+    ):
         stale_data = {
             "channels": [],
-            "model_groups": [{"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}],
+            "model_groups": [
+                {"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}
+            ],
         }
         fresh_data = {
             "channels": [],
-            "model_groups": [{"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}],
+            "model_groups": [
+                {"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}
+            ],
         }
 
         async def load_data():
@@ -393,15 +418,26 @@ class TestModelGroupsStorage:
         and not cache stale data."""
         stale_data = {
             "channels": [],
-            "model_groups": [{"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}],
+            "model_groups": [
+                {"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}
+            ],
         }
         fresh_data = {
             "channels": [],
-            "model_groups": [{"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}],
+            "model_groups": [
+                {"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}
+            ],
         }
         newest_data = {
             "channels": [],
-            "model_groups": [{"id": "grp_newest", "name": "newest", "models": ["gpt-newest"], "enabled": True}],
+            "model_groups": [
+                {
+                    "id": "grp_newest",
+                    "name": "newest",
+                    "models": ["gpt-newest"],
+                    "enabled": True,
+                }
+            ],
         }
 
         async def load_data():
@@ -423,17 +459,23 @@ class TestModelGroupsStorage:
         assert [g.id for g in storage._MODEL_GROUPS_CACHE] == ["grp_newest"]
 
     @pytest.mark.anyio
-    async def test_save_data_during_load_model_groups_does_not_leave_stale_cache(self, monkeypatch):
+    async def test_save_data_during_load_model_groups_does_not_leave_stale_cache(
+        self, monkeypatch
+    ):
         """When save_data triggers _invalidate_model_groups_cache_sync while
         load_model_groups is suspended at load_data(), the stale result must
         not overwrite the invalidated cache."""
         stale_data = {
             "channels": [],
-            "model_groups": [{"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}],
+            "model_groups": [
+                {"id": "grp_old", "name": "old", "models": ["gpt-old"], "enabled": True}
+            ],
         }
         fresh_data = {
             "channels": [],
-            "model_groups": [{"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}],
+            "model_groups": [
+                {"id": "grp_new", "name": "new", "models": ["gpt-new"], "enabled": True}
+            ],
         }
 
         load_release = asyncio.Event()
@@ -463,7 +505,9 @@ class TestModelGroupsStorage:
 
     @pytest.mark.anyio
     async def test_sync_invalidation_clears_cache_and_increments_version(self):
-        storage._MODEL_GROUPS_CACHE = [storage.ModelGroup(name="cached", models=["gpt-4"])]
+        storage._MODEL_GROUPS_CACHE = [
+            storage.ModelGroup(name="cached", models=["gpt-4"])
+        ]
         storage._MODEL_GROUPS_CACHE_TS = time.time()
         storage._MODEL_GROUPS_CACHE_VERSION = 3
 
@@ -577,9 +621,7 @@ class TestModelGroupsAtomicity:
     @pytest.mark.anyio
     async def test_save_model_groups_preserves_concurrent_channel_changes(self):
         """save_model_groups must not overwrite channels modified concurrently."""
-        await storage.save_data(
-            {"channels": [{"id": "ch_1"}], "model_groups": []}
-        )
+        await storage.save_data({"channels": [{"id": "ch_1"}], "model_groups": []})
 
         barrier = asyncio.Barrier(2)
 

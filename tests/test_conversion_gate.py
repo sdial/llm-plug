@@ -1,4 +1,5 @@
 """跨格式转换开关（全局 + 渠道级）的单元/集成测试。"""
+
 from unittest.mock import patch, AsyncMock
 
 import pytest

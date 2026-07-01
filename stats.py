@@ -91,7 +91,9 @@ def _agg_tz() -> tzinfo:
         try:
             return ZoneInfo(name)
         except (ZoneInfoNotFoundError, ValueError):
-            logger.warning(f"Invalid aggregation_timezone {name!r}, falling back to system local")
+            logger.warning(
+                f"Invalid aggregation_timezone {name!r}, falling back to system local"
+            )
     return datetime.now().astimezone().tzinfo or timezone.utc
 
 
@@ -132,12 +134,18 @@ def _connect() -> sqlite3.Connection:
         raise RuntimeError("stats database is not initialized")
     conn = sqlite3.connect(_DB_PATH)
     conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute(f"PRAGMA synchronous={_sanitize_pragma_env('SQLITE_SYNCHRONOUS', 'NORMAL', _VALID_SYNCHRONOUS)}")
-    conn.execute(f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'FILE', _VALID_TEMP_STORE)}")
+    conn.execute(
+        f"PRAGMA synchronous={_sanitize_pragma_env('SQLITE_SYNCHRONOUS', 'NORMAL', _VALID_SYNCHRONOUS)}"
+    )
+    conn.execute(
+        f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'FILE', _VALID_TEMP_STORE)}"
+    )
     cache_size = _sanitize_int_env("SQLITE_CACHE_SIZE", None)
     if cache_size is not None:
         conn.execute(f"PRAGMA cache_size={cache_size}")
-    conn.execute(f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE_STATS', _MMAP_SIZE_BYTES)}")
+    conn.execute(
+        f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE_STATS', _MMAP_SIZE_BYTES)}"
+    )
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -170,7 +178,9 @@ def _from_row(row: sqlite3.Row) -> dict[str, Any]:
     return data
 
 
-def _ensure_sqlite_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+def _ensure_sqlite_columns(
+    conn: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
     existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
     for name, definition in columns.items():
         if name not in existing:
@@ -182,7 +192,9 @@ def _init_db_sync(db_path: str) -> None:
     if directory:
         os.makedirs(directory, exist_ok=True)
     with closing(sqlite3.connect(db_path)) as conn, conn:
-        conn.execute(f"PRAGMA journal_mode={_sanitize_pragma_env('SQLITE_JOURNAL_MODE', 'WAL', _VALID_JOURNAL_MODE)}")
+        conn.execute(
+            f"PRAGMA journal_mode={_sanitize_pragma_env('SQLITE_JOURNAL_MODE', 'WAL', _VALID_JOURNAL_MODE)}"
+        )
         conn.execute("PRAGMA busy_timeout=5000")
         conn.executescript(
             """
@@ -327,7 +339,9 @@ async def _stats_worker():
         try:
             record = await _STATS_QUEUE.get()
             try:
-                await asyncio.wait_for(_write_record(record), timeout=_STATS_WRITE_TIMEOUT)
+                await asyncio.wait_for(
+                    _write_record(record), timeout=_STATS_WRITE_TIMEOUT
+                )
             except asyncio.TimeoutError:
                 logger.warning(
                     f"Stats write timed out ({_STATS_WRITE_TIMEOUT}s), "
@@ -351,7 +365,9 @@ def _write_record_sync(record: dict[str, Any]) -> None:
     if not _DB_AVAILABLE:
         return
     lightweight = _normalize_record(record)
-    timestamp = lightweight.get("timestamp") or datetime.now(timezone.utc).replace(tzinfo=None)
+    timestamp = lightweight.get("timestamp") or datetime.now(timezone.utc).replace(
+        tzinfo=None
+    )
     if isinstance(timestamp, datetime):
         timestamp = _to_iso(timestamp)
     with _open_conn() as conn:
@@ -464,7 +480,9 @@ async def drain_queue() -> None:
 def _daily_bounds(start_date: date, end_date: date) -> tuple[str, str]:
     tz = _agg_tz()
     start_local = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=tz)
-    end_local = datetime.combine(end_date + timedelta(days=1), datetime.min.time()).replace(tzinfo=tz)
+    end_local = datetime.combine(
+        end_date + timedelta(days=1), datetime.min.time()
+    ).replace(tzinfo=tz)
     start_utc = start_local.astimezone(timezone.utc).replace(tzinfo=None)
     end_utc = end_local.astimezone(timezone.utc).replace(tzinfo=None)
     return _to_iso(start_utc), _to_iso(end_utc)
@@ -573,7 +591,9 @@ async def get_daily_stats(
     api_key_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """查询日聚合统计。"""
-    return await asyncio.to_thread(_get_daily_stats_sync, days, channel_id, model, api_key_id)
+    return await asyncio.to_thread(
+        _get_daily_stats_sync, days, channel_id, model, api_key_id
+    )
 
 
 def _get_daily_stats_from_requests_sync(
@@ -628,7 +648,9 @@ async def get_daily_stats_from_requests(
     api_key_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """从明细表实时聚合日统计。"""
-    return await asyncio.to_thread(_get_daily_stats_from_requests_sync, days, channel_id, model, api_key_id)
+    return await asyncio.to_thread(
+        _get_daily_stats_from_requests_sync, days, channel_id, model, api_key_id
+    )
 
 
 def _refresh_missing_daily_stats_sync() -> dict[str, Any]:
@@ -652,7 +674,11 @@ def _refresh_missing_daily_stats_sync() -> dict[str, Any]:
             return {
                 "refreshed_dates": [],
                 "count": 0,
-                "debug": {"today": str(today), "request_dates": [], "missing_dates": []},
+                "debug": {
+                    "today": str(today),
+                    "request_dates": [],
+                    "missing_dates": [],
+                },
             }
         existing_rows = conn.execute(
             """
@@ -713,7 +739,9 @@ def _overall_zero() -> dict[str, Any]:
 def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
     if not _DB_AVAILABLE:
         return _overall_zero()
-    since = _to_iso(datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days))
+    since = _to_iso(
+        datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+    )
     with _open_conn() as conn:
         row = conn.execute(
             """
@@ -776,7 +804,8 @@ def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
         "total_input_tokens": row["total_input_tokens"] or 0,
         "total_output_tokens": row["total_output_tokens"] or 0,
         "total_cache_read_input_tokens": row["total_cache_read_input_tokens"] or 0,
-        "total_cache_creation_input_tokens": row["total_cache_creation_input_tokens"] or 0,
+        "total_cache_creation_input_tokens": row["total_cache_creation_input_tokens"]
+        or 0,
         "channels": [
             {
                 "name": r["channel_name"],
@@ -839,7 +868,8 @@ async def get_today_stats() -> dict[str, Any]:
                 "total_input_tokens": row["input_tokens"] or 0,
                 "total_output_tokens": row["output_tokens"] or 0,
                 "total_cache_read_input_tokens": row["cache_read_input_tokens"] or 0,
-                "total_cache_creation_input_tokens": row["cache_creation_input_tokens"] or 0,
+                "total_cache_creation_input_tokens": row["cache_creation_input_tokens"]
+                or 0,
                 "avg_latency_ms": row["avg_latency_ms"] or 0,
                 "avg_lag_ms": row["avg_lag_ms"] or 0,
             }
@@ -910,7 +940,8 @@ def _get_overall_stats_since_sync(since: str) -> dict[str, Any]:
         "total_input_tokens": row["total_input_tokens"] or 0,
         "total_output_tokens": row["total_output_tokens"] or 0,
         "total_cache_read_input_tokens": row["total_cache_read_input_tokens"] or 0,
-        "total_cache_creation_input_tokens": row["total_cache_creation_input_tokens"] or 0,
+        "total_cache_creation_input_tokens": row["total_cache_creation_input_tokens"]
+        or 0,
         "channels": [
             {
                 "name": r["channel_name"],
@@ -966,7 +997,9 @@ def _get_api_key_stats_sync() -> dict[str, dict[str, int]]:
                 "total_input_tokens": row["total_input_tokens"],
                 "total_output_tokens": row["total_output_tokens"],
                 "total_cache_read_input_tokens": row["total_cache_read_input_tokens"],
-                "total_cache_creation_input_tokens": row["total_cache_creation_input_tokens"],
+                "total_cache_creation_input_tokens": row[
+                    "total_cache_creation_input_tokens"
+                ],
             }
             for row in rows
         }

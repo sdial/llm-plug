@@ -8,7 +8,7 @@ from fnmatch import fnmatchcase
 @dataclass(frozen=True)
 class WhitelistRule:
     path_pattern: str
-    methods: frozenset[str]   # 空集合 = 允许所有方法
+    methods: frozenset[str]  # 空集合 = 允许所有方法
     network: ipaddress.IPv4Network | ipaddress.IPv6Network
     description: str
 
@@ -39,7 +39,9 @@ def load_rules(path: str) -> list[WhitelistRule]:
     except FileNotFoundError:
         return []
 
-    filtered = [line for line in lines if line.strip() and not line.strip().startswith("#")]
+    filtered = [
+        line for line in lines if line.strip() and not line.strip().startswith("#")
+    ]
     rules: list[WhitelistRule] = []
     reader = csv.reader(filtered)
     for row in reader:
@@ -57,12 +59,14 @@ def load_rules(path: str) -> list[WhitelistRule]:
             network = ipaddress.ip_network(ip_cidr, strict=False)
         except ValueError:
             continue
-        rules.append(WhitelistRule(
-            path_pattern=path_pat,
-            methods=methods,
-            network=network,
-            description=description,
-        ))
+        rules.append(
+            WhitelistRule(
+                path_pattern=path_pat,
+                methods=methods,
+                network=network,
+                description=description,
+            )
+        )
     return rules
 
 
@@ -104,12 +108,14 @@ def validate_rules_text(text: str) -> tuple[bool, str, list[WhitelistRule]]:
         methods: set[str] = set()
         if methods_str and methods_str != "*":
             methods = {m.strip().upper() for m in methods_str.split("|")}
-        rules.append(WhitelistRule(
-            path_pattern=path_pat,
-            methods=frozenset(methods),
-            network=network,
-            description=description,
-        ))
+        rules.append(
+            WhitelistRule(
+                path_pattern=path_pat,
+                methods=frozenset(methods),
+                network=network,
+                description=description,
+            )
+        )
     return True, "", rules
 
 

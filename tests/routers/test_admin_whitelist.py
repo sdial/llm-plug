@@ -42,7 +42,12 @@ async def setup_test_db(tmp_path, monkeypatch):
     storage._keys_lock = None
 
     import main
-    monkeypatch.setattr(main, "_whitelist_cache", main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")))
+
+    monkeypatch.setattr(
+        main,
+        "_whitelist_cache",
+        main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
+    )
 
     await stats.init_db(str(tmp_path / "stats.db"))
     await request_logs.init_backend(
@@ -68,6 +73,7 @@ class TestWhitelistMiddleware:
     async def test_no_rules_allows_admin(self, client, monkeypatch):
         """白名单为空时放行所有请求"""
         import main
+
         monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: [])
         resp = await client.get("/admin/channels")
         assert resp.status_code != 403
@@ -75,6 +81,7 @@ class TestWhitelistMiddleware:
     async def test_matching_ip_allows_request(self, client, monkeypatch):
         """IP 匹配白名单规则时放行"""
         import main
+
         rules = [
             wl.WhitelistRule(
                 path_pattern="/admin/*",
@@ -90,6 +97,7 @@ class TestWhitelistMiddleware:
     async def test_non_matching_ip_blocks_admin(self, client, monkeypatch):
         """IP 不在白名单时返回 403"""
         import main
+
         rules = [
             wl.WhitelistRule(
                 path_pattern="/admin/*",
@@ -108,6 +116,7 @@ class TestWhitelistMiddleware:
     async def test_method_not_allowed_returns_403(self, client, monkeypatch):
         """方法不在白名单时返回 403"""
         import main
+
         rules = [
             wl.WhitelistRule(
                 path_pattern="/admin/*",
@@ -124,6 +133,7 @@ class TestWhitelistMiddleware:
     async def test_non_admin_path_not_blocked(self, client, monkeypatch):
         """白名单规则只针对 /admin/*，其他路径不受影响"""
         import main
+
         rules = [
             wl.WhitelistRule(
                 path_pattern="/admin/*",
@@ -140,6 +150,7 @@ class TestWhitelistMiddleware:
     async def test_whitelist_blocks_proxy_path(self, client, monkeypatch):
         """白名单可阻断代理路径（/v1/chat/completions 等）"""
         import main
+
         rules = [
             wl.WhitelistRule(
                 path_pattern="/v1/*",
@@ -163,6 +174,7 @@ class TestWhitelistAPI:
         """每个测试使用独立临时目录，白名单检查全部放行"""
         import routers.admin as admin_router
         import main
+
         monkeypatch.setattr(admin_router, "WHITELIST_PATH", tmp_path / "whitelist.csv")
         monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: [])
 
@@ -206,14 +218,14 @@ class TestWhitelistAPI:
         assert "主机位" in resp.json()["detail"]
 
     async def test_put_whitelist_bad_column_count_returns_400(self, client):
-        resp = await client.put(
-            "/admin/whitelist", json={"content": "/admin/*,*\n"}
-        )
+        resp = await client.put("/admin/whitelist", json={"content": "/admin/*,*\n"})
         assert resp.status_code == 400
         assert "4 列" in resp.json()["detail"]
 
     async def test_put_whitelist_empty_clears_rules(self, client):
-        await client.put("/admin/whitelist", json={"content": "/admin/*,*,127.0.0.1,test\n"})
+        await client.put(
+            "/admin/whitelist", json={"content": "/admin/*,*,127.0.0.1,test\n"}
+        )
         resp = await client.put("/admin/whitelist", json={"content": ""})
         assert resp.status_code == 200
         assert resp.json()["rule_count"] == 0
@@ -221,6 +233,7 @@ class TestWhitelistAPI:
     async def test_put_whitelist_uses_atomic_write(self, client, tmp_path, monkeypatch):
         """验证白名单写入使用原子写：临时文件名随机、fsync、os.replace"""
         import routers.admin as admin_router
+
         recorded = {}
 
         original_NamedTemporaryFile = tempfile.NamedTemporaryFile
@@ -264,9 +277,13 @@ class TestWhitelistAPI:
         )
 
         # 至少一个应成功
-        successes = [r for r in results if not isinstance(r, Exception) and r.status_code == 200]
+        successes = [
+            r for r in results if not isinstance(r, Exception) and r.status_code == 200
+        ]
         assert len(successes) >= 1
 
         # 最终文件应存在且内容完整（要么 content1 要么 content2）
         final_content = admin_router.WHITELIST_PATH.read_text(encoding="utf-8")
-        assert final_content in (content1, content2), "并发写入后文件内容应为其中一个完整结果"
+        assert final_content in (content1, content2), (
+            "并发写入后文件内容应为其中一个完整结果"
+        )

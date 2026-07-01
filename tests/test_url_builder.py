@@ -49,11 +49,16 @@ def test_build_models_url_uses_advanced_models_url_before_base_url():
 
 
 def test_build_models_url_falls_back_to_base_url_default_models_path():
-    assert build_models_url("https://api.example.com/v1") == "https://api.example.com/v1/models"
+    assert (
+        build_models_url("https://api.example.com/v1")
+        == "https://api.example.com/v1/models"
+    )
 
 
 def test_append_query_merges_existing_and_forwarded_query_parameters():
     assert (
-        append_query("https://api.example.com/v1/responses?beta=true", "timeout=30&debug=")
+        append_query(
+            "https://api.example.com/v1/responses?beta=true", "timeout=30&debug="
+        )
         == "https://api.example.com/v1/responses?beta=true&timeout=30&debug="
     )

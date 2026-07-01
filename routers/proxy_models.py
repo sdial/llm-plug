@@ -27,6 +27,7 @@ async def _collect_models() -> list[dict]:
 
 # ── OpenAI Chat Completions / Response 共用 ──
 
+
 @router.get("/v1/models")
 async def list_models_openai():
     models = await _collect_models()
@@ -43,6 +44,7 @@ async def list_models_openai():
 
 
 # ── Anthropic ──
+
 
 @router.get("/v1/anthropic/models")
 async def list_models_anthropic(
@@ -84,4 +86,9 @@ async def list_models_anthropic(
         }
         for m in page
     ]
-    return {"data": data, "has_more": has_more, "first_id": page[0]["id"] if page else "", "last_id": page[-1]["id"] if page else ""}
+    return {
+        "data": data,
+        "has_more": has_more,
+        "first_id": page[0]["id"] if page else "",
+        "last_id": page[-1]["id"] if page else "",
+    }

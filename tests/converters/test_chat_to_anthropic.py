@@ -75,7 +75,9 @@ class TestChatToAnthropic:
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
-        assert assistant_msg["content"][0]["input"] == {"_partial_args": "not valid json"}
+        assert assistant_msg["content"][0]["input"] == {
+            "_partial_args": "not valid json"
+        }
 
     def test_assistant_empty_string_content_is_preserved(self):
         """OpenAI content: "" 应保留为空文本块，而不是被当成 None 丢弃。"""
@@ -112,7 +114,8 @@ class TestChatToAnthropic:
         user_msg = result["messages"][0]
         assert user_msg["role"] == "user"
         image = [
-            c for c in user_msg["content"]
+            c
+            for c in user_msg["content"]
             if isinstance(c, dict) and c.get("type") == "image"
         ][0]
         assert image["source"] == {
@@ -406,7 +409,13 @@ class TestChatToAnthropic:
             "object": "chat.completion",
             "created": 0,
             "model": "gpt-4o",
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "hi"},
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": {
                 "prompt_tokens": 1000,
                 "completion_tokens": 50,
@@ -423,9 +432,25 @@ class TestChatToAnthropic:
     def test_chat_to_anthropic_stream_cache_read_from_cached_tokens(self):
         """Chat 流式 message_delta 的 usage 只包含增量 output_tokens。"""
         chunks = [
-            {"id": "chatcmpl-a", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "hi"}, "finish_reason": None}]},
-            {"id": "chatcmpl-a", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-             "usage": {"prompt_tokens": 1000, "completion_tokens": 50, "prompt_tokens_details": {"cached_tokens": 900}}},
+            {
+                "id": "chatcmpl-a",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": "hi"},
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            {
+                "id": "chatcmpl-a",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "completion_tokens": 50,
+                    "prompt_tokens_details": {"cached_tokens": 900},
+                },
+            },
         ]
         events: list[tuple[str, dict]] = []
         for c in chunks:
@@ -439,9 +464,23 @@ class TestChatToAnthropic:
     def test_chat_to_anthropic_stream_content_filter_maps_to_refusal(self):
         """Chat 流式 content_filter finish_reason 应映射为 Anthropic refusal stop_reason。"""
         chunks = [
-            {"id": "chatcmpl-a", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "[filtered]"}, "finish_reason": None}]},
-            {"id": "chatcmpl-a", "choices": [{"index": 0, "delta": {}, "finish_reason": "content_filter"}],
-             "usage": {"prompt_tokens": 10, "completion_tokens": 5}},
+            {
+                "id": "chatcmpl-a",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": "[filtered]"},
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            {
+                "id": "chatcmpl-a",
+                "choices": [
+                    {"index": 0, "delta": {}, "finish_reason": "content_filter"}
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            },
         ]
         events: list[tuple[str, dict]] = []
         for c in chunks:
@@ -482,7 +521,14 @@ class TestChatToAnthropic:
     def test_response_to_anthropic_stream_uses_input_tokens_details(self):
         """Response 流式 message_delta 的 usage 只包含增量 output_tokens。"""
         chunks = [
-            {"type": "response.created", "response": {"id": "resp_a", "model": "gpt-4o", "status": "in_progress"}},
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "resp_a",
+                    "model": "gpt-4o",
+                    "status": "in_progress",
+                },
+            },
             {"type": "response.output_text.delta", "delta": "hi"},
             {
                 "type": "response.completed",
@@ -498,7 +544,11 @@ class TestChatToAnthropic:
                             "content": [{"type": "output_text", "text": "hi"}],
                         }
                     ],
-                    "usage": {"input_tokens": 1000, "output_tokens": 50, "input_tokens_details": {"cached_tokens": 900}},
+                    "usage": {
+                        "input_tokens": 1000,
+                        "output_tokens": 50,
+                        "input_tokens_details": {"cached_tokens": 900},
+                    },
                 },
             },
         ]
@@ -514,7 +564,14 @@ class TestChatToAnthropic:
     def test_response_to_anthropic_stream_thinking_start_has_signature(self):
         """Response reasoning 流式块应带空 signature，与 Chat reasoning 路径一致。"""
         chunks = [
-            {"type": "response.created", "response": {"id": "resp_a", "model": "gpt-4o", "status": "in_progress"}},
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "resp_a",
+                    "model": "gpt-4o",
+                    "status": "in_progress",
+                },
+            },
             {
                 "type": "response.output_item.added",
                 "output_index": 0,
@@ -551,11 +608,13 @@ class TestReviewFixes:
                 {
                     "role": "assistant",
                     "content": None,
-                    "tool_calls": [{
-                        "id": "call_1",
-                        "type": "function",
-                        "function": {"name": "img", "arguments": "{}"},
-                    }],
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "img", "arguments": "{}"},
+                        }
+                    ],
                 },
                 {
                     "role": "tool",
@@ -573,8 +632,10 @@ class TestReviewFixes:
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         # tool_result 块应位于最后一条 user 消息
         user_with_tool_result = [
-            m for m in result["messages"]
-            if m["role"] == "user" and isinstance(m["content"], list)
+            m
+            for m in result["messages"]
+            if m["role"] == "user"
+            and isinstance(m["content"], list)
             and any(c.get("type") == "tool_result" for c in m["content"])
         ]
         assert user_with_tool_result
@@ -668,7 +729,5 @@ class TestReviewFixes:
             "usage": {"prompt_tokens": 1, "completion_tokens": 1},
         }
         result = self.converter.convert_response(response, APIType.OPENAI_CHAT)
-        assert not any(
-            "[REFUSED]" in c.get("text", "") for c in result["content"]
-        )
+        assert not any("[REFUSED]" in c.get("text", "") for c in result["content"])
         assert result["stop_reason"] == "end_turn"

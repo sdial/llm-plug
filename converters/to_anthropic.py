@@ -1,6 +1,7 @@
 """
 将其他格式转换为 Anthropic Messages 格式
 """
+
 from typing import Any
 
 from loguru import logger
@@ -36,27 +37,32 @@ class ToAnthropicConverter(BaseConverter):
         """确保 message_start 已发出。如果尚未发出，在 events 列表头部插入。"""
         if not self._stream_state["started"]:
             self._stream_state["started"] = True
-            events.insert(0, (
-                "message_start",
-                {
-                    "type": "message_start",
-                    "message": {
-                        "id": chunk.get("id", "").replace("chatcmpl-", "msg_"),
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [],
-                        "model": chunk.get("model", ""),
-                        "stop_reason": None,
-                        "stop_sequence": None,
-            "usage": {
-                "input_tokens": chunk.get("usage", {}).get("prompt_tokens", 0),
-                "output_tokens": 0,
-                "cache_creation_input_tokens": 0,
-                "cache_read_input_tokens": 0,
-            },
+            events.insert(
+                0,
+                (
+                    "message_start",
+                    {
+                        "type": "message_start",
+                        "message": {
+                            "id": chunk.get("id", "").replace("chatcmpl-", "msg_"),
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [],
+                            "model": chunk.get("model", ""),
+                            "stop_reason": None,
+                            "stop_sequence": None,
+                            "usage": {
+                                "input_tokens": chunk.get("usage", {}).get(
+                                    "prompt_tokens", 0
+                                ),
+                                "output_tokens": 0,
+                                "cache_creation_input_tokens": 0,
+                                "cache_read_input_tokens": 0,
+                            },
+                        },
                     },
-                },
-            ))
+                ),
+            )
 
     def _convert_content(self, content: Any) -> Any:
         if isinstance(content, list):
@@ -73,20 +79,39 @@ class ToAnthropicConverter(BaseConverter):
                         if url.startswith("data:"):
                             # data URI -> base64
                             parts = url.split(",", 1)
-                            media_type = parts[0].split(";")[0].split(":")[1] if parts else "image/png"
+                            media_type = (
+                                parts[0].split(";")[0].split(":")[1]
+                                if parts
+                                else "image/png"
+                            )
                             data = parts[1] if len(parts) > 1 else ""
-                            result.append({
-                                "type": "image",
-                                "source": {"type": "base64", "media_type": media_type, "data": data},
-                            })
+                            result.append(
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": media_type,
+                                        "data": data,
+                                    },
+                                }
+                            )
                         elif url.startswith("http://") or url.startswith("https://"):
-                            result.append({
-                                "type": "image",
-                                "source": {"type": "url", "url": url},
-                            })
+                            result.append(
+                                {
+                                    "type": "image",
+                                    "source": {"type": "url", "url": url},
+                                }
+                            )
                         else:
-                            logger.warning("Unsupported image_url format: %s...", url[:50])
-                            result.append({"type": "text", "text": f"[Unsupported image_url format: {url[:100]}]"})
+                            logger.warning(
+                                "Unsupported image_url format: %s...", url[:50]
+                            )
+                            result.append(
+                                {
+                                    "type": "text",
+                                    "text": f"[Unsupported image_url format: {url[:100]}]",
+                                }
+                            )
 
                     elif item.get("type") == "input_text":
                         # OpenAI Response API input_text -> text
@@ -96,11 +121,15 @@ class ToAnthropicConverter(BaseConverter):
                         # OpenAI refusal -> text with marker
                         refusal_text = item.get("refusal", "")
                         if refusal_text:
-                            result.append({"type": "text", "text": f"[REFUSAL] {refusal_text}"})
+                            result.append(
+                                {"type": "text", "text": f"[REFUSAL] {refusal_text}"}
+                            )
 
                     elif item.get("type") == "input_audio":
                         # Anthropic 暂不支持音频输入，保留文本提示
-                        result.append({"type": "text", "text": "[Audio input not supported]"})
+                        result.append(
+                            {"type": "text", "text": "[Audio input not supported]"}
+                        )
 
                     elif item.get("type") == "file":
                         file_info = item.get("file", {})
@@ -109,19 +138,42 @@ class ToAnthropicConverter(BaseConverter):
                         if file_data.startswith("data:"):
                             # data URI -> base64 document
                             parts = file_data.split(",", 1)
-                            media_type = parts[0].split(";")[0].split(":")[1] if parts else "application/pdf"
+                            media_type = (
+                                parts[0].split(";")[0].split(":")[1]
+                                if parts
+                                else "application/pdf"
+                            )
                             data = parts[1] if len(parts) > 1 else ""
-                            result.append({
-                                "type": "document",
-                                "source": {"type": "base64", "media_type": media_type, "data": data},
-                            })
+                            result.append(
+                                {
+                                    "type": "document",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": media_type,
+                                        "data": data,
+                                    },
+                                }
+                            )
                         else:
-                            result.append({"type": "text", "text": f"[File input not supported: {filename or 'unknown'}]"})
+                            result.append(
+                                {
+                                    "type": "text",
+                                    "text": f"[File input not supported: {filename or 'unknown'}]",
+                                }
+                            )
 
                     else:
                         item_type = item.get("type", "unknown")
-                        logger.warning("Unsupported content item type '%s', converting to text", item_type)
-                        result.append({"type": "text", "text": f"[Unsupported content type: {item_type}]"})
+                        logger.warning(
+                            "Unsupported content item type '%s', converting to text",
+                            item_type,
+                        )
+                        result.append(
+                            {
+                                "type": "text",
+                                "text": f"[Unsupported content type: {item_type}]",
+                            }
+                        )
             return result
         return content
 
@@ -146,11 +198,13 @@ class ToAnthropicConverter(BaseConverter):
                 content_parts = []
                 reasoning_content = msg.get("reasoning_content")
                 if reasoning_content:
-                    content_parts.append({
-                        "type": "thinking",
-                        "thinking": reasoning_content,
-                        "signature": "",
-                    })
+                    content_parts.append(
+                        {
+                            "type": "thinking",
+                            "thinking": reasoning_content,
+                            "signature": "",
+                        }
+                    )
                 text_content = msg.get("content")
                 if text_content is not None:
                     if isinstance(text_content, str):
@@ -160,17 +214,26 @@ class ToAnthropicConverter(BaseConverter):
                         if isinstance(converted, list):
                             content_parts.extend(converted)
                         else:
-                            content_parts.append({"type": "text", "text": str(converted)})
+                            content_parts.append(
+                                {"type": "text", "text": str(converted)}
+                            )
                 for tc in msg.get("tool_calls", []):
                     args = tc.get("function", {}).get("arguments", "{}")
                     args, _ = safe_parse_tool_args(args)
-                    content_parts.append({
-                        "type": "tool_use",
-                        "id": tc.get("id", ""),
-                        "name": tc.get("function", {}).get("name", ""),
-                        "input": args,
-                    })
-                messages.append({"role": "assistant", "content": content_parts if content_parts else ""})
+                    content_parts.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc.get("id", ""),
+                            "name": tc.get("function", {}).get("name", ""),
+                            "input": args,
+                        }
+                    )
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": content_parts if content_parts else "",
+                    }
+                )
             elif role == "tool":
                 tool_use_id = msg.get("tool_call_id", "")
                 if not tool_use_id:
@@ -195,7 +258,9 @@ class ToAnthropicConverter(BaseConverter):
                     ):
                         messages[-1]["content"].append(tool_result_block)
                     else:
-                        messages.append({"role": "user", "content": [tool_result_block]})
+                        messages.append(
+                            {"role": "user", "content": [tool_result_block]}
+                        )
                 else:
                     messages.append({"role": "user", "content": [tool_result_block]})
             else:
@@ -223,7 +288,9 @@ class ToAnthropicConverter(BaseConverter):
         if data.get("top_p") is not None:
             result["top_p"] = data["top_p"]
         if data.get("stop"):
-            result["stop_sequences"] = data["stop"] if isinstance(data["stop"], list) else [data["stop"]]
+            result["stop_sequences"] = (
+                data["stop"] if isinstance(data["stop"], list) else [data["stop"]]
+            )
         if data.get("tools"):
             result["tools"] = self._openai_tools_to_anthropic(data["tools"])
         if data.get("tool_choice"):
@@ -237,7 +304,9 @@ class ToAnthropicConverter(BaseConverter):
                     # 兼容官方嵌套形态 {"type":"function","function":{"name":"..."}}
                     # 和扁平形态 {"type":"function","name":"..."}
                     func_info = tc.get("function")
-                    name = func_info.get("name", "") if isinstance(func_info, dict) else ""
+                    name = (
+                        func_info.get("name", "") if isinstance(func_info, dict) else ""
+                    )
                     if not name:
                         name = tc.get("name", "")
                     if name:
@@ -250,7 +319,9 @@ class ToAnthropicConverter(BaseConverter):
                         )
                 # disable_parallel_tool_use OpenAI 无对应
                 if tc.get("disable_parallel_tool_use"):
-                    logger.debug("OpenAI tool_choice.disable_parallel_tool_use not supported, ignored")
+                    logger.debug(
+                        "OpenAI tool_choice.disable_parallel_tool_use not supported, ignored"
+                    )
             elif tc == "auto":
                 result["tool_choice"] = {"type": "auto"}
             elif tc == "required":
@@ -262,10 +333,14 @@ class ToAnthropicConverter(BaseConverter):
         if data.get("thinking") is not None:
             result["thinking"] = data["thinking"]
         elif reasoning_effort is not None:
-            if isinstance(reasoning_effort, int) or (isinstance(reasoning_effort, str) and reasoning_effort.isdigit()):
+            if isinstance(reasoning_effort, int) or (
+                isinstance(reasoning_effort, str) and reasoning_effort.isdigit()
+            ):
                 budget = int(reasoning_effort)
             else:
-                budget = {"low": 1024, "medium": 4096, "high": 16384}.get(reasoning_effort, 4096)
+                budget = {"low": 1024, "medium": 4096, "high": 16384}.get(
+                    reasoning_effort, 4096
+                )
             result["thinking"] = {"type": "enabled", "budget_tokens": budget}
         elif data.get("enable_thinking"):
             result["thinking"] = {"type": "enabled", "budget_tokens": 4096}
@@ -296,7 +371,7 @@ class ToAnthropicConverter(BaseConverter):
         if unsupported_params:
             logger.debug(
                 "OpenAI parameters not supported by Anthropic, will be ignored: %s",
-                ", ".join(unsupported_params)
+                ", ".join(unsupported_params),
             )
 
         return result
@@ -309,7 +384,9 @@ class ToAnthropicConverter(BaseConverter):
                 anthropic_tool = {
                     "name": func.get("name", ""),
                     "description": func.get("description", ""),
-                    "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+                    "input_schema": func.get(
+                        "parameters", {"type": "object", "properties": {}}
+                    ),
                 }
                 # strict 字段透传（Anthropic 也支持）
                 if func.get("strict") is not None:
@@ -320,7 +397,10 @@ class ToAnthropicConverter(BaseConverter):
     def _chat_response_to_anthropic(self, data: dict[str, Any]) -> dict[str, Any]:
         choices = data.get("choices", [])
         if len(choices) > 1:
-            logger.warning("Multiple choices (%d) received, only the first will be converted (Anthropic does not support n>1)", len(choices))
+            logger.warning(
+                "Multiple choices (%d) received, only the first will be converted (Anthropic does not support n>1)",
+                len(choices),
+            )
         text = ""
         reasoning_content = ""
         finish_reason = "end_turn"
@@ -336,27 +416,34 @@ class ToAnthropicConverter(BaseConverter):
         content = []
         # thinking 块必须在 text 块之前
         if reasoning_content:
-            content.append({
-                "type": "thinking",
-                "thinking": reasoning_content,
-                "signature": "",
-            })
+            content.append(
+                {
+                    "type": "thinking",
+                    "thinking": reasoning_content,
+                    "signature": "",
+                }
+            )
         if text:
             content.append({"type": "text", "text": text})
         if tool_calls:
             for tc in tool_calls:
                 args = tc.get("function", {}).get("arguments", "{}")
                 args, _ = safe_parse_tool_args(args)
-                content.append({
-                    "type": "tool_use",
-                    "id": tc.get("id", ""),
-                    "name": tc.get("function", {}).get("name", ""),
-                    "input": args,
-                })
+                content.append(
+                    {
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": tc.get("function", {}).get("name", ""),
+                        "input": args,
+                    }
+                )
         if refusal and not text and not tool_calls:
             # Anthropic 没有 refusal content block；用带标记的 text 块兜底，
             # 并把 stop_reason 映射成 refusal 以便客户端识别。
-            logger.warning("OpenAI response contained refusal, projecting to text block: %s", refusal[:200])
+            logger.warning(
+                "OpenAI response contained refusal, projecting to text block: %s",
+                refusal[:200],
+            )
             content.append({"type": "text", "text": f"[REFUSED] {refusal}"})
         if not content:
             content.append({"type": "text", "text": ""})
@@ -394,7 +481,12 @@ class ToAnthropicConverter(BaseConverter):
             return []
         if finish_reason is None:
             finish_reason = self._stream_state.get("pending_finish_reason") or "stop"
-        stop_map = {"stop": "end_turn", "length": "max_tokens", "tool_calls": "tool_use", "content_filter": "refusal"}
+        stop_map = {
+            "stop": "end_turn",
+            "length": "max_tokens",
+            "tool_calls": "tool_use",
+            "content_filter": "refusal",
+        }
         stop_reason = stop_map.get(finish_reason, "end_turn")
 
         usage_output = 0
@@ -405,18 +497,23 @@ class ToAnthropicConverter(BaseConverter):
             self._stream_state["_prev_completion_tokens"] = cumulative
 
         events: list[tuple[str, dict[str, Any]]] = [
-            ("message_delta", {
-                "type": "message_delta",
-                "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                "usage": {"output_tokens": usage_output},
-            }),
+            (
+                "message_delta",
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+                    "usage": {"output_tokens": usage_output},
+                },
+            ),
             ("message_stop", {"type": "message_stop"}),
         ]
         self._stream_state["message_stop_sent"] = True
         self._stream_state["pending_finish_reason"] = None
         return events
 
-    def _chat_stream_chunk_to_anthropic(self, chunk: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    def _chat_stream_chunk_to_anthropic(
+        self, chunk: dict[str, Any]
+    ) -> list[tuple[str, dict[str, Any]]]:
         """Convert a single OpenAI chat chunk to a list of (event_type, data) tuples.
 
         Returns a list because one OpenAI chunk may need to produce
@@ -443,14 +540,26 @@ class ToAnthropicConverter(BaseConverter):
                 if self._stream_state["content_block_started"]:
                     if self._stream_state["current_content_type"] == "thinking":
                         events.append(
-                            ("content_block_delta", {
-                                "type": "content_block_delta",
-                                "index": self._stream_state["content_block_index"],
-                                "delta": {"type": "signature_delta", "signature": ""},
-                            })
+                            (
+                                "content_block_delta",
+                                {
+                                    "type": "content_block_delta",
+                                    "index": self._stream_state["content_block_index"],
+                                    "delta": {
+                                        "type": "signature_delta",
+                                        "signature": "",
+                                    },
+                                },
+                            )
                         )
                     events.append(
-                        ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                        (
+                            "content_block_stop",
+                            {
+                                "type": "content_block_stop",
+                                "index": self._stream_state["content_block_index"],
+                            },
+                        )
                     )
                     self._stream_state["content_block_started"] = False
                 events.extend(self._chat_build_message_stop_events(usage=usage))
@@ -469,9 +578,18 @@ class ToAnthropicConverter(BaseConverter):
             if reasoning_text:
                 self._ensure_message_started(chunk, events)
                 # 当前若有非 thinking 块在进行，先关闭并切换 index
-                if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "thinking":
+                if (
+                    self._stream_state["content_block_started"]
+                    and self._stream_state["current_content_type"] != "thinking"
+                ):
                     events.append(
-                        ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                        (
+                            "content_block_stop",
+                            {
+                                "type": "content_block_stop",
+                                "index": self._stream_state["content_block_index"],
+                            },
+                        )
                     )
                     self._stream_state["content_block_started"] = False
                     self._stream_state["content_block_index"] += 1
@@ -480,36 +598,61 @@ class ToAnthropicConverter(BaseConverter):
                     self._stream_state["content_block_started"] = True
                     self._stream_state["current_content_type"] = "thinking"
                     events.append(
-                        ("content_block_start", {
-                            "type": "content_block_start",
-                            "index": self._stream_state["content_block_index"],
-                            "content_block": {"type": "thinking", "thinking": "", "signature": ""},
-                        })
+                        (
+                            "content_block_start",
+                            {
+                                "type": "content_block_start",
+                                "index": self._stream_state["content_block_index"],
+                                "content_block": {
+                                    "type": "thinking",
+                                    "thinking": "",
+                                    "signature": "",
+                                },
+                            },
+                        )
                     )
                 events.append(
-                    ("content_block_delta", {
-                        "type": "content_block_delta",
-                        "index": self._stream_state["content_block_index"],
-                        "delta": {"type": "thinking_delta", "thinking": reasoning_text},
-                    })
+                    (
+                        "content_block_delta",
+                        {
+                            "type": "content_block_delta",
+                            "index": self._stream_state["content_block_index"],
+                            "delta": {
+                                "type": "thinking_delta",
+                                "thinking": reasoning_text,
+                            },
+                        },
+                    )
                 )
 
         # 处理 content（忽略空字符串，避免创建空的 text block）
         content_text = delta.get("content")
         if content_text is not None and content_text != "":
             self._ensure_message_started(chunk, events)
-            if self._stream_state["content_block_started"] and self._stream_state["current_content_type"] != "text":
+            if (
+                self._stream_state["content_block_started"]
+                and self._stream_state["current_content_type"] != "text"
+            ):
                 # 从 thinking 切到 text 前，先补发 signature_delta
                 if self._stream_state["current_content_type"] == "thinking":
                     events.append(
-                        ("content_block_delta", {
-                            "type": "content_block_delta",
-                            "index": self._stream_state["content_block_index"],
-                            "delta": {"type": "signature_delta", "signature": ""},
-                        })
+                        (
+                            "content_block_delta",
+                            {
+                                "type": "content_block_delta",
+                                "index": self._stream_state["content_block_index"],
+                                "delta": {"type": "signature_delta", "signature": ""},
+                            },
+                        )
                     )
                 events.append(
-                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                    (
+                        "content_block_stop",
+                        {
+                            "type": "content_block_stop",
+                            "index": self._stream_state["content_block_index"],
+                        },
+                    )
                 )
                 self._stream_state["content_block_started"] = False
                 self._stream_state["content_block_index"] += 1
@@ -518,44 +661,68 @@ class ToAnthropicConverter(BaseConverter):
                 self._stream_state["content_block_started"] = True
                 self._stream_state["current_content_type"] = "text"
                 events.append(
-                    ("content_block_start", {
-                        "type": "content_block_start",
-                        "index": self._stream_state["content_block_index"],
-                        "content_block": {"type": "text", "text": ""},
-                    })
+                    (
+                        "content_block_start",
+                        {
+                            "type": "content_block_start",
+                            "index": self._stream_state["content_block_index"],
+                            "content_block": {"type": "text", "text": ""},
+                        },
+                    )
                 )
             events.append(
-                ("content_block_delta", {
-                    "type": "content_block_delta",
-                    "index": self._stream_state["content_block_index"],
-                    "delta": {"type": "text_delta", "text": content_text},
-                })
+                (
+                    "content_block_delta",
+                    {
+                        "type": "content_block_delta",
+                        "index": self._stream_state["content_block_index"],
+                        "delta": {"type": "text_delta", "text": content_text},
+                    },
+                )
             )
 
         if delta.get("tool_calls"):
             self._ensure_message_started(chunk, events)
             for tc in delta["tool_calls"]:
                 tc_index = tc.get("index", 0)
-                is_new_tool_call = tc_index not in self._stream_state["tool_call_indices"]
+                is_new_tool_call = (
+                    tc_index not in self._stream_state["tool_call_indices"]
+                )
 
                 if is_new_tool_call:
                     # 关闭上一个 content block 并分配新的 block index
                     if self._stream_state["content_block_started"]:
                         if self._stream_state["current_content_type"] == "thinking":
                             events.append(
-                                ("content_block_delta", {
-                                    "type": "content_block_delta",
-                                    "index": self._stream_state["content_block_index"],
-                                    "delta": {"type": "signature_delta", "signature": ""},
-                                })
+                                (
+                                    "content_block_delta",
+                                    {
+                                        "type": "content_block_delta",
+                                        "index": self._stream_state[
+                                            "content_block_index"
+                                        ],
+                                        "delta": {
+                                            "type": "signature_delta",
+                                            "signature": "",
+                                        },
+                                    },
+                                )
                             )
                         events.append(
-                            ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                            (
+                                "content_block_stop",
+                                {
+                                    "type": "content_block_stop",
+                                    "index": self._stream_state["content_block_index"],
+                                },
+                            )
                         )
                         self._stream_state["content_block_started"] = False
                         self._stream_state["content_block_index"] += 1
 
-                    self._stream_state["tool_call_indices"][tc_index] = self._stream_state["content_block_index"]
+                    self._stream_state["tool_call_indices"][tc_index] = (
+                        self._stream_state["content_block_index"]
+                    )
 
                     tool_id = tc.get("id", "")
                     tool_name = tc.get("function", {}).get("name", "")
@@ -564,27 +731,38 @@ class ToAnthropicConverter(BaseConverter):
                     self._stream_state["tool_name"] = tool_name
                     self._stream_state["content_block_started"] = True
                     events.append(
-                        ("content_block_start", {
-                            "type": "content_block_start",
-                            "index": self._stream_state["content_block_index"],
-                            "content_block": {
-                                "type": "tool_use",
-                                "id": tool_id,
-                                "name": tool_name,
-                                "input": {},
+                        (
+                            "content_block_start",
+                            {
+                                "type": "content_block_start",
+                                "index": self._stream_state["content_block_index"],
+                                "content_block": {
+                                    "type": "tool_use",
+                                    "id": tool_id,
+                                    "name": tool_name,
+                                    "input": {},
+                                },
                             },
-                        })
+                        )
                     )
 
                 if tc.get("function", {}).get("arguments") is not None:
                     args = tc["function"].get("arguments", "")
                     if args:
                         events.append(
-                            ("content_block_delta", {
-                                "type": "content_block_delta",
-                                "index": self._stream_state["tool_call_indices"][tc_index],
-                                "delta": {"type": "input_json_delta", "partial_json": args},
-                            })
+                            (
+                                "content_block_delta",
+                                {
+                                    "type": "content_block_delta",
+                                    "index": self._stream_state["tool_call_indices"][
+                                        tc_index
+                                    ],
+                                    "delta": {
+                                        "type": "input_json_delta",
+                                        "partial_json": args,
+                                    },
+                                },
+                            )
                         )
 
         if finish_reason is not None:
@@ -594,21 +772,34 @@ class ToAnthropicConverter(BaseConverter):
             if self._stream_state["content_block_started"]:
                 if self._stream_state["current_content_type"] == "thinking":
                     events.append(
-                        ("content_block_delta", {
-                            "type": "content_block_delta",
-                            "index": self._stream_state["content_block_index"],
-                            "delta": {"type": "signature_delta", "signature": ""},
-                        })
+                        (
+                            "content_block_delta",
+                            {
+                                "type": "content_block_delta",
+                                "index": self._stream_state["content_block_index"],
+                                "delta": {"type": "signature_delta", "signature": ""},
+                            },
+                        )
                     )
                 events.append(
-                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                    (
+                        "content_block_stop",
+                        {
+                            "type": "content_block_stop",
+                            "index": self._stream_state["content_block_index"],
+                        },
+                    )
                 )
                 self._stream_state["content_block_started"] = False
 
             usage = chunk.get("usage")
             if usage:
                 # 同 chunk 内含 usage，立即收尾
-                events.extend(self._chat_build_message_stop_events(usage=usage, finish_reason=finish_reason))
+                events.extend(
+                    self._chat_build_message_stop_events(
+                        usage=usage, finish_reason=finish_reason
+                    )
+                )
             else:
                 # 无 usage：暂存 finish_reason，等待后续 usage chunk 或 finalize_stream
                 # （避免 DeepSeek/Qwen 等在 finish 后单独发 usage chunk 时重复 message_stop）
@@ -640,21 +831,29 @@ class ToAnthropicConverter(BaseConverter):
                         ):
                             messages[-1]["content"].append(tool_result_block)
                         else:
-                            messages.append({"role": "user", "content": [tool_result_block]})
+                            messages.append(
+                                {"role": "user", "content": [tool_result_block]}
+                            )
                     else:
-                        messages.append({"role": "user", "content": [tool_result_block]})
+                        messages.append(
+                            {"role": "user", "content": [tool_result_block]}
+                        )
                 elif item_type == "function_call":
                     args = item.get("arguments", "{}")
                     args, _ = safe_parse_tool_args(args)
-                    messages.append({
-                        "role": "assistant",
-                        "content": [{
-                            "type": "tool_use",
-                            "id": item.get("call_id", item.get("id", "")),
-                            "name": item.get("name", ""),
-                            "input": args,
-                        }],
-                    })
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "id": item.get("call_id", item.get("id", "")),
+                                    "name": item.get("name", ""),
+                                    "input": args,
+                                }
+                            ],
+                        }
+                    )
                 else:
                     role = item.get("role", "user")
                     content = item.get("content", "")
@@ -700,11 +899,15 @@ class ToAnthropicConverter(BaseConverter):
         anthropic_tools = []
         for tool in tools:
             if tool.get("type") == "function":
-                anthropic_tools.append({
-                    "name": tool.get("name", ""),
-                    "description": tool.get("description", ""),
-                    "input_schema": tool.get("parameters", {"type": "object", "properties": {}}),
-                })
+                anthropic_tools.append(
+                    {
+                        "name": tool.get("name", ""),
+                        "description": tool.get("description", ""),
+                        "input_schema": tool.get(
+                            "parameters", {"type": "object", "properties": {}}
+                        ),
+                    }
+                )
         return anthropic_tools
 
     def _response_response_to_anthropic(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -718,12 +921,14 @@ class ToAnthropicConverter(BaseConverter):
             elif item.get("type") == "function_call":
                 args = item.get("arguments", "{}")
                 args, _ = safe_parse_tool_args(args)
-                content.append({
-                    "type": "tool_use",
-                    "id": item.get("call_id", item.get("id", "")),
-                    "name": item.get("name", ""),
-                    "input": args,
-                })
+                content.append(
+                    {
+                        "type": "tool_use",
+                        "id": item.get("call_id", item.get("id", "")),
+                        "name": item.get("name", ""),
+                        "input": args,
+                    }
+                )
                 stop_reason = "tool_use"
         if not content:
             content.append({"type": "text", "text": ""})
@@ -743,7 +948,9 @@ class ToAnthropicConverter(BaseConverter):
             "usage": openai_response_to_anthropic(data.get("usage")),
         }
 
-    def _response_stream_chunk_to_anthropic(self, chunk: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    def _response_stream_chunk_to_anthropic(
+        self, chunk: dict[str, Any]
+    ) -> list[tuple[str, dict[str, Any]]]:
         if self._stream_state is None:
             self._reset_stream_state()
 
@@ -754,19 +961,22 @@ class ToAnthropicConverter(BaseConverter):
             resp = chunk.get("response", {})
             self._stream_state["started"] = True
             events.append(
-                ("message_start", {
-                    "type": "message_start",
-                    "message": {
-                        "id": f"msg_{resp.get('id', '')}",
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [],
-                        "model": resp.get("model", ""),
-                        "stop_reason": None,
-                        "stop_sequence": None,
-                        "usage": {"input_tokens": 0, "output_tokens": 0},
+                (
+                    "message_start",
+                    {
+                        "type": "message_start",
+                        "message": {
+                            "id": f"msg_{resp.get('id', '')}",
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [],
+                            "model": resp.get("model", ""),
+                            "stop_reason": None,
+                            "stop_sequence": None,
+                            "usage": {"input_tokens": 0, "output_tokens": 0},
+                        },
                     },
-                })
+                )
             )
 
         elif event_type == "response.output_item.added":
@@ -774,23 +984,32 @@ class ToAnthropicConverter(BaseConverter):
             if item.get("type") == "function_call":
                 if self._stream_state["content_block_started"]:
                     events.append(
-                        ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                        (
+                            "content_block_stop",
+                            {
+                                "type": "content_block_stop",
+                                "index": self._stream_state["content_block_index"],
+                            },
+                        )
                     )
                     self._stream_state["content_block_started"] = False
                     self._stream_state["content_block_index"] += 1
                 self._stream_state["current_content_type"] = "tool_use"
                 self._stream_state["content_block_started"] = True
                 events.append(
-                    ("content_block_start", {
-                        "type": "content_block_start",
-                        "index": self._stream_state["content_block_index"],
-                        "content_block": {
-                            "type": "tool_use",
-                            "id": item.get("call_id", item.get("id", "")),
-                            "name": item.get("name", ""),
-                            "input": {},
+                    (
+                        "content_block_start",
+                        {
+                            "type": "content_block_start",
+                            "index": self._stream_state["content_block_index"],
+                            "content_block": {
+                                "type": "tool_use",
+                                "id": item.get("call_id", item.get("id", "")),
+                                "name": item.get("name", ""),
+                                "input": {},
+                            },
                         },
-                    })
+                    )
                 )
             elif item.get("type") == "reasoning":
                 # OpenAI Response 的 reasoning output_item 对应 Anthropic 的 thinking 内容块。
@@ -799,48 +1018,80 @@ class ToAnthropicConverter(BaseConverter):
                 # 保证 thinking 文本至少能到达客户端（否则会被静默丢弃）。
                 if self._stream_state["content_block_started"]:
                     events.append(
-                        ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                        (
+                            "content_block_stop",
+                            {
+                                "type": "content_block_stop",
+                                "index": self._stream_state["content_block_index"],
+                            },
+                        )
                     )
                     self._stream_state["content_block_started"] = False
                     self._stream_state["content_block_index"] += 1
                 self._stream_state["current_content_type"] = "thinking"
                 self._stream_state["content_block_started"] = True
                 events.append(
-                    ("content_block_start", {
-                        "type": "content_block_start",
-                        "index": self._stream_state["content_block_index"],
-                        "content_block": {"type": "thinking", "thinking": "", "signature": ""},
-                    })
+                    (
+                        "content_block_start",
+                        {
+                            "type": "content_block_start",
+                            "index": self._stream_state["content_block_index"],
+                            "content_block": {
+                                "type": "thinking",
+                                "thinking": "",
+                                "signature": "",
+                            },
+                        },
+                    )
                 )
             elif item.get("type") == "message":
                 # 切换到 message 输出项：若上一项仍开启（如 reasoning），需关闭再开新块
                 if self._stream_state["content_block_started"]:
                     events.append(
-                        ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                        (
+                            "content_block_stop",
+                            {
+                                "type": "content_block_stop",
+                                "index": self._stream_state["content_block_index"],
+                            },
+                        )
                     )
                     self._stream_state["content_block_started"] = False
                     self._stream_state["content_block_index"] += 1
 
-        elif event_type in ("response.reasoning_summary_text.delta", "response.reasoning_text.delta"):
+        elif event_type in (
+            "response.reasoning_summary_text.delta",
+            "response.reasoning_text.delta",
+        ):
             text = chunk.get("delta", "")
             if not self._stream_state["content_block_started"]:
                 # 兜底：未收到 output_item.added 就直接 emit delta
                 self._stream_state["current_content_type"] = "thinking"
                 self._stream_state["content_block_started"] = True
                 events.append(
-                    ("content_block_start", {
-                        "type": "content_block_start",
-                        "index": self._stream_state["content_block_index"],
-                        "content_block": {"type": "thinking", "thinking": "", "signature": ""},
-                    })
+                    (
+                        "content_block_start",
+                        {
+                            "type": "content_block_start",
+                            "index": self._stream_state["content_block_index"],
+                            "content_block": {
+                                "type": "thinking",
+                                "thinking": "",
+                                "signature": "",
+                            },
+                        },
+                    )
                 )
             if text:
                 events.append(
-                    ("content_block_delta", {
-                        "type": "content_block_delta",
-                        "index": self._stream_state["content_block_index"],
-                        "delta": {"type": "thinking_delta", "thinking": text},
-                    })
+                    (
+                        "content_block_delta",
+                        {
+                            "type": "content_block_delta",
+                            "index": self._stream_state["content_block_index"],
+                            "delta": {"type": "thinking_delta", "thinking": text},
+                        },
+                    )
                 )
 
         elif event_type == "response.output_text.delta":
@@ -848,18 +1099,24 @@ class ToAnthropicConverter(BaseConverter):
                 self._stream_state["content_block_started"] = True
                 self._stream_state["current_content_type"] = "text"
                 events.append(
-                    ("content_block_start", {
-                        "type": "content_block_start",
-                        "index": self._stream_state["content_block_index"],
-                        "content_block": {"type": "text", "text": ""},
-                    })
+                    (
+                        "content_block_start",
+                        {
+                            "type": "content_block_start",
+                            "index": self._stream_state["content_block_index"],
+                            "content_block": {"type": "text", "text": ""},
+                        },
+                    )
                 )
             events.append(
-                ("content_block_delta", {
-                    "type": "content_block_delta",
-                    "index": self._stream_state["content_block_index"],
-                    "delta": {"type": "text_delta", "text": chunk.get("delta", "")},
-                })
+                (
+                    "content_block_delta",
+                    {
+                        "type": "content_block_delta",
+                        "index": self._stream_state["content_block_index"],
+                        "delta": {"type": "text_delta", "text": chunk.get("delta", "")},
+                    },
+                )
             )
 
         elif event_type == "response.function_call_arguments.delta":
@@ -868,17 +1125,26 @@ class ToAnthropicConverter(BaseConverter):
             args = chunk.get("delta", "")
             if args:
                 events.append(
-                    ("content_block_delta", {
-                        "type": "content_block_delta",
-                        "index": self._stream_state["content_block_index"],
-                        "delta": {"type": "input_json_delta", "partial_json": args},
-                    })
+                    (
+                        "content_block_delta",
+                        {
+                            "type": "content_block_delta",
+                            "index": self._stream_state["content_block_index"],
+                            "delta": {"type": "input_json_delta", "partial_json": args},
+                        },
+                    )
                 )
 
         elif event_type == "response.output_item.done":
             if self._stream_state["content_block_started"]:
                 events.append(
-                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                    (
+                        "content_block_stop",
+                        {
+                            "type": "content_block_stop",
+                            "index": self._stream_state["content_block_index"],
+                        },
+                    )
                 )
                 self._stream_state["content_block_started"] = False
                 self._stream_state["content_block_index"] += 1
@@ -887,7 +1153,13 @@ class ToAnthropicConverter(BaseConverter):
             resp = chunk.get("response", {})
             if self._stream_state["content_block_started"]:
                 events.append(
-                    ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                    (
+                        "content_block_stop",
+                        {
+                            "type": "content_block_stop",
+                            "index": self._stream_state["content_block_index"],
+                        },
+                    )
                 )
                 self._stream_state["content_block_started"] = False
             stop_reason = "end_turn"
@@ -902,11 +1174,14 @@ class ToAnthropicConverter(BaseConverter):
             resp_usage = resp.get("usage") or {}
             usage_output = resp_usage.get("output_tokens", 0)
             events.append(
-                ("message_delta", {
-                    "type": "message_delta",
-                    "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                    "usage": {"output_tokens": usage_output},
-                })
+                (
+                    "message_delta",
+                    {
+                        "type": "message_delta",
+                        "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+                        "usage": {"output_tokens": usage_output},
+                    },
+                )
             )
             events.append(("message_stop", {"type": "message_stop"}))
             self._stream_state["message_stop_sent"] = True
@@ -915,21 +1190,27 @@ class ToAnthropicConverter(BaseConverter):
 
     # --- 公共接口 ---
 
-    def convert_request(self, source_data: dict[str, Any], source_type: str = "") -> dict[str, Any]:
+    def convert_request(
+        self, source_data: dict[str, Any], source_type: str = ""
+    ) -> dict[str, Any]:
         if source_type == "openai-chat-completions":
             return self._chat_request_to_anthropic(source_data)
         elif source_type == "openai-response":
             return self._response_request_to_anthropic(source_data)
         raise ValueError(f"ToAnthropicConverter 不支持 source_type={source_type!r}")
 
-    def convert_response(self, target_response: dict[str, Any], source_type: str = "") -> dict[str, Any]:
+    def convert_response(
+        self, target_response: dict[str, Any], source_type: str = ""
+    ) -> dict[str, Any]:
         if source_type == "openai-chat-completions":
             return self._chat_response_to_anthropic(target_response)
         elif source_type == "openai-response":
             return self._response_response_to_anthropic(target_response)
         raise ValueError(f"ToAnthropicConverter 不支持 source_type={source_type!r}")
 
-    def convert_stream_chunk(self, chunk: dict[str, Any], source_type: str = "") -> dict[str, Any] | None:
+    def convert_stream_chunk(
+        self, chunk: dict[str, Any], source_type: str = ""
+    ) -> dict[str, Any] | None:
         if source_type == "openai-chat-completions":
             events = self._chat_stream_chunk_to_anthropic(chunk)
         elif source_type == "openai-response":
@@ -948,16 +1229,22 @@ class ToAnthropicConverter(BaseConverter):
             self._pending_extra_events = []
         return result
 
-    def get_stream_event_type(self, chunk: dict[str, Any], source_type: str = "") -> str | None:
+    def get_stream_event_type(
+        self, chunk: dict[str, Any], source_type: str = ""
+    ) -> str | None:
         return getattr(self, "_last_event_type", None)
 
-    def get_extra_events(self, chunk: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    def get_extra_events(
+        self, chunk: dict[str, Any]
+    ) -> list[tuple[str, dict[str, Any]]]:
         # 从实例变量获取额外事件，而不是从 chunk 字典中
         events = getattr(self, "_pending_extra_events", [])
         self._pending_extra_events = []  # 清空，避免重复发送
         return events
 
-    def finalize_stream(self, source_type: str = "") -> list[tuple[str, dict[str, Any]]]:
+    def finalize_stream(
+        self, source_type: str = ""
+    ) -> list[tuple[str, dict[str, Any]]]:
         """流末（[DONE]）补出 pending finish_reason 对应的 message_stop。
 
         finish_reason chunk 不一定带 usage（DeepSeek/Qwen 等会在之后单独发 usage chunk），
@@ -977,14 +1264,23 @@ class ToAnthropicConverter(BaseConverter):
         if self._stream_state.get("content_block_started"):
             if self._stream_state.get("current_content_type") == "thinking":
                 events.append(
-                    ("content_block_delta", {
-                        "type": "content_block_delta",
-                        "index": self._stream_state["content_block_index"],
-                        "delta": {"type": "signature_delta", "signature": ""},
-                    })
+                    (
+                        "content_block_delta",
+                        {
+                            "type": "content_block_delta",
+                            "index": self._stream_state["content_block_index"],
+                            "delta": {"type": "signature_delta", "signature": ""},
+                        },
+                    )
                 )
             events.append(
-                ("content_block_stop", {"type": "content_block_stop", "index": self._stream_state["content_block_index"]})
+                (
+                    "content_block_stop",
+                    {
+                        "type": "content_block_stop",
+                        "index": self._stream_state["content_block_index"],
+                    },
+                )
             )
             self._stream_state["content_block_started"] = False
         if self._stream_state.get("pending_finish_reason") is not None:

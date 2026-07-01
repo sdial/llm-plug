@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Simple server to serve the session viewer with access to logs."""
+
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -96,7 +97,9 @@ def main(port=8080):
     logger.info(f"BASE_DIR: {BASE_DIR}")
     logger.info(f"STATIC_DIR: {STATIC_DIR}")
     logger.info(f"LOGS_DIR: {LOGS_DIR}")
-    logger.info(f"Session Viewer running at http://localhost:{port}/session-viewer.html")
+    logger.info(
+        f"Session Viewer running at http://localhost:{port}/session-viewer.html"
+    )
     logger.info("Press Ctrl+C to stop")
 
     # 仅绑定 loopback：viewer 无认证，任何能访问该端口的人都能读到 logs/ 下的会话记录。
@@ -110,5 +113,6 @@ def main(port=8080):
 
 if __name__ == "__main__":
     import sys
+
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     main(port)

@@ -112,14 +112,16 @@ def test_get_response_does_not_read_outside_data_dir(tmp_path):
     sensitive_path = tmp_path / "sensitive.json"
     future = int(time.time()) + 3600
     sensitive_path.write_text(
-        json.dumps({
-            "response_id": "../sensitive",
-            "response": {"secret": "leaked"},
-            "conversation": {},
-            "created_at": int(time.time()),
-            "expires_at": future,
-            "last_access_at": int(time.time()),
-        }),
+        json.dumps(
+            {
+                "response_id": "../sensitive",
+                "response": {"secret": "leaked"},
+                "conversation": {},
+                "created_at": int(time.time()),
+                "expires_at": future,
+                "last_access_at": int(time.time()),
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -136,14 +138,16 @@ def test_get_conversation_does_not_read_outside_data_dir(tmp_path):
     sensitive_path = tmp_path / "conversation.json"
     future = int(time.time()) + 3600
     sensitive_path.write_text(
-        json.dumps({
-            "response_id": "../conversation",
-            "response": {},
-            "conversation": {"messages": ["secret"]},
-            "created_at": int(time.time()),
-            "expires_at": future,
-            "last_access_at": int(time.time()),
-        }),
+        json.dumps(
+            {
+                "response_id": "../conversation",
+                "response": {},
+                "conversation": {"messages": ["secret"]},
+                "created_at": int(time.time()),
+                "expires_at": future,
+                "last_access_at": int(time.time()),
+            }
+        ),
         encoding="utf-8",
     )
 

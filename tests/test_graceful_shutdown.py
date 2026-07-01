@@ -23,8 +23,8 @@ from models.channel import Channel
 #  Lifespan 关闭清理
 # ═══════════════════════════════════════════
 
-class TestLifespanShutdown:
 
+class TestLifespanShutdown:
     def test_shutdown_cancels_cleanup_tasks(self, tmp_path, monkeypatch):
         """lifespan 退出时应取消 client cleanup、session cleanup、request log cleanup 后台任务"""
         data_dir = tmp_path / "data"
@@ -50,14 +50,16 @@ class TestLifespanShutdown:
 
         from main import app
 
-        with patch("main.close_all_clients") as mock_close, \
-             patch("main.stop_stats_workers") as mock_stop_stats, \
-             patch("main.close_stats_pool") as mock_close_pool, \
-             patch("main.request_logs.close_backend") as mock_close_rl, \
-             patch("main.request_logs.start_request_log_workers"), \
-             patch("main.start_stats_workers"), \
-             patch("main.init_stats_db"), \
-             patch("main.request_logs.init_backend"):
+        with (
+            patch("main.close_all_clients") as mock_close,
+            patch("main.stop_stats_workers") as mock_stop_stats,
+            patch("main.close_stats_pool") as mock_close_pool,
+            patch("main.request_logs.close_backend") as mock_close_rl,
+            patch("main.request_logs.start_request_log_workers"),
+            patch("main.start_stats_workers"),
+            patch("main.init_stats_db"),
+            patch("main.request_logs.init_backend"),
+        ):
 
             async def run():
                 async with app.router.lifespan_context(app):
@@ -84,8 +86,8 @@ class TestLifespanShutdown:
 #  Stats Workers 关闭时处理队列
 # ═══════════════════════════════════════════
 
-class TestStatsWorkersShutdown:
 
+class TestStatsWorkersShutdown:
     @pytest.mark.asyncio
     async def test_stop_waits_for_pending_records(self, tmp_path, monkeypatch):
         """stop_stats_workers + drain_queue 应确保所有排队记录被写入"""
@@ -120,6 +122,7 @@ class TestStatsWorkersShutdown:
 
         # 验证记录已写入数据库
         import sqlite3
+
         with sqlite3.connect(db_path) as conn:
             count = conn.execute("SELECT COUNT(*) FROM request_stats_raw").fetchone()[0]
             assert count == 50, f"Expected 50 records, got {count}"
@@ -138,8 +141,8 @@ class TestStatsWorkersShutdown:
 #  Request Log Workers 关闭
 # ═══════════════════════════════════════════
 
-class TestRequestLogWorkersShutdown:
 
+class TestRequestLogWorkersShutdown:
     @pytest.mark.asyncio
     async def test_stop_waits_for_pending_logs(self, tmp_path, monkeypatch):
         """wait_for_queue + stop 应确保所有排队记录被写入"""
@@ -193,8 +196,8 @@ class TestRequestLogWorkersShutdown:
 #  客户端池关闭
 # ═══════════════════════════════════════════
 
-class TestClientPoolShutdown:
 
+class TestClientPoolShutdown:
     @pytest.mark.asyncio
     async def test_close_all_clients_clears_cache(self):
         """close_all_clients 后缓存应为空"""
@@ -238,8 +241,8 @@ class TestClientPoolShutdown:
 #  后台任务取消安全性
 # ═══════════════════════════════════════════
 
-class TestBackgroundTaskCancellation:
 
+class TestBackgroundTaskCancellation:
     @pytest.mark.asyncio
     async def test_session_cleanup_task_handles_cancellation(self):
         """session cleanup 后台任务被取消时不应抛出未处理异常"""
@@ -289,8 +292,8 @@ class TestBackgroundTaskCancellation:
 #  队列溢出保护（关闭时）
 # ═══════════════════════════════════════════
 
-class TestQueueOverflowDuringShutdown:
 
+class TestQueueOverflowDuringShutdown:
     @pytest.mark.asyncio
     async def test_stats_queue_overflow_spills_to_file(self, tmp_path, monkeypatch):
         """队列满时溢出的记录应被写入文件而非丢失"""
@@ -327,12 +330,17 @@ class TestQueueOverflowDuringShutdown:
         overflow_file = tmp_path / "stats_overflow.jsonl"
         db_count = 0
         import sqlite3
+
         with sqlite3.connect(db_path) as conn:
-            db_count = conn.execute("SELECT COUNT(*) FROM request_stats_raw").fetchone()[0]
+            db_count = conn.execute(
+                "SELECT COUNT(*) FROM request_stats_raw"
+            ).fetchone()[0]
 
         overflow_count = 0
         if overflow_file.exists():
             overflow_count = len(overflow_file.read_text().strip().split("\n"))
 
         total = db_count + overflow_count
-        assert total == 20, f"Expected 20 total records (db={db_count}, overflow={overflow_count})"
+        assert total == 20, (
+            f"Expected 20 total records (db={db_count}, overflow={overflow_count})"
+        )

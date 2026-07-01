@@ -25,7 +25,10 @@ from routers.proxy_errors import (
 
 # ─── helpers ───
 
-def _make_mock_response(content: bytes = b"error body", status_code: int = 500, encoding: str = "utf-8"):
+
+def _make_mock_response(
+    content: bytes = b"error body", status_code: int = 500, encoding: str = "utf-8"
+):
     resp = MagicMock(spec=httpx.Response)
     resp.status_code = status_code
     type(resp).content = PropertyMock(return_value=content)
@@ -64,8 +67,8 @@ def _make_stream_consumed():
 #  safe_httpx_response_content
 # ═══════════════════════════════════════════
 
-class TestSafeHttpxResponseContent:
 
+class TestSafeHttpxResponseContent:
     def test_normal_response(self):
         resp = _make_mock_response(b"hello")
         assert safe_httpx_response_content(resp) == b"hello"
@@ -91,8 +94,8 @@ class TestSafeHttpxResponseContent:
 #  safe_httpx_response_text
 # ═══════════════════════════════════════════
 
-class TestSafeHttpxResponseText:
 
+class TestSafeHttpxResponseText:
     def test_normal_response_decoded(self):
         resp = _make_mock_response(b"hello world")
         assert safe_httpx_response_text(resp) == "hello world"
@@ -115,8 +118,8 @@ class TestSafeHttpxResponseText:
 #  upstream_http_error_message
 # ═══════════════════════════════════════════
 
-class TestUpstreamHttpErrorMessage:
 
+class TestUpstreamHttpErrorMessage:
     def _make_http_status_error(self, body: str, status_code: int = 502):
         resp = _make_mock_response(body.encode("utf-8"), status_code)
         req = MagicMock(spec=httpx.Request)
@@ -151,8 +154,8 @@ class TestUpstreamHttpErrorMessage:
 #  Anthropic 格式错误构建器
 # ═══════════════════════════════════════════
 
-class TestAnthropicErrorBuilders:
 
+class TestAnthropicErrorBuilders:
     def test_anthropic_error_structure(self):
         resp = anthropic_error(400, "test_error", "test message")
         assert resp.status_code == 400
@@ -213,8 +216,8 @@ class TestAnthropicErrorBuilders:
 #  OpenAI 格式错误构建器
 # ═══════════════════════════════════════════
 
-class TestOpenAIErrorBuilders:
 
+class TestOpenAIErrorBuilders:
     def test_unauthorized(self):
         resp = unauthorized()
         assert resp.status_code == 401

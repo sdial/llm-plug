@@ -70,9 +70,13 @@ async def lifespan(app):
     channels_data = await load_data()
     keys_data = await load_api_keys()
     channel_count = len(channels_data.get("channels", []))
-    model_count = len({m for ch in channels_data.get("channels", []) for m in ch.get("models", [])})
+    model_count = len(
+        {m for ch in channels_data.get("channels", []) for m in ch.get("models", [])}
+    )
     key_count = len(keys_data.get("api_keys", []))
-    logger.info(f"就绪: {channel_count} 个渠道, {model_count} 个模型, {key_count} 个 API Key")
+    logger.info(
+        f"就绪: {channel_count} 个渠道, {model_count} 个模型, {key_count} 个 API Key"
+    )
     await init_stats_db()
     await request_logs.init_backend()
     start_stats_workers()
@@ -113,6 +117,7 @@ async def lifespan(app):
         await close_stats_pool()
         await request_logs.close_backend()
         await close_all_clients()
+
 
 _DATA_DIR = Path(__file__).parent / "data"
 _whitelist_cache = _whitelist.WhitelistCache(str(_DATA_DIR / "whitelist.csv"))
@@ -203,13 +208,18 @@ class CombinedMiddleware:
         # IP 白名单检查（对所有 HTTP 请求生效）
         client_ip = (scope.get("client") or ("", 0))[0]
         _wl_rules = _whitelist_cache.get_rules()
-        _wl_allowed, _wl_reason = _whitelist.check_request(_wl_rules, path, method, client_ip)
+        _wl_allowed, _wl_reason = _whitelist.check_request(
+            _wl_rules, path, method, client_ip
+        )
         if not _wl_allowed:
-            await self._send_error(send, 403, _wl_reason, "ip_whitelist_error", path=path)
+            await self._send_error(
+                send, 403, _wl_reason, "ip_whitelist_error", path=path
+            )
             return
 
         if path in ("/admin", "/admin/"):
             from admin_auth import get_session_cookie_name, validate_admin_session
+
             session_cookie = None
             for key, value in scope.get("headers", []):
                 if key.lower() == b"cookie":
@@ -230,6 +240,7 @@ class CombinedMiddleware:
             and not path.startswith("/admin/static/")
         ):
             from admin_auth import get_session_cookie_name, validate_admin_session
+
             session_cookie = None
             for key, value in scope.get("headers", []):
                 if key.lower() == b"cookie":
@@ -256,14 +267,29 @@ class CombinedMiddleware:
         start = time.time()
         ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         query = scope.get("query_string", b"").decode()
-        headers_dict = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+        headers_dict = {
+            k.decode().lower(): v.decode() for k, v in scope.get("headers", [])
+        }
 
         content_length = headers_dict.get("content-length")
         if content_length:
             try:
                 if int(content_length) > config.MAX_BODY_SIZE:
-                    await self._send_error(send, 413, "Request body too large", path=path)
-                    self._log_request(ts_start, method, path, original_path, query, "", False, "", 413, start)
+                    await self._send_error(
+                        send, 413, "Request body too large", path=path
+                    )
+                    self._log_request(
+                        ts_start,
+                        method,
+                        path,
+                        original_path,
+                        query,
+                        "",
+                        False,
+                        "",
+                        413,
+                        start,
+                    )
                     return
             except ValueError:
                 pass
@@ -279,7 +305,18 @@ class CombinedMiddleware:
             total_size += len(chunk)
             if total_size > config.MAX_BODY_SIZE:
                 await self._send_error(send, 413, "Request body too large", path=path)
-                self._log_request(ts_start, method, path, original_path, query, "", False, "", 413, start)
+                self._log_request(
+                    ts_start,
+                    method,
+                    path,
+                    original_path,
+                    query,
+                    "",
+                    False,
+                    "",
+                    413,
+                    start,
+                )
                 return
             more_body = message.get("more_body", False)
         body_bytes = b"".join(body_parts)
@@ -310,29 +347,73 @@ class CombinedMiddleware:
             x_api_key = headers_dict.get("x-api-key", "")
 
             if auth_header.startswith("Bearer "):
-                token = auth_header[len("Bearer "):]
+                token = auth_header[len("Bearer ") :]
             elif x_api_key:
                 token = x_api_key
             else:
-                await self._send_error(send, 401, "Missing or invalid Authorization header", path=path)
-                self._log_request(ts_start, method, path, original_path, query, model, stream, "", 401, start)
+                await self._send_error(
+                    send, 401, "Missing or invalid Authorization header", path=path
+                )
+                self._log_request(
+                    ts_start,
+                    method,
+                    path,
+                    original_path,
+                    query,
+                    model,
+                    stream,
+                    "",
+                    401,
+                    start,
+                )
                 return
 
             matched_key = api_key_index.get(token)
-            if matched_key is not None and not secrets.compare_digest(matched_key.get("key") or "", token):
+            if matched_key is not None and not secrets.compare_digest(
+                matched_key.get("key") or "", token
+            ):
                 matched_key = None
 
             if matched_key is None:
                 await self._send_error(send, 401, "Invalid API key", path=path)
-                self._log_request(ts_start, method, path, original_path, query, model, stream, "", 401, start)
+                self._log_request(
+                    ts_start,
+                    method,
+                    path,
+                    original_path,
+                    query,
+                    model,
+                    stream,
+                    "",
+                    401,
+                    start,
+                )
                 return
 
-            scope["state"]["api_key_id"] = matched_key.get("name") or matched_key.get("id")
+            scope["state"]["api_key_id"] = matched_key.get("name") or matched_key.get(
+                "id"
+            )
 
             allowed_models = matched_key.get("allowed_models", [])
             if allowed_models and model and model not in allowed_models:
-                await self._send_error(send, 403, f"Model '{model}' is not allowed for this API key", path=path)
-                self._log_request(ts_start, method, path, original_path, query, model, stream, "", 403, start)
+                await self._send_error(
+                    send,
+                    403,
+                    f"Model '{model}' is not allowed for this API key",
+                    path=path,
+                )
+                self._log_request(
+                    ts_start,
+                    method,
+                    path,
+                    original_path,
+                    query,
+                    model,
+                    stream,
+                    "",
+                    403,
+                    start,
+                )
                 return
 
         scope["state"]["proxy_auth_checked"] = True
@@ -366,18 +447,44 @@ class CombinedMiddleware:
         finally:
             state = scope.get("state", {})
             channel = state.get("selected_channel_name", "")
-            self._log_request(ts_start, method, path, original_path, query, model, stream, channel, response_status or 500, start)
+            self._log_request(
+                ts_start,
+                method,
+                path,
+                original_path,
+                query,
+                model,
+                stream,
+                channel,
+                response_status or 500,
+                start,
+            )
 
-    def _log_request(self, ts_start: str, method: str, path: str, original_path: str, query: str,
-                     model: str, stream: bool, channel: str, status: int, start: float) -> None:
+    def _log_request(
+        self,
+        ts_start: str,
+        method: str,
+        path: str,
+        original_path: str,
+        query: str,
+        model: str,
+        stream: bool,
+        channel: str,
+        status: int,
+        start: float,
+    ) -> None:
         qs = f"?{query}" if query else ""
         channel_tag = f" channel={channel}" if channel else ""
         original_tag = f" original={original_path}" if original_path != path else ""
         ts_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         tag = "OK" if status < 400 else "ERR"
         elapsed = time.time() - start
-        logger.info(f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}{original_tag}")
-        logger.info(f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s){original_tag}")
+        logger.info(
+            f"[{ts_start}] [REQ]  {method} {path}{qs} model={model} stream={stream}{channel_tag}{original_tag}"
+        )
+        logger.info(
+            f"[{ts_end}] [RES]  {method} {path}{qs} -> {status} {tag} ({elapsed:.2f}s){original_tag}"
+        )
 
     async def _send_error(
         self,
@@ -392,32 +499,44 @@ class CombinedMiddleware:
                 "auth_error": "authentication_error",
                 "ip_whitelist_error": "permission_error",
             }.get(error_type, "api_error")
-            error_body = json.dumps({
-                "type": "error",
-                "error": {"type": anthropic_type, "message": message},
-            }).encode()
+            error_body = json.dumps(
+                {
+                    "type": "error",
+                    "error": {"type": anthropic_type, "message": message},
+                }
+            ).encode()
         else:
-            error_body = json.dumps({"error": {"message": message, "type": error_type}}).encode()
-        await send({
-            "type": "http.response.start",
-            "status": status,
-            "headers": [[b"content-type", b"application/json"]],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": error_body,
-        })
+            error_body = json.dumps(
+                {"error": {"message": message, "type": error_type}}
+            ).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [[b"content-type", b"application/json"]],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": error_body,
+            }
+        )
 
     async def _send_redirect(self, send: Send, location: str) -> None:
-        await send({
-            "type": "http.response.start",
-            "status": 302,
-            "headers": [[b"location", location.encode("utf-8")]],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"",
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 302,
+                "headers": [[b"location", location.encode("utf-8")]],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"",
+            }
+        )
 
 
 app = FastAPI(title="LLM API 转换器", version="0.1.0", lifespan=lifespan)
@@ -485,13 +604,21 @@ if __name__ == "__main__":
     import uvicorn
 
     parser = argparse.ArgumentParser(description="LLM API 转换器")
-    parser.add_argument("--log-level", default="info", choices=["debug", "info", "warning", "error"],
-                        help="日志级别 (默认: info)")
-    parser.add_argument("--no-reload", action="store_true",
-                        help="禁用热重载（避免 Windows 下进程退出后端口未释放的问题）")
+    parser.add_argument(
+        "--log-level",
+        default="info",
+        choices=["debug", "info", "warning", "error"],
+        help="日志级别 (默认: info)",
+    )
+    parser.add_argument(
+        "--no-reload",
+        action="store_true",
+        help="禁用热重载（避免 Windows 下进程退出后端口未释放的问题）",
+    )
     args = parser.parse_args()
 
     import config as _config
+
     _config.LOG_LEVEL = args.log_level
     log_config = {
         "version": 1,
@@ -505,7 +632,7 @@ if __name__ == "__main__":
             },
             "access": {
                 "()": "uvicorn.logging.AccessFormatter",
-                "fmt": "[%(asctime)s] %(levelprefix)s %(client_addr)s - \"%(request_line)s\" %(status_code)s",
+                "fmt": '[%(asctime)s] %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
                 "datefmt": "%Y-%m-%d %H:%M:%S",
                 "use_colors": True,
             },
@@ -524,8 +651,16 @@ if __name__ == "__main__":
         },
         "loggers": {
             "uvicorn": {"handlers": ["default"], "level": args.log_level.upper()},
-            "uvicorn.error": {"handlers": ["default"], "level": args.log_level.upper(), "propagate": False},
-            "uvicorn.access": {"handlers": ["access"], "level": args.log_level.upper(), "propagate": False},
+            "uvicorn.error": {
+                "handlers": ["default"],
+                "level": args.log_level.upper(),
+                "propagate": False,
+            },
+            "uvicorn.access": {
+                "handlers": ["access"],
+                "level": args.log_level.upper(),
+                "propagate": False,
+            },
         },
     }
 
@@ -536,7 +671,9 @@ if __name__ == "__main__":
         _sock.bind((HOST, PORT))
         _sock.listen(1024)
 
-        config = uvicorn.Config("main:app", log_level=args.log_level, log_config=log_config)
+        config = uvicorn.Config(
+            "main:app", log_level=args.log_level, log_config=log_config
+        )
         server = uvicorn.Server(config)
 
         def _shutdown_handler(sig, frame):
@@ -548,7 +685,13 @@ if __name__ == "__main__":
         server.run(sockets=[_sock])
     else:
         # 热重载模式：注意 Windows 下 Ctrl+C 后端口可能短暂占用
-        uvicorn.run("main:app", host=HOST, port=PORT, reload=True,
-        log_level=args.log_level, log_config=log_config, http="httptools", loop="auto")
-
-
+        uvicorn.run(
+            "main:app",
+            host=HOST,
+            port=PORT,
+            reload=True,
+            log_level=args.log_level,
+            log_config=log_config,
+            http="httptools",
+            loop="auto",
+        )

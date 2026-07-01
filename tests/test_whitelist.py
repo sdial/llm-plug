@@ -7,6 +7,7 @@ import whitelist as wl
 
 # ─── load_rules ───
 
+
 def test_load_rules_file_not_found():
     assert wl.load_rules("/nonexistent/whitelist.csv") == []
 
@@ -31,12 +32,15 @@ def test_load_rules_skips_header(tmp_path):
 
 def test_load_rules_parses_wildcard_method(tmp_path):
     f = tmp_path / "whitelist.csv"
-    f.write_text("path_pattern,methods,ip_cidr,description\n/admin/*,*,10.0.0.0/8,内网\n", encoding="utf-8")
+    f.write_text(
+        "path_pattern,methods,ip_cidr,description\n/admin/*,*,10.0.0.0/8,内网\n",
+        encoding="utf-8",
+    )
     rules = wl.load_rules(str(f))
     assert len(rules) == 1
     r = rules[0]
     assert r.path_pattern == "/admin/*"
-    assert r.methods == frozenset()          # * → empty set means all
+    assert r.methods == frozenset()  # * → empty set means all
     assert str(r.network) == "10.0.0.0/8"
     assert r.description == "内网"
 
@@ -71,6 +75,7 @@ def test_load_rules_multiple_with_comments(tmp_path):
 
 # ─── check_request ───
 
+
 def _make_rules():
     return [
         wl.WhitelistRule(
@@ -99,7 +104,9 @@ def test_check_path_not_matched_allows():
 
 
 def test_check_ip_not_in_cidr_returns_403():
-    ok, reason = wl.check_request(_make_rules(), "/admin/channels", "GET", "192.168.1.1")
+    ok, reason = wl.check_request(
+        _make_rules(), "/admin/channels", "GET", "192.168.1.1"
+    )
     assert ok is False
     assert "IP 白名单" in reason
 
@@ -110,7 +117,9 @@ def test_check_ip_in_cidr_allowed():
 
 
 def test_check_method_not_allowed_returns_403():
-    ok, reason = wl.check_request(_make_rules(), "/admin/stats", "DELETE", "203.0.113.5")
+    ok, reason = wl.check_request(
+        _make_rules(), "/admin/stats", "DELETE", "203.0.113.5"
+    )
     assert ok is False
     assert "DELETE" in reason
 
@@ -150,6 +159,7 @@ def test_ipv4_mapped_ipv6_does_not_match_ipv4_network():
 
 
 # ─── validate_rules_text ───
+
 
 def test_validate_empty_text():
     ok, _, rules = wl.validate_rules_text("")
@@ -193,10 +203,11 @@ def test_validate_line_number_with_preceding_comments():
     text = "# comment 1\n# comment 2\n\n/admin/*,*,10.0.0.0/8\n"
     ok, err, _ = wl.validate_rules_text(text)
     assert ok is False
-    assert "第 4 行" in err   # actual line 4 in the file
+    assert "第 4 行" in err  # actual line 4 in the file
 
 
 # ─── WhitelistCache ───
+
 
 def test_cache_missing_file():
     cache = wl.WhitelistCache("/nonexistent/whitelist.csv")
@@ -226,4 +237,4 @@ def test_cache_no_reload_if_mtime_unchanged(tmp_path):
     cache = wl.WhitelistCache(str(f))
     rules1 = cache.get_rules()
     rules2 = cache.get_rules()
-    assert rules1 is rules2   # same list object = no reload
+    assert rules1 is rules2  # same list object = no reload
