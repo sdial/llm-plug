@@ -134,7 +134,8 @@ class TestResponseToAnthropic:
 
         # 找到包含 tool_result 的 user 消息
         user_with_tool_result = [
-            m for m in messages
+            m
+            for m in messages
             if m["role"] == "user"
             and isinstance(m.get("content"), list)
             and any(c.get("type") == "tool_result" for c in m["content"])
@@ -147,7 +148,8 @@ class TestResponseToAnthropic:
 
         # 合并后的消息应包含 2 个 tool_result 块
         tool_results = [
-            c for c in user_with_tool_result[0]["content"]
+            c
+            for c in user_with_tool_result[0]["content"]
             if c.get("type") == "tool_result"
         ]
         assert len(tool_results) == 2

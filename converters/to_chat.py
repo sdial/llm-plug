@@ -1,6 +1,7 @@
 """
 将其他格式转换为 OpenAI Chat Completions 格式
 """
+
 import json
 import time
 from typing import Any
@@ -54,7 +55,7 @@ class ToChatCompletionsConverter(BaseConverter):
             "model": "",
             "tool_call_index": 0,
             "content_block_to_tc_index": {},  # Anthropic content block index → OpenAI tool_call index
-            "output_index_to_tc_index": {},   # Response output_index → OpenAI tool_call index
+            "output_index_to_tc_index": {},  # Response output_index → OpenAI tool_call index
             "anthropic_usage": {},  # 累积 Anthropic 侧 usage
         }
 
@@ -82,7 +83,9 @@ class ToChatCompletionsConverter(BaseConverter):
                         src_type = src.get("type", "")
                         if src_type == "base64":
                             media_type = src.get("media_type", "image/*")
-                            text_parts.append(f"[Image: {media_type} (base64, omitted in tool message)]")
+                            text_parts.append(
+                                f"[Image: {media_type} (base64, omitted in tool message)]"
+                            )
                         elif src_type == "url":
                             url = src.get("url", "")
                             text_parts.append(f"[Image: {url}]")
@@ -121,7 +124,9 @@ class ToChatCompletionsConverter(BaseConverter):
                     elif isinstance(part, str):
                         text_parts.append(part)
                 if text_parts:
-                    messages.append({"role": "system", "content": "\n".join(text_parts)})
+                    messages.append(
+                        {"role": "system", "content": "\n".join(text_parts)}
+                    )
 
         for msg in data.get("messages", []):
             role = msg["role"]
@@ -140,27 +145,33 @@ class ToChatCompletionsConverter(BaseConverter):
                     elif part.get("type") == "image":
                         source = part.get("source", {})
                         if source.get("type") == "base64":
-                            image_parts.append({
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{source.get('media_type', 'image/png')};base64,{source['data']}"
+                            image_parts.append(
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:{source.get('media_type', 'image/png')};base64,{source['data']}"
+                                    },
                                 }
-                            })
+                            )
                         elif source.get("type") == "url":
-                            image_parts.append({
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": source.get("url", "")
+                            image_parts.append(
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": source.get("url", "")},
                                 }
-                            })
+                            )
                     elif part.get("type") == "document":
                         # Anthropic document -> 转为文本标记
                         doc_source = part.get("source", {})
                         if doc_source.get("type") == "base64":
                             # 将 document 标记为文本，保留类型信息
-                            text_parts.append(f"[DOCUMENT: {doc_source.get('media_type', 'application/pdf')}]")
+                            text_parts.append(
+                                f"[DOCUMENT: {doc_source.get('media_type', 'application/pdf')}]"
+                            )
                         elif doc_source.get("type") == "url":
-                            text_parts.append(f"[DOCUMENT URL: {doc_source.get('url', '')}]")
+                            text_parts.append(
+                                f"[DOCUMENT URL: {doc_source.get('url', '')}]"
+                            )
                         elif doc_source.get("type") == "content":
                             # 直接内容
                             doc_content = doc_source.get("content", "")
@@ -178,16 +189,22 @@ class ToChatCompletionsConverter(BaseConverter):
                         elif isinstance(search_content, list):
                             for sc in search_content:
                                 if isinstance(sc, dict) and sc.get("type") == "text":
-                                    text_parts.append(f"[SEARCH_RESULT] {sc.get('text', '')}")
+                                    text_parts.append(
+                                        f"[SEARCH_RESULT] {sc.get('text', '')}"
+                                    )
                     elif part.get("type") == "tool_use":
-                        tool_calls.append({
-                            "id": part.get("id", ""),
-                            "type": "function",
-                            "function": {
-                                "name": part.get("name", ""),
-                                "arguments": self._serialize_tool_arguments(part.get("input", {})),
+                        tool_calls.append(
+                            {
+                                "id": part.get("id", ""),
+                                "type": "function",
+                                "function": {
+                                    "name": part.get("name", ""),
+                                    "arguments": self._serialize_tool_arguments(
+                                        part.get("input", {})
+                                    ),
+                                },
                             }
-                        })
+                        )
                     elif part.get("type") == "tool_result":
                         tool_result_parts.append(part)
                     elif part.get("type") == "thinking":
@@ -197,14 +214,19 @@ class ToChatCompletionsConverter(BaseConverter):
                         if "text" in part:
                             text_parts.append(part["text"])
                         else:
-                            logger.debug("Unknown Anthropic content block type: %s", part.get("type"))
+                            logger.debug(
+                                "Unknown Anthropic content block type: %s",
+                                part.get("type"),
+                            )
 
                 if role == "assistant":
                     assistant_msg = {"role": "assistant"}
                     if image_parts:
                         assistant_content = []
                         if text_parts:
-                            assistant_content.append({"type": "text", "text": "\n".join(text_parts)})
+                            assistant_content.append(
+                                {"type": "text", "text": "\n".join(text_parts)}
+                            )
                         assistant_content.extend(image_parts)
                         assistant_msg["content"] = assistant_content
                     elif text_parts:
@@ -227,7 +249,9 @@ class ToChatCompletionsConverter(BaseConverter):
                     user_parts.extend(image_parts)
                     if user_parts:
                         if len(user_parts) == 1 and user_parts[0].get("type") == "text":
-                            messages.append({"role": "user", "content": user_parts[0]["text"]})
+                            messages.append(
+                                {"role": "user", "content": user_parts[0]["text"]}
+                            )
                         else:
                             messages.append({"role": "user", "content": user_parts})
                 elif role == "tool" and tool_result_parts:
@@ -262,7 +286,10 @@ class ToChatCompletionsConverter(BaseConverter):
                 elif tc.get("type") == "none":
                     result["tool_choice"] = "none"
                 elif tc.get("type") == "tool":
-                    result["tool_choice"] = {"type": "function", "function": {"name": tc.get("name", "")}}
+                    result["tool_choice"] = {
+                        "type": "function",
+                        "function": {"name": tc.get("name", "")},
+                    }
         thinking = data.get("thinking")
         if thinking:
             if isinstance(thinking, dict):
@@ -290,7 +317,7 @@ class ToChatCompletionsConverter(BaseConverter):
         # 递归检查 cache_control（可能在 system、messages、content blocks、tools 上）
         has_cache_control = data.get("cache_control") is not None
         if not has_cache_control:
-            for part in (system if isinstance(system, list) else []):
+            for part in system if isinstance(system, list) else []:
                 if isinstance(part, dict) and part.get("cache_control"):
                     has_cache_control = True
                     break
@@ -316,7 +343,7 @@ class ToChatCompletionsConverter(BaseConverter):
         if unsupported_params:
             logger.debug(
                 "Anthropic parameters not supported by OpenAI, will be ignored: %s",
-                ", ".join(unsupported_params)
+                ", ".join(unsupported_params),
             )
 
         return result
@@ -327,7 +354,9 @@ class ToChatCompletionsConverter(BaseConverter):
             tool_type = tool.get("type")
             # Anthropic tools 规范：type 可省略（默认即工具），或为 "custom"
             # 必须同时包含 name 和 input_schema 才是有效工具定义
-            if (tool_type in (None, "custom") or "name" in tool) and "input_schema" in tool:
+            if (
+                tool_type in (None, "custom") or "name" in tool
+            ) and "input_schema" in tool:
                 func_def = {
                     "name": tool["name"],
                     "description": tool.get("description", ""),
@@ -336,10 +365,12 @@ class ToChatCompletionsConverter(BaseConverter):
                 # strict 字段透传（OpenAI 也支持）
                 if tool.get("strict") is not None:
                     func_def["strict"] = tool["strict"]
-                openai_tools.append({
-                    "type": "function",
-                    "function": func_def,
-                })
+                openai_tools.append(
+                    {
+                        "type": "function",
+                        "function": func_def,
+                    }
+                )
         return openai_tools
 
     def _anthropic_response_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -356,14 +387,18 @@ class ToChatCompletionsConverter(BaseConverter):
                 # 已编辑的思考块，跳过（无法显示内容）
                 pass
             elif part.get("type") == "tool_use":
-                tool_calls.append({
-                    "id": part.get("id", ""),
-                    "type": "function",
-                    "function": {
-                        "name": part.get("name", ""),
-                        "arguments": self._serialize_tool_arguments(part.get("input", {})),
+                tool_calls.append(
+                    {
+                        "id": part.get("id", ""),
+                        "type": "function",
+                        "function": {
+                            "name": part.get("name", ""),
+                            "arguments": self._serialize_tool_arguments(
+                                part.get("input", {})
+                            ),
+                        },
                     }
-                })
+                )
             elif part.get("type") == "document":
                 # document 内容块 -> 转为文本标记
                 doc_source = part.get("source", {})
@@ -387,7 +422,10 @@ class ToChatCompletionsConverter(BaseConverter):
                 if "text" in part:
                     message_content += part["text"]
                 else:
-                    logger.debug("Unknown Anthropic response content block type: %s", part.get("type"))
+                    logger.debug(
+                        "Unknown Anthropic response content block type: %s",
+                        part.get("type"),
+                    )
 
         message = {"role": "assistant", "content": message_content or None}
         if reasoning_content:
@@ -400,11 +438,13 @@ class ToChatCompletionsConverter(BaseConverter):
             "object": "chat.completion",
             "created": data.get("created") or int(time.time()),
             "model": data.get("model", ""),
-            "choices": [{
-                "index": 0,
-                "message": message,
-                "finish_reason": self._map_stop_reason(data.get("stop_reason")),
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": message,
+                    "finish_reason": self._map_stop_reason(data.get("stop_reason")),
+                }
+            ],
             "usage": anthropic_to_openai_chat(data.get("usage")),
         }
         stop_seq = data.get("stop_sequence")
@@ -423,7 +463,9 @@ class ToChatCompletionsConverter(BaseConverter):
         }
         return mapping.get(reason, "stop")
 
-    def _anthropic_stream_chunk_to_chat(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
+    def _anthropic_stream_chunk_to_chat(
+        self, chunk: dict[str, Any]
+    ) -> dict[str, Any] | None:
         if self._stream_state is None:
             self._reset_stream_state()
 
@@ -443,7 +485,13 @@ class ToChatCompletionsConverter(BaseConverter):
                 "object": "chat.completion.chunk",
                 "created": 0,
                 "model": self._stream_state["model"],
-                "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": ""},
+                        "finish_reason": None,
+                    }
+                ],
             }
 
         elif event_type == "content_block_start":
@@ -451,13 +499,33 @@ class ToChatCompletionsConverter(BaseConverter):
             if content_block.get("type") == "tool_use":
                 tc_idx = self._stream_state["tool_call_index"]
                 self._stream_state["tool_call_index"] = tc_idx + 1
-                self._stream_state["content_block_to_tc_index"][chunk.get("index", 0)] = tc_idx
+                self._stream_state["content_block_to_tc_index"][
+                    chunk.get("index", 0)
+                ] = tc_idx
                 return {
                     "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
                     "created": 0,
                     "model": self._stream_state["model"],
-                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": tc_idx, "id": content_block.get("id", ""), "type": "function", "function": {"name": content_block.get("name", ""), "arguments": ""}}]}, "finish_reason": None}],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": tc_idx,
+                                        "id": content_block.get("id", ""),
+                                        "type": "function",
+                                        "function": {
+                                            "name": content_block.get("name", ""),
+                                            "arguments": "",
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
                 }
             elif content_block.get("type") == "thinking":
                 return None
@@ -478,7 +546,13 @@ class ToChatCompletionsConverter(BaseConverter):
                     "object": "chat.completion.chunk",
                     "created": 0,
                     "model": self._stream_state["model"],
-                    "choices": [{"index": 0, "delta": {"content": delta.get("text", "")}, "finish_reason": None}],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": delta.get("text", "")},
+                            "finish_reason": None,
+                        }
+                    ],
                 }
             elif delta.get("type") == "thinking_delta":
                 return {
@@ -486,12 +560,20 @@ class ToChatCompletionsConverter(BaseConverter):
                     "object": "chat.completion.chunk",
                     "created": 0,
                     "model": self._stream_state["model"],
-                    "choices": [{"index": 0, "delta": {"reasoning_content": delta.get("thinking", "")}, "finish_reason": None}],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"reasoning_content": delta.get("thinking", "")},
+                            "finish_reason": None,
+                        }
+                    ],
                 }
             elif delta.get("type") == "input_json_delta":
                 block_index = chunk.get("index", 0)
                 if block_index in self._stream_state["content_block_to_tc_index"]:
-                    tc_idx = self._stream_state["content_block_to_tc_index"][block_index]
+                    tc_idx = self._stream_state["content_block_to_tc_index"][
+                        block_index
+                    ]
                 else:
                     # fallback：缺少前置 content_block_start 时，退到最近一次分配的 tc_idx；
                     # 直接用 Anthropic 的 block_index 作 OpenAI 的 tool_calls index 会错位
@@ -499,14 +581,30 @@ class ToChatCompletionsConverter(BaseConverter):
                     tc_idx = max(0, self._stream_state["tool_call_index"] - 1)
                     logger.warning(
                         "input_json_delta without matching content_block_start (block_index=%d), fallback tc_idx=%d",
-                        block_index, tc_idx,
+                        block_index,
+                        tc_idx,
                     )
                 return {
                     "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
                     "created": 0,
                     "model": self._stream_state["model"],
-                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": tc_idx, "function": {"arguments": delta.get("partial_json", "")}}]}, "finish_reason": None}],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": tc_idx,
+                                        "function": {
+                                            "arguments": delta.get("partial_json", "")
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
                 }
             elif delta.get("type") == "signature_delta":
                 # Anthropic signature_delta 无 OpenAI Chat 对应字段，显式忽略
@@ -524,8 +622,14 @@ class ToChatCompletionsConverter(BaseConverter):
             delta_usage = chunk.get("usage")
             if isinstance(delta_usage, dict):
                 self._stream_state["anthropic_usage"].update(delta_usage)
-            choice = {"index": 0, "delta": {}, "finish_reason": self._map_stop_reason(stop_reason)}
-            stop_seq = chunk.get("delta", {}).get("stop_sequence") or chunk.get("stop_sequence")
+            choice = {
+                "index": 0,
+                "delta": {},
+                "finish_reason": self._map_stop_reason(stop_reason),
+            }
+            stop_seq = chunk.get("delta", {}).get("stop_sequence") or chunk.get(
+                "stop_sequence"
+            )
             if stop_reason == "stop_sequence" and stop_seq:
                 choice["x_stop_sequence"] = stop_seq
             return {
@@ -538,7 +642,9 @@ class ToChatCompletionsConverter(BaseConverter):
 
         elif event_type == "message_stop":
             if self._stream_include_usage:
-                usage_payload = anthropic_to_openai_chat(self._stream_state.get("anthropic_usage"))
+                usage_payload = anthropic_to_openai_chat(
+                    self._stream_state.get("anthropic_usage")
+                )
                 return {
                     "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
@@ -558,7 +664,9 @@ class ToChatCompletionsConverter(BaseConverter):
 
     def _drop_unsupported_response_fields(self, data: dict[str, Any]) -> dict[str, Any]:
         sanitized = dict(data)
-        dropped_fields = [field for field in UNSUPPORTED_RESPONSE_REQUEST_FIELDS if field in sanitized]
+        dropped_fields = [
+            field for field in UNSUPPORTED_RESPONSE_REQUEST_FIELDS if field in sanitized
+        ]
         for field in dropped_fields:
             sanitized.pop(field, None)
         if dropped_fields:
@@ -568,7 +676,9 @@ class ToChatCompletionsConverter(BaseConverter):
             )
         return sanitized
 
-    def _drop_hosted_response_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _drop_hosted_response_tools(
+        self, tools: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         chat_tools = []
         dropped_types = []
         for tool in tools:
@@ -577,7 +687,9 @@ class ToChatCompletionsConverter(BaseConverter):
                 dropped_types.append(tool_type)
                 continue
             if tool_type != "function":
-                raise ValueError(f"Unsupported Responses tool type for Chat Completions upstream: {tool_type}")
+                raise ValueError(
+                    f"Unsupported Responses tool type for Chat Completions upstream: {tool_type}"
+                )
 
             function = {
                 "name": tool.get("name", ""),
@@ -586,10 +698,12 @@ class ToChatCompletionsConverter(BaseConverter):
             }
             if tool.get("strict") is not None:
                 function["strict"] = tool["strict"]
-            chat_tools.append({
-                "type": "function",
-                "function": function,
-            })
+            chat_tools.append(
+                {
+                    "type": "function",
+                    "function": function,
+                }
+            )
 
         if dropped_types:
             logger.warning(
@@ -605,7 +719,10 @@ class ToChatCompletionsConverter(BaseConverter):
         sanitized = []
         dropped_types = []
         for item in input_data:
-            if isinstance(item, dict) and item.get("type") in HOSTED_RESPONSE_INPUT_ITEM_TYPES:
+            if (
+                isinstance(item, dict)
+                and item.get("type") in HOSTED_RESPONSE_INPUT_ITEM_TYPES
+            ):
                 dropped_types.append(item.get("type", ""))
                 continue
             sanitized.append(item)
@@ -624,17 +741,25 @@ class ToChatCompletionsConverter(BaseConverter):
         if isinstance(tool_choice, str):
             if tool_choice in {"auto", "none", "required"}:
                 return tool_choice
-            raise ValueError(f"Unsupported Responses tool_choice for Chat Completions upstream: {tool_choice}")
+            raise ValueError(
+                f"Unsupported Responses tool_choice for Chat Completions upstream: {tool_choice}"
+            )
         if isinstance(tool_choice, dict):
             choice_type = tool_choice.get("type")
             if choice_type == "function":
-                name = tool_choice.get("name") or tool_choice.get("function", {}).get("name")
+                name = tool_choice.get("name") or tool_choice.get("function", {}).get(
+                    "name"
+                )
                 if not name:
-                    raise ValueError("Responses function tool_choice requires a function name")
+                    raise ValueError(
+                        "Responses function tool_choice requires a function name"
+                    )
                 return {"type": "function", "function": {"name": name}}
             if choice_type in {"auto", "none", "required"}:
                 return choice_type
-        raise ValueError(f"Unsupported Responses tool_choice for Chat Completions upstream: {tool_choice}")
+        raise ValueError(
+            f"Unsupported Responses tool_choice for Chat Completions upstream: {tool_choice}"
+        )
 
     def _response_text_format_to_chat(self, text_config: Any) -> dict[str, Any] | None:
         if not isinstance(text_config, dict):
@@ -651,7 +776,9 @@ class ToChatCompletionsConverter(BaseConverter):
         if fmt_type == "json_schema":
             json_schema = {k: v for k, v in fmt.items() if k != "type"}
             return {"type": "json_schema", "json_schema": json_schema}
-        raise ValueError(f"Unsupported Responses text.format type for Chat Completions upstream: {fmt_type}")
+        raise ValueError(
+            f"Unsupported Responses text.format type for Chat Completions upstream: {fmt_type}"
+        )
 
     def _response_content_to_chat_content(self, content: Any) -> Any:
         if isinstance(content, str):
@@ -664,7 +791,9 @@ class ToChatCompletionsConverter(BaseConverter):
 
         def _flush_text_parts():
             if text_parts:
-                chat_parts.append({"type": "text", "text": "\n".join(t for t in text_parts if t)})
+                chat_parts.append(
+                    {"type": "text", "text": "\n".join(t for t in text_parts if t)}
+                )
                 text_parts.clear()
 
         for part in content:
@@ -685,27 +814,42 @@ class ToChatCompletionsConverter(BaseConverter):
             elif part_type == "input_file":
                 _flush_text_parts()
                 file_payload = {}
-                for src, dst in (("file_id", "file_id"), ("filename", "filename"), ("file_data", "file_data")):
+                for src, dst in (
+                    ("file_id", "file_id"),
+                    ("filename", "filename"),
+                    ("file_data", "file_data"),
+                ):
                     if part.get(src) is not None:
                         file_payload[dst] = part[src]
                 if not file_payload and isinstance(part.get("file"), dict):
                     file_payload = dict(part["file"])
                 if not file_payload:
-                    raise ValueError("Responses input_file content requires file_id, filename, file_data, or file")
+                    raise ValueError(
+                        "Responses input_file content requires file_id, filename, file_data, or file"
+                    )
                 chat_parts.append({"type": "file", "file": file_payload})
             elif part_type == "input_audio":
                 _flush_text_parts()
-                audio = part.get("input_audio") or {k: v for k, v in part.items() if k in ("data", "format")}
+                audio = part.get("input_audio") or {
+                    k: v for k, v in part.items() if k in ("data", "format")
+                }
                 if not audio:
-                    raise ValueError("Responses input_audio content requires input_audio data")
+                    raise ValueError(
+                        "Responses input_audio content requires input_audio data"
+                    )
                 chat_parts.append({"type": "input_audio", "input_audio": audio})
             elif part_type == "refusal":
                 _flush_text_parts()
-                chat_parts.append({"type": "refusal", "refusal": part.get("refusal", "")})
+                chat_parts.append(
+                    {"type": "refusal", "refusal": part.get("refusal", "")}
+                )
             elif "text" in part:
                 text_parts.append(part.get("text", ""))
             else:
-                logger.debug("Unsupported Responses content block type %r, degrading to text", part_type)
+                logger.debug(
+                    "Unsupported Responses content block type %r, degrading to text",
+                    part_type,
+                )
                 text_parts.append(f"[Unsupported content type: {part_type}]")
 
         if chat_parts:
@@ -729,21 +873,25 @@ class ToChatCompletionsConverter(BaseConverter):
             pending_tool_calls: list[dict] = []
             for item in input_data:
                 if isinstance(item, dict) and item.get("type") == "function_call":
-                    pending_tool_calls.append({
-                        "id": item.get("call_id", item.get("id", "")),
-                        "type": "function",
-                        "function": {
-                            "name": item.get("name", ""),
-                            "arguments": item.get("arguments", "{}"),
-                        },
-                    })
+                    pending_tool_calls.append(
+                        {
+                            "id": item.get("call_id", item.get("id", "")),
+                            "type": "function",
+                            "function": {
+                                "name": item.get("name", ""),
+                                "arguments": item.get("arguments", "{}"),
+                            },
+                        }
+                    )
                     continue
                 if pending_tool_calls:
-                    messages.append({
-                        "role": "assistant",
-                        "tool_calls": pending_tool_calls,
-                        "content": None,
-                    })
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "tool_calls": pending_tool_calls,
+                            "content": None,
+                        }
+                    )
                     pending_tool_calls = []
                 if isinstance(item, str):
                     messages.append({"role": "user", "content": item})
@@ -753,20 +901,26 @@ class ToChatCompletionsConverter(BaseConverter):
                     if role == "developer":
                         role = "system"
                     if item_type == "function_call_output":
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": item.get("call_id", ""),
-                            "content": item.get("output", ""),
-                        })
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": item.get("call_id", ""),
+                                "content": item.get("output", ""),
+                            }
+                        )
                     else:
-                        content = self._response_content_to_chat_content(item.get("content", ""))
+                        content = self._response_content_to_chat_content(
+                            item.get("content", "")
+                        )
                         messages.append({"role": role, "content": content})
             if pending_tool_calls:
-                messages.append({
-                    "role": "assistant",
-                    "tool_calls": pending_tool_calls,
-                    "content": None,
-                })
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "tool_calls": pending_tool_calls,
+                        "content": None,
+                    }
+                )
 
         result = {
             "model": data.get("model", ""),
@@ -805,7 +959,9 @@ class ToChatCompletionsConverter(BaseConverter):
                     "[RESPONSES->CHAT] 降级: tool_choice dropped because no compatible tools remain"
                 )
         if data.get("tool_choice") and (not had_tools or compatible_tools_remaining):
-            result["tool_choice"] = self._response_tool_choice_to_chat(data["tool_choice"])
+            result["tool_choice"] = self._response_tool_choice_to_chat(
+                data["tool_choice"]
+            )
         return result
 
     def _response_response_to_chat(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -826,14 +982,16 @@ class ToChatCompletionsConverter(BaseConverter):
                     if isinstance(summary, dict):
                         reasoning_content += summary.get("text", "")
             elif item.get("type") == "function_call":
-                tool_calls.append({
-                    "id": item.get("call_id", item.get("id", "")),
-                    "type": "function",
-                    "function": {
-                        "name": item.get("name", ""),
-                        "arguments": item.get("arguments", "{}"),
+                tool_calls.append(
+                    {
+                        "id": item.get("call_id", item.get("id", "")),
+                        "type": "function",
+                        "function": {
+                            "name": item.get("name", ""),
+                            "arguments": item.get("arguments", "{}"),
+                        },
                     }
-                })
+                )
 
         message = {"role": "assistant", "content": message_content or None}
         if reasoning_content:
@@ -850,18 +1008,22 @@ class ToChatCompletionsConverter(BaseConverter):
             "object": "chat.completion",
             "created": data.get("created_at", 0),
             "model": data.get("model", ""),
-            "choices": [{
-                "index": 0,
-                "message": message,
-                "finish_reason": finish_reason,
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": message,
+                    "finish_reason": finish_reason,
+                }
+            ],
             "usage": openai_response_to_chat(data.get("usage")),
         }
         return result
 
     # --- OpenAI Response 流式 → Chat Completions 流式 ---
 
-    def _response_stream_chunk_to_chat(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
+    def _response_stream_chunk_to_chat(
+        self, chunk: dict[str, Any]
+    ) -> dict[str, Any] | None:
         if self._stream_state is None:
             self._reset_stream_state()
 
@@ -877,7 +1039,13 @@ class ToChatCompletionsConverter(BaseConverter):
                 "object": "chat.completion.chunk",
                 "created": 0,
                 "model": self._stream_state["model"],
-                "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": ""},
+                        "finish_reason": None,
+                    }
+                ],
             }
 
         elif event_type == "response.output_item.added":
@@ -892,7 +1060,25 @@ class ToChatCompletionsConverter(BaseConverter):
                     "object": "chat.completion.chunk",
                     "created": 0,
                     "model": self._stream_state["model"],
-                    "choices": [{"index": 0, "delta": {"tool_calls": [{"index": tc_idx, "id": item.get("call_id", ""), "type": "function", "function": {"name": item.get("name", ""), "arguments": ""}}]}, "finish_reason": None}],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": tc_idx,
+                                        "id": item.get("call_id", ""),
+                                        "type": "function",
+                                        "function": {
+                                            "name": item.get("name", ""),
+                                            "arguments": "",
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
                 }
             return None
 
@@ -902,7 +1088,13 @@ class ToChatCompletionsConverter(BaseConverter):
                 "object": "chat.completion.chunk",
                 "created": 0,
                 "model": self._stream_state["model"],
-                "choices": [{"index": 0, "delta": {"content": chunk.get("delta", "")}, "finish_reason": None}],
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": chunk.get("delta", "")},
+                        "finish_reason": None,
+                    }
+                ],
             }
 
         elif event_type == "response.function_call_arguments.delta":
@@ -913,7 +1105,20 @@ class ToChatCompletionsConverter(BaseConverter):
                 "object": "chat.completion.chunk",
                 "created": 0,
                 "model": self._stream_state["model"],
-                "choices": [{"index": 0, "delta": {"tool_calls": [{"index": tc_idx, "function": {"arguments": chunk.get("delta", "")}}]}, "finish_reason": None}],
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": tc_idx,
+                                    "function": {"arguments": chunk.get("delta", "")},
+                                }
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ],
             }
 
         elif event_type == "response.completed":
@@ -947,23 +1152,35 @@ class ToChatCompletionsConverter(BaseConverter):
 
     # --- 公共接口 ---
 
-    def convert_request(self, source_data: dict[str, Any], source_type: str = "") -> dict[str, Any]:
+    def convert_request(
+        self, source_data: dict[str, Any], source_type: str = ""
+    ) -> dict[str, Any]:
         if source_type == "anthropic":
             return self._anthropic_request_to_chat(source_data)
         elif source_type == "openai-response":
             return self._response_request_to_chat(source_data)
-        raise ValueError(f"ToChatCompletionsConverter 不支持 source_type={source_type!r}")
+        raise ValueError(
+            f"ToChatCompletionsConverter 不支持 source_type={source_type!r}"
+        )
 
-    def convert_response(self, target_response: dict[str, Any], source_type: str = "") -> dict[str, Any]:
+    def convert_response(
+        self, target_response: dict[str, Any], source_type: str = ""
+    ) -> dict[str, Any]:
         if source_type == "anthropic":
             return self._anthropic_response_to_chat(target_response)
         elif source_type == "openai-response":
             return self._response_response_to_chat(target_response)
-        raise ValueError(f"ToChatCompletionsConverter 不支持 source_type={source_type!r}")
+        raise ValueError(
+            f"ToChatCompletionsConverter 不支持 source_type={source_type!r}"
+        )
 
-    def convert_stream_chunk(self, chunk: dict[str, Any], source_type: str = "") -> dict[str, Any] | None:
+    def convert_stream_chunk(
+        self, chunk: dict[str, Any], source_type: str = ""
+    ) -> dict[str, Any] | None:
         if source_type == "anthropic":
             return self._anthropic_stream_chunk_to_chat(chunk)
         elif source_type == "openai-response":
             return self._response_stream_chunk_to_chat(chunk)
-        raise ValueError(f"ToChatCompletionsConverter 不支持 source_type={source_type!r}")
+        raise ValueError(
+            f"ToChatCompletionsConverter 不支持 source_type={source_type!r}"
+        )

@@ -130,7 +130,9 @@ class TestAnthropicModelsEndpoint:
             assert after_data["has_more"] is True
             assert after_data["first_id"] != first_id
 
-            before = client.get(f"/v1/anthropic/models?limit=1&before={after_data['data'][0]['id']}")
+            before = client.get(
+                f"/v1/anthropic/models?limit=1&before={after_data['data'][0]['id']}"
+            )
             assert before.status_code == 200
             before_data = before.json()
             assert before_data["has_more"] is False
@@ -141,4 +143,6 @@ class TestAnthropicModelsEndpoint:
             )
             assert bounded.status_code == 200
             bounded_data = bounded.json()
-            assert [m["id"] for m in bounded_data["data"]] == [after_data["data"][0]["id"]]
+            assert [m["id"] for m in bounded_data["data"]] == [
+                after_data["data"][0]["id"]
+            ]

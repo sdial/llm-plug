@@ -18,6 +18,7 @@ from proxy_core import (
 
 # ─── helpers ───
 
+
 async def _lines_from_list(lines: list[str]):
     for line in lines:
         yield line
@@ -40,6 +41,7 @@ def _collect_sse_blocks(lines: list[str], coalesce: bool = True):
 # ═══════════════════════════════════════════
 #  _iter_sse_blocks — SSE 解析
 # ═══════════════════════════════════════════
+
 
 class TestIterSseBlocks:
     """SSE 解析器边界情况"""
@@ -64,12 +66,14 @@ class TestIterSseBlocks:
 
     def test_multiple_data_lines_coalesced(self):
         """多行 data: 默认合并为一个 block"""
-        blocks = _collect_sse_blocks([
-            "data: part1",
-            "data: part2",
-            "data: part3",
-            "",
-        ])
+        blocks = _collect_sse_blocks(
+            [
+                "data: part1",
+                "data: part2",
+                "data: part3",
+                "",
+            ]
+        )
         assert len(blocks) == 1
         _, data_lines, _ = blocks[0]
         assert data_lines == ["part1", "part2", "part3"]
@@ -89,12 +93,12 @@ class TestIterSseBlocks:
         应按 SSE 规范拼接为一个 block（而非拆成多个不完整片段）。
         多行 data: 在无空行分隔时属于同一事件，应合并。"""
         blocks = _collect_sse_blocks(
-            ["data: {\"key\":", "data:  \"value\"}", ""],
+            ['data: {"key":', 'data:  "value"}', ""],
             coalesce=False,
         )
         assert len(blocks) == 1, f"期望 1 个 block，实际得到 {len(blocks)} 个"
         _, data_lines, _ = blocks[0]
-        assert data_lines == ["{\"key\":", "\"value\"}"]
+        assert data_lines == ['{"key":', '"value"}']
 
     def test_comment_lines_are_passthrough(self):
         """SSE 注释行（:开头）进入 passthrough"""
@@ -105,25 +109,29 @@ class TestIterSseBlocks:
         assert passthrough == [":ping"]
 
     def test_blank_line_separates_blocks(self):
-        blocks = _collect_sse_blocks([
-            "data: first",
-            "",
-            "data: second",
-            "",
-        ])
+        blocks = _collect_sse_blocks(
+            [
+                "data: first",
+                "",
+                "data: second",
+                "",
+            ]
+        )
         assert len(blocks) == 2
         assert blocks[0][1] == ["first"]
         assert blocks[1][1] == ["second"]
 
     def test_event_line_triggers_early_yield(self):
         """新 event: 行出现时，即使没有空行也提前 yield"""
-        blocks = _collect_sse_blocks([
-            "event: a",
-            "data: 1",
-            "event: b",
-            "data: 2",
-            "",
-        ])
+        blocks = _collect_sse_blocks(
+            [
+                "event: a",
+                "data: 1",
+                "event: b",
+                "data: 2",
+                "",
+            ]
+        )
         assert len(blocks) == 2
         assert blocks[0][0] == "a"
         assert blocks[0][1] == ["1"]
@@ -154,18 +162,20 @@ class TestIterSseBlocks:
         assert blocks[0][1] == ["hello"]
 
     def test_multiple_events_with_comments(self):
-        blocks = _collect_sse_blocks([
-            ":keep-alive",
-            "event: message_start",
-            "data: {\"type\":\"message_start\"}",
-            "",
-            "event: content_block_delta",
-            "data: {\"type\":\"content_block_delta\"}",
-            "",
-            "event: message_stop",
-            "data: {\"type\":\"message_stop\"}",
-            "",
-        ])
+        blocks = _collect_sse_blocks(
+            [
+                ":keep-alive",
+                "event: message_start",
+                'data: {"type":"message_start"}',
+                "",
+                "event: content_block_delta",
+                'data: {"type":"content_block_delta"}',
+                "",
+                "event: message_stop",
+                'data: {"type":"message_stop"}',
+                "",
+            ]
+        )
         # 注释行在没有 event/data 前会独立成 block（空行分隔）
         # 此处 :keep-alive 与后续 event 之间无空行，所以合并为同一 block 的 passthrough
         # 实际解析出 4 个 block: [:keep-alive独立block] + 3 个 event block
@@ -186,8 +196,8 @@ class TestIterSseBlocks:
 #  _format_raw_sse — SSE 格式化
 # ═══════════════════════════════════════════
 
-class TestFormatRawSse:
 
+class TestFormatRawSse:
     def test_data_only(self):
         result = _format_raw_sse(None, "hello")
         assert result == "data: hello\n\n"
@@ -206,9 +216,11 @@ class TestFormatRawSse:
 #  _build_chat_stream_chunks_from_object — 整块 JSON → chunk 拆分
 # ═══════════════════════════════════════════
 
-class TestBuildChatStreamChunksFromObject:
 
-    def _make_response(self, content="Hello", tool_calls=None, reasoning=None, finish="stop"):
+class TestBuildChatStreamChunksFromObject:
+    def _make_response(
+        self, content="Hello", tool_calls=None, reasoning=None, finish="stop"
+    ):
         message = {"role": "assistant", "content": content}
         if reasoning:
             message["reasoning_content"] = reasoning
@@ -229,7 +241,9 @@ class TestBuildChatStreamChunksFromObject:
         # 第一帧包含 role
         assert chunks[0]["choices"][0]["delta"]["role"] == "assistant"
         # 有 content 帧
-        content_chunks = [c for c in chunks if "content" in c["choices"][0].get("delta", {})]
+        content_chunks = [
+            c for c in chunks if "content" in c["choices"][0].get("delta", {})
+        ]
         assert len(content_chunks) == 1
         assert content_chunks[0]["choices"][0]["delta"]["content"] == "Hello world"
 
@@ -242,23 +256,26 @@ class TestBuildChatStreamChunksFromObject:
         resp = self._make_response("Answer", reasoning="Let me think...")
         chunks = _build_chat_stream_chunks_from_object(resp, "gpt-4")
         reasoning_chunks = [
-            c for c in chunks
-            if "reasoning_content" in c["choices"][0].get("delta", {})
+            c for c in chunks if "reasoning_content" in c["choices"][0].get("delta", {})
         ]
         assert len(reasoning_chunks) == 1
-        assert reasoning_chunks[0]["choices"][0]["delta"]["reasoning_content"] == "Let me think..."
+        assert (
+            reasoning_chunks[0]["choices"][0]["delta"]["reasoning_content"]
+            == "Let me think..."
+        )
 
     def test_tool_calls_emits_chunks(self):
-        tool_calls = [{
-            "id": "call_123",
-            "type": "function",
-            "function": {"name": "get_weather", "arguments": '{"city":"NYC"}'},
-        }]
+        tool_calls = [
+            {
+                "id": "call_123",
+                "type": "function",
+                "function": {"name": "get_weather", "arguments": '{"city":"NYC"}'},
+            }
+        ]
         resp = self._make_response(None, tool_calls=tool_calls)
         chunks = _build_chat_stream_chunks_from_object(resp, "gpt-4")
         tool_chunks = [
-            c for c in chunks
-            if "tool_calls" in c["choices"][0].get("delta", {})
+            c for c in chunks if "tool_calls" in c["choices"][0].get("delta", {})
         ]
         assert len(tool_chunks) >= 1
 
@@ -279,7 +296,16 @@ class TestBuildChatStreamChunksFromObject:
 
     def test_model_fallback_to_arg(self):
         """response 里没有 model 字段时使用传入参数"""
-        resp = {"id": "x", "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}]}
+        resp = {
+            "id": "x",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "hi"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
         chunks = _build_chat_stream_chunks_from_object(resp, "fallback-model")
         assert all(c["model"] == "fallback-model" for c in chunks)
 
@@ -288,8 +314,8 @@ class TestBuildChatStreamChunksFromObject:
 #  _build_responses_stream_events_from_object — Response SSE 事件拆分
 # ═══════════════════════════════════════════
 
-class TestBuildResponsesStreamEventsFromObject:
 
+class TestBuildResponsesStreamEventsFromObject:
     @staticmethod
     def _parse_events(events: list[str]) -> list[dict]:
         """从 SSE 事件文本中提取 data JSON"""
@@ -317,10 +343,12 @@ class TestBuildResponsesStreamEventsFromObject:
     def test_message_output_generates_text_delta(self):
         resp = {
             "id": "resp_test",
-            "output": [{
-                "type": "message",
-                "content": [{"type": "output_text", "text": "Hello"}],
-            }],
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "Hello"}],
+                }
+            ],
             "status": "completed",
         }
         events = _build_responses_stream_events_from_object(resp)
@@ -340,8 +368,8 @@ class TestBuildResponsesStreamEventsFromObject:
 #  _prime_stream — 首 chunk 预取
 # ═══════════════════════════════════════════
 
-class TestPrimeStream:
 
+class TestPrimeStream:
     @pytest.mark.asyncio
     async def test_empty_stream_raises_empty_stream_error(self):
         async def empty_gen():

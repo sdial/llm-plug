@@ -30,7 +30,9 @@ def test_init_settings_from_file(tmp_settings_file):
         config._SETTINGS_FILE = original
 
 
-def test_existing_settings_without_retention_keys_keep_legacy_no_cleanup_defaults(tmp_settings_file):
+def test_existing_settings_without_retention_keys_keep_legacy_no_cleanup_defaults(
+    tmp_settings_file,
+):
     """已有 settings.json 升级时，缺失的日志保留期字段保持旧版不清理语义。"""
     import json
 
@@ -47,6 +49,7 @@ def test_existing_settings_without_retention_keys_keep_legacy_no_cleanup_default
         assert config._settings["request_log_raw_retention_days"] == 0
     finally:
         config._SETTINGS_FILE = original
+
 
 def test_init_settings_ignores_environment_fallback(tmp_settings_file, monkeypatch):
     """settings.json 无对应项时使用默认值，不从环境变量读取业务配置"""
@@ -111,8 +114,13 @@ def test_config_defaults():
     assert _CONFIG_SCHEMA["max_body_size"]["default"] == 10485760
     assert "log_level" not in _CONFIG_SCHEMA  # 已移除，改用 --log-level CLI 参数
     assert "database_url" not in _CONFIG_SCHEMA
-    assert os.path.basename(_CONFIG_SCHEMA["stats_sqlite_path"]["default"]) == "stats.db"
-    assert os.path.basename(_CONFIG_SCHEMA["request_log_sqlite_path"]["default"]) == "request_logs.db"
+    assert (
+        os.path.basename(_CONFIG_SCHEMA["stats_sqlite_path"]["default"]) == "stats.db"
+    )
+    assert (
+        os.path.basename(_CONFIG_SCHEMA["request_log_sqlite_path"]["default"])
+        == "request_logs.db"
+    )
     assert "request_log_db_type" not in _CONFIG_SCHEMA
     assert "request_log_database_url" not in _CONFIG_SCHEMA
     assert _CONFIG_SCHEMA["save_request_headers"]["default"] is False

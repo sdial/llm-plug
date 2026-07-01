@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class ModelGroup(BaseModel):
     """模型组配置，组内模型按顺序 Fallback"""
+
     id: str = Field(default_factory=lambda: f"grp_{uuid.uuid4().hex[:8]}")
     name: str
     models: list[str] = Field(default_factory=list)
@@ -30,5 +31,6 @@ class ModelGroupUpdate(BaseModel):
 
 class LBConfig(BaseModel):
     """负载均衡全局配置"""
+
     max_fail_count: int = Field(default=5, ge=1)
     cooldown_seconds: int = Field(default=60, ge=1)

@@ -24,7 +24,10 @@ def safe_parse_tool_args(value: Any) -> tuple[Any, bool]:
     try:
         return json.loads(value), True
     except json.JSONDecodeError:
-        logger.warning("incomplete tool arguments JSON: %r", value[:120] if len(value) > 120 else value)
+        logger.warning(
+            "incomplete tool arguments JSON: %r",
+            value[:120] if len(value) > 120 else value,
+        )
         return {"_partial_args": value}, False
 
 
@@ -76,7 +79,9 @@ class BaseConverter(ABC):
         """将上游 SSE 解析出的单条 JSON 转为入口格式；返回 None 表示跳过该块。"""
         pass
 
-    def get_stream_event_type(self, chunk: dict[str, Any], source_type: str = "") -> str | None:
+    def get_stream_event_type(
+        self, chunk: dict[str, Any], source_type: str = ""
+    ) -> str | None:
         """获取流式事件的 event type（仅 Anthropic 输出格式需要）。
 
         默认实现从 chunk 的 _event_type 字段读取；

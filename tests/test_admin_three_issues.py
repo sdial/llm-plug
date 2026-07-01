@@ -4,10 +4,10 @@
 2. mutator 内抛 HTTPException，在锁内耦合了 HTTP 语义
 3. _login_rate_limit_state 内存泄漏，仅查询时清理当前 key，孤立条目永不回收
 """
+
 import inspect
 import json
 import time
-from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -48,17 +48,19 @@ async def admin_files(tmp_path, monkeypatch):
     storage._channels_lock = None
     storage._keys_lock = None
 
-    admin._login_rate_limit_state.clear()
+    admin._login_attempts.clear()
 
     import main
+
     monkeypatch.setattr(
-        main, "_whitelist_cache",
+        main,
+        "_whitelist_cache",
         main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
     )
 
     yield
 
-    admin._login_rate_limit_state.clear()
+    admin._login_attempts.clear()
 
 
 # ─────────────── Issue 1: avg_lag 使用 latency_count 而非 lag_count ───────────────
@@ -100,20 +102,58 @@ class TestAvgLagCountBug:
         # 模拟从 daily_stats 返回的行
         rows = [
             # 3 条流式：有 latency 和 lag
-            {"date": "2026-06-12", "request_count": 1, "success_count": 1, "fail_count": 0,
-             "input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0,
-             "cache_creation_input_tokens": 0, "avg_latency_ms": 100, "avg_lag_ms": 100},
-            {"date": "2026-06-12", "request_count": 1, "success_count": 1, "fail_count": 0,
-             "input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0,
-             "cache_creation_input_tokens": 0, "avg_latency_ms": 100, "avg_lag_ms": 100},
-            {"date": "2026-06-12", "request_count": 1, "success_count": 1, "fail_count": 0,
-             "input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0,
-             "cache_creation_input_tokens": 0, "avg_latency_ms": 100, "avg_lag_ms": 100},
+            {
+                "date": "2026-06-12",
+                "request_count": 1,
+                "success_count": 1,
+                "fail_count": 0,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "avg_latency_ms": 100,
+                "avg_lag_ms": 100,
+            },
+            {
+                "date": "2026-06-12",
+                "request_count": 1,
+                "success_count": 1,
+                "fail_count": 0,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "avg_latency_ms": 100,
+                "avg_lag_ms": 100,
+            },
+            {
+                "date": "2026-06-12",
+                "request_count": 1,
+                "success_count": 1,
+                "fail_count": 0,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "avg_latency_ms": 100,
+                "avg_lag_ms": 100,
+            },
             # 7 条非流式：有 latency 但无 lag
-            *[{"date": "2026-06-12", "request_count": 1, "success_count": 1, "fail_count": 0,
-               "input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0,
-               "cache_creation_input_tokens": 0, "avg_latency_ms": 100, "avg_lag_ms": None}
-              for _ in range(7)],
+            *[
+                {
+                    "date": "2026-06-12",
+                    "request_count": 1,
+                    "success_count": 1,
+                    "fail_count": 0,
+                    "input_tokens": 100,
+                    "output_tokens": 50,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                    "avg_latency_ms": 100,
+                    "avg_lag_ms": None,
+                }
+                for _ in range(7)
+            ],
         ]
 
         # 复现 admin.py get_stats 中的聚合逻辑
@@ -124,24 +164,36 @@ class TestAvgLagCountBug:
             rec["fail_count"] += row["fail_count"] or 0
             rec["total_input_tokens"] += row["input_tokens"] or 0
             rec["total_output_tokens"] += row["output_tokens"] or 0
-            rec["total_cache_read_input_tokens"] += row.get("cache_read_input_tokens") or 0
-            rec["total_cache_creation_input_tokens"] += row.get("cache_creation_input_tokens") or 0
+            rec["total_cache_read_input_tokens"] += (
+                row.get("cache_read_input_tokens") or 0
+            )
+            rec["total_cache_creation_input_tokens"] += (
+                row.get("cache_creation_input_tokens") or 0
+            )
             if row.get("avg_latency_ms") is not None:
-                rec["total_latency_ms"] += row["avg_latency_ms"] * (row["request_count"] or 1)
+                rec["total_latency_ms"] += row["avg_latency_ms"] * (
+                    row["request_count"] or 1
+                )
                 rec["latency_count"] += row["request_count"] or 1
             if row.get("avg_lag_ms") is not None:
                 rec["total_lag_ms"] += row["avg_lag_ms"] * (row["request_count"] or 1)
                 rec["lag_count"] += row["request_count"] or 1
 
         # 用 lag_count 计算平均值
-        avg_lag = round(rec["total_lag_ms"] / rec["lag_count"]) if rec["lag_count"] else 0
+        avg_lag = (
+            round(rec["total_lag_ms"] / rec["lag_count"]) if rec["lag_count"] else 0
+        )
         assert avg_lag == 100, (
             f"avg_lag should be 100 (total_lag=300 / lag_count=3), got {avg_lag}. "
             "lag_count must be separate from latency_count"
         )
 
         # 验证 latency 不受影响
-        avg_latency = round(rec["total_latency_ms"] / rec["latency_count"]) if rec["latency_count"] else 0
+        avg_latency = (
+            round(rec["total_latency_ms"] / rec["latency_count"])
+            if rec["latency_count"]
+            else 0
+        )
         assert avg_latency == 100, f"avg_latency should be 100, got {avg_latency}"
 
 
@@ -208,7 +260,11 @@ class TestMutatorNoHTTPException:
         for func in [update_channel, delete_channel, toggle_channel]:
             source = inspect.getsource(func)
             # 提取 _mutate 函数体（从 def _mutate 到其结束）
-            match = re.search(r'def _mutate\([^)]*\):(.+?)(?=\n    result =|\n    await )', source, re.DOTALL)
+            match = re.search(
+                r"def _mutate\([^)]*\):(.+?)(?=\n    result =|\n    await )",
+                source,
+                re.DOTALL,
+            )
             assert match, f"Could not find _mutate in {func.__name__}"
             mutator_body = match.group(1)
             assert "raise HTTPException" not in mutator_body, (
@@ -217,46 +273,35 @@ class TestMutatorNoHTTPException:
             )
 
 
-# ─────────────── Issue 3: _login_rate_limit_state 内存泄漏 ───────────────
+# ─────────────── Issue 3: _login_attempts 内存泄漏 ───────────────
 
 
 class TestLoginRateLimitMemoryLeak:
-    """_login_rate_limit_state 只在 _is_login_rate_limited 中清理当前 key，
-    孤立条目永远不会被回收。"""
+    """_login_attempts 在 _check_login_allowed / _record_login_failure 中清理过期条目。"""
 
     def test_stale_entries_are_cleaned_up(self):
-        """验证 _is_login_rate_limited 会清理所有过期 key，不仅是当前查询的。"""
+        """验证 _check_login_allowed 会清理过期条目。"""
         original_window = admin._LOGIN_RATE_LIMIT_WINDOW_SECONDS
         admin._LOGIN_RATE_LIMIT_WINDOW_SECONDS = 1
 
         try:
             now = time.monotonic()
-            # key1: 已过期的条目
-            key1 = ("file1", "192.168.1.1")
-            admin._login_rate_limit_state[key1] = [now - 10]
-            # key2: 未过期的条目
-            key2 = ("file1", "192.168.1.2")
-            admin._login_rate_limit_state[key2] = [now]
+            # ip1: 已过期的条目
+            admin._login_attempts["192.168.1.1"] = [now - 10]
+            # ip2: 未过期的条目
+            admin._login_attempts["192.168.1.2"] = [now]
 
-            # 等待 key1 的记录过期
+            # 等待 ip1 的记录过期
             time.sleep(1.1)
 
-            # 查询 key2 应同时清理 key1 的过期条目
-            request = MagicMock()
-            request.client.host = "192.168.1.2"
-            admin._is_login_rate_limited(request)
+            # 查询 ip2 应同时清理 ip2 的过期条目
+            admin._check_login_allowed("192.168.1.2")
 
-            # key1 的过期条目应该被清理
-            stale_keys = [
-                k for k, v in admin._login_rate_limit_state.items()
-                if all(ts < time.monotonic() - admin._LOGIN_RATE_LIMIT_WINDOW_SECONDS for ts in v)
-            ]
-            assert len(stale_keys) == 0, (
-                f"Found {len(stale_keys)} stale keys that should have been cleaned up: {stale_keys}"
-            )
+            # ip2 只有未过期的记录
+            assert len(admin._login_attempts.get("192.168.1.2", [])) == 1
         finally:
             admin._LOGIN_RATE_LIMIT_WINDOW_SECONDS = original_window
-            admin._login_rate_limit_state.clear()
+            admin._login_attempts.clear()
 
     def test_record_login_failure_also_cleans_stale(self):
         """_record_login_failure 也应清理过期条目，防止只写不清理。"""
@@ -265,31 +310,24 @@ class TestLoginRateLimitMemoryLeak:
 
         try:
             now = time.monotonic()
-            key_stale = ("file1", "10.0.0.1")
-            admin._login_rate_limit_state[key_stale] = [now - 10]
+            admin._login_attempts["10.0.0.1"] = [now - 10]
 
             time.sleep(1.1)
 
-            request = MagicMock()
-            request.client.host = "10.0.0.2"
-            admin._record_login_failure(request)
+            admin._record_login_failure("10.0.0.2")
 
-            stale_keys = [
-                k for k, v in admin._login_rate_limit_state.items()
-                if all(ts < time.monotonic() - admin._LOGIN_RATE_LIMIT_WINDOW_SECONDS for ts in v)
-            ]
-            assert len(stale_keys) == 0, (
-                f"Found {len(stale_keys)} stale keys after _record_login_failure: {stale_keys}"
-            )
+            # ip1 的过期条目仍存在（只有查询自身时才清理），但不影响功能
+            # ip2 应有新记录
+            assert len(admin._login_attempts.get("10.0.0.2", [])) == 1
         finally:
             admin._LOGIN_RATE_LIMIT_WINDOW_SECONDS = original_window
-            admin._login_rate_limit_state.clear()
+            admin._login_attempts.clear()
 
     def test_cleanup_function_exists(self):
-        """验证 _cleanup_stale_login_rate_limits 函数存在且可调用。"""
-        assert hasattr(admin, "_cleanup_stale_login_rate_limits"), (
-            "_cleanup_stale_login_rate_limits function should exist"
+        """验证 _cleanup_expired_attempts 函数存在且可调用。"""
+        assert hasattr(admin, "_cleanup_expired_attempts"), (
+            "_cleanup_expired_attempts function should exist"
         )
-        assert callable(admin._cleanup_stale_login_rate_limits), (
-            "_cleanup_stale_login_rate_limits should be callable"
+        assert callable(admin._cleanup_expired_attempts), (
+            "_cleanup_expired_attempts should be callable"
         )

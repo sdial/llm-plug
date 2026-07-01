@@ -148,7 +148,9 @@ class TestGetOrCreateClient:
         assert not c2.is_closed
 
     @pytest.mark.anyio
-    async def test_evicts_least_recent_client_when_cache_exceeds_limit(self, monkeypatch):
+    async def test_evicts_least_recent_client_when_cache_exceeds_limit(
+        self, monkeypatch
+    ):
         monkeypatch.setattr(client, "_MAX_CACHED_CLIENTS", 2)
         channels = [
             Channel(
@@ -260,7 +262,9 @@ class TestCleanupStaleClients:
 
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(client.time, "time", fake_time)
-            cleanup_task = asyncio.create_task(client.cleanup_stale_clients(max_age=300.0))
+            cleanup_task = asyncio.create_task(
+                client.cleanup_stale_clients(max_age=300.0)
+            )
             reused = await client.get_or_create_client(sample_channel)
             await cleanup_task
 
@@ -325,6 +329,7 @@ class TestGetUpstreamHeaders:
 
         with pytest.raises(ValueError, match="anthropic-version"):
             client.get_upstream_headers(anthropic_channel)
+
     def test_anthropic_version_channel_if_missing_uses_client_when_present(
         self, anthropic_channel
     ):

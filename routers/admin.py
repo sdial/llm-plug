@@ -79,6 +79,7 @@ class AdminChangePasswordRequest(BaseModel):
     new_password: str
     confirm_password: str
 
+
 request_log_list_requests = request_logs.list_requests
 request_log_get_request_field = request_logs.get_request_field
 
@@ -240,7 +241,9 @@ def _requires_csrf(request: Request) -> bool:
     return request.url.path.startswith("/admin")
 
 
-async def _validate_csrf_for_request(request: Request, session_token: str | None) -> bool:
+async def _validate_csrf_for_request(
+    request: Request, session_token: str | None
+) -> bool:
     csrf_token = request.headers.get(_CSRF_HEADER_NAME)
     return await admin_auth.validate_admin_csrf_token(session_token, csrf_token)
 
@@ -266,7 +269,9 @@ class AdminAuthRoute(APIRoute):
                         },
                     },
                 )
-            if _requires_csrf(request) and not await _validate_csrf_for_request(request, cookie_token):
+            if _requires_csrf(request) and not await _validate_csrf_for_request(
+                request, cookie_token
+            ):
                 return _csrf_error_response()
             return await original_route_handler(request)
 
@@ -408,11 +413,13 @@ async def auth_security_config_get():
         tier_seconds = base_seconds * m
         start = i * max_attempts + 1
         end = (i + 1) * max_attempts
-        tiers.append({
-            "range": f"{start}-{end}",
-            "seconds": tier_seconds,
-            "display": _format_duration(tier_seconds),
-        })
+        tiers.append(
+            {
+                "range": f"{start}-{end}",
+                "seconds": tier_seconds,
+                "display": _format_duration(tier_seconds),
+            }
+        )
 
     return {
         "admin_max_attempts": max_attempts,
@@ -595,8 +602,12 @@ async def _attach_api_key_names(result: dict) -> dict:
 async def _attach_channel_api_types(result: dict) -> dict:
     data = await load_data()
     channels = data.get("channels", [])
-    api_type_by_id = {ch.get("id"): ch.get("api_type") for ch in channels if ch.get("id")}
-    api_type_by_name = {ch.get("name"): ch.get("api_type") for ch in channels if ch.get("name")}
+    api_type_by_id = {
+        ch.get("id"): ch.get("api_type") for ch in channels if ch.get("id")
+    }
+    api_type_by_name = {
+        ch.get("name"): ch.get("api_type") for ch in channels if ch.get("name")
+    }
     for item in result.get("items", []):
         item["api_type"] = (
             api_type_by_id.get(item.get("channel_id"))
@@ -739,7 +750,11 @@ async def test_channel(channel_id: str, model: Annotated[str | None, Query()] = 
 
     if model:
         if model not in channel.models:
-            return {"success": False, "message": f"模型 '{model}' 不在此渠道的模型列表中", "latency_ms": None}
+            return {
+                "success": False,
+                "message": f"模型 '{model}' 不在此渠道的模型列表中",
+                "latency_ms": None,
+            }
         test_model = model
     else:
         test_model = channel.models[0]
@@ -769,7 +784,11 @@ async def test_channel(channel_id: str, model: Annotated[str | None, Query()] = 
         if "thinking" in test_model.lower():
             payload["thinking"] = {"type": "enabled", "budget_tokens": 1024}
     else:
-        return {"success": False, "message": f"不支持的API类型: {api_type}", "latency_ms": None}
+        return {
+            "success": False,
+            "message": f"不支持的API类型: {api_type}",
+            "latency_ms": None,
+        }
 
     headers = get_upstream_headers(channel)
     headers["Content-Type"] = "application/json"
@@ -792,7 +811,10 @@ async def test_channel(channel_id: str, model: Annotated[str | None, Query()] = 
 
         if api_type == "openai-chat-completions":
             choices = data.get("choices", [])
-            ok = bool(choices) and choices[0].get("message", {}).get("content") is not None
+            ok = (
+                bool(choices)
+                and choices[0].get("message", {}).get("content") is not None
+            )
             reply = choices[0]["message"]["content"][:100] if ok else str(data)[:200]
         elif api_type == "openai-response":
             output = data.get("output", [])
@@ -811,7 +833,9 @@ async def test_channel(channel_id: str, model: Annotated[str | None, Query()] = 
                 elif part.get("type") == "thinking":
                     thinking_reply = part.get("thinking", "")
             # 优先使用 text 内容，如果没有则使用 thinking 内容
-            reply = (text_reply or thinking_reply or "")[:100] if ok else str(data)[:200]
+            reply = (
+                (text_reply or thinking_reply or "")[:100] if ok else str(data)[:200]
+            )
         else:
             ok = True
             reply = str(data)[:200]
@@ -858,7 +882,10 @@ async def fetch_models(body: FetchModelsRequest):
             if resp.status_code != 200:
                 return {"error": f"上游返回 {resp.status_code}: {resp.text[:200]}"}
             data = resp.json()
-            models = [m.get("id", m.get("name", "")) for m in data.get("data", data.get("models", []))]
+            models = [
+                m.get("id", m.get("name", ""))
+                for m in data.get("data", data.get("models", []))
+            ]
             return {"models": sorted(set(filter(None, models)))}
     except httpx.TimeoutException:
         return {"error": "请求上游超时"}
@@ -944,17 +971,27 @@ async def get_stats(
         rec["total_input_tokens"] += row["input_tokens"] or 0
         rec["total_output_tokens"] += row["output_tokens"] or 0
         rec["total_cache_read_input_tokens"] += row.get("cache_read_input_tokens") or 0
-        rec["total_cache_creation_input_tokens"] += row.get("cache_creation_input_tokens") or 0
+        rec["total_cache_creation_input_tokens"] += (
+            row.get("cache_creation_input_tokens") or 0
+        )
         if row.get("avg_latency_ms") is not None:
-            rec["total_latency_ms"] += row["avg_latency_ms"] * (row["request_count"] or 1)
+            rec["total_latency_ms"] += row["avg_latency_ms"] * (
+                row["request_count"] or 1
+            )
             rec["latency_count"] += row["request_count"] or 1
         if row.get("avg_lag_ms") is not None:
             rec["total_lag_ms"] += row["avg_lag_ms"] * (row["request_count"] or 1)
             rec["lag_count"] += row["request_count"] or 1
     daily = []
     for rec in daily_by_date.values():
-        avg_latency = round(rec.pop("total_latency_ms") / rec["latency_count"]) if rec["latency_count"] else 0
-        avg_lag = round(rec.pop("total_lag_ms") / rec["lag_count"]) if rec["lag_count"] else 0
+        avg_latency = (
+            round(rec.pop("total_latency_ms") / rec["latency_count"])
+            if rec["latency_count"]
+            else 0
+        )
+        avg_lag = (
+            round(rec.pop("total_lag_ms") / rec["lag_count"]) if rec["lag_count"] else 0
+        )
         rec.pop("latency_count")
         rec.pop("lag_count")
         rec["avg_latency_ms"] = avg_latency
@@ -1010,7 +1047,8 @@ async def refresh_stats_endpoint():
 
 @router.post("/stats/aggregate/daily")
 async def trigger_daily_aggregation(
-    start_date: date, end_date: date,
+    start_date: date,
+    end_date: date,
 ):
     result = await aggregate_daily_stats(start_date, end_date)
     return {"message": f"已更新 {result['updated_rows']} 条日聚合记录", **result}
@@ -1062,7 +1100,9 @@ async def list_requests_endpoint(
         page_size=page_size,
     )
     if result.get("available") is False:
-        raise HTTPException(status_code=503, detail=result.get("error") or "请求记录库不可用")
+        raise HTTPException(
+            status_code=503, detail=result.get("error") or "请求记录库不可用"
+        )
     return await _decorate_request_items(result)
 
 
@@ -1118,8 +1158,11 @@ async def update_model_group_endpoint(group_id: str, body: ModelGroupUpdate):
     for g in groups:
         if g.id == group_id:
             update_data = body.model_dump(exclude_unset=True)
-            if "name" in update_data and any(other.id != group_id and other.name == update_data["name"] for other in groups):
-                    raise HTTPException(status_code=400, detail="模型组名称已存在")
+            if "name" in update_data and any(
+                other.id != group_id and other.name == update_data["name"]
+                for other in groups
+            ):
+                raise HTTPException(status_code=400, detail="模型组名称已存在")
             updated = await update_model_group(group_id, update_data)
             if updated is None:
                 break
@@ -1172,12 +1215,15 @@ async def update_lb_config_endpoint(body: LBConfig):
 async def get_settings_endpoint():
     """获取所有配置项"""
     import config as _config
+
     settings = _config.get_settings()
     # max_body_size 转换为 MB 单位
     if settings.get("max_body_size"):
         settings["max_body_size_mb"] = settings["max_body_size"] // (1024 * 1024)
     else:
-        settings["max_body_size_mb"] = _config._CONFIG_SCHEMA["max_body_size"]["default"] // (1024 * 1024)
+        settings["max_body_size_mb"] = _config._CONFIG_SCHEMA["max_body_size"][
+            "default"
+        ] // (1024 * 1024)
     # max_log_body_size 转换为 KB 单位（0 表示不限制）
     raw = settings.get("max_log_body_size")
     if raw is None:
@@ -1190,6 +1236,7 @@ async def get_settings_endpoint():
 async def update_settings_endpoint(body: dict):
     """批量更新配置"""
     import config as _config
+
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="body 必须是对象")
     unknown = [k for k in body.keys() if k not in _config._CONFIG_SCHEMA]

@@ -17,41 +17,48 @@ from fastapi.testclient import TestClient
 #  单元测试：normalize_path 函数
 # ═══════════════════════════════════════════
 
-class TestNormalizePath:
 
+class TestNormalizePath:
     def test_double_v1_messages(self):
         """/v1/v1/messages → /v1/messages"""
         from main import normalize_path
+
         assert normalize_path("/v1/v1/messages") == "/v1/messages"
 
     def test_double_v1_chat_completions(self):
         """/v1/v1/chat/completions → /v1/chat/completions"""
         from main import normalize_path
+
         assert normalize_path("/v1/v1/chat/completions") == "/v1/chat/completions"
 
     def test_double_v1_responses(self):
         """/v1/v1/responses → /v1/responses"""
         from main import normalize_path
+
         assert normalize_path("/v1/v1/responses") == "/v1/responses"
 
     def test_double_v1_models(self):
         """/v1/v1/models → /v1/models"""
         from main import normalize_path
+
         assert normalize_path("/v1/v1/models") == "/v1/models"
 
     def test_triple_v1_messages(self):
         """/v1/v1/v1/messages → /v1/messages"""
         from main import normalize_path
+
         assert normalize_path("/v1/v1/v1/messages") == "/v1/messages"
 
     def test_single_v1_unchanged(self):
         """/v1/messages 保持不变"""
         from main import normalize_path
+
         assert normalize_path("/v1/messages") == "/v1/messages"
 
     def test_non_proxy_path_unchanged(self):
         """非代理路径不受影响"""
         from main import normalize_path
+
         assert normalize_path("/admin") == "/admin"
         assert normalize_path("/health") == "/health"
         assert normalize_path("/admin/channels") == "/admin/channels"
@@ -59,11 +66,13 @@ class TestNormalizePath:
     def test_root_path_unchanged(self):
         """根路径保持不变"""
         from main import normalize_path
+
         assert normalize_path("/") == "/"
 
     def test_double_v1_anthropic_models(self):
         """/v1/v1/anthropic/models → /v1/anthropic/models"""
         from main import normalize_path
+
         assert normalize_path("/v1/v1/anthropic/models") == "/v1/anthropic/models"
 
     # ── 裸路径支持 ──
@@ -71,36 +80,43 @@ class TestNormalizePath:
     def test_bare_messages(self):
         """/messages → /v1/messages"""
         from main import normalize_path
+
         assert normalize_path("/messages") == "/v1/messages"
 
     def test_bare_chat_completions(self):
         """/chat/completions → /v1/chat/completions"""
         from main import normalize_path
+
         assert normalize_path("/chat/completions") == "/v1/chat/completions"
 
     def test_bare_responses(self):
         """/responses → /v1/responses"""
         from main import normalize_path
+
         assert normalize_path("/responses") == "/v1/responses"
 
     def test_bare_responses_with_id(self):
         """/responses/resp_abc123 → /v1/responses/resp_abc123"""
         from main import normalize_path
+
         assert normalize_path("/responses/resp_abc123") == "/v1/responses/resp_abc123"
 
     def test_bare_models(self):
         """/models → /v1/models"""
         from main import normalize_path
+
         assert normalize_path("/models") == "/v1/models"
 
     def test_bare_anthropic_models(self):
         """/anthropic/models → /v1/anthropic/models"""
         from main import normalize_path
+
         assert normalize_path("/anthropic/models") == "/v1/anthropic/models"
 
     def test_unknown_bare_path_unchanged(self):
         """未知的裸路径不应被补 /v1"""
         from main import normalize_path
+
         assert normalize_path("/admin") == "/admin"
         assert normalize_path("/health") == "/health"
         assert normalize_path("/some/random/path") == "/some/random/path"
@@ -110,32 +126,38 @@ class TestNormalizePath:
     def test_double_v1_with_trailing_slash(self):
         """/v1/v1/chat/completions/ → /v1/chat/completions/"""
         from main import normalize_path
+
         assert normalize_path("/v1/v1/chat/completions/") == "/v1/chat/completions/"
 
     def test_triple_v1_responses(self):
         """/v1/v1/v1/responses → /v1/responses"""
         from main import normalize_path
+
         assert normalize_path("/v1/v1/v1/responses") == "/v1/responses"
 
     def test_triple_v1_with_trailing_slash(self):
         """/v1/v1/v1/chat/completions/ → /v1/chat/completions/"""
         from main import normalize_path
+
         assert normalize_path("/v1/v1/v1/chat/completions/") == "/v1/chat/completions/"
 
     def test_bare_path_with_trailing_slash(self):
         """/chat/completions/ → /v1/chat/completions/"""
         from main import normalize_path
+
         assert normalize_path("/chat/completions/") == "/v1/chat/completions/"
 
     def test_single_v1_with_trailing_slash_unchanged(self):
         """/v1/messages/ 保持不变（已有 /v1 前缀）"""
         from main import normalize_path
+
         assert normalize_path("/v1/messages/") == "/v1/messages/"
 
 
 # ═══════════════════════════════════════════
 #  集成测试：CombinedMiddleware 路径归一化
 # ═══════════════════════════════════════════
+
 
 @pytest.fixture
 def middleware_app(tmp_path, monkeypatch):
@@ -205,15 +227,30 @@ def middleware_app(tmp_path, monkeypatch):
 
     @inner_app.post("/v1/chat/completions")
     async def echo_chat(request: Request):
-        return JSONResponse({"route": "chat", "auth_checked": getattr(request.state, "proxy_auth_checked", False)})
+        return JSONResponse(
+            {
+                "route": "chat",
+                "auth_checked": getattr(request.state, "proxy_auth_checked", False),
+            }
+        )
 
     @inner_app.post("/v1/messages")
     async def echo_anthropic(request: Request):
-        return JSONResponse({"route": "anthropic", "auth_checked": getattr(request.state, "proxy_auth_checked", False)})
+        return JSONResponse(
+            {
+                "route": "anthropic",
+                "auth_checked": getattr(request.state, "proxy_auth_checked", False),
+            }
+        )
 
     @inner_app.post("/v1/responses")
     async def echo_responses(request: Request):
-        return JSONResponse({"route": "responses", "auth_checked": getattr(request.state, "proxy_auth_checked", False)})
+        return JSONResponse(
+            {
+                "route": "responses",
+                "auth_checked": getattr(request.state, "proxy_auth_checked", False),
+            }
+        )
 
     inner_app.add_middleware(_main.CombinedMiddleware)
 
@@ -230,7 +267,6 @@ def middleware_app(tmp_path, monkeypatch):
 
 
 class TestMiddlewarePathNormalization:
-
     def test_double_v1_chat_completions_routes_correctly(self, middleware_app):
         """/v1/v1/chat/completions 应被归一化并路由到 /v1/chat/completions"""
         resp = middleware_app.post(
@@ -340,6 +376,7 @@ class TestMiddlewarePathNormalization:
 #  原始路径保留 & 日志
 # ═══════════════════════════════════════════
 
+
 class TestOriginalPathPreservation:
     """验证归一化前的原始路径被保留，供日志和调试使用。"""
 
@@ -395,6 +432,8 @@ class TestOriginalPathPreservation:
                 start=0.0,
             )
             log_text = sink.getvalue()
-            assert "original=" not in log_text, f"路径相同时不应显示 original=: {log_text}"
+            assert "original=" not in log_text, (
+                f"路径相同时不应显示 original=: {log_text}"
+            )
         finally:
             logger.remove(handler_id)

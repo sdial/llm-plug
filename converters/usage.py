@@ -11,6 +11,7 @@ OpenAI:
   - completion_tokens 含 reasoning
   - completion_tokens_details.reasoning_tokens 是 completion_tokens 的子集
 """
+
 from __future__ import annotations
 from typing import Any
 from loguru import logger
@@ -102,7 +103,8 @@ def openai_chat_to_anthropic(usage: dict[str, Any] | None) -> dict[str, Any]:
     if cached > pt:
         logger.warning(
             "openai_chat_to_anthropic: cached_tokens (%d) > prompt_tokens (%d), clamping input_tokens to 0",
-            cached, pt,
+            cached,
+            pt,
         )
     return {
         "input_tokens": max(pt - cached, 0),
@@ -122,7 +124,8 @@ def openai_response_to_anthropic(usage: dict[str, Any] | None) -> dict[str, Any]
     if cached > inp:
         logger.warning(
             "openai_response_to_anthropic: cached_tokens (%d) > input_tokens (%d), clamping to 0",
-            cached, inp,
+            cached,
+            inp,
         )
     return {
         "input_tokens": max(inp - cached, 0),

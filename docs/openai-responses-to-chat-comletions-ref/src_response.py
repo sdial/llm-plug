@@ -29,6 +29,7 @@ __all__ = ["Response", "IncompleteDetails", "ToolChoice", "Conversation"]
 
 class IncompleteDetails(BaseModel):
     """Details about why the response is incomplete."""
+
     reason: Optional[Literal["max_output_tokens", "content_filter"]] = None
     """The reason why the response is incomplete."""
 
@@ -47,6 +48,7 @@ ToolChoice: TypeAlias = Union[
 
 class Conversation(BaseModel):
     """The conversation that this response belonged to."""
+
     id: str
     """The unique ID of the conversation that this response was associated with."""
 
@@ -102,7 +104,9 @@ class Response(BaseModel):
     """**gpt-5 and o-series models only** Configuration options for reasoning models."""
     safety_identifier: Optional[str] = None
     """A stable identifier used to help detect users violating policies."""
-    service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] = None
+    service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] = (
+        None
+    )
     """Specifies the processing type used for serving the request."""
     status: Optional[ResponseStatus] = None
     """The status of the response generation."""

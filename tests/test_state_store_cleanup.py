@@ -36,8 +36,8 @@ def _write_session(store: FileStore, response_id: str, ttl_offset: int = 3600) -
 #  cleanup_expired()
 # ═══════════════════════════════════════════
 
-class TestCleanupExpired:
 
+class TestCleanupExpired:
     @pytest.mark.asyncio
     async def test_removes_expired_files(self, tmp_store):
         _write_session(tmp_store, "resp_expired1", ttl_offset=-100)
@@ -108,8 +108,8 @@ class TestCleanupExpired:
 #  evict_lru()
 # ═══════════════════════════════════════════
 
-class TestEvictLru:
 
+class TestEvictLru:
     @pytest.mark.asyncio
     async def test_evicts_oldest_when_over_capacity(self, tmp_store):
         """max_entries=5，写入 8 个文件，应淘汰最旧的 3 个"""
@@ -209,8 +209,8 @@ class TestEvictLru:
 #  _cleanup_if_needed()
 # ═══════════════════════════════════════════
 
-class TestCleanupIfNeeded:
 
+class TestCleanupIfNeeded:
     @pytest.mark.asyncio
     async def test_combines_expired_and_lru(self, tmp_store):
         """先清理过期，再 LRU 淘汰"""
@@ -239,8 +239,8 @@ class TestCleanupIfNeeded:
 #  get_response / get_conversation 过期检查
 # ═══════════════════════════════════════════
 
-class TestGetExpiredReturnsNone:
 
+class TestGetExpiredReturnsNone:
     @pytest.mark.asyncio
     async def test_get_response_returns_none_for_expired(self, tmp_store):
         _write_session(tmp_store, "resp_old", ttl_offset=-100)

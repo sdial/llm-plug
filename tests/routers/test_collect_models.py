@@ -20,7 +20,6 @@ def _reset_storage():
 
 
 class TestCollectModels:
-
     @pytest.mark.asyncio
     async def test_empty_channels(self, tmp_path, monkeypatch):
         """无渠道时返回空列表"""

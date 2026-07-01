@@ -293,8 +293,18 @@ class TestCapabilityDegradation:
                     "role": "user",
                     "content": [
                         {"type": "text", "text": "Describe this"},
-                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
-                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "BBB"}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,AAA"},
+                        },
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "BBB",
+                            },
+                        },
                     ],
                 }
             ],
@@ -327,13 +337,21 @@ class TestCapabilityDegradation:
                         "role": "user",
                         "content": [
                             {"type": "text", "text": "hello"},
-                            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
-                            {"type": "input_audio", "input_audio": {"data": "BBB", "format": "wav"}},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "data:image/png;base64,AAA"},
+                            },
+                            {
+                                "type": "input_audio",
+                                "input_audio": {"data": "BBB", "format": "wav"},
+                            },
                         ],
                     }
                 ],
             }
-            apply_capability_filter(request, caps, channel_name="TestChannel", model_name="gpt-3.5-turbo")
+            apply_capability_filter(
+                request, caps, channel_name="TestChannel", model_name="gpt-3.5-turbo"
+            )
         finally:
             logger.remove(handler_id)
 
@@ -362,7 +380,9 @@ class TestCapabilityDegradation:
                     {"role": "assistant", "content": "OK"},
                 ],
             }
-            result = apply_capability_filter(request, caps, channel_name="TestChannel", model_name="gpt-4")
+            result = apply_capability_filter(
+                request, caps, channel_name="TestChannel", model_name="gpt-4"
+            )
         finally:
             logger.remove(handler_id)
 
@@ -387,13 +407,21 @@ class TestCapabilityDegradation:
             request = {
                 "model": "mimo-v2.5-pro",
                 "messages": [
-                    {"role": "user", "content": [
-                        {"type": "text", "text": "hello"},
-                        {"type": "text", "text": "world"},
-                    ]},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "hello"},
+                            {"type": "text", "text": "world"},
+                        ],
+                    },
                 ],
             }
-            result = apply_capability_filter(request, caps, channel_name="XiaoMi-TokenPlan", model_name="mimo-v2.5-pro")
+            result = apply_capability_filter(
+                request,
+                caps,
+                channel_name="XiaoMi-TokenPlan",
+                model_name="mimo-v2.5-pro",
+            )
         finally:
             logger.remove(handler_id)
 
@@ -422,12 +450,17 @@ class TestCapabilityDegradation:
                         "role": "user",
                         "content": [
                             {"type": "text", "text": "hello"},
-                            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "data:image/png;base64,AAA"},
+                            },
                         ],
                     }
                 ],
             }
-            result = apply_capability_filter(request, caps, channel_name="TestChannel", model_name="gpt-4")
+            result = apply_capability_filter(
+                request, caps, channel_name="TestChannel", model_name="gpt-4"
+            )
         finally:
             logger.remove(handler_id)
 
@@ -440,7 +473,8 @@ class TestCapabilityDegradation:
         # image 应被移除
         user_msg = result["messages"][0]
         image_parts = [
-            p for p in user_msg["content"]
+            p
+            for p in user_msg["content"]
             if isinstance(p, dict) and p.get("type") in ("image_url", "image")
         ]
         assert len(image_parts) == 0
@@ -464,14 +498,22 @@ class TestCapabilityDegradation:
                         "role": "user",
                         "content": [
                             {"type": "text", "text": "hello"},
-                            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
-                            {"type": "input_audio", "input_audio": {"data": "BBB", "format": "wav"}},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "data:image/png;base64,AAA"},
+                            },
+                            {
+                                "type": "input_audio",
+                                "input_audio": {"data": "BBB", "format": "wav"},
+                            },
                             {"type": "file", "file": {"file_id": "f1"}},
                         ],
                     }
                 ],
             }
-            result = apply_capability_filter(request, caps, channel_name="TestChannel", model_name="gpt-4")
+            result = apply_capability_filter(
+                request, caps, channel_name="TestChannel", model_name="gpt-4"
+            )
         finally:
             logger.remove(handler_id)
 

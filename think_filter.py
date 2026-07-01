@@ -4,6 +4,7 @@ Think content filter module.
 Filters out thinking process (in <think>...</think> or similar tags) from model output.
 Supports both static and streaming modes.
 """
+
 import re
 
 
@@ -25,10 +26,10 @@ def filter_think_content_static(content: str) -> str:
         return content
 
     # Filter <think>...</think>
-    result = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+    result = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
 
     # Filter 💭...💭 (emoji)
-    result = re.sub(r'💭.*?💭', '', result, flags=re.DOTALL)
+    result = re.sub(r"💭.*?💭", "", result, flags=re.DOTALL)
 
     return result.strip()
 
@@ -80,7 +81,9 @@ class ThinkFilter:
                 if start_pos == -1:
                     # No full start tag found. Only keep a tail that could
                     # become a split "<think>" tag in the next chunk.
-                    safe_len = len(self.buffer) - self._partial_start_tag_len(self.buffer)
+                    safe_len = len(self.buffer) - self._partial_start_tag_len(
+                        self.buffer
+                    )
                     if safe_len > i:
                         result_parts.append(self.buffer[i:safe_len])
                         self.buffer = self.buffer[safe_len:]
@@ -123,11 +126,11 @@ class ThinkFilter:
 
     def _get_start_tag(self, text: str, pos: int) -> str:
         """Get the start tag at position."""
-        if text[pos:pos+7] == "<think>":
+        if text[pos : pos + 7] == "<think>":
             return "<think>"
-        if text[pos:pos+1] == "💭":
+        if text[pos : pos + 1] == "💭":
             return "💭"
-        return text[pos:pos+1]
+        return text[pos : pos + 1]
 
     def _find_end_tag(self, text: str, start: int) -> int:
         """Find position after end tag, return -1 if not found."""

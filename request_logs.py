@@ -45,6 +45,7 @@ def _sanitize_int_env(name: str | None, default: int | None) -> int | None:
         logger.warning("非法 {}={!r} 不是整数,回退默认 {}", name, val, default)
         return default
 
+
 _RAW_FIELDS = {
     "request_headers",
     "response_headers",
@@ -62,6 +63,7 @@ _RAW_FIELD_SELECT: dict[str, str] = {
 
 def _escape_like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 _BACKEND_UNINITIALIZED_ERROR = "request log backend is not initialized"
 
@@ -175,7 +177,9 @@ class SQLiteRequestLogBackend:
         return os.path.join(self.data_dir, "request_raw_logs")
 
     def _month_db_path(self, year_month: str) -> str:
-        return os.path.join(self._logs_dir, f"request_logs_{year_month[:4]}_{year_month[4:]}.sqlite3")
+        return os.path.join(
+            self._logs_dir, f"request_logs_{year_month[:4]}_{year_month[4:]}.sqlite3"
+        )
 
     @staticmethod
     def _month_end_utc_naive(year_month: str) -> datetime:
@@ -202,9 +206,13 @@ class SQLiteRequestLogBackend:
         if not os.path.isdir(self._logs_dir):
             return []
         months: list[str] = []
-        for path in glob.glob(os.path.join(self._logs_dir, "request_logs_????_??.sqlite3")):
+        for path in glob.glob(
+            os.path.join(self._logs_dir, "request_logs_????_??.sqlite3")
+        ):
             basename = os.path.basename(path)
-            parts = basename.replace("request_logs_", "").replace(".sqlite3", "").split("_")
+            parts = (
+                basename.replace("request_logs_", "").replace(".sqlite3", "").split("_")
+            )
             if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 2:
                 months.append(parts[0] + parts[1])
         return sorted(months)
@@ -212,12 +220,18 @@ class SQLiteRequestLogBackend:
     def _connect_to(self, db_path: str) -> sqlite3.Connection:
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute(f"PRAGMA synchronous={_sanitize_pragma_env('SQLITE_SYNCHRONOUS', 'NORMAL', _VALID_SYNCHRONOUS)}")
-        conn.execute(f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'FILE', _VALID_TEMP_STORE)}")
+        conn.execute(
+            f"PRAGMA synchronous={_sanitize_pragma_env('SQLITE_SYNCHRONOUS', 'NORMAL', _VALID_SYNCHRONOUS)}"
+        )
+        conn.execute(
+            f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'FILE', _VALID_TEMP_STORE)}"
+        )
         cache_size = _sanitize_int_env("SQLITE_CACHE_SIZE", None)
         if cache_size is not None:
             conn.execute(f"PRAGMA cache_size={cache_size}")
-        conn.execute(f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE_LOGS', _SQLITE_MMAP_SIZE_BYTES)}")
+        conn.execute(
+            f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE_LOGS', _SQLITE_MMAP_SIZE_BYTES)}"
+        )
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -226,7 +240,9 @@ class SQLiteRequestLogBackend:
         if not os.path.exists(path):
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             with closing(sqlite3.connect(path)) as conn, conn:
-                conn.execute(f"PRAGMA journal_mode={_sanitize_pragma_env('SQLITE_JOURNAL_MODE', 'WAL', _VALID_JOURNAL_MODE)}")
+                conn.execute(
+                    f"PRAGMA journal_mode={_sanitize_pragma_env('SQLITE_JOURNAL_MODE', 'WAL', _VALID_JOURNAL_MODE)}"
+                )
                 conn.execute("PRAGMA busy_timeout=5000")
                 conn.executescript(
                     """
@@ -264,7 +280,9 @@ class SQLiteRequestLogBackend:
                 )
         else:
             with closing(sqlite3.connect(path)) as conn, conn:
-                existing = {row[1] for row in conn.execute("PRAGMA table_info(request_logs)")}
+                existing = {
+                    row[1] for row in conn.execute("PRAGMA table_info(request_logs)")
+                }
                 migrations = {
                     "client_ip": "TEXT",
                     "cache_read_input_tokens": "INTEGER NOT NULL DEFAULT 0",
@@ -272,9 +290,15 @@ class SQLiteRequestLogBackend:
                 }
                 for column, definition in migrations.items():
                     if column not in existing:
-                        conn.execute(f"ALTER TABLE request_logs ADD COLUMN {column} {definition}")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_list_order ON request_logs(timestamp DESC, id DESC)")
+                        conn.execute(
+                            f"ALTER TABLE request_logs ADD COLUMN {column} {definition}"
+                        )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_request_logs_list_order ON request_logs(timestamp DESC, id DESC)"
+                )
         return path
 
     def _init_sync(self) -> None:
@@ -298,7 +322,9 @@ class SQLiteRequestLogBackend:
 
     def _write_record_sync(self, record: dict[str, Any]) -> None:
         ts_str = _to_iso(record.get("timestamp"))
-        ym = ts_str[:4] + ts_str[5:7] if len(ts_str) >= 7 else self._current_year_month()
+        ym = (
+            ts_str[:4] + ts_str[5:7] if len(ts_str) >= 7 else self._current_year_month()
+        )
         db_path = self._ensure_month_db(ym)
         with closing(self._connect_to(db_path)) as conn, conn:
             conn.execute(
@@ -354,7 +380,9 @@ class SQLiteRequestLogBackend:
             conditions.append("LOWER(model) LIKE LOWER(?) ESCAPE '\\'")
             args.append(f"%{_escape_like(model)}%")
         if channel:
-            conditions.append("(LOWER(channel_name) LIKE LOWER(?) ESCAPE '\\' OR LOWER(channel_id) LIKE LOWER(?) ESCAPE '\\')")
+            conditions.append(
+                "(LOWER(channel_name) LIKE LOWER(?) ESCAPE '\\' OR LOWER(channel_id) LIKE LOWER(?) ESCAPE '\\')"
+            )
             escaped = f"%{_escape_like(channel)}%"
             args.extend([escaped, escaped])
         if start:
@@ -418,7 +446,9 @@ class SQLiteRequestLogBackend:
         items = []
         for row in rows:
             item = _base_item_from_mapping(dict(row))
-            item["id"] = f"{os.path.basename(db_path)[13:17]}{os.path.basename(db_path)[18:20]}_{item['id']}"
+            item["id"] = (
+                f"{os.path.basename(db_path)[13:17]}{os.path.basename(db_path)[18:20]}_{item['id']}"
+            )
             items.append(item)
         return items, total or 0
 
@@ -436,7 +466,9 @@ class SQLiteRequestLogBackend:
         page_size: int = 10,
     ) -> dict[str, Any]:
         page, page_size = _normalize_pagination(page, page_size)
-        months = sorted(set(self._discover_month_dbs() + [self._current_year_month()]), reverse=True)
+        months = sorted(
+            set(self._discover_month_dbs() + [self._current_year_month()]), reverse=True
+        )
         target_offset = (page - 1) * page_size
         remaining_skip = target_offset
         collected: list[dict[str, Any]] = []
@@ -528,21 +560,31 @@ class SQLiteRequestLogBackend:
     async def get_request_field(self, request_id: int | str, field: str) -> dict | None:
         return await asyncio.to_thread(self._get_request_field_sync, request_id, field)
 
-    def _cleanup_old_records_sync(self, retention_days: int, raw_retention_days: int) -> dict[str, int]:
+    def _cleanup_old_records_sync(
+        self, retention_days: int, raw_retention_days: int
+    ) -> dict[str, int]:
         result = {"raw_fields_cleared": 0, "rows_deleted": 0, "month_dbs_deleted": 0}
         retention_cutoff_dt = (
             _normalize_to_utc_naive(_utc_now() - timedelta(days=retention_days))
-            if retention_days > 0 else None
+            if retention_days > 0
+            else None
         )
         retention_cutoff = _to_iso(retention_cutoff_dt) if retention_cutoff_dt else None
         raw_cutoff = None
-        if raw_retention_days > 0 and (retention_days == 0 or raw_retention_days < retention_days):
-            raw_cutoff = _to_iso(_normalize_to_utc_naive(_utc_now() - timedelta(days=raw_retention_days)))
+        if raw_retention_days > 0 and (
+            retention_days == 0 or raw_retention_days < retention_days
+        ):
+            raw_cutoff = _to_iso(
+                _normalize_to_utc_naive(_utc_now() - timedelta(days=raw_retention_days))
+            )
         for month in self._discover_month_dbs():
             db_path = self._month_db_path(month)
             if not os.path.exists(db_path):
                 continue
-            if retention_cutoff_dt and self._month_end_utc_naive(month) <= retention_cutoff_dt:
+            if (
+                retention_cutoff_dt
+                and self._month_end_utc_naive(month) <= retention_cutoff_dt
+            ):
                 self._remove_sqlite_files(db_path)
                 result["month_dbs_deleted"] += 1
                 continue
@@ -568,7 +610,10 @@ class SQLiteRequestLogBackend:
                     result["raw_fields_cleared"] += changed
                     mutated = mutated or changed > 0
                 if retention_cutoff is not None:
-                    cursor = conn.execute("DELETE FROM request_logs WHERE timestamp < ?", (retention_cutoff,))
+                    cursor = conn.execute(
+                        "DELETE FROM request_logs WHERE timestamp < ?",
+                        (retention_cutoff,),
+                    )
                     changed = cursor.rowcount if cursor.rowcount is not None else 0
                     result["rows_deleted"] += changed
                     mutated = mutated or changed > 0
@@ -577,8 +622,13 @@ class SQLiteRequestLogBackend:
                     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         return result
 
-    async def cleanup_old_records(self, retention_days: int, raw_retention_days: int) -> dict[str, int]:
-        return await asyncio.to_thread(self._cleanup_old_records_sync, retention_days, raw_retention_days)
+    async def cleanup_old_records(
+        self, retention_days: int, raw_retention_days: int
+    ) -> dict[str, int]:
+        return await asyncio.to_thread(
+            self._cleanup_old_records_sync, retention_days, raw_retention_days
+        )
+
 
 def _build_backend(settings: dict | None = None) -> SQLiteRequestLogBackend:
     db_path = _get_setting(settings, "request_log_sqlite_path")
@@ -587,7 +637,9 @@ def _build_backend(settings: dict | None = None) -> SQLiteRequestLogBackend:
     return SQLiteRequestLogBackend(str(db_path))
 
 
-async def _create_initialized_backend(settings: dict | None = None) -> tuple[SQLiteRequestLogBackend | None, dict]:
+async def _create_initialized_backend(
+    settings: dict | None = None,
+) -> tuple[SQLiteRequestLogBackend | None, dict]:
     backend: SQLiteRequestLogBackend | None = None
     try:
         backend = _build_backend(settings)
@@ -653,7 +705,9 @@ def _ensure_queue() -> asyncio.Queue | None:
     try:
         current_loop = asyncio.get_running_loop()
     except RuntimeError:
-        logger.warning("Request log queue requires a running event loop; discarding record")
+        logger.warning(
+            "Request log queue requires a running event loop; discarding record"
+        )
         return None
     if _REQUEST_QUEUE is None or _REQUEST_QUEUE_LOOP is not current_loop:
         _REQUEST_QUEUE = asyncio.Queue(maxsize=_REQUEST_QUEUE_MAX_SIZE)
@@ -670,7 +724,9 @@ def start_request_log_workers(worker_count: int | None = None) -> None:
     count = worker_count or _REQUEST_WORKER_COUNT
     for _ in range(count):
         _REQUEST_WORKERS.append(asyncio.create_task(_request_log_worker()))
-    logger.info(f"Request log workers started: {count} workers, queue max={queue.maxsize}")
+    logger.info(
+        f"Request log workers started: {count} workers, queue max={queue.maxsize}"
+    )
 
 
 async def stop_request_log_workers() -> None:
@@ -701,7 +757,9 @@ async def _request_log_worker() -> None:
                         f"for model={record.get('model')}"
                     )
                 else:
-                    await asyncio.wait_for(backend.write_record(record), timeout=_REQUEST_WRITE_TIMEOUT)
+                    await asyncio.wait_for(
+                        backend.write_record(record), timeout=_REQUEST_WRITE_TIMEOUT
+                    )
             except asyncio.TimeoutError:
                 logger.warning(
                     f"Request log write timed out ({_REQUEST_WRITE_TIMEOUT}s), "
@@ -785,7 +843,9 @@ def record_request(
     finish_reason: str | None = None,
 ) -> None:
     if _backend is None:
-        logger.warning(f"Request log backend unavailable ({_backend_error}); discarding record for model={model}")
+        logger.warning(
+            f"Request log backend unavailable ({_backend_error}); discarding record for model={model}"
+        )
         return
     queue = _ensure_queue()
     if queue is None:
@@ -806,10 +866,16 @@ def record_request(
         "error_msg": error_msg,
         "api_key_id": api_key_id,
         "client_ip": client_ip,
-        "request_headers": _filtered_raw_value(flags, "save_request_headers", request_headers),
-        "response_headers": _filtered_raw_value(flags, "save_response_headers", response_headers),
+        "request_headers": _filtered_raw_value(
+            flags, "save_request_headers", request_headers
+        ),
+        "response_headers": _filtered_raw_value(
+            flags, "save_response_headers", response_headers
+        ),
         "request_body": _filtered_raw_value(flags, "save_request_body", request_body),
-        "response_body": _filtered_raw_value(flags, "save_response_body", response_body),
+        "response_body": _filtered_raw_value(
+            flags, "save_response_body", response_body
+        ),
         "lag_ms": lag_ms,
         "finish_reason": finish_reason,
     }
@@ -903,13 +969,16 @@ async def get_request_field(request_id: int, field: str) -> dict | None:
         return None
     backend = _backend
     if backend is None:
-        logger.warning(f"Request log backend unavailable ({_backend_error}); cannot read {field}")
+        logger.warning(
+            f"Request log backend unavailable ({_backend_error}); cannot read {field}"
+        )
         return None
     try:
         return await backend.get_request_field(request_id, field)
     except Exception as exc:
         logger.warning(f"Request log field read failed: {exc}")
         return None
+
 
 async def cleanup_old_records(
     retention_days: int | None = None,
@@ -918,8 +987,16 @@ async def cleanup_old_records(
     backend = _backend
     if backend is None:
         return {"error": _backend_error, "raw_fields_cleared": 0, "rows_deleted": 0}
-    r_days = retention_days if retention_days is not None else int(config.get_setting("request_log_retention_days") or 0)
-    raw_days = raw_retention_days if raw_retention_days is not None else int(config.get_setting("request_log_raw_retention_days") or 0)
+    r_days = (
+        retention_days
+        if retention_days is not None
+        else int(config.get_setting("request_log_retention_days") or 0)
+    )
+    raw_days = (
+        raw_retention_days
+        if raw_retention_days is not None
+        else int(config.get_setting("request_log_raw_retention_days") or 0)
+    )
     try:
         return await backend.cleanup_old_records(r_days, raw_days)
     except Exception as exc:

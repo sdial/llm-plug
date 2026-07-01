@@ -123,7 +123,11 @@ def test_lockout_check_allows_after_cooldown():
 
 def test_lockout_tier_escalation():
     """验证阶梯递增"""
-    from routers.admin import _login_attempts, _check_login_allowed, _record_login_failure
+    from routers.admin import (
+        _login_attempts,
+        _check_login_allowed,
+        _record_login_failure,
+    )
 
     ip = "192.168.1.3"
     _login_attempts.pop(ip, None)
@@ -154,6 +158,7 @@ async def test_change_password_success(tmp_path, monkeypatch):
     # 验证新密码生效
     state = await get_admin_auth_state()
     from admin_auth import _verify_password
+
     assert _verify_password("new_password", state["password_hash"]) is True
 
 
@@ -176,7 +181,9 @@ async def test_change_password_mismatch(tmp_path, monkeypatch):
     await setup_admin_password("old_password")
 
     with pytest.raises(ValueError, match="两次输入的新密码不一致"):
-        await change_admin_password("old_password", "new_password", "different_password")
+        await change_admin_password(
+            "old_password", "new_password", "different_password"
+        )
 
 
 @pytest.mark.asyncio
@@ -199,6 +206,7 @@ async def test_change_password_revokes_sessions(tmp_path, monkeypatch):
 
     # 创建一个会话
     from admin_auth import create_admin_session, validate_admin_session
+
     token = await create_admin_session()
     assert await validate_admin_session(token) is True
 

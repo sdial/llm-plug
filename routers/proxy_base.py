@@ -33,16 +33,24 @@ async def _closeable_stream(gen: AsyncGenerator):
 def _pick_error_helpers(api_type: APIType):
     """根据 API 类型选择对应格式的错误响应函数"""
     if api_type == APIType.ANTHROPIC:
-        return anthropic_unauthorized, anthropic_invalid_request, anthropic_response_from_exception
+        return (
+            anthropic_unauthorized,
+            anthropic_invalid_request,
+            anthropic_response_from_exception,
+        )
     return unauthorized, invalid_request, response_from_proxy_exception
 
 
-def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = None) -> APIRouter:
+def make_proxy_router(
+    path: str, api_type: APIType, tags: list[str] | None = None
+) -> APIRouter:
     router = APIRouter(tags=tags or ["代理"])
     err_unauth, err_invalid, err_exception = _pick_error_helpers(api_type)
 
     @router.post(path)
-    async def proxy_handler(request: Request, authorization: Annotated[str | None, Header()] = None):
+    async def proxy_handler(
+        request: Request, authorization: Annotated[str | None, Header()] = None
+    ):
         if not check_proxy_authorization(authorization, request.state):
             return err_unauth()
 
@@ -58,12 +66,16 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
 
         client_headers = dict(request.headers)
 
-        api_key_id = getattr(request.state, 'api_key_id', None)
+        api_key_id = getattr(request.state, "api_key_id", None)
         client_ip = getattr(request.state, "client_ip", None)
         try:
             result, _channel = await proxy_request(
-                model, body, api_type, is_stream,
-                query_string=query_string, client_headers=client_headers,
+                model,
+                body,
+                api_type,
+                is_stream,
+                query_string=query_string,
+                client_headers=client_headers,
                 api_key_id=api_key_id,
                 client_ip=client_ip,
             )
@@ -99,7 +111,9 @@ def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = Non
     return router
 
 
-def _response_from_upstream_http_error(exc: httpx.HTTPStatusError, api_type: APIType) -> Response:
+def _response_from_upstream_http_error(
+    exc: httpx.HTTPStatusError, api_type: APIType
+) -> Response:
     """透传上游 HTTP 错误状态码和响应体。"""
     content = safe_httpx_response_content(exc.response)
     if content is None:
@@ -108,12 +122,20 @@ def _response_from_upstream_http_error(exc: httpx.HTTPStatusError, api_type: API
                 status_code=exc.response.status_code,
                 content={
                     "type": "error",
-                    "error": {"type": "api_error", "message": f"上游 HTTP {exc.response.status_code}: {exc}"},
+                    "error": {
+                        "type": "api_error",
+                        "message": f"上游 HTTP {exc.response.status_code}: {exc}",
+                    },
                 },
             )
         return JSONResponse(
             status_code=exc.response.status_code,
-            content={"error": {"message": f"上游 HTTP {exc.response.status_code}: {exc}", "type": "api_error"}},
+            content={
+                "error": {
+                    "message": f"上游 HTTP {exc.response.status_code}: {exc}",
+                    "type": "api_error",
+                }
+            },
         )
     media_type = exc.response.headers.get("content-type")
     return Response(

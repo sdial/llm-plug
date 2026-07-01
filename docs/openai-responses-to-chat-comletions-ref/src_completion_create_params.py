@@ -15,11 +15,17 @@ from .chat_completion_tool_union_param import ChatCompletionToolUnionParam
 from ..shared_params.function_parameters import FunctionParameters
 from ..shared_params.response_format_text import ResponseFormatText
 from .chat_completion_stream_options_param import ChatCompletionStreamOptionsParam
-from .chat_completion_prediction_content_param import ChatCompletionPredictionContentParam
-from .chat_completion_tool_choice_option_param import ChatCompletionToolChoiceOptionParam
+from .chat_completion_prediction_content_param import (
+    ChatCompletionPredictionContentParam,
+)
+from .chat_completion_tool_choice_option_param import (
+    ChatCompletionToolChoiceOptionParam,
+)
 from ..shared_params.response_format_json_object import ResponseFormatJSONObject
 from ..shared_params.response_format_json_schema import ResponseFormatJSONSchema
-from .chat_completion_function_call_option_param import ChatCompletionFunctionCallOptionParam
+from .chat_completion_function_call_option_param import (
+    ChatCompletionFunctionCallOptionParam,
+)
 
 __all__ = [
     "CompletionCreateParamsBase",
@@ -350,7 +356,9 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     """
 
 
-FunctionCall: TypeAlias = Union[Literal["none", "auto"], ChatCompletionFunctionCallOptionParam]
+FunctionCall: TypeAlias = Union[
+    Literal["none", "auto"], ChatCompletionFunctionCallOptionParam
+]
 
 
 class Function(TypedDict, total=False):
@@ -379,7 +387,9 @@ class Function(TypedDict, total=False):
     """
 
 
-ResponseFormat: TypeAlias = Union[ResponseFormatText, ResponseFormatJSONSchema, ResponseFormatJSONObject]
+ResponseFormat: TypeAlias = Union[
+    ResponseFormatText, ResponseFormatJSONSchema, ResponseFormatJSONObject
+]
 
 
 class WebSearchOptionsUserLocationApproximate(TypedDict, total=False):
@@ -458,4 +468,6 @@ class CompletionCreateParamsStreaming(CompletionCreateParamsBase):
     """
 
 
-CompletionCreateParams = Union[CompletionCreateParamsNonStreaming, CompletionCreateParamsStreaming]
+CompletionCreateParams = Union[
+    CompletionCreateParamsNonStreaming, CompletionCreateParamsStreaming
+]

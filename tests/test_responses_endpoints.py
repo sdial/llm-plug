@@ -79,7 +79,9 @@ def test_get_response_endpoint_exists():
 def test_delete_response_endpoint_exists():
     from routers.proxy_response import router
 
-    delete_routes = [r for r in router.routes if "DELETE" in getattr(r, "methods", set())]
+    delete_routes = [
+        r for r in router.routes if "DELETE" in getattr(r, "methods", set())
+    ]
     assert delete_routes
     assert any("response_id" in str(r.path) for r in delete_routes)
 
@@ -96,13 +98,18 @@ async def test_get_response_is_forwarded_to_upstream(monkeypatch, responses_app)
     )
     _patch_forwarding(monkeypatch, proxy_response, dummy)
 
-    async with AsyncClient(transport=ASGITransport(app=responses_app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=responses_app), base_url="http://test"
+    ) as client:
         resp = await client.get("/v1/responses/resp_123?include[]=output")
 
     assert resp.status_code == 200
     assert resp.json()["id"] == "resp_123"
     assert dummy.calls[0][0] == "GET"
-    assert dummy.calls[0][1] == "https://api.openai.com/v1/responses/resp_123?include%5B%5D=output"
+    assert (
+        dummy.calls[0][1]
+        == "https://api.openai.com/v1/responses/resp_123?include%5B%5D=output"
+    )
 
 
 @pytest.mark.asyncio
@@ -114,7 +121,9 @@ async def test_delete_response_is_forwarded_to_upstream(monkeypatch, responses_a
     )
     _patch_forwarding(monkeypatch, proxy_response, dummy)
 
-    async with AsyncClient(transport=ASGITransport(app=responses_app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=responses_app), base_url="http://test"
+    ) as client:
         resp = await client.delete("/v1/responses/resp_123")
 
     assert resp.status_code == 200
@@ -135,7 +144,9 @@ async def test_get_response_forwards_upstream_404(monkeypatch, responses_app):
     )
     _patch_forwarding(monkeypatch, proxy_response, dummy)
 
-    async with AsyncClient(transport=ASGITransport(app=responses_app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=responses_app), base_url="http://test"
+    ) as client:
         resp = await client.get("/v1/responses/resp_missing")
 
     assert resp.status_code == 404
@@ -154,7 +165,9 @@ async def test_cancel_response_is_forwarded_to_upstream(monkeypatch, responses_a
     )
     _patch_forwarding(monkeypatch, proxy_response, dummy)
 
-    async with AsyncClient(transport=ASGITransport(app=responses_app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=responses_app), base_url="http://test"
+    ) as client:
         resp = await client.post("/v1/responses/resp_123/cancel")
 
     assert resp.status_code == 200
@@ -164,7 +177,9 @@ async def test_cancel_response_is_forwarded_to_upstream(monkeypatch, responses_a
 
 
 @pytest.mark.asyncio
-async def test_list_response_input_items_is_forwarded_to_upstream(monkeypatch, responses_app):
+async def test_list_response_input_items_is_forwarded_to_upstream(
+    monkeypatch, responses_app
+):
     from routers import proxy_response
 
     dummy = DummyAsyncClient(
@@ -172,17 +187,24 @@ async def test_list_response_input_items_is_forwarded_to_upstream(monkeypatch, r
     )
     _patch_forwarding(monkeypatch, proxy_response, dummy)
 
-    async with AsyncClient(transport=ASGITransport(app=responses_app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=responses_app), base_url="http://test"
+    ) as client:
         resp = await client.get("/v1/responses/resp_123/input_items?limit=1")
 
     assert resp.status_code == 200
     assert resp.json() == {"object": "list", "data": []}
     assert dummy.calls[0][0] == "GET"
-    assert dummy.calls[0][1] == "https://api.openai.com/v1/responses/resp_123/input_items?limit=1"
+    assert (
+        dummy.calls[0][1]
+        == "https://api.openai.com/v1/responses/resp_123/input_items?limit=1"
+    )
 
 
 @pytest.mark.asyncio
-async def test_count_response_input_tokens_uses_model_channel(monkeypatch, responses_app):
+async def test_count_response_input_tokens_uses_model_channel(
+    monkeypatch, responses_app
+):
     from routers import proxy_response
 
     selected = {}
@@ -200,7 +222,9 @@ async def test_count_response_input_tokens_uses_model_channel(monkeypatch, respo
     monkeypatch.setattr(proxy_response, "_select_responses_channel", fake_select)
     monkeypatch.setattr(proxy_response, "create_client", fake_create_client)
 
-    async with AsyncClient(transport=ASGITransport(app=responses_app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=responses_app), base_url="http://test"
+    ) as client:
         resp = await client.post(
             "/v1/responses/input_tokens",
             json={"model": "gpt-4o", "input": "hello"},
@@ -223,7 +247,9 @@ async def test_compact_response_is_forwarded_to_upstream(monkeypatch, responses_
     )
     _patch_forwarding(monkeypatch, proxy_response, dummy)
 
-    async with AsyncClient(transport=ASGITransport(app=responses_app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=responses_app), base_url="http://test"
+    ) as client:
         resp = await client.post(
             "/v1/responses/compact",
             json={"model": "gpt-4o", "input": "long context"},
@@ -236,7 +262,9 @@ async def test_compact_response_is_forwarded_to_upstream(monkeypatch, responses_
 
 
 @pytest.mark.asyncio
-async def test_openai_response_passthrough_post_does_not_apply_capability_filter(monkeypatch):
+async def test_openai_response_passthrough_post_does_not_apply_capability_filter(
+    monkeypatch,
+):
     from proxy_core import _do_request
 
     captured = {}
@@ -269,7 +297,9 @@ async def test_openai_response_passthrough_post_does_not_apply_capability_filter
         return None
 
     monkeypatch.setattr("proxy_core.create_client", fake_create_client)
-    monkeypatch.setattr("proxy_core._record_request", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(
+        "proxy_core._record_request", lambda **kwargs: captured.update(kwargs)
+    )
     monkeypatch.setattr("proxy_core.load_balancer.record_success", fake_record_success)
 
     request_body = {
@@ -282,6 +312,7 @@ async def test_openai_response_passthrough_post_does_not_apply_capability_filter
     assert result["id"] == "resp_1"
     assert dummy.posts[0][1]["json"] == request_body
     assert captured["request_body"] == request_body
+
 
 @pytest.mark.asyncio
 async def test_openai_response_stream_passthrough_preserves_raw_sse_blocks(monkeypatch):
@@ -343,4 +374,3 @@ async def test_openai_response_stream_passthrough_preserves_raw_sse_blocks(monke
 
     assert "id: evt_1\nretry: 5000\nevent: response.output_text.delta\n" in output
     assert 'data: {"type":"response.output_text.delta","delta":"hi"}\n\n' in output
-

@@ -33,6 +33,7 @@ def upstream_http_error_message(exc: httpx.HTTPStatusError) -> str:
 
 # ── Anthropic 格式错误 ──
 
+
 def anthropic_error(status_code: int, error_type: str, message: str) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
@@ -67,6 +68,7 @@ def anthropic_response_from_exception(exc: BaseException) -> JSONResponse:
 
 
 # ── OpenAI 格式错误 ──
+
 
 def unauthorized() -> JSONResponse:
     return JSONResponse(

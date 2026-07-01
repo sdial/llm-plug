@@ -12,7 +12,6 @@ from routers.auth import check_proxy_authorization
 
 
 class TestCheckProxyAuthorization:
-
     def test_none_state_returns_false(self):
         """request_state 为 None 时返回 False"""
         assert check_proxy_authorization("Bearer token", None) is False

@@ -3,6 +3,7 @@
 这些测试断言**当前（有缺陷）的行为**，每个测试的 docstring 描述具体问题。
 当问题被修复后，相关测试会失败，提示修改者同时更新测试以匹配新行为。
 """
+
 import json
 
 from converters.to_anthropic import ToAnthropicConverter
@@ -25,7 +26,7 @@ class TestN2ThinkingSignature:
         self.converter = ToAnthropicConverter()
 
     def test_chat_request_assistant_reasoning_emits_empty_signature(self):
-        """Bug N2: 历史 assistant 消息带 reasoning_content 时, 输出 signature=''. """
+        """Bug N2: 历史 assistant 消息带 reasoning_content 时, 输出 signature=''."""
         request = {
             "model": "gpt-4o",
             "messages": [
@@ -42,7 +43,8 @@ class TestN2ThinkingSignature:
 
         assistant_msg = result["messages"][1]
         thinking_blocks = [
-            c for c in assistant_msg["content"]
+            c
+            for c in assistant_msg["content"]
             if isinstance(c, dict) and c.get("type") == "thinking"
         ]
         assert thinking_blocks, "expected a thinking block to be produced"
@@ -440,9 +442,7 @@ class TestM8ContentBlockDowngrade:
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "file", "file": {"filename": "x.txt"}}
-                    ],
+                    "content": [{"type": "file", "file": {"filename": "x.txt"}}],
                 }
             ],
         }
@@ -457,9 +457,7 @@ class TestM8ContentBlockDowngrade:
             "messages": [
                 {
                     "role": "assistant",
-                    "content": [
-                        {"type": "refusal", "refusal": "no"}
-                    ],
+                    "content": [{"type": "refusal", "refusal": "no"}],
                 }
             ],
         }
@@ -495,7 +493,10 @@ class TestM9XStopSequenceFieldPollutesChoice:
 
     def test_x_stop_sequence_appears_in_stream_message_delta_choice(self):
         chunks = [
-            {"type": "message_start", "message": {"id": "msg_x", "model": "claude", "usage": {}}},
+            {
+                "type": "message_start",
+                "message": {"id": "msg_x", "model": "claude", "usage": {}},
+            },
             {
                 "type": "message_delta",
                 "delta": {"stop_reason": "stop_sequence", "stop_sequence": "STOP"},
@@ -508,7 +509,8 @@ class TestM9XStopSequenceFieldPollutesChoice:
             if converted is not None:
                 outputs.append(converted)
         delta_chunks = [
-            o for o in outputs
+            o
+            for o in outputs
             if o.get("choices") and o["choices"][0].get("finish_reason") == "stop"
         ]
         assert delta_chunks, "should have a finishing chunk"
@@ -629,7 +631,9 @@ class TestM12StreamMessageStartInputTokensZero:
         chunk = {
             "id": "chatcmpl-a",
             "model": "gpt-4o",
-            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+            "choices": [
+                {"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}
+            ],
         }
         events = self.converter._chat_stream_chunk_to_anthropic(chunk)
         message_starts = [e for e in events if e[0] == "message_start"]
@@ -652,8 +656,13 @@ class TestM13StreamFirstToolCallEmptyId:
         """Bug M13: 上游延迟给 id, content_block_start 已 emit, 携带 id=''。"""
         # 模拟上游：tool_call 首 chunk 只带 index/name, 不带 id
         chunks = [
-            {"id": "chatcmpl-a", "model": "gpt-4o",
-             "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]},
+            {
+                "id": "chatcmpl-a",
+                "model": "gpt-4o",
+                "choices": [
+                    {"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}
+                ],
+            },
             {
                 "id": "chatcmpl-a",
                 "model": "gpt-4o",
@@ -678,7 +687,9 @@ class TestM13StreamFirstToolCallEmptyId:
         for c in chunks:
             events.extend(self.converter._chat_stream_chunk_to_anthropic(c))
         starts = [e for e in events if e[0] == "content_block_start"]
-        tool_starts = [s for s in starts if s[1]["content_block"].get("type") == "tool_use"]
+        tool_starts = [
+            s for s in starts if s[1]["content_block"].get("type") == "tool_use"
+        ]
         assert tool_starts
         # 当前 bug: id 为空字符串, 后续 tool_result.tool_use_id 无法匹配
         assert tool_starts[0][1]["content_block"]["id"] == ""

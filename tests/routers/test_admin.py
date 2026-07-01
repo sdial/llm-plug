@@ -39,7 +39,12 @@ async def setup_test_db(tmp_path, monkeypatch):
     storage._keys_lock = None
 
     import main
-    monkeypatch.setattr(main, "_whitelist_cache", main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")))
+
+    monkeypatch.setattr(
+        main,
+        "_whitelist_cache",
+        main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
+    )
 
     monkeypatch.setattr(
         request_logs,
@@ -119,7 +124,14 @@ class TestListRequestsEndpoint:
     async def test_request_items_include_channel_api_type(self, client):
         async def fake_list_requests(**kwargs):
             return {
-                "items": [{"id": 1, "model": "claude", "channel_id": "anth", "channel_name": "Anthropic"}],
+                "items": [
+                    {
+                        "id": 1,
+                        "model": "claude",
+                        "channel_id": "anth",
+                        "channel_name": "Anthropic",
+                    }
+                ],
                 "total": 1,
                 "page": kwargs["page"],
                 "page_size": kwargs["page_size"],
@@ -377,7 +389,9 @@ class TestRequestFieldEndpoints:
 
 
 class TestSettingsEndpoint:
-    async def test_update_settings_reloads_request_log_backend(self, client, monkeypatch):
+    async def test_update_settings_reloads_request_log_backend(
+        self, client, monkeypatch
+    ):
         calls = []
 
         async def fake_reload_backend():
@@ -506,7 +520,9 @@ async def test_fetch_models_falls_back_to_base_url_when_advanced_models_url_miss
 async def test_fetch_models_rejects_private_upstream_url(client, monkeypatch):
     class FakeClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("SSRF validation should reject before httpx is created")
+            raise AssertionError(
+                "SSRF validation should reject before httpx is created"
+            )
 
     monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
 
@@ -524,10 +540,14 @@ async def test_fetch_models_rejects_private_upstream_url(client, monkeypatch):
     assert resp.json()["detail"] == "不允许访问内网或本机地址"
 
 
-async def test_fetch_models_rejects_hostname_resolving_to_non_public_ip(client, monkeypatch):
+async def test_fetch_models_rejects_hostname_resolving_to_non_public_ip(
+    client, monkeypatch
+):
     class FakeClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("SSRF validation should reject before httpx is created")
+            raise AssertionError(
+                "SSRF validation should reject before httpx is created"
+            )
 
     monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
 

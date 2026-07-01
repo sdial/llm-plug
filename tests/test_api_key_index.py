@@ -16,7 +16,6 @@ def _reset_index():
 
 
 class TestGetApiKeyIndex:
-
     @pytest.mark.asyncio
     async def test_first_call_builds_index(self, tmp_path, monkeypatch):
         """首次调用应从 storage 加载并构建索引"""
@@ -32,6 +31,7 @@ class TestGetApiKeyIndex:
 
         # 清除 storage 缓存
         import storage
+
         storage._keys_cache = None
         storage._keys_cache_ts = 0
 
@@ -51,6 +51,7 @@ class TestGetApiKeyIndex:
         monkeypatch.setattr("config.API_KEYS_FILE", str(keys_file))
 
         import storage
+
         storage._keys_cache = None
         storage._keys_cache_ts = 0
 
@@ -73,6 +74,7 @@ class TestGetApiKeyIndex:
         monkeypatch.setattr("config.API_KEYS_FILE", str(keys_file))
 
         import storage
+
         storage._keys_cache = None
         storage._keys_cache_ts = 0
 
@@ -88,6 +90,7 @@ class TestGetApiKeyIndex:
         monkeypatch.setattr("config.API_KEYS_FILE", str(keys_file))
 
         import storage
+
         storage._keys_cache = None
         storage._keys_cache_ts = 0
 
@@ -96,7 +99,6 @@ class TestGetApiKeyIndex:
 
 
 class TestInvalidateApiKeyIndex:
-
     @pytest.mark.asyncio
     async def test_invalidate_clears_cache(self, tmp_path, monkeypatch):
         keys_data = {
@@ -107,6 +109,7 @@ class TestInvalidateApiKeyIndex:
         monkeypatch.setattr("config.API_KEYS_FILE", str(keys_file))
 
         import storage
+
         storage._keys_cache = None
         storage._keys_cache_ts = 0
 

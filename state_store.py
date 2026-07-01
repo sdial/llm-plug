@@ -22,6 +22,7 @@ class FileStore:
     def generate_response_id(self) -> str:
         """生成 response_id: resp_ + 24字符hex"""
         import secrets
+
         return f"resp_{secrets.token_hex(12)}"
 
     def _file_path(self, response_id: str) -> str:
@@ -119,8 +120,12 @@ class FileStore:
         """原子写入文件（同步）"""
         dir_name = os.path.dirname(os.path.abspath(path)) or "."
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=dir_name, delete=False,
-            prefix=".session_", suffix=".tmp.json",
+            mode="w",
+            encoding="utf-8",
+            dir=dir_name,
+            delete=False,
+            prefix=".session_",
+            suffix=".tmp.json",
         ) as f:
             tmp_path = f.name
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -166,7 +171,11 @@ class FileStore:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                access_time = float(data.get("last_access_at") or data.get("created_at") or os.path.getmtime(path))
+                access_time = float(
+                    data.get("last_access_at")
+                    or data.get("created_at")
+                    or os.path.getmtime(path)
+                )
             except (json.JSONDecodeError, OSError, TypeError, ValueError):
                 continue
             files.append((path, access_time))
@@ -176,7 +185,7 @@ class FileStore:
 
         files.sort(key=lambda x: x[1])
         removed = 0
-        for path, _ in files[:len(files) - self.max_entries]:
+        for path, _ in files[: len(files) - self.max_entries]:
             try:
                 os.unlink(path)
                 removed += 1

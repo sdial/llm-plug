@@ -28,6 +28,7 @@ def _get_keys_lock() -> asyncio.Lock:
         _keys_lock = asyncio.Lock()
     return _keys_lock
 
+
 _cache: dict[str, Any] | None = None
 _cache_ts: float = 0
 _cache_file_sig: tuple[int, int] | None = None
@@ -68,7 +69,9 @@ def _read_channels_from_disk() -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         from loguru import logger
 
-        logger.warning(f"channels file is not valid JSON, using empty channel list: {exc}")
+        logger.warning(
+            f"channels file is not valid JSON, using empty channel list: {exc}"
+        )
         return {"channels": []}
 
 
@@ -152,7 +155,15 @@ async def atomic_update_data(mutator: Callable[[dict[str, Any]], Any]):
 
 
 async def invalidate_cache() -> None:
-    global _cache, _cache_ts, _cache_file_sig, _keys_cache, _keys_cache_ts, _keys_cache_file_sig, _MODEL_GROUPS_CACHE, _MODEL_GROUPS_CACHE_TS
+    global \
+        _cache, \
+        _cache_ts, \
+        _cache_file_sig, \
+        _keys_cache, \
+        _keys_cache_ts, \
+        _keys_cache_file_sig, \
+        _MODEL_GROUPS_CACHE, \
+        _MODEL_GROUPS_CACHE_TS
     async with _get_channels_lock():
         _cache = None
         _cache_ts = 0
@@ -190,7 +201,9 @@ def _read_api_keys_from_disk() -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         from loguru import logger
 
-        logger.warning(f"api keys file is not valid JSON, using empty api key list: {exc}")
+        logger.warning(
+            f"api keys file is not valid JSON, using empty api key list: {exc}"
+        )
         return {"api_keys": []}
 
 
@@ -282,9 +295,11 @@ async def invalidate_keys_cache() -> None:
 
 # ============ 负载均衡配置（兼容接口，代理到 config settings） ============
 
+
 async def get_lb_config() -> LBConfig:
     """兼容接口：从 config settings 读取 lb 配置"""
     import config as _config
+
     return LBConfig(
         max_fail_count=_config.get_setting("max_fail_count"),
         cooldown_seconds=_config.get_setting("cooldown_seconds"),
@@ -294,10 +309,13 @@ async def get_lb_config() -> LBConfig:
 async def save_lb_config(cfg: LBConfig) -> None:
     """兼容接口：写入 config settings"""
     import config as _config
-    await _config.update_settings({
-        "max_fail_count": cfg.max_fail_count,
-        "cooldown_seconds": cfg.cooldown_seconds,
-    })
+
+    await _config.update_settings(
+        {
+            "max_fail_count": cfg.max_fail_count,
+            "cooldown_seconds": cfg.cooldown_seconds,
+        }
+    )
 
 
 # ============ 模型组存储 ============
@@ -335,7 +353,10 @@ async def load_model_groups() -> list[ModelGroup]:
     async with _get_model_groups_lock():
         while True:
             now = time.time()
-            if _MODEL_GROUPS_CACHE is not None and (now - _MODEL_GROUPS_CACHE_TS) < _CACHE_TTL:
+            if (
+                _MODEL_GROUPS_CACHE is not None
+                and (now - _MODEL_GROUPS_CACHE_TS) < _CACHE_TTL
+            ):
                 return _MODEL_GROUPS_CACHE
 
             version = _MODEL_GROUPS_CACHE_VERSION

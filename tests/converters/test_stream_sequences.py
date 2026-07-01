@@ -213,7 +213,9 @@ class TestChatToAnthropicStream:
         assert "thinking_delta" in delta_types
         # 切到 text 前必须补 signature_delta，结束 thinking 块
         assert "signature_delta" in delta_types
-        assert delta_types.index("signature_delta") > delta_types.index("thinking_delta")
+        assert delta_types.index("signature_delta") > delta_types.index(
+            "thinking_delta"
+        )
 
         thinking_deltas = [
             d.get("delta", {}).get("thinking")
@@ -231,7 +233,8 @@ class TestChatToAnthropicStream:
 
         # thinking content_block 必须带空 signature
         thinking_starts = [
-            d for evt, d in outputs
+            d
+            for evt, d in outputs
             if evt == "content_block_start"
             and d.get("content_block", {}).get("type") == "thinking"
         ]
@@ -1459,7 +1462,9 @@ class TestAnthropicToChatStreamIncludeUsage:
 
         # message_stop 应返回 usage chunk（choices 为空数组）
         last_chunk = outputs[-1]
-        assert last_chunk["choices"] == [], f"Expected choices=[], got {last_chunk['choices']}"
+        assert last_chunk["choices"] == [], (
+            f"Expected choices=[], got {last_chunk['choices']}"
+        )
         assert "usage" in last_chunk
         # prompt_tokens = input_tokens + cache_creation + cache_read = 100 + 0 + 20 = 120
         assert last_chunk["usage"]["prompt_tokens"] == 120
@@ -1561,6 +1566,7 @@ class TestAnthropicToResponseCacheTokens:
     def test_anthropic_to_response_nonstream_cache_tokens(self):
         """非流式响应的 cache tokens 应正确映射到 OpenAI Response usage。"""
         from converters.to_response import ToResponseConverter
+
         conv = ToResponseConverter()
         anthropic_resp = {
             "id": "msg_y",
@@ -1585,15 +1591,42 @@ class TestAnthropicToResponseCacheTokens:
     def test_anthropic_to_response_stream_emits_full_usage(self):
         """流式 message_delta 应在 response.completed 中携带完整 usage。"""
         from converters.to_response import ToResponseConverter
+
         conv = ToResponseConverter()
         events = [
-            {"type": "message_start", "message": {"id": "msg_z", "model": "claude-opus-4-7",
-                "usage": {"input_tokens": 10, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 1000, "output_tokens": 0}}},
-            {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "x"}},
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_z",
+                    "model": "claude-opus-4-7",
+                    "usage": {
+                        "input_tokens": 10,
+                        "cache_creation_input_tokens": 100,
+                        "cache_read_input_tokens": 1000,
+                        "output_tokens": 0,
+                    },
+                },
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "x"},
+            },
             {"type": "content_block_stop", "index": 0},
-            {"type": "message_delta", "delta": {"stop_reason": "end_turn"},
-             "usage": {"output_tokens": 50, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 1000}},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {
+                    "output_tokens": 50,
+                    "cache_creation_input_tokens": 100,
+                    "cache_read_input_tokens": 1000,
+                },
+            },
             {"type": "message_stop"},
         ]
         completed_events = []
@@ -1616,7 +1649,10 @@ class TestAnthropicToResponseStreamIndexes:
     def test_response_completed_keeps_response_id_from_message_start(self):
         converter = ToResponseConverter()
         events = [
-            {"type": "message_start", "message": {"id": "msg_stream", "model": "claude-opus-4-7"}},
+            {
+                "type": "message_start",
+                "message": {"id": "msg_stream", "model": "claude-opus-4-7"},
+            },
             {
                 "type": "message_delta",
                 "delta": {"stop_reason": "end_turn"},
@@ -1630,23 +1666,53 @@ class TestAnthropicToResponseStreamIndexes:
             if out is not None:
                 outputs.append(out)
 
-        completed = [event for event in outputs if event.get("type") == "response.completed"][0]
+        completed = [
+            event for event in outputs if event.get("type") == "response.completed"
+        ][0]
         assert completed["response"]["id"] == "resp_msg_stream"
 
     def test_delta_events_include_response_indexes(self):
         converter = ToResponseConverter()
         events = [
-            {"type": "message_start", "message": {"id": "msg_idx", "model": "claude-opus-4-7"}},
-            {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "plan"}},
+            {
+                "type": "message_start",
+                "message": {"id": "msg_idx", "model": "claude-opus-4-7"},
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "plan"},
+            },
             {
                 "type": "content_block_start",
                 "index": 1,
-                "content_block": {"type": "tool_use", "id": "toolu_idx", "name": "lookup", "input": {}},
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu_idx",
+                    "name": "lookup",
+                    "input": {},
+                },
             },
-            {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"q":'}},
-            {"type": "content_block_start", "index": 2, "content_block": {"type": "text", "text": ""}},
-            {"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "hello"}},
+            {
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "input_json_delta", "partial_json": '{"q":'},
+            },
+            {
+                "type": "content_block_start",
+                "index": 2,
+                "content_block": {"type": "text", "text": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 2,
+                "delta": {"type": "text_delta", "text": "hello"},
+            },
         ]
 
         outputs = []
@@ -1659,18 +1725,24 @@ class TestAnthropicToResponseStreamIndexes:
         deltas = {
             event["type"]: event
             for event in outputs
-            if event.get("type") in {
+            if event.get("type")
+            in {
                 "response.reasoning_summary_text.delta",
                 "response.function_call_arguments.delta",
                 "response.output_text.delta",
             }
         }
 
-        assert deltas["response.reasoning_summary_text.delta"]["item_id"] == "rs_msg_idx"
+        assert (
+            deltas["response.reasoning_summary_text.delta"]["item_id"] == "rs_msg_idx"
+        )
         assert deltas["response.reasoning_summary_text.delta"]["output_index"] == 0
         assert deltas["response.reasoning_summary_text.delta"]["content_index"] == 0
 
-        assert deltas["response.function_call_arguments.delta"]["item_id"] == "fc_toolu_idx"
+        assert (
+            deltas["response.function_call_arguments.delta"]["item_id"]
+            == "fc_toolu_idx"
+        )
         assert deltas["response.function_call_arguments.delta"]["output_index"] == 1
 
         assert deltas["response.output_text.delta"]["item_id"] == "msg_idx"
@@ -1710,7 +1782,10 @@ class TestReviewBugFixes:
                                 {
                                     "index": 0,
                                     "id": "call_1",
-                                    "function": {"name": "search", "arguments": '"q":"x"'},
+                                    "function": {
+                                        "name": "search",
+                                        "arguments": '"q":"x"',
+                                    },
                                 }
                             ]
                         }
@@ -1753,7 +1828,11 @@ class TestReviewBugFixes:
         """DeepSeek/Qwen 同一 chunk 中给 name 和 arguments 时，首块 arguments 不能丢失。"""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant"}}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"role": "assistant"}}],
+            },
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
@@ -1764,7 +1843,10 @@ class TestReviewBugFixes:
                                 {
                                     "index": 0,
                                     "id": "call_1",
-                                    "function": {"name": "search", "arguments": '{"q":'},
+                                    "function": {
+                                        "name": "search",
+                                        "arguments": '{"q":',
+                                    },
                                 }
                             ]
                         }
@@ -1794,17 +1876,20 @@ class TestReviewBugFixes:
         args_text = "".join(
             o.get("delta", "")
             for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.function_call_arguments.delta"
+            if isinstance(o, dict)
+            and o.get("type") == "response.function_call_arguments.delta"
         )
-        assert args_text == '{"q":"x"}', f"Expected '{{\"q\":\"x\"}}', got {args_text!r}"
+        assert args_text == '{"q":"x"}', f'Expected \'{{"q":"x"}}\', got {args_text!r}'
 
         # 最终 completed 的 arguments 也应完整
         completed = [
-            o for o in outputs
+            o
+            for o in outputs
             if isinstance(o, dict) and o.get("type") == "response.completed"
         ][0]
         tool_call = [
-            item for item in completed["response"]["output"]
+            item
+            for item in completed["response"]["output"]
             if item["type"] == "function_call"
         ][0]
         assert tool_call["arguments"] == '{"q":"x"}'
@@ -1841,8 +1926,15 @@ class TestReviewBugFixes:
                 "output_index": 0,
                 "item": {"type": "reasoning", "id": "rs_1", "summary": []},
             },
-            {"type": "response.reasoning_summary_text.delta", "delta": "thinking step..."},
-            {"type": "response.output_item.done", "output_index": 0, "item": {"type": "reasoning", "id": "rs_1"}},
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "delta": "thinking step...",
+            },
+            {
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "item": {"type": "reasoning", "id": "rs_1"},
+            },
             {
                 "type": "response.output_item.added",
                 "output_index": 1,
@@ -1893,8 +1985,16 @@ class TestReviewBugFixes:
         """Chat→Response 文本之后切到 function_call，须先关闭 text output。"""
         converter = ToResponseConverter()
         events = [
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant"}}]},
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {"content": "Searching"}}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"role": "assistant"}}],
+            },
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {"content": "Searching"}}],
+            },
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
@@ -1925,14 +2025,22 @@ class TestReviewBugFixes:
                     }
                 ],
             },
-            {"id": "chatcmpl_1", "model": "gpt-4o", "choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+            {
+                "id": "chatcmpl_1",
+                "model": "gpt-4o",
+                "choices": [{"delta": {}, "finish_reason": "tool_calls"}],
+            },
         ]
         outputs = feed_response_events(converter, events)
         event_seq = [o.get("type") for o in outputs if isinstance(o, dict)]
 
-        added_indexes = [i for i, t in enumerate(event_seq) if t == "response.output_item.added"]
+        added_indexes = [
+            i for i, t in enumerate(event_seq) if t == "response.output_item.added"
+        ]
         # 至少 2 个 output_item.added：text message + function_call
-        assert len(added_indexes) >= 2, f"Expected >=2 output_item.added, got {event_seq}"
+        assert len(added_indexes) >= 2, (
+            f"Expected >=2 output_item.added, got {event_seq}"
+        )
 
         # 找 function_call 对应的 output_item.added
         function_call_added_idx = None
@@ -1944,38 +2052,58 @@ class TestReviewBugFixes:
             ):
                 function_call_added_idx = i
                 break
-        assert function_call_added_idx is not None, "function_call output_item.added not found"
+        assert function_call_added_idx is not None, (
+            "function_call output_item.added not found"
+        )
 
         # text 的关闭事件必须在 function_call 的 added 之前
-        for ev_name in ("response.output_text.done", "response.content_part.done", "response.output_item.done"):
+        for ev_name in (
+            "response.output_text.done",
+            "response.content_part.done",
+            "response.output_item.done",
+        ):
             assert ev_name in event_seq, f"Missing {ev_name} in stream"
             assert event_seq.index(ev_name) < function_call_added_idx, (
                 f"{ev_name} ({event_seq.index(ev_name)}) must precede "
                 f"function_call output_item.added ({function_call_added_idx})"
             )
+
+
 def test_response_stream_aggregate_text_is_bounded(monkeypatch):
     monkeypatch.setattr("converters.to_response.MAX_STREAM_AGGREGATE_TEXT_CHARS", 10)
     converter = ToResponseConverter()
 
-    created = converter.convert_stream_chunk({
-        "id": "chatcmpl_1",
-        "model": "gpt-4o",
-        "choices": [{"delta": {"role": "assistant"}, "finish_reason": None}],
-    }, "openai-chat-completions")
+    created = converter.convert_stream_chunk(
+        {
+            "id": "chatcmpl_1",
+            "model": "gpt-4o",
+            "choices": [{"delta": {"role": "assistant"}, "finish_reason": None}],
+        },
+        "openai-chat-completions",
+    )
     assert created["type"] == "response.created"
 
-    first_text_event = converter.convert_stream_chunk({
-        "id": "chatcmpl_1",
-        "model": "gpt-4o",
-        "choices": [{"delta": {"content": "abcdefghijklmnop"}, "finish_reason": None}],
-    }, "openai-chat-completions")
+    first_text_event = converter.convert_stream_chunk(
+        {
+            "id": "chatcmpl_1",
+            "model": "gpt-4o",
+            "choices": [
+                {"delta": {"content": "abcdefghijklmnop"}, "finish_reason": None}
+            ],
+        },
+        "openai-chat-completions",
+    )
     events = [first_text_event]
     events.extend(converter.get_extra_events(first_text_event))
-    delta = [event for event in events if event["type"] == "response.output_text.delta"][0]
+    delta = [
+        event for event in events if event["type"] == "response.output_text.delta"
+    ][0]
     assert delta["delta"] == "abcdefghijklmnop"
 
     final_events = converter.finalize_stream("openai-chat-completions")
-    completed = [event for event in final_events if event["type"] == "response.completed"][0]
+    completed = [
+        event for event in final_events if event["type"] == "response.completed"
+    ][0]
 
     assert completed["response"]["output_text"] == "abcdefghij"
     assert converter._stream_state["aggregate_truncated"] is True
@@ -1986,15 +2114,26 @@ def test_anthropic_to_response_stream_aggregate_text_is_bounded(monkeypatch):
     converter = ToResponseConverter()
 
     converter.convert_stream_chunk(
-        {"type": "message_start", "message": {"id": "msg_agg", "model": "claude-sonnet-4"}},
+        {
+            "type": "message_start",
+            "message": {"id": "msg_agg", "model": "claude-sonnet-4"},
+        },
         source_type="anthropic",
     )
     converter.convert_stream_chunk(
-        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""},
+        },
         source_type="anthropic",
     )
     delta_event = converter.convert_stream_chunk(
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "abcdefghijklmnop"}},
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "abcdefghijklmnop"},
+        },
         source_type="anthropic",
     )
     assert delta_event["delta"] == "abcdefghijklmnop"

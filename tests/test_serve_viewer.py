@@ -10,8 +10,8 @@ from loguru import logger
 #  SessionViewerHandler._get_content_type
 # ═══════════════════════════════════════════
 
-class TestGetContentType:
 
+class TestGetContentType:
     def _make_handler(self):
         """创建 handler 实例而无需启动服务器"""
         h = serve_viewer.SessionViewerHandler.__new__(serve_viewer.SessionViewerHandler)
@@ -58,26 +58,30 @@ class TestGetContentType:
 #  路径安全检查（is_relative_to）
 # ═══════════════════════════════════════════
 
-class TestPathTraversalSafety:
 
+class TestPathTraversalSafety:
     def test_logs_path_traversal_blocked(self):
         """路径穿越 ../../etc/passwd 应被 is_relative_to 拦截"""
         from serve_viewer import LOGS_DIR
+
         malicious = (LOGS_DIR / ".." / ".." / "etc" / "passwd").resolve()
         assert not malicious.is_relative_to(LOGS_DIR.resolve())
 
     def test_static_path_traversal_blocked(self):
         from serve_viewer import STATIC_DIR
+
         malicious = (STATIC_DIR / ".." / ".." / "etc" / "passwd").resolve()
         assert not malicious.is_relative_to(STATIC_DIR.resolve())
 
     def test_normal_logs_path_allowed(self):
         from serve_viewer import LOGS_DIR
+
         normal = (LOGS_DIR / "session.jsonl").resolve()
         assert normal.is_relative_to(LOGS_DIR.resolve())
 
     def test_normal_static_path_allowed(self):
         from serve_viewer import STATIC_DIR
+
         normal = (STATIC_DIR / "index.html").resolve()
         assert normal.is_relative_to(STATIC_DIR.resolve())
 
@@ -86,8 +90,8 @@ class TestPathTraversalSafety:
 #  _list_logs
 # ═══════════════════════════════════════════
 
-class TestListLogs:
 
+class TestListLogs:
     def test_list_logs_returns_jsonl_files(self, tmp_path, monkeypatch):
         """_list_logs 应返回 logs 目录下的 .jsonl 文件"""
         # 创建一些模拟日志文件
@@ -140,17 +144,17 @@ class TestListLogs:
 #  main() 绑定 loopback 检查
 # ═══════════════════════════════════════════
 
-class TestMainBinding:
 
+class TestMainBinding:
     def test_main_binds_to_localhost_only(self):
         """源码验证：仅绑定 127.0.0.1"""
         import inspect
+
         source = inspect.getsource(serve_viewer.main)
         assert "127.0.0.1" in source
 
 
 class TestViewerLogging:
-
     def test_configure_logging_writes_standard_level_files(self, tmp_path):
         """viewer 应复用主服务的 loguru 分级文件输出。"""
         handler_ids = serve_viewer.configure_logging(tmp_path)
@@ -162,6 +166,12 @@ class TestViewerLogging:
             for handler_id in handler_ids:
                 logger.remove(handler_id)
 
-        assert "viewer warning smoke" in (tmp_path / "warning.log").read_text(encoding="utf-8")
-        assert "viewer error smoke" in (tmp_path / "error.log").read_text(encoding="utf-8")
-        assert "viewer critical smoke" in (tmp_path / "critical.log").read_text(encoding="utf-8")
+        assert "viewer warning smoke" in (tmp_path / "warning.log").read_text(
+            encoding="utf-8"
+        )
+        assert "viewer error smoke" in (tmp_path / "error.log").read_text(
+            encoding="utf-8"
+        )
+        assert "viewer critical smoke" in (tmp_path / "critical.log").read_text(
+            encoding="utf-8"
+        )

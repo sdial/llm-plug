@@ -626,14 +626,21 @@ class TestResponseRequestFieldContract:
             "input": "Hi",
             "tools": [
                 {"type": "web_search"},
-                {"type": "function", "name": "lookup", "parameters": {"type": "object"}},
+                {
+                    "type": "function",
+                    "name": "lookup",
+                    "parameters": {"type": "object"},
+                },
             ],
             "tool_choice": {"type": "function", "name": "lookup"},
         }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
         assert len(result["tools"]) == 1
         assert result["tools"][0]["function"]["name"] == "lookup"
-        assert result["tool_choice"] == {"type": "function", "function": {"name": "lookup"}}
+        assert result["tool_choice"] == {
+            "type": "function",
+            "function": {"name": "lookup"},
+        }
 
     def test_safety_identifier_to_user(self):
         request = {"model": "gpt-4o", "input": "Hi", "safety_identifier": "user-1"}
@@ -866,14 +873,19 @@ class TestResponseResponseToChat:
                     "id": "rs_1",
                     "summary": [],
                     "content": [
-                        {"type": "reasoning_text", "text": "I should compare the options."}
+                        {
+                            "type": "reasoning_text",
+                            "text": "I should compare the options.",
+                        }
                     ],
                 },
                 {
                     "type": "message",
                     "id": "msg_1",
                     "role": "assistant",
-                    "content": [{"type": "output_text", "text": "Use the smaller model."}],
+                    "content": [
+                        {"type": "output_text", "text": "Use the smaller model."}
+                    ],
                 },
             ],
             "usage": {"input_tokens": 10, "output_tokens": 20},
@@ -1054,7 +1066,11 @@ class TestResponseStreamToChat:
                     "id": "resp_usage",
                     "status": "completed",
                     "output": [],
-                    "usage": {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+                    "usage": {
+                        "input_tokens": 11,
+                        "output_tokens": 7,
+                        "total_tokens": 18,
+                    },
                 },
             },
             APIType.OPENAI_RESPONSE,

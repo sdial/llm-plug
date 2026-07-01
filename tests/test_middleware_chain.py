@@ -105,19 +105,41 @@ def middleware_app(tmp_path, monkeypatch):
 
     @inner_app.post("/v1/chat/completions")
     async def echo_chat(request: Request):
-        return JSONResponse({"status": "ok", "auth_checked": getattr(request.state, "proxy_auth_checked", False)})
+        return JSONResponse(
+            {
+                "status": "ok",
+                "auth_checked": getattr(request.state, "proxy_auth_checked", False),
+            }
+        )
 
     @inner_app.post("/v1/messages")
     async def echo_anthropic(request: Request):
-        return JSONResponse({"status": "ok", "auth_checked": getattr(request.state, "proxy_auth_checked", False)})
+        return JSONResponse(
+            {
+                "status": "ok",
+                "auth_checked": getattr(request.state, "proxy_auth_checked", False),
+            }
+        )
 
     @inner_app.get("/v1/responses/{response_id}")
     async def get_response(response_id: str, request: Request):
-        return JSONResponse({"status": "ok", "response_id": response_id, "auth_checked": getattr(request.state, "proxy_auth_checked", False)})
+        return JSONResponse(
+            {
+                "status": "ok",
+                "response_id": response_id,
+                "auth_checked": getattr(request.state, "proxy_auth_checked", False),
+            }
+        )
 
     @inner_app.delete("/v1/responses/{response_id}")
     async def delete_response(response_id: str, request: Request):
-        return JSONResponse({"status": "ok", "response_id": response_id, "auth_checked": getattr(request.state, "proxy_auth_checked", False)})
+        return JSONResponse(
+            {
+                "status": "ok",
+                "response_id": response_id,
+                "auth_checked": getattr(request.state, "proxy_auth_checked", False),
+            }
+        )
 
     @inner_app.get("/health")
     async def health():
@@ -142,8 +164,8 @@ def middleware_app(tmp_path, monkeypatch):
 #  413 — 请求体过大
 # ═══════════════════════════════════════════
 
-class TestBodySizeLimit:
 
+class TestBodySizeLimit:
     def test_content_length_header_exceeds_max_returns_413(self, middleware_app):
         """Content-Length 超过 MAX_BODY_SIZE 时应返回 413"""
         resp = middleware_app.post(
@@ -171,7 +193,9 @@ class TestBodySizeLimit:
 
     def test_body_within_limit_passes(self, middleware_app):
         """正常大小的 body 不应被拒绝"""
-        small_body = json.dumps({"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]})
+        small_body = json.dumps(
+            {"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]}
+        )
         resp = middleware_app.post(
             "/v1/chat/completions",
             content=small_body,
@@ -260,8 +284,8 @@ class TestBodySizeLimit:
 #  401 — API Key 认证
 # ═══════════════════════════════════════════
 
-class TestApiKeyAuth:
 
+class TestApiKeyAuth:
     def test_missing_auth_header_returns_401(self, middleware_app):
         """无 Authorization 或 x-api-key 头应返回 401"""
         resp = middleware_app.post(
@@ -269,9 +293,14 @@ class TestApiKeyAuth:
             json={"model": "gpt-4o"},
         )
         assert resp.status_code == 401
-        assert "Missing" in resp.json()["error"]["message"] or "invalid" in resp.json()["error"]["message"].lower()
+        assert (
+            "Missing" in resp.json()["error"]["message"]
+            or "invalid" in resp.json()["error"]["message"].lower()
+        )
 
-    def test_missing_auth_header_on_messages_returns_anthropic_error(self, middleware_app):
+    def test_missing_auth_header_on_messages_returns_anthropic_error(
+        self, middleware_app
+    ):
         """Anthropic Messages endpoint middleware auth errors use Anthropic error format."""
         resp = middleware_app.post(
             "/v1/messages",
@@ -282,7 +311,10 @@ class TestApiKeyAuth:
         body = resp.json()
         assert body["type"] == "error"
         assert body["error"]["type"] == "authentication_error"
-        assert "Missing" in body["error"]["message"] or "invalid" in body["error"]["message"].lower()
+        assert (
+            "Missing" in body["error"]["message"]
+            or "invalid" in body["error"]["message"].lower()
+        )
 
     def test_invalid_bearer_token_returns_401(self, middleware_app):
         """Bearer token 不在已注册的 API Key 中应返回 401"""
@@ -292,7 +324,10 @@ class TestApiKeyAuth:
             headers={"Authorization": "Bearer sk-nonexistent-key"},
         )
         assert resp.status_code == 401
-        assert "Invalid" in resp.json()["error"]["message"] or "invalid" in resp.json()["error"]["message"].lower()
+        assert (
+            "Invalid" in resp.json()["error"]["message"]
+            or "invalid" in resp.json()["error"]["message"].lower()
+        )
 
     def test_valid_bearer_token_passes(self, middleware_app):
         """有效的 Bearer token 应通过认证"""
@@ -327,8 +362,8 @@ class TestApiKeyAuth:
 #  401 — Response 子资源认证
 # ═══════════════════════════════════════════
 
-class TestResponseSubresourceAuth:
 
+class TestResponseSubresourceAuth:
     def test_get_response_without_auth_returns_401(self, middleware_app):
         """GET /v1/responses/{id} 缺少认证时应返回 401"""
         resp = middleware_app.get("/v1/responses/resp_123")
@@ -374,8 +409,8 @@ class TestResponseSubresourceAuth:
 #  403 — 模型级访问控制
 # ═══════════════════════════════════════════
 
-class TestModelAccessControl:
 
+class TestModelAccessControl:
     def test_model_not_in_allowed_list_returns_403(self, middleware_app):
         """请求的模型不在 API Key 的 allowed_models 中应返回 403"""
         resp = middleware_app.post(
@@ -427,8 +462,8 @@ class TestModelAccessControl:
 #  非代理路径直通
 # ═══════════════════════════════════════════
 
-class TestNonProxyPaths:
 
+class TestNonProxyPaths:
     def test_get_request_passes_through(self, middleware_app):
         """GET 请求不是代理路径，应直通下游"""
         resp = middleware_app.get("/health")
@@ -446,8 +481,8 @@ class TestNonProxyPaths:
 #  IP 白名单
 # ═══════════════════════════════════════════
 
-class TestIpWhitelist:
 
+class TestIpWhitelist:
     def test_whitelist_deny_returns_403(self, tmp_path, monkeypatch):
         """白名单规则拒绝的 IP 应返回 403"""
         import config
@@ -484,6 +519,7 @@ class TestIpWhitelist:
 
         from fastapi import FastAPI
         from fastapi.responses import JSONResponse
+
         inner = FastAPI()
 
         @inner.post("/v1/chat/completions")
@@ -499,8 +535,10 @@ class TestIpWhitelist:
             )
             # TestClient 的 client IP 是 "testclient"，不在 10.0.0.0/8 范围内
             assert resp.status_code == 403
-            assert "whitelist" in resp.json()["error"].get("type", "").lower() or \
-                   resp.status_code == 403
+            assert (
+                "whitelist" in resp.json()["error"].get("type", "").lower()
+                or resp.status_code == 403
+            )
 
         storage._cache = None
         storage._cache_ts = 0
@@ -515,8 +553,8 @@ class TestIpWhitelist:
 #  proxy_auth_checked 标志
 # ═══════════════════════════════════════════
 
-class TestProxyAuthCheckedFlag:
 
+class TestProxyAuthCheckedFlag:
     def test_proxy_auth_checked_set_on_success(self, middleware_app):
         """成功通过认证后，request.state.proxy_auth_checked 应为 True"""
         resp = middleware_app.post(

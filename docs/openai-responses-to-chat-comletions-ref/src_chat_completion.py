@@ -11,6 +11,7 @@ __all__ = ["ChatCompletion", "Choice", "ChoiceLogprobs"]
 
 class ChoiceLogprobs(BaseModel):
     """Log probability information for the choice."""
+
     content: Optional[List[ChatCompletionTokenLogprob]] = None
     """A list of message content tokens with log probability information."""
     refusal: Optional[List[ChatCompletionTokenLogprob]] = None
@@ -18,7 +19,9 @@ class ChoiceLogprobs(BaseModel):
 
 
 class Choice(BaseModel):
-    finish_reason: Literal["stop", "length", "tool_calls", "content_filter", "function_call"]
+    finish_reason: Literal[
+        "stop", "length", "tool_calls", "content_filter", "function_call"
+    ]
     """The reason the model stopped generating tokens."""
     index: int
     """The index of the choice in the list of choices."""
@@ -30,6 +33,7 @@ class Choice(BaseModel):
 
 class ChatCompletion(BaseModel):
     """Represents a chat completion response returned by model."""
+
     id: str
     """A unique identifier for the chat completion."""
     choices: List[Choice]
@@ -40,7 +44,9 @@ class ChatCompletion(BaseModel):
     """The model used for the chat completion."""
     object: Literal["chat.completion"]
     """The object type, which is always `chat.completion`."""
-    service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] = None
+    service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]] = (
+        None
+    )
     """Specifies the processing type used for serving the request."""
     system_fingerprint: Optional[str] = None
     """This fingerprint represents the backend configuration."""

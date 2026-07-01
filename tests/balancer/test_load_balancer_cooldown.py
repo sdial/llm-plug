@@ -43,8 +43,8 @@ def _make_channel(
 #  Cooldown 时序：不可用 → 等待 → 恢复
 # ═══════════════════════════════════════════
 
-class TestCooldownTiming:
 
+class TestCooldownTiming:
     @pytest.mark.asyncio
     async def test_channel_unavailable_during_cooldown(self):
         """cooldown 期间渠道应被跳过"""
@@ -131,8 +131,8 @@ class TestCooldownTiming:
 #  多渠道 cooldown 交叉恢复
 # ═══════════════════════════════════════════
 
-class TestMultiChannelCooldown:
 
+class TestMultiChannelCooldown:
     @pytest.mark.asyncio
     async def test_alternating_cooldown_recovery(self):
         """两个渠道交替 cooldown，始终至少有一个可用"""
@@ -185,8 +185,8 @@ class TestMultiChannelCooldown:
 #  优先级回退 + cooldown 恢复组合
 # ═══════════════════════════════════════════
 
-class TestPriorityFallbackAndRecovery:
 
+class TestPriorityFallbackAndRecovery:
     @pytest.mark.asyncio
     async def test_high_priority_cooldown_falls_back_then_recovers(self):
         """高优先级 cooldown → 回退到低优先级 → 高优先级恢复后重新被选中"""
@@ -239,8 +239,8 @@ class TestPriorityFallbackAndRecovery:
 #  动态更新 cooldown_seconds 的影响
 # ═══════════════════════════════════════════
 
-class TestDynamicCooldownUpdate:
 
+class TestDynamicCooldownUpdate:
     @pytest.mark.asyncio
     async def test_shortening_cooldown_enables_faster_recovery(self):
         """缩短 cooldown 使已熔断的渠道更快恢复"""

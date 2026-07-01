@@ -8,12 +8,14 @@ from converters.usage import (
 
 class TestAnthropicToOpenAIChat:
     def test_full_fields(self):
-        result = anthropic_to_openai_chat({
-            "input_tokens": 10,
-            "cache_creation_input_tokens": 100,
-            "cache_read_input_tokens": 1000,
-            "output_tokens": 50,
-        })
+        result = anthropic_to_openai_chat(
+            {
+                "input_tokens": 10,
+                "cache_creation_input_tokens": 100,
+                "cache_read_input_tokens": 1000,
+                "output_tokens": 50,
+            }
+        )
         assert result == {
             "prompt_tokens": 1110,
             "completion_tokens": 50,
@@ -42,12 +44,14 @@ class TestAnthropicToOpenAIChat:
 
 class TestAnthropicToOpenAIResponse:
     def test_full_fields(self):
-        result = anthropic_to_openai_response({
-            "input_tokens": 10,
-            "cache_creation_input_tokens": 100,
-            "cache_read_input_tokens": 1000,
-            "output_tokens": 50,
-        })
+        result = anthropic_to_openai_response(
+            {
+                "input_tokens": 10,
+                "cache_creation_input_tokens": 100,
+                "cache_read_input_tokens": 1000,
+                "output_tokens": 50,
+            }
+        )
         assert result == {
             "input_tokens": 1110,
             "output_tokens": 50,
@@ -58,11 +62,13 @@ class TestAnthropicToOpenAIResponse:
 
 class TestOpenAIChatToAnthropic:
     def test_full_fields(self):
-        result = openai_chat_to_anthropic({
-            "prompt_tokens": 1000,
-            "completion_tokens": 50,
-            "prompt_tokens_details": {"cached_tokens": 900},
-        })
+        result = openai_chat_to_anthropic(
+            {
+                "prompt_tokens": 1000,
+                "completion_tokens": 50,
+                "prompt_tokens_details": {"cached_tokens": 900},
+            }
+        )
         assert result == {
             "input_tokens": 100,
             "output_tokens": 50,
@@ -71,7 +77,9 @@ class TestOpenAIChatToAnthropic:
         }
 
     def test_no_details(self):
-        result = openai_chat_to_anthropic({"prompt_tokens": 50, "completion_tokens": 20})
+        result = openai_chat_to_anthropic(
+            {"prompt_tokens": 50, "completion_tokens": 20}
+        )
         assert result == {
             "input_tokens": 50,
             "output_tokens": 20,
@@ -80,22 +88,26 @@ class TestOpenAIChatToAnthropic:
         }
 
     def test_cached_exceeds_prompt_clamps_to_zero(self):
-        result = openai_chat_to_anthropic({
-            "prompt_tokens": 10,
-            "completion_tokens": 0,
-            "prompt_tokens_details": {"cached_tokens": 100},
-        })
+        result = openai_chat_to_anthropic(
+            {
+                "prompt_tokens": 10,
+                "completion_tokens": 0,
+                "prompt_tokens_details": {"cached_tokens": 100},
+            }
+        )
         assert result["input_tokens"] == 0
         assert result["cache_read_input_tokens"] == 100
 
 
 class TestOpenAIResponseToAnthropic:
     def test_full_fields(self):
-        result = openai_response_to_anthropic({
-            "input_tokens": 1000,
-            "output_tokens": 50,
-            "input_tokens_details": {"cached_tokens": 900},
-        })
+        result = openai_response_to_anthropic(
+            {
+                "input_tokens": 1000,
+                "output_tokens": 50,
+                "input_tokens_details": {"cached_tokens": 900},
+            }
+        )
         assert result == {
             "input_tokens": 100,
             "output_tokens": 50,

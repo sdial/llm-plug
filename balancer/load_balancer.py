@@ -70,7 +70,9 @@ class LoadBalancer:
         """热更新配置参数"""
         normalized_strategy = str(strategy).lower()
         if normalized_strategy not in VALID_STRATEGIES:
-            raise ValueError(f"lb_strategy must be one of {sorted(VALID_STRATEGIES)}, got {strategy!r}")
+            raise ValueError(
+                f"lb_strategy must be one of {sorted(VALID_STRATEGIES)}, got {strategy!r}"
+            )
         async with self._lock:
             clear_sticky_cache = (
                 normalized_strategy != self._strategy
@@ -131,28 +133,40 @@ class LoadBalancer:
                     client_headers=client_headers,
                 )
                 return self._sticky_select_cached(session_key, top_group)
-            return self._weighted_round_robin(top_group) if len(top_group) > 1 else top_group[0]
+            return (
+                self._weighted_round_robin(top_group)
+                if len(top_group) > 1
+                else top_group[0]
+            )
 
-    def _get_top_priority_group(self, channels: list[Channel], exclude_ids: set[str]) -> list[Channel]:
+    def _get_top_priority_group(
+        self, channels: list[Channel], exclude_ids: set[str]
+    ) -> list[Channel]:
         available = [
             ch
             for ch in channels
             if ch.enabled
             and ch.id not in exclude_ids
-            and self._health[ch.id].is_healthy(self._max_fail_count, self._cooldown_seconds)
+            and self._health[ch.id].is_healthy(
+                self._max_fail_count, self._cooldown_seconds
+            )
         ]
         if not available:
             return []
         min_priority = min(ch.priority for ch in available)
         return [ch for ch in available if ch.priority == min_priority]
 
-    def _sticky_select_by_hrw(self, session_key: str, candidates: list[Channel]) -> Channel:
+    def _sticky_select_by_hrw(
+        self, session_key: str, candidates: list[Channel]
+    ) -> Channel:
         if not candidates:
             raise ValueError("candidates must not be empty")
         best_channel: Optional[Channel] = None
         best_score: float | None = None
         for channel in candidates:
-            digest = hashlib.sha256(f"{session_key}:{channel.id}".encode("utf-8")).digest()
+            digest = hashlib.sha256(
+                f"{session_key}:{channel.id}".encode("utf-8")
+            ).digest()
             value = int.from_bytes(digest[:8], "big") / 2**64
             value = max(value, 1e-12)
             score = -math.log(value) / max(channel.weight, 1)
@@ -161,7 +175,9 @@ class LoadBalancer:
                 best_channel = channel
         return best_channel
 
-    def _sticky_select_cached(self, session_key: str, candidates: list[Channel]) -> Channel:
+    def _sticky_select_cached(
+        self, session_key: str, candidates: list[Channel]
+    ) -> Channel:
         """带缓存的粘性选择。
 
         缓存命中条件：未过期 且 缓存渠道仍在候选列表中。
@@ -175,7 +191,11 @@ class LoadBalancer:
         now = time.time()
         candidate_by_id = {ch.id: ch for ch in candidates}
         entry = self._sticky_cache.get(session_key)
-        if entry and now - entry.last_active_at < self._sticky_ttl and entry.channel_id in candidate_by_id:
+        if (
+            entry
+            and now - entry.last_active_at < self._sticky_ttl
+            and entry.channel_id in candidate_by_id
+        ):
             entry.last_active_at = now
             self._sticky_cache.move_to_end(session_key)
             return candidate_by_id[entry.channel_id]
@@ -228,7 +248,9 @@ class LoadBalancer:
 
         return best
 
-    def _normalize_headers(self, client_headers: dict[str, str] | None) -> dict[str, str]:
+    def _normalize_headers(
+        self, client_headers: dict[str, str] | None
+    ) -> dict[str, str]:
         if not client_headers:
             return {}
         return {str(k).lower(): str(v) for k, v in client_headers.items()}
@@ -241,7 +263,9 @@ class LoadBalancer:
         client_headers: dict[str, str] | None,
     ) -> str:
         headers = self._normalize_headers(client_headers)
-        explicit_session = headers.get("x-session-id") or headers.get("x-claude-code-session-id")
+        explicit_session = headers.get("x-session-id") or headers.get(
+            "x-claude-code-session-id"
+        )
         if explicit_session:
             canonical = json.dumps(
                 {"session": explicit_session[:512]},

@@ -272,7 +272,6 @@ class TestAnthropicToChat:
         result = self.converter.convert_response(response, APIType.ANTHROPIC)
         assert result["choices"][0]["finish_reason"] == "content_filter"
 
-
     def test_assistant_image_block_to_image_url(self):
         """Anthropic assistant 消息中的 image 块应转为 OpenAI image_url，不再静默丢失。"""
         request = {
