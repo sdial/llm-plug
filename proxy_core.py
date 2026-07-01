@@ -1603,11 +1603,12 @@ async def _do_stream_request(
             logger.debug(f"data: {data_summary}")
 
     _chunk_truncate_warned = False
+    _max_stream_chunks = int(config.get_setting("max_stream_chunks") or 10000)
 
     def _record_chunk(item: Any):
         """记录stream chunk，超过限制后停止记录并警告一次"""
         nonlocal stream_chunk_count, _chunk_truncate_warned
-        max_stream_chunks = int(config.get_setting("max_stream_chunks") or 10000)
+        max_stream_chunks = _max_stream_chunks
         if stream_chunk_count < max_stream_chunks:
             stream_chunks.append(item)
             stream_chunk_count += 1

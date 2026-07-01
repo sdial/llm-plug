@@ -95,8 +95,8 @@ def _write_channels_to_disk(data: dict[str, Any]) -> None:
         f.flush()
         os.fsync(f.fileno())
     try:
+        os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, config.CHANNELS_FILE)
-        os.chmod(config.CHANNELS_FILE, 0o600)
     except Exception:
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
@@ -209,8 +209,8 @@ def _write_api_keys_to_disk(data: dict[str, Any]) -> None:
         f.flush()
         os.fsync(f.fileno())
     try:
+        os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, config.API_KEYS_FILE)
-        os.chmod(config.API_KEYS_FILE, 0o600)
     except Exception:
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
