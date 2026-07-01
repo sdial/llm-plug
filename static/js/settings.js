@@ -62,6 +62,10 @@ function _detectSettingsDirty() {
   if (rawRetentionDays !== (orig.request_log_raw_retention_days ?? 0)) _settingsDirtySections.add('database');
   const retentionDays = parseInt(document.getElementById('set_request_log_retention_days').value) || 0;
   if (retentionDays !== (orig.request_log_retention_days ?? 0)) _settingsDirtySections.add('database');
+  const adminMaxAttempts = parseInt(document.getElementById('set_admin_max_attempts')?.value) || 10;
+  if (adminMaxAttempts !== (orig.admin_max_attempts ?? 10)) _settingsDirtySections.add('security');
+  const adminLockoutBaseSeconds = parseInt(document.getElementById('set_admin_lockout_base_seconds')?.value) || 60;
+  if (adminLockoutBaseSeconds !== (orig.admin_lockout_base_seconds ?? 60)) _settingsDirtySections.add('security');
   _updateSettingsDirtyIndicators();
 }
 
@@ -145,6 +149,8 @@ async function loadSecurityConfig() {
 
         document.getElementById('set_admin_max_attempts').value = data.admin_max_attempts;
         document.getElementById('set_admin_lockout_base_seconds').value = data.admin_lockout_base_seconds;
+        _settingsOriginal.admin_max_attempts = data.admin_max_attempts;
+        _settingsOriginal.admin_lockout_base_seconds = data.admin_lockout_base_seconds;
 
         // 填充阶梯表
         const tbody = document.getElementById('lockoutTiersBody');
@@ -244,6 +250,10 @@ async function saveSettings() {
   if (stickyTtl !== (orig.sticky_ttl ?? 1800)) data.sticky_ttl = stickyTtl;
   const stickyCacheMax = parseInt(document.getElementById('set_sticky_cache_max_entries').value) || 10000;
   if (stickyCacheMax !== (orig.sticky_cache_max_entries ?? 10000)) data.sticky_cache_max_entries = stickyCacheMax;
+  const adminMaxAttempts = parseInt(document.getElementById('set_admin_max_attempts').value) || 10;
+  if (adminMaxAttempts !== (orig.admin_max_attempts ?? 10)) data.admin_max_attempts = adminMaxAttempts;
+  const adminLockoutBaseSeconds = parseInt(document.getElementById('set_admin_lockout_base_seconds').value) || 60;
+  if (adminLockoutBaseSeconds !== (orig.admin_lockout_base_seconds ?? 60)) data.admin_lockout_base_seconds = adminLockoutBaseSeconds;
 
   if (Object.keys(data).length === 0) {
     showGlobalToast('没有修改', 'info');
