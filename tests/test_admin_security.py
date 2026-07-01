@@ -275,3 +275,51 @@ async def test_change_password_endpoint_requires_csrf(client):
         },
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_security_config_get(client):
+    """测试获取安全配置"""
+    await login_admin(client, "password")
+
+    resp = await client.get(
+        "/admin/auth/security-config",
+        headers={"X-CSRF-Token": client.headers.get("X-CSRF-Token", "")},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "admin_max_attempts" in data
+    assert "admin_lockout_base_seconds" in data
+    assert "lockout_tiers" in data
+
+
+@pytest.mark.asyncio
+async def test_security_config_update(client):
+    """测试更新安全配置"""
+    await login_admin(client, "password")
+
+    resp = await client.put(
+        "/admin/auth/security-config",
+        json={
+            "admin_max_attempts": 5,
+            "admin_lockout_base_seconds": 30,
+        },
+        headers={"X-CSRF-Token": client.headers.get("X-CSRF-Token", "")},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["message"] == "安全配置已更新"
+
+
+@pytest.mark.asyncio
+async def test_security_config_validation(client):
+    """测试配置验证"""
+    await login_admin(client, "password")
+
+    resp = await client.put(
+        "/admin/auth/security-config",
+        json={
+            "admin_max_attempts": 0,
+        },
+        headers={"X-CSRF-Token": client.headers.get("X-CSRF-Token", "")},
+    )
+    assert resp.status_code == 400
