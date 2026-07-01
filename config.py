@@ -96,12 +96,12 @@ _CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
     "aggregation_timezone": {"type": "str", "default": "", "requires_restart": False},
     "request_log_retention_days": {
         "type": "int",
-        "default": 0,
+        "default": 7,
         "requires_restart": False,
     },
     "request_log_raw_retention_days": {
         "type": "int",
-        "default": 0,
+        "default": 1,
         "requires_restart": False,
     },
 }
@@ -189,12 +189,18 @@ def _init_settings_sync():
                 file_data = json.load(f)
         except (json.JSONDecodeError, OSError):
             logger.warning(f"Failed to read {_SETTINGS_FILE}, using defaults")
+    legacy_existing_file_defaults = {}
+    if os.path.exists(_SETTINGS_FILE):
+        legacy_existing_file_defaults = {
+            "request_log_retention_days": 0,
+            "request_log_raw_retention_days": 0,
+        }
     _settings = {}
     for key, schema in _CONFIG_SCHEMA.items():
         if key in file_data:
             _settings[key] = _cast_value(file_data[key], schema["type"])
         else:
-            _settings[key] = schema["default"]
+            _settings[key] = legacy_existing_file_defaults.get(key, schema["default"])
     _sync_module_vars()
 
 

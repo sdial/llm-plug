@@ -177,6 +177,27 @@ class SQLiteRequestLogBackend:
     def _month_db_path(self, year_month: str) -> str:
         return os.path.join(self._logs_dir, f"request_logs_{year_month[:4]}_{year_month[4:]}.sqlite3")
 
+    @staticmethod
+    def _month_end_utc_naive(year_month: str) -> datetime:
+        year = int(year_month[:4])
+        month = int(year_month[4:])
+        if month == 12:
+            return datetime(year + 1, 1, 1)
+        return datetime(year, month + 1, 1)
+
+    @staticmethod
+    def _remove_sqlite_files(db_path: str) -> int:
+        removed = 0
+        for suffix in ("", "-wal", "-shm"):
+            path = db_path + suffix
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                    removed += 1
+                except OSError:
+                    pass
+        return removed
+
     def _discover_month_dbs(self) -> list[str]:
         if not os.path.isdir(self._logs_dir):
             return []
@@ -234,6 +255,7 @@ class SQLiteRequestLogBackend:
                     );
 
                     CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp);
+                    CREATE INDEX IF NOT EXISTS idx_request_logs_list_order ON request_logs(timestamp DESC, id DESC);
                     CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
                     CREATE INDEX IF NOT EXISTS idx_request_logs_channel ON request_logs(channel_id, channel_name);
                     CREATE INDEX IF NOT EXISTS idx_request_logs_api_key ON request_logs(api_key_id);
@@ -252,6 +274,7 @@ class SQLiteRequestLogBackend:
                     if column not in existing:
                         conn.execute(f"ALTER TABLE request_logs ADD COLUMN {column} {definition}")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_list_order ON request_logs(timestamp DESC, id DESC)")
         return path
 
     def _init_sync(self) -> None:
@@ -314,9 +337,8 @@ class SQLiteRequestLogBackend:
     async def write_record(self, record: dict[str, Any]) -> None:
         await asyncio.to_thread(self._write_record_sync, record)
 
-    def _query_single_month(
+    def _build_where_clause(
         self,
-        db_path: str,
         model: str | None,
         channel: str | None,
         start: datetime | None,
@@ -325,7 +347,7 @@ class SQLiteRequestLogBackend:
         api_key_id: str | None,
         client_ip: str | None,
         is_stream: bool | None,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[str, list[Any]]:
         conditions = ["1 = 1"]
         args: list[Any] = []
         if model:
@@ -353,25 +375,52 @@ class SQLiteRequestLogBackend:
         if is_stream is not None:
             conditions.append("is_stream = ?")
             args.append(1 if is_stream else 0)
-        where_clause = " AND ".join(conditions)
+        return " AND ".join(conditions), args
+
+    def _query_single_month_page(
+        self,
+        db_path: str,
+        model: str | None,
+        channel: str | None,
+        start: datetime | None,
+        end: datetime | None,
+        success: bool | None,
+        api_key_id: str | None,
+        client_ip: str | None,
+        is_stream: bool | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        where_clause, args = self._build_where_clause(
+            model, channel, start, end, success, api_key_id, client_ip, is_stream
+        )
         with closing(self._connect_to(db_path)) as conn:
-            rows = conn.execute(
-                f"""
-                SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
-                       client_ip, is_stream, input_tokens, output_tokens,
-                       cache_read_input_tokens, cache_creation_input_tokens,
-                       latency_ms, lag_ms, finish_reason, success, error_msg
-                FROM request_logs
-                WHERE {where_clause}
-                """,
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM request_logs WHERE {where_clause}",
                 args,
-            ).fetchall()
+            ).fetchone()[0]
+            if limit <= 0:
+                rows = []
+            else:
+                rows = conn.execute(
+                    f"""
+                    SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
+                           client_ip, is_stream, input_tokens, output_tokens,
+                           cache_read_input_tokens, cache_creation_input_tokens,
+                           latency_ms, lag_ms, finish_reason, success, error_msg
+                    FROM request_logs
+                    WHERE {where_clause}
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    [*args, limit, offset],
+                ).fetchall()
         items = []
         for row in rows:
             item = _base_item_from_mapping(dict(row))
             item["id"] = f"{os.path.basename(db_path)[13:17]}{os.path.basename(db_path)[18:20]}_{item['id']}"
             items.append(item)
-        return items
+        return items, total or 0
 
     def _list_requests_sync(
         self,
@@ -387,19 +436,43 @@ class SQLiteRequestLogBackend:
         page_size: int = 10,
     ) -> dict[str, Any]:
         page, page_size = _normalize_pagination(page, page_size)
-        months = sorted(set(self._discover_month_dbs() + [self._current_year_month()]))
-        items: list[dict[str, Any]] = []
+        months = sorted(set(self._discover_month_dbs() + [self._current_year_month()]), reverse=True)
+        target_offset = (page - 1) * page_size
+        remaining_skip = target_offset
+        collected: list[dict[str, Any]] = []
+        total = 0
         for month in months:
             db_path = self._month_db_path(month)
             if not os.path.exists(db_path):
                 continue
-            items.extend(self._query_single_month(db_path, model, channel, start, end, success, api_key_id, client_ip, is_stream))
-        items.sort(key=lambda item: (item["timestamp"], item["id"]), reverse=True)
-        total = len(items)
-        offset = (page - 1) * page_size
+            limit = max(page_size - len(collected), 0)
+            query_limit = 0 if limit == 0 and remaining_skip == 0 else limit
+            try:
+                rows, month_total = self._query_single_month_page(
+                    db_path,
+                    model,
+                    channel,
+                    start,
+                    end,
+                    success,
+                    api_key_id,
+                    client_ip,
+                    is_stream,
+                    query_limit,
+                    remaining_skip,
+                )
+            except sqlite3.OperationalError:
+                continue
+            total += month_total
+            if remaining_skip >= month_total:
+                remaining_skip -= month_total
+                continue
+            remaining_skip = 0
+            if limit > 0:
+                collected.extend(rows)
         return {
             "available": True,
-            "items": items[offset:offset + page_size],
+            "items": collected[:page_size],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -456,14 +529,26 @@ class SQLiteRequestLogBackend:
         return await asyncio.to_thread(self._get_request_field_sync, request_id, field)
 
     def _cleanup_old_records_sync(self, retention_days: int, raw_retention_days: int) -> dict[str, int]:
-        result = {"raw_fields_cleared": 0, "rows_deleted": 0}
+        result = {"raw_fields_cleared": 0, "rows_deleted": 0, "month_dbs_deleted": 0}
+        retention_cutoff_dt = (
+            _normalize_to_utc_naive(_utc_now() - timedelta(days=retention_days))
+            if retention_days > 0 else None
+        )
+        retention_cutoff = _to_iso(retention_cutoff_dt) if retention_cutoff_dt else None
+        raw_cutoff = None
+        if raw_retention_days > 0 and (retention_days == 0 or raw_retention_days < retention_days):
+            raw_cutoff = _to_iso(_normalize_to_utc_naive(_utc_now() - timedelta(days=raw_retention_days)))
         for month in self._discover_month_dbs():
             db_path = self._month_db_path(month)
             if not os.path.exists(db_path):
                 continue
+            if retention_cutoff_dt and self._month_end_utc_naive(month) <= retention_cutoff_dt:
+                self._remove_sqlite_files(db_path)
+                result["month_dbs_deleted"] += 1
+                continue
+            mutated = False
             with closing(self._connect_to(db_path)) as conn, conn:
-                if raw_retention_days > 0 and (retention_days == 0 or raw_retention_days < retention_days):
-                    cutoff = _to_iso(_normalize_to_utc_naive(_utc_now() - timedelta(days=raw_retention_days)))
+                if raw_cutoff is not None:
                     cursor = conn.execute(
                         """
                         UPDATE request_logs
@@ -477,13 +562,19 @@ class SQLiteRequestLogBackend:
                                OR request_body IS NOT NULL
                                OR response_body IS NOT NULL)
                         """,
-                        (cutoff,),
+                        (raw_cutoff,),
                     )
-                    result["raw_fields_cleared"] += cursor.rowcount if cursor.rowcount is not None else 0
-                if retention_days > 0:
-                    cutoff = _to_iso(_normalize_to_utc_naive(_utc_now() - timedelta(days=retention_days)))
-                    cursor = conn.execute("DELETE FROM request_logs WHERE timestamp < ?", (cutoff,))
-                    result["rows_deleted"] += cursor.rowcount if cursor.rowcount is not None else 0
+                    changed = cursor.rowcount if cursor.rowcount is not None else 0
+                    result["raw_fields_cleared"] += changed
+                    mutated = mutated or changed > 0
+                if retention_cutoff is not None:
+                    cursor = conn.execute("DELETE FROM request_logs WHERE timestamp < ?", (retention_cutoff,))
+                    changed = cursor.rowcount if cursor.rowcount is not None else 0
+                    result["rows_deleted"] += changed
+                    mutated = mutated or changed > 0
+            if mutated and os.path.exists(db_path):
+                with closing(self._connect_to(db_path)) as conn:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         return result
 
     async def cleanup_old_records(self, retention_days: int, raw_retention_days: int) -> dict[str, int]:

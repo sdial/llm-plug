@@ -30,6 +30,24 @@ def test_init_settings_from_file(tmp_settings_file):
         config._SETTINGS_FILE = original
 
 
+def test_existing_settings_without_retention_keys_keep_legacy_no_cleanup_defaults(tmp_settings_file):
+    """已有 settings.json 升级时，缺失的日志保留期字段保持旧版不清理语义。"""
+    import json
+
+    with open(tmp_settings_file, "w") as f:
+        json.dump({"request_timeout": 600}, f)
+    import config
+
+    original = config._SETTINGS_FILE
+    try:
+        config._SETTINGS_FILE = tmp_settings_file
+        config._settings = {}
+        config._init_settings_sync()
+        assert config._settings["request_log_retention_days"] == 0
+        assert config._settings["request_log_raw_retention_days"] == 0
+    finally:
+        config._SETTINGS_FILE = original
+
 def test_init_settings_ignores_environment_fallback(tmp_settings_file, monkeypatch):
     """settings.json 无对应项时使用默认值，不从环境变量读取业务配置"""
     import json
