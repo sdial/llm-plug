@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM-API Agent 交互流程可视化</title>
+    <style>
+        :root {
+            --bg-primary: #0f0f0f;
+            --bg-secondary: #1a1a2e;
+            --bg-tertiary: #16213e;
+            --accent-primary: #e94560;
+            --accent-secondary: #0f3460;
+            --text-primary: #eaeaea;
+            --text-secondary: #a0a0a0;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --error: #f87171;
+            --border: #2a2a4a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 30px 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            background: linear-gradient(135deg, var(--accent-primary), #ff6b9d);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stats-bar {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 15px;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--accent-primary);
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        /* Timeline */
+        .timeline {
+            position: relative;
+            padding-left: 60px;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 25px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(to bottom, var(--accent-primary), var(--accent-secondary));
+        }
+
+        .turn {
+            position: relative;
+            margin-bottom: 30px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .turn:hover {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 20px rgba(233, 69, 96, 0.2);
+        }
+
+        .turn-header {
+            display: flex;
+            align-items: center;
+            padding: 15px 20px;
+            background: var(--bg-tertiary);
+            cursor: pointer;
+            gap: 15px;
+        }
+
+        .turn-node {
+            position: absolute;
+            left: -47px;
+            top: 20px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent-primary);
+            border: 3px solid var(--bg-primary);
+        }
+
+        .turn-number {
+            background: var(--accent-primary);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+
+        .turn-model {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .turn-time {
+            margin-left: auto;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .turn-status {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
+        .turn-status.success { background: rgba(74, 222, 128, 0.2); color: var(--success); }
+        .turn-status.error { background: rgba(248, 113, 113, 0.2); color: var(--error); }
+
+        .turn-content {
+            display: none;
+            padding: 20px;
+        }
+
+        .turn.expanded .turn-content {
+            display: block;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            border-color: var(--accent-primary);
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 12px 15px;
+            background: rgba(233, 69, 96, 0.1);
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-header:hover {
+            background: rgba(233, 69, 96, 0.2);
+        }
+
+        .card-title {
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-badge {
+            background: var(--accent-secondary);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+        }
+
+        .card-body {
+            padding: 15px;
+            display: none;
+        }
+
+        .card.expanded .card-body {
+            display: block;
+        }
+
+        .card-toggle {
+            transition: transform 0.3s;
+        }
+
+        .card.expanded .card-toggle {
+            transform: rotate(180deg);
+        }
+
+        /* Message */
+        .message {
+            border-left: 3px solid var(--border);
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 0 6px 6px 0;
+        }
+
+        .message.system { border-color: #8b5cf6; }
+        .message.user { border-color: #3b82f6; }
+        .message.assistant { border-color: #10b981; }
+        .message.tool { border-color: #f59e0b; }
+
+        .message-role {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .message.system .message-role { color: #8b5cf6; }
+        .message.user .message-role { color: #3b82f6; }
+        .message.assistant .message-role { color: #10b981; }
+        .message.tool .message-role { color: #f59e0b; }
+
+        .message-content {
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .message-content.expanded {
+            max-height: none;
+        }
+
+        .expand-btn {
+            color: var(--accent-primary);
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-top: 5px;
+        }
+
+        /* Tools */
+        .tool-item {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+
+        .tool-name {
+            color: #fbbf24;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .tool-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        /* Stream chunks */
+        .chunk-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .chunk-item {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+
+        .chunk-item:hover {
+            background: rgba(16, 185, 129, 0.2);
+        }
+
+        .chunk-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+
+        .chunk-index {
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        .chunk-type {
+            font-size: 0.8rem;
+            padding: 2px 8px;
+            background: var(--accent-secondary);
+            border-radius: 4px;
+        }
+
+        /* JSON Viewer */
+        .json-viewer {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 15px;
+            overflow: auto;
+            max-height: 500px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            position: relative;
+        }
+
+        .json-viewer pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .json-toggle {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--accent-primary);
+            border: none;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .modal-header {
+            padding: 15px 20px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(90vh - 60px);
+        }
+
+        /* Highlight JSON */
+        .json-key { color: #ff79c6; }
+        .json-string { color: #f1fa8c; }
+        .json-number { color: #bd93f9; }
+        .json-boolean { color: #ff5555; }
+        .json-null { color: #6272a4; }
+
+        /* Search */
+        .search-box {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 15px 12px 40px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+        }
+
+        /* Prompt breakdown */
+        .prompt-section {
+            margin-bottom: 15px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .prompt-section-header {
+            padding: 10px 15px;
+            background: rgba(139, 92, 246, 0.1);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .prompt-section-title {
+            color: #8b5cf6;
+            font-weight: 600;
+        }
+
+        .prompt-section-size {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .prompt-section-content {
+            padding: 15px;
+            display: none;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .prompt-section.expanded .prompt-section-content {
+            display: block;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--accent-secondary);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>LLM-API Agent 交互流程可视化</h1>
+            <div style="margin: 15px 0;">
+                <select id="log-file" style="padding: 8px 15px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); min-width: 250px;">
+                    <option value="">选择日志文件...</option>
+                </select>
+            </div>
+            <div class="stats-bar">
+                <div class="stat">
+                    <div class="stat-value" id="total-turns">0</div>
+                    <div class="stat-label">总交互轮次</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="total-messages">0</div>
+                    <div class="stat-label">消息总数</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="total-tools">0</div>
+                    <div class="stat-label">工具调用</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="total-tokens">-</div>
+                    <div class="stat-label">Token估算</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search" placeholder="搜索内容...">
+        </div>
+
+        <div class="timeline" id="timeline">
+            <!-- 动态生成 -->
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span class="modal-title" id="modal-title">详情</span>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let sessionData = [];
+        let totalToolCalls = 0;
+        let currentLogFile = 'debug_2026-04-25.jsonl';
+
+        // 加载可用的日志文件列表
+        async function loadLogFileList() {
+            try {
+                const response = await fetch('/admin/logs');
+                const files = await response.json();
+                const select = document.getElementById('log-file');
+                select.innerHTML = '<option value="">选择日志文件...</option>';
+                files.forEach(file => {
+                    const option = document.createElement('option');
+                    option.value = file.name;
+                    option.textContent = `${file.name} (${formatBytes(file.size)})`;
+                    if (file.name === currentLogFile) {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.log('Could not load file list, using default');
+            }
+        }
+
+        // 格式化字节
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        // 加载数据
+        async function loadData(filename) {
+            if (!filename) filename = currentLogFile;
+            currentLogFile = filename;
+
+            try {
+                const response = await fetch(`/admin/logs/${filename}`);
+                if (!response.ok) throw new Error('File not found');
+                const text = await response.text();
+                const lines = text.trim().split('\n');
+
+                totalToolCalls = 0;
+                sessionData = lines.map((line, index) => {
+                    try {
+                        return JSON.parse(line);
+                    } catch (e) {
+                        console.error(`Error parsing line ${index}:`, e);
+                        return null;
+                    }
+                }).filter(d => d !== null);
+
+                renderTimeline();
+                updateStats();
+                initRawJson();
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('timeline').innerHTML =
+                    '<p style="text-align:center;color:var(--error);">无法加载数据文件。请确保服务器正在运行。</p>';
+            }
+        }
+
+        // 更新统计
+        function updateStats() {
+            document.getElementById('total-turns').textContent = sessionData.length;
+
+            let totalMessages = 0;
+            sessionData.forEach(turn => {
+                if (turn.request?.body?.messages) {
+                    totalMessages += turn.request.body.messages.length;
+                }
+            });
+            document.getElementById('total-messages').textContent = totalMessages;
+            document.getElementById('total-tools').textContent = totalToolCalls;
+        }
+
+        // 渲染时间线
+        function renderTimeline() {
+            const timeline = document.getElementById('timeline');
+            timeline.innerHTML = '';
+
+            sessionData.forEach((turn, index) => {
+                const turnEl = document.createElement('div');
+                turnEl.className = 'turn';
+                turnEl.innerHTML = createTurnHTML(turn, index);
+                timeline.appendChild(turnEl);
+            });
+
+            // 绑定事件
+            document.querySelectorAll('.turn-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    header.closest('.turn').classList.toggle('expanded');
+                });
+            });
+
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', (e) => {
+                    const tabs = e.target.closest('.tabs');
+                    tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    e.target.classList.add('active');
+
+                    const tabContents = e.target.closest('.turn-content').querySelectorAll('.tab-content');
+                    tabContents.forEach(tc => tc.classList.remove('active'));
+                    document.getElementById(e.target.dataset.target).classList.add('active');
+                });
+            });
+
+            document.querySelectorAll('.card-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    header.closest('.card').classList.toggle('expanded');
+                });
+            });
+
+            document.querySelectorAll('.expand-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const content = e.target.previousElementSibling;
+                    content.classList.toggle('expanded');
+                    e.target.textContent = content.classList.contains('expanded') ? '收起' : '展开全部';
+                });
+            });
+        }
+
+        // 创建轮次HTML
+        function createTurnHTML(turn, index) {
+            const req = turn.request?.body || {};
+            const resp = turn.response || {};
+            const channel = turn.channel || {};
+            const timestamp = new Date(turn.timestamp).toLocaleString('zh-CN');
+
+            // 统计工具调用
+            let toolCallsInTurn = 0;
+            const streamContent = resp.stream_content || [];
+
+            streamContent.forEach(chunk => {
+                if (chunk.choices) {
+                    chunk.choices.forEach(choice => {
+                        if (choice.delta?.tool_calls) {
+                            toolCallsInTurn++;
+                            totalToolCalls++;
+                        }
+                    });
+                }
+            });
+
+            return `
+                <div class="turn-node"></div>
+                <div class="turn-header">
+                    <span class="turn-number">Turn ${index + 1}</span>
+                    <span class="turn-model">${req.model || 'unknown'}</span>
+                    <span class="turn-time">${timestamp}</span>
+                    <span class="turn-status ${resp.status_code === 200 ? 'success' : 'error'}">
+                        ${resp.status_code || 'N/A'}
+                    </span>
+                </div>
+                <div class="turn-content">
+                    <div class="tabs">
+                        <button class="tab active" data-target="tab-request-${index}">请求</button>
+                        <button class="tab" data-target="tab-response-${index}">响应</button>
+                        <button class="tab" data-target="tab-prompt-${index}">提示词分析</button>
+                        <button class="tab" data-target="tab-raw-${index}">原始JSON</button>
+                    </div>
+
+                    <div id="tab-request-${index}" class="tab-content active">
+                        ${createRequestTab(req, channel, turn.request)}
+                    </div>
+
+                    <div id="tab-response-${index}" class="tab-content">
+                        ${createResponseTab(resp)}
+                    </div>
+
+                    <div id="tab-prompt-${index}" class="tab-content">
+                        ${createPromptAnalysisTab(req)}
+                    </div>
+
+                    <div id="tab-raw-${index}" class="tab-content">
+                        <div class="json-viewer">
+                            <button class="json-toggle" onclick="copyJson(${index})">复制</button>
+                            <pre id="json-raw-${index}"></pre>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 创建请求标签页
+        function createRequestTab(req, channel, requestInfo) {
+            const messages = req.messages || [];
+            const tools = req.tools || [];
+
+            return `
+                <div class="card expanded">
+                    <div class="card-header">
+                        <span class="card-title">
+                            请求信息
+                            <span class="card-badge">${channel.api_type || 'API'}</span>
+                        </span>
+                        <span class="card-toggle">▼</span>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>URL:</strong> ${requestInfo?.url || 'N/A'}</p>
+                        <p><strong>Model:</strong> ${req.model || 'N/A'}</p>
+                        <p><strong>Max Tokens:</strong> ${req.max_tokens || 'N/A'}</p>
+                        <p><strong>Stream:</strong> ${req.stream ? '是' : '否'}</p>
+                    </div>
+                </div>
+
+                <div class="card expanded">
+                    <div class="card-header">
+                        <span class="card-title">
+                            消息列表
+                            <span class="card-badge">${messages.length} 条</span>
+                        </span>
+                        <span class="card-toggle">▼</span>
+                    </div>
+                    <div class="card-body">
+                        ${messages.map((msg, i) => createMessageHTML(msg, i)).join('')}
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">
+                            工具定义
+                            <span class="card-badge">${tools.length} 个</span>
+                        </span>
+                        <span class="card-toggle">▼</span>
+                    </div>
+                    <div class="card-body">
+                        ${tools.map(tool => `
+                            <div class="tool-item">
+                                <div class="tool-name">${tool.function?.name || 'unknown'}</div>
+                                <div class="tool-desc">${tool.function?.description || '无描述'}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // 创建消息HTML
+        function createMessageHTML(msg, index) {
+            const role = msg.role || 'unknown';
+            const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2);
+            const truncated = content.length > 500;
+
+            return `
+                <div class="message ${role}">
+                    <div class="message-role">${role}</div>
+                    <div class="message-content ${truncated ? '' : 'expanded'}">
+                        ${escapeHtml(truncated ? content.substring(0, 500) + '...' : content)}
+                    </div>
+                    ${truncated ? `<span class="expand-btn" onclick="showFullMessage(${index}, this)">展开全部</span>` : ''}
+                    ${msg.tool_calls ? `
+                        <div style="margin-top:10px;color:var(--warning);">
+                            <strong>Tool Calls:</strong> ${msg.tool_calls.length} 个
+                            <button onclick="showToolCalls(${index})" style="margin-left:10px;background:var(--accent-secondary);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;">查看详情</button>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // 创建响应标签页
+        function createResponseTab(resp) {
+            const chunks = resp.stream_content || [];
+
+            return `
+                <div class="card expanded">
+                    <div class="card-header">
+                        <span class="card-title">
+                            响应信息
+                            <span class="card-badge">${resp.status_code || 'N/A'}</span>
+                        </span>
+                        <span class="card-toggle">▼</span>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Status Code:</strong> ${resp.status_code || 'N/A'}</p>
+                        <p><strong>Stream:</strong> ${resp.is_stream ? '是' : '否'}</p>
+                        <p><strong>Chunks:</strong> ${chunks.length}</p>
+                    </div>
+                </div>
+
+                <div class="card expanded">
+                    <div class="card-header">
+                        <span class="card-title">
+                            流式响应块
+                            <span class="card-badge">${chunks.length} 块</span>
+                        </span>
+                        <span class="card-toggle">▼</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="chunk-list">
+                            ${chunks.map((chunk, i) => createChunkHTML(chunk, i)).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 创建chunk HTML
+        function createChunkHTML(chunk, index) {
+            let chunkType = 'delta';
+            let content = '';
+
+            if (chunk.choices && chunk.choices[0]) {
+                const choice = chunk.choices[0];
+                if (choice.delta?.content) {
+                    chunkType = 'content';
+                    content = choice.delta.content;
+                } else if (choice.delta?.tool_calls) {
+                    chunkType = 'tool_call';
+                    content = JSON.stringify(choice.delta.tool_calls, null, 2);
+                } else if (choice.finish_reason) {
+                    chunkType = 'finish';
+                    content = `finish_reason: ${choice.finish_reason}`;
+                }
+            }
+
+            return `
+                <div class="chunk-item" onclick="showChunkDetail(${index})">
+                    <div class="chunk-header">
+                        <span class="chunk-index">Chunk ${index + 1}</span>
+                        <span class="chunk-type">${chunkType}</span>
+                    </div>
+                    <div style="font-size:0.85rem;color:var(--text-secondary);">
+                        ${escapeHtml(content.substring(0, 100))}${content.length > 100 ? '...' : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        // 创建提示词分析标签页
+        function createPromptAnalysisTab(req) {
+            const messages = req.messages || [];
+
+            // 分析system prompt
+            const systemMsg = messages.find(m => m.role === 'system');
+            const systemContent = systemMsg?.content || '';
+
+            // 尝试解析提示词结构
+            const sections = parsePromptSections(systemContent);
+
+            return `
+                <div class="card expanded">
+                    <div class="card-header">
+                        <span class="card-title">
+                            System Prompt 结构分析
+                            <span class="card-badge">${systemContent.length} 字符</span>
+                        </span>
+                        <span class="card-toggle">▼</span>
+                    </div>
+                    <div class="card-body">
+                        ${sections.map(section => `
+                            <div class="prompt-section">
+                                <div class="prompt-section-header" onclick="this.parentElement.classList.toggle('expanded')">
+                                    <span class="prompt-section-title">${section.name}</span>
+                                    <span class="prompt-section-size">${section.content.length} 字符</span>
+                                </div>
+                                <div class="prompt-section-content">
+                                    <pre style="white-space:pre-wrap;word-break:break-word;margin:0;font-size:0.85rem;">${escapeHtml(section.content.substring(0, 2000))}${section.content.length > 2000 ? '\n...(已截断)' : ''}</pre>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">消息统计</span>
+                        <span class="card-toggle">▼</span>
+                    </div>
+                    <div class="card-body">
+                        <table style="width:100%;border-collapse:collapse;">
+                            <tr style="border-bottom:1px solid var(--border);">
+                                <th style="text-align:left;padding:8px;">角色</th>
+                                <th style="text-align:right;padding:8px;">数量</th>
+                                <th style="text-align:right;padding:8px;">总字符</th>
+                            </tr>
+                            ${['system', 'user', 'assistant', 'tool'].map(role => {
+                                const roleMsgs = messages.filter(m => m.role === role);
+                                const totalChars = roleMsgs.reduce((sum, m) => sum + String(m.content || '').length, 0);
+                                return `
+                                    <tr style="border-bottom:1px solid var(--border);">
+                                        <td style="padding:8px;color:${getRoleColor(role)}">${role}</td>
+                                        <td style="text-align:right;padding:8px;">${roleMsgs.length}</td>
+                                        <td style="text-align:right;padding:8px;">${totalChars.toLocaleString()}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 解析提示词结构
+        function parsePromptSections(content) {
+            const sections = [];
+            const patterns = [
+                { regex: /<agent-identity>([\s\S]*?)<\/agent-identity>/, name: 'Agent Identity' },
+                { regex: /<Role>([\s\S]*?)<\/Role>/, name: 'Role' },
+                { regex: /<Behavior_Instructions>([\s\S]*?)<\/Behavior_Instructions>/, name: 'Behavior Instructions' },
+                { regex: /<Tools_Information>([\s\S]*?)<\/Tools_Information>/, name: 'Tools Information' },
+                { regex: /<workflow>([\s\S]*?)<\/workflow>/, name: 'Workflow' },
+                { regex: /<system-reminder>([\s\S]*?)<\/system-reminder>/, name: 'System Reminder' },
+                { regex: /<currentDate>([\s\S]*?)<\/currentDate>/, name: 'Current Date' },
+            ];
+
+            patterns.forEach(({ regex, name }) => {
+                const match = content.match(regex);
+                if (match) {
+                    sections.push({ name, content: match[1].trim() });
+                }
+            });
+
+            return sections;
+        }
+
+        // 工具函数
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function getRoleColor(role) {
+            const colors = {
+                system: '#8b5cf6',
+                user: '#3b82f6',
+                assistant: '#10b981',
+                tool: '#f59e0b'
+            };
+            return colors[role] || 'var(--text-primary)';
+        }
+
+        // 显示完整消息
+        function showFullMessage(index, btn) {
+            const content = btn.previousElementSibling;
+            content.classList.toggle('expanded');
+            btn.textContent = content.classList.contains('expanded') ? '收起' : '展开全部';
+        }
+
+        // 显示工具调用详情
+        function showToolCalls(msgIndex) {
+            openModal('Tool Calls 详情', '<pre style="white-space:pre-wrap;">工具调用详情...</pre>');
+        }
+
+        // 显示chunk详情
+        function showChunkDetail(chunkIndex) {
+            // 找到对应的chunk
+            const turnEl = event.target.closest('.turn');
+            const turnIndex = Array.from(document.querySelectorAll('.turn')).indexOf(turnEl);
+            const chunk = sessionData[turnIndex]?.response?.stream_content?.[chunkIndex];
+
+            if (chunk) {
+                openModal(`Chunk ${chunkIndex + 1} 详情`, `
+                    <div class="json-viewer">
+                        <pre>${syntaxHighlight(JSON.stringify(chunk, null, 2))}</pre>
+                    </div>
+                `);
+            }
+        }
+
+        // JSON语法高亮
+        function syntaxHighlight(json) {
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                let cls = 'json-number';
+                if (/^"/.test(match)) {
+                    if (/:$/.test(match)) {
+                        cls = 'json-key';
+                    } else {
+                        cls = 'json-string';
+                    }
+                } else if (/true|false/.test(match)) {
+                    cls = 'json-boolean';
+                } else if (/null/.test(match)) {
+                    cls = 'json-null';
+                }
+                return '<span class="' + cls + '">' + match + '</span>';
+            });
+        }
+
+        // 复制JSON
+        function copyJson(index) {
+            const json = JSON.stringify(sessionData[index], null, 2);
+            navigator.clipboard.writeText(json);
+            alert('已复制到剪贴板');
+        }
+
+        // Modal操作
+        function openModal(title, content) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-body').innerHTML = content;
+            document.getElementById('modal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.remove('active');
+        }
+
+        // 点击overlay关闭modal
+        document.getElementById('modal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('modal')) {
+                closeModal();
+            }
+        });
+
+        // 搜索功能
+        document.getElementById('search').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            document.querySelectorAll('.turn').forEach(turn => {
+                const text = turn.textContent.toLowerCase();
+                turn.style.display = text.includes(query) ? '' : 'none';
+            });
+        });
+
+        // 文件选择
+        document.getElementById('log-file').addEventListener('change', (e) => {
+            if (e.target.value) {
+                loadData(e.target.value);
+            }
+        });
+
+        // 初始化原始JSON显示
+        function initRawJson() {
+            sessionData.forEach((data, index) => {
+                const el = document.getElementById(`json-raw-${index}`);
+                if (el) {
+                    el.innerHTML = syntaxHighlight(JSON.stringify(data, null, 2));
+                }
+            });
+        }
+
+        // 初始化
+        loadLogFileList();
+        loadData();
+    </script>
+</body>
+</html>

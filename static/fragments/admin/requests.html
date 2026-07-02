@@ -1,0 +1,102 @@
+<!-- 请求记录 Tab -->
+        <div id="requestsTab">
+            <!-- 搜索表单 -->
+            <div class="card p-4 mb-4">
+                <div class="flex flex-wrap gap-3 items-end">
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-xs text-ink-600 mb-1">模型</label>
+                        <input type="text" id="reqFilterModel" placeholder="模型名称" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-full sm:w-64">
+                    </div>
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-xs text-ink-600 mb-1">渠道</label>
+                        <select id="reqFilterChannel" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-full sm:w-40">
+                            <option value="">全部渠道</option>
+                        </select>
+                    </div>
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-xs text-ink-600 mb-1">API Key</label>
+                        <select id="reqFilterApiKeyId" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-full sm:w-40">
+                            <option value="">全部 API Key</option>
+                        </select>
+                    </div>
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-xs text-ink-600 mb-1">状态</label>
+                        <select id="reqFilterSuccess" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-full sm:w-28">
+                            <option value="">全部</option>
+                            <option value="true">成功</option>
+                            <option value="false">失败</option>
+                        </select>
+                    </div>
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-xs text-ink-600 mb-1">开始时间</label>
+                        <input type="datetime-local" id="reqFilterStart" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-full sm:w-auto">
+                    </div>
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-xs text-ink-600 mb-1">结束时间</label>
+                        <input type="datetime-local" id="reqFilterEnd" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white w-full sm:w-auto">
+                    </div>
+
+                    <div class="flex gap-2 w-full sm:w-auto">
+                        <button onclick="searchRequests()" class="btn-primary text-sm px-3 py-1.5 font-medium flex-1 sm:flex-initial">搜索</button>
+                        <button onclick="resetRequestFilters()" class="btn-secondary text-sm px-3 py-1.5 font-medium flex-1 sm:flex-initial">重置</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 表格 -->
+            <div class="request-table-shell mb-4">
+                <table class="request-log-table w-full text-sm responsive-card">
+                    <colgroup>
+                        <col style="width:110px">
+                        <col style="width:114px">
+                        <col style="width:118px">
+                        <col style="width:124px">
+                        <col style="width:142px">
+                        <col style="width:106px">
+                        <col style="width:78px">
+                        <col style="width:84px">
+                        <col style="width:84px">
+                        <col style="width:70px">
+                        <col style="width:94px">
+                        <col style="width:76px">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th class="text-left py-3 px-3">时间</th>
+                            <th class="text-left py-3 px-2">渠道</th>
+                            <th class="text-left py-3 px-2">客户端 IP</th>
+                            <th class="text-left py-3 px-2">API Key</th>
+                            <th class="text-left py-3 px-2">模型</th>
+                            <th class="text-right py-3 px-2" title="输入 Token 数；括号为命中缓存的 cache_read_input_tokens">输入 Tok</th>
+                            <th class="text-right py-3 px-2" title="输出 Token 数">输出 Tok</th>
+                            <th class="text-right py-3 px-2" title="整体耗时（毫秒）">总耗时</th>
+                            <th class="text-right py-3 px-2" title="首个 Token 返回耗时（毫秒）">首 Tok</th>
+                            <th class="text-right py-3 px-2" title="输出速率：tokens/秒">速率</th>
+                            <th class="text-left py-3 px-2">结束原因</th>
+                            <th class="text-center py-3 px-2">状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="requestsTbody">
+                        <tr><td colspan="12" class="py-4 text-center text-ink-400 text-sm">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 分页器 -->
+            <div class="flex items-center justify-between flex-wrap gap-2">
+                <div class="text-sm text-ink-600">
+                    共 <span id="reqTotal">0</span> 条
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <select id="reqPageSize" onchange="changeRequestPageSize()" class="text-sm border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                        <option value="10">10 条/页</option>
+                        <option value="20">20 条/页</option>
+                        <option value="50">50 条/页</option>
+                        <option value="100">100 条/页</option>
+                    </select>
+                    <button onclick="prevRequestPage()" id="reqPrevBtn" class="btn-secondary text-sm px-3 py-1.5 font-medium">上一页</button>
+                    <span class="text-sm text-ink-600">第 <span id="reqPage">1</span> 页</span>
+                    <button onclick="nextRequestPage()" id="reqNextBtn" class="btn-secondary text-sm px-3 py-1.5 font-medium">下一页</button>
+                </div>
+            </div>
+        </div>
