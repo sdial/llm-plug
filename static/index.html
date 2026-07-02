@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+    <title>大模型格式转换器</title>
+    <script src="/admin/static/tailwind.min.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/tailwind-config.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/htmx.min.js?v=__STATIC_ASSET_VERSION__"></script>
+    <link rel="stylesheet" href="/admin/static/css/admin.css?v=__STATIC_ASSET_VERSION__">
+</head>
+<body class="min-h-screen">
+    <!-- Header -->
+    <div class="bg-white border-b border-surface-200">
+        <div class="max-w-6xl mx-auto px-4 py-4 sm:py-5 flex items-center justify-between gap-3 flex-wrap">
+            <div class="min-w-0">
+                <h1 class="text-lg sm:text-xl font-bold tracking-tight text-ink-900">LLM API 转换器</h1>
+                <p class="text-ink-600 text-xs mt-0.5">OpenAI Chat Completions / OpenAI Response / Anthropic 三种格式互转 + 负载均衡</p>
+            </div>
+            <div class="flex items-center gap-3 text-xs">
+                <div class="text-ink-400 hidden sm:block">v1.0.6 release 2026-06-14</div>
+                <button onclick="logoutAdmin()" class="text-ink-500 hover:text-ink-900 font-medium">退出</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab 导航 -->
+    <div class="bg-white border-b border-surface-200 sticky top-0 z-40">
+        <!-- 桌面端：横排 tab -->
+        <div class="max-w-6xl mx-auto px-4 hidden md:flex gap-1">
+            <button onclick="switchTab('channels')" id="tab_channels" class="px-4 py-2.5 text-sm font-medium tab-active">渠道管理</button>
+            <button onclick="switchTab('apikeys')" id="tab_apikeys" class="px-4 py-2.5 text-sm font-medium tab-inactive">API Key</button>
+            <button onclick="switchTab('lb')" id="tab_lb" class="px-4 py-2.5 text-sm font-medium tab-inactive">模型分组</button>
+            <button onclick="switchTab('stats')" id="tab_stats" class="px-4 py-2.5 text-sm font-medium tab-inactive">统计</button>
+            <button onclick="switchTab('requests')" id="tab_requests" class="px-4 py-2.5 text-sm font-medium tab-inactive">请求记录</button>
+            <button onclick="switchTab('settings')" id="tab_settings" class="px-4 py-2.5 text-sm font-medium tab-inactive">设置</button>
+            <button onclick="switchTab('whitelist')" id="tab_whitelist" class="px-4 py-2.5 text-sm font-medium tab-inactive">IP 白名单</button>
+        </div>
+        <!-- 移动端：下拉选择 -->
+        <div class="max-w-6xl mx-auto px-4 py-2 md:hidden">
+            <select id="tabMobileSelect" onchange="switchTab(this.value)" class="w-full text-sm font-medium border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <option value="channels">渠道管理</option>
+                <option value="apikeys">API Key</option>
+                <option value="lb">模型分组</option>
+                <option value="stats">统计</option>
+                <option value="requests">请求记录</option>
+                <option value="settings">设置</option>
+                <option value="whitelist">IP 白名单</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="admin-layout" class="max-w-6xl mx-auto px-4 py-5 sm:py-8">
+        <div id="admin-content" class="space-y-6 min-h-[24rem]" hx-get="/admin/ui/channels" hx-trigger="load" hx-swap="innerHTML">
+            <div class="card p-6 text-sm text-ink-400">加载中...</div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑渠道模态框 -->
+    <div id="channelModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl mx-4 max-h-[90vh] overflow-y-auto" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 id="modalTitle" class="text-base font-bold text-ink-900">添加渠道</h3>
+                    <button onclick="closeModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
+                </div>
+                <form id="channelForm" onsubmit="saveChannel(event)" class="space-y-4">
+                    <input type="hidden" id="editId">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-ink-900 mb-1">名称</label>
+                            <input type="text" id="f_name" required class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-ink-900 mb-1">API类型</label>
+                            <select id="f_api_type" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                                <option value="openai-chat-completions">OpenAI Chat Completions</option>
+                                <option value="openai-response">OpenAI Response</option>
+                                <option value="anthropic">Anthropic</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-4">
+                            <label class="text-sm font-medium text-ink-900 whitespace-nowrap">Base URL</label>
+                            <input type="url" id="f_base_url" required pattern="https?://.+" title="请输入以 http:// 或 https:// 开头的有效 URL" placeholder="https://api.openai.com" class="flex-1 border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                        </div>
+                        <details id="advancedUrlDetails" class="rounded-lg border border-surface-200 bg-surface-50/60 p-3">
+                            <summary class="cursor-pointer text-sm font-medium text-ink-900">高级：自定义 URL 路径</summary>
+                            <div class="mt-3 space-y-2">
+                                <input type="url" id="f_endpoint_url" placeholder="对话请求 URL（留空则按 Base URL 自动拼接）" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                                <input type="url" id="f_models_url" placeholder="模型列表 URL（留空则按 Base URL 自动拼接）" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                            </div>
+                        </details>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <label class="text-sm font-medium text-ink-900 whitespace-nowrap">API Key</label>
+                        <div class="relative flex-1">
+                            <input type="password" id="f_api_key" placeholder="上游服务的 API Key" class="w-full border border-surface-200 rounded-lg px-3 py-2 pr-10 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                            <button type="button" onclick="toggleApiKeyVisibility()" class="absolute inset-y-0 right-0 flex items-center pr-3 text-ink-400 hover:text-ink-600 transition" title="显示/隐藏 API Key">
+                                <svg id="eyeIconShow" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                <svg id="eyeIconHide" class="hidden w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-sm font-medium text-ink-900">模型列表</label>
+                            <button type="button" id="fetchModelsBtn" onclick="fetchModels()" class="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                                <svg id="fetchModelsSpinner" class="hidden w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                获取模型
+                            </button>
+                        </div>
+                        <input type="hidden" id="f_models">
+                        <div id="f_models_container"></div>
+                        <div id="modelSelectPanel" class="hidden mt-2 border border-surface-200 rounded-lg bg-white">
+                            <div class="p-2 border-b border-surface-100">
+                                <input type="text" id="modelSearchInput" placeholder="搜索模型..." class="w-full text-sm border border-surface-200 rounded px-2 py-1 outline-none focus:border-brand-500">
+                            </div>
+                            <div id="modelSelectList" class="max-h-48 overflow-y-auto p-2 space-y-1"></div>
+                            <div class="p-2 border-t border-surface-100 flex justify-end gap-2">
+                                <button type="button" onclick="closeModelSelectPanel()" class="text-sm text-ink-600 hover:text-ink-800 px-2 py-1">取消</button>
+                                <button type="button" onclick="confirmModelSelect()" class="text-sm bg-brand-600 text-white px-3 py-1 rounded hover:bg-brand-700">替换当前列表</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-ink-900 mb-1">权重</label>
+                            <input type="number" id="f_weight" value="1" min="1" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                            <p class="text-xs text-ink-400 mt-1">同一优先级内按权重分流，数值越大命中概率越高。</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-ink-900 mb-1">优先级</label>
+                            <input type="number" id="f_priority" value="1" min="1" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                            <p class="text-xs text-ink-400 mt-1">数值越小越优先；高优先级失败后才会回落到低优先级。</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <label class="text-sm font-medium text-ink-900 whitespace-nowrap">SOCKS5代理 <span class="text-ink-400 font-normal">(可选)</span></label>
+                        <input type="text" id="f_socks5_proxy" placeholder="socks5://user:pass@127.0.0.1:1080" class="flex-1 border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                    </div>
+                    <div id="anthropicConfigSection" class="hidden space-y-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+                        <div class="flex items-center gap-4">
+                            <label class="text-sm font-medium text-ink-900 whitespace-nowrap">Anthropic Version <span class="text-ink-400 font-normal">(可选)</span></label>
+                            <input type="text" id="f_anthropic_version" placeholder="留空则使用默认 2023-06-01" class="flex-1 border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-ink-900 mb-1">Version 策略</label>
+                                <select id="f_anthropic_version_policy" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                                    <option value="channel">始终使用本渠道配置</option>
+                                    <option value="client">始终使用客户端传入</option>
+                                    <option value="channel_if_missing">客户端未传时使用本渠道</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-ink-900 mb-1">Beta 策略</label>
+                                <select id="f_anthropic_beta_policy" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                                    <option value="channel">始终使用本渠道配置</option>
+                                    <option value="client">始终使用客户端传入</option>
+                                    <option value="merge">合并客户端与本渠道</option>
+                                    <option value="channel_if_missing">客户端未传时使用本渠道</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <label class="text-sm font-medium text-ink-900 whitespace-nowrap">Anthropic Beta <span class="text-ink-400 font-normal">(可选，逗号分隔)</span></label>
+                            <input type="text" id="f_anthropic_beta" placeholder="prompt-caching-2024-07-31, token-efficient-tools-2025-02-19" class="flex-1 border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between pt-4 border-t border-surface-100 flex-wrap gap-3">
+                        <div class="flex items-center gap-4">
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" id="f_enabled" checked class="rounded border-surface-200 text-brand-500 focus:ring-brand-500/30">
+                                <label for="f_enabled" class="text-sm text-ink-900">启用</label>
+                            </div>
+                            <button type="button" id="deleteChannelBtn" onclick="deleteChannelFromModal()" class="text-rose-600 hover:text-rose-700 text-sm font-medium hidden">删除渠道</button>
+                        </div>
+                        <div class="flex gap-3 ml-auto">
+                            <button type="button" onclick="closeModal()" class="btn-secondary px-4 py-2 text-sm font-medium">取消</button>
+                            <button type="submit" class="btn-primary px-4 py-2 text-sm font-medium">保存</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑 API Key 模态框 -->
+    <div id="keyModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 id="keyModalTitle" class="text-base font-bold text-ink-900">创建 API Key</h3>
+                    <button onclick="closeKeyModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
+                </div>
+                <form id="keyForm" onsubmit="saveApiKey(event)" class="space-y-4">
+                    <input type="hidden" id="keyEditId">
+                    <div>
+                        <label class="block text-sm font-medium text-ink-900 mb-1">名称</label>
+                        <input type="text" id="fk_name" required class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-ink-900 mb-1">API Key <span class="text-ink-400 font-normal">(留空则自动生成)</span></label>
+                        <input type="text" id="fk_key" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white font-mono" placeholder="留空自动生成，或手动输入自定义 Key">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-ink-900 mb-1">备注</label>
+                        <input type="text" id="fk_notes" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white" placeholder="可选">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-ink-900 mb-1">允许模型 <span class="text-ink-400 font-normal">(逗号分隔，留空表示允许全部模型)</span></label>
+                        <input type="hidden" id="fk_models">
+                        <div id="fk_models_container"></div>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-4 border-t border-surface-100">
+                        <button type="button" onclick="closeKeyModal()" class="btn-secondary px-4 py-2 text-sm font-medium">取消</button>
+                        <button type="submit" class="btn-primary px-4 py-2 text-sm font-medium">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 复制 Key 提示模态框 -->
+    <div id="copyKeyModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-base font-bold text-ink-900">API Key 已创建</h3>
+                    <button onclick="closeCopyKeyModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
+                </div>
+                <p class="text-sm text-ink-600 mb-3">请复制并妥善保存，该 Key 不会再次显示完整内容。</p>
+                <div class="bg-ink-900 rounded-xl p-3 mb-4">
+                    <code id="copyKeyText" class="text-sm text-emerald-400 break-all font-mono"></code>
+                </div>
+                <div class="flex justify-end">
+                    <button onclick="doCopyKey()" class="btn-primary px-4 py-2 text-sm font-medium">复制到剪贴板</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 请求详情模态框 -->
+    <div id="requestDetailModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-base font-bold text-ink-900">请求详情</h3>
+                    <button onclick="closeRequestDetailModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
+                </div>
+                <div id="requestDetailContent" class="space-y-3 text-sm"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 测试模型选择弹窗 -->
+    <div id="testModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-base font-bold text-ink-900">测试连接</h3>
+                    <button onclick="closeTestModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
+                </div>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-ink-900 mb-1">选择模型</label>
+                        <select id="testModelSelect" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                        </select>
+                    </div>
+                    <div id="testResult" class="hidden">
+                        <label class="block text-sm font-medium text-ink-900 mb-1">测试结果</label>
+                        <div id="testResultContent" class="bg-surface-50 rounded-lg p-3 text-sm"></div>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 pt-4 border-t border-surface-100 mt-4">
+                    <button type="button" onclick="closeTestModal()" class="btn-secondary px-4 py-2 text-sm font-medium">取消</button>
+                    <button type="button" onclick="executeTestFromModal()" id="executeTestBtn" class="btn-primary px-4 py-2 text-sm font-medium">开始测试</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 确认弹窗 -->
+    <div id="confirmModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="confirmTitle" class="text-base font-bold text-ink-900">确认操作</h3>
+                    <button onclick="closeConfirmModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
+                </div>
+                <p id="confirmMessage" class="text-sm text-ink-600 mb-4"></p>
+                <div class="flex justify-end gap-3">
+                    <button type="button" onclick="closeConfirmModal()" class="btn-secondary px-4 py-2 text-sm font-medium">取消</button>
+                    <button type="button" onclick="confirmAction()" id="confirmBtn" class="btn-primary px-4 py-2 text-sm font-medium">确认</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑模型组模态框 -->
+    <div id="modelGroupModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="modelGroupModalTitle" class="text-base font-bold text-ink-900">添加模型组</h3>
+                    <button onclick="closeModelGroupModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
+                </div>
+                <form id="modelGroupForm" onsubmit="saveModelGroup(event)">
+                    <input type="hidden" id="modelGroupId">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-ink-900 mb-1">组名 <span class="text-red-500">*</span></label>
+                            <input type="text" id="modelGroupName" required placeholder="如 glm5-group" class="w-full text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                            <p class="text-xs text-ink-400 mt-1">客户端请求时使用此名称</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-ink-900 mb-1">模型列表 <span class="text-red-500">*</span></label>
+                            <div id="modelGroupModelsContainer" class="space-y-2">
+                                <!-- 动态添加模型输入 -->
+                            </div>
+                            <button type="button" onclick="addModelInput()" class="mt-2 text-sm text-brand-600 hover:text-brand-700 font-medium">+ 添加模型</button>
+                            <p class="text-xs text-ink-400 mt-1">按顺序 Fallback，排在前面的优先使用</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="modelGroupEnabled" checked class="w-4 h-4 rounded border-surface-200 text-brand-600 focus:ring-brand-500">
+                            <label for="modelGroupEnabled" class="text-sm text-ink-900">启用</label>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-4 border-t border-surface-100 mt-4">
+                        <button type="button" onclick="closeModelGroupModal()" class="btn-secondary px-4 py-2 text-sm font-medium">取消</button>
+                        <button type="submit" class="btn-primary px-4 py-2 text-sm font-medium">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模型能力设置模态框 -->
+    <div id="modelCapModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-xs mx-4" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+            <div class="p-5">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-sm font-bold text-ink-900">模型能力</h3>
+                    <button onclick="closeModelCapModal()" class="text-ink-400 hover:text-ink-600 text-2xl leading-none">&times;</button>
+                </div>
+                <div class="mb-4">
+                    <span id="modelCapName" class="text-sm font-medium text-ink-900 bg-surface-100 px-2 py-0.5 rounded"></span>
+                </div>
+                <div class="space-y-3 mb-5">
+                    <label class="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
+                        <input type="checkbox" id="capImage" class="rounded border-surface-200 text-brand-500 focus:ring-brand-500/30"> 支持图片
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
+                        <input type="checkbox" id="capAudio" class="rounded border-surface-200 text-brand-500 focus:ring-brand-500/30"> 支持音频
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
+                        <input type="checkbox" id="capFile" class="rounded border-surface-200 text-brand-500 focus:ring-brand-500/30"> 支持文件
+                    </label>
+                </div>
+                <div class="flex gap-2 pt-3 border-t border-surface-100">
+                    <button type="button" onclick="resetModelCap()" class="btn-secondary px-3 py-1.5 text-xs font-medium">重置</button>
+                    <button type="button" onclick="saveModelCap()" class="btn-primary px-3 py-1.5 text-xs font-medium ml-auto">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/admin/static/js/utils.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/tag_input.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/channels.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/apikeys.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/settings.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/stats.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/requests.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/model_groups.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/whitelist.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/admin.js?v=__STATIC_ASSET_VERSION__"></script>
+</body>
+</html>

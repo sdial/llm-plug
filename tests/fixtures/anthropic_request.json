@@ -1,0 +1,11 @@
+{
+  "model": "claude-sonnet-4-20250514",
+  "messages": [
+    {"role": "user", "content": "Hello, explain quantum computing"}
+  ],
+  "max_tokens": 1024,
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 1000
+  }
+}

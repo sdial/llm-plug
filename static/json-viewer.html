@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON 查看器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+            background: #1a1a1a;
+            color: #a9b7c6;
+            font-size: 13px;
+            line-height: 1.6;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header bar */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 16px;
+            background: #212121;
+            border-bottom: 1px solid #333;
+            height: 40px;
+        }
+        .header-title {
+            color: #a9b7c6;
+            font-size: 14px;
+        }
+        .toggle-sidebar-btn {
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 18px;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .toggle-sidebar-btn:hover {
+            color: #999;
+            background: #2a2d2e;
+        }
+
+        /* Main layout */
+        .main-layout {
+            display: flex;
+            height: calc(100vh - 40px);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            min-width: 200px;
+            max-width: 500px;
+            background: #212121;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .sidebar.collapsed {
+            display: none;
+        }
+
+        /* Sidebar header with action buttons */
+        .sidebar-header {
+            display: flex;
+            gap: 8px;
+            padding: 8px 12px;
+            border-bottom: 1px solid #333;
+        }
+        .sidebar-btn {
+            background: none;
+            border: none;
+            color: #4a9eff;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-family: inherit;
+        }
+        .sidebar-btn:hover {
+            background: #2a2d2e;
+        }
+
+        /* Tree container */
+        .tree-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+        .tree-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        .tree-container::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 3px;
+        }
+
+        /* Tree node */
+        .tree-node {
+            user-select: none;
+        }
+        .tree-node-row {
+            display: flex;
+            align-items: center;
+            padding: 2px 12px 2px 0;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .tree-node-row:hover {
+            background: #2a2d2e;
+        }
+        .tree-arrow {
+            width: 16px;
+            text-align: center;
+            color: #666;
+            font-size: 10px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+        .tree-arrow:hover {
+            color: #999;
+        }
+        .tree-arrow.leaf {
+            visibility: hidden;
+        }
+        .tree-checkbox {
+            width: 16px;
+            height: 16px;
+            margin: 0 4px;
+            accent-color: #4a9eff;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .tree-label {
+            color: #9876aa;
+            font-size: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tree-children {
+            padding-left: 16px;
+        }
+        .tree-children.collapsed {
+            display: none;
+        }
+
+        /* Sidebar footer / status bar */
+        .sidebar-footer {
+            padding: 6px 12px;
+            border-top: 1px solid #333;
+            color: #666;
+            font-size: 11px;
+        }
+
+        /* Resize handle */
+        .resize-handle {
+            width: 4px;
+            cursor: col-resize;
+            background: transparent;
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            right: 0;
+        }
+        .resize-handle:hover {
+            background: #4a9eff;
+        }
+
+        /* JSON main area */
+        .json-main {
+            flex: 1;
+            overflow: auto;
+            padding: 20px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        /* Loading / error */
+        .loading {
+            color: #6b6b6b;
+            font-style: italic;
+        }
+        .error {
+            color: #e11d48;
+            background: #fff1f2;
+            padding: 16px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        /* JSON syntax colors */
+        .key { color: #9876aa; }
+        .string { color: #6a8759; }
+        .number { color: #6897bb; }
+        .boolean { color: #cc7832; }
+        .null { color: #808080; }
+
+        /* Collapsible JSON blocks */
+        .json-toggle {
+            cursor: pointer;
+            display: inline;
+        }
+        .json-toggle:hover {
+            background: #2a2d2e;
+            border-radius: 2px;
+        }
+        .json-collapsed-hint {
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <span class="header-title">JSON 查看器</span>
+        <button class="toggle-sidebar-btn" id="toggleSidebar" title="收起/展开侧栏">&#9776;</button>
+    </div>
+    <div class="main-layout">
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <button class="sidebar-btn" id="selectAll">全选</button>
+                <button class="sidebar-btn" id="invertAll">反选</button>
+            </div>
+            <div class="tree-container" id="treeContainer"></div>
+            <div class="sidebar-footer" id="statusBar">加载中...</div>
+        </div>
+        <div class="json-main" id="jsonMain">
+            <span class="loading">加载中...</span>
+        </div>
+    </div>
+    <script>
+        // ===== Data Model =====
+        var originalData = null;
+        var fieldTree = null;
+
+        function escapeHtml(s) {
+            var d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function buildFieldTree(data, key, path) {
+            key = key || '';
+            path = path || key;
+            var node = {
+                key: key,
+                path: path,
+                checked: true,
+                indeterminate: false,
+                expanded: false,
+                children: null
+            };
+
+            if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
+                var keys = Object.keys(data);
+                if (keys.length > 0) {
+                    node.children = keys.map(function(k) {
+                        var childPath = node.path ? node.path + '.' + k : k;
+                        return buildFieldTree(data[k], k, childPath);
+                    });
+                }
+            } else if (Array.isArray(data) && data.length > 0) {
+                node.children = data.map(function(item, i) {
+                    var childPath = node.path + '.' + i;
+                    return buildFieldTree(item, String(i), childPath);
+                });
+            }
+
+            return node;
+        }
+
+        function countLeafNodes(node) {
+            if (!node.children) return 1;
+            var count = 0;
+            for (var i = 0; i < node.children.length; i++) {
+                count += countLeafNodes(node.children[i]);
+            }
+            return count;
+        }
+
+        function countCheckedLeaves(node) {
+            if (!node.children) return node.checked ? 1 : 0;
+            var count = 0;
+            for (var i = 0; i < node.children.length; i++) {
+                count += countCheckedLeaves(node.children[i]);
+            }
+            return count;
+        }
+
+        // ===== Tree Rendering =====
+
+        function setDefaultExpansion(node, depth) {
+            if (!node.children) return;
+            node.expanded = depth < 2;
+            for (var i = 0; i < node.children.length; i++) {
+                setDefaultExpansion(node.children[i], depth + 1);
+            }
+        }
+
+        function renderTreeNode(node) {
+            var hasChildren = node.children && node.children.length > 0;
+            var arrowClass = hasChildren ? 'tree-arrow' : 'tree-arrow leaf';
+            var arrowChar = node.expanded ? '▼' : '▶';
+            var childrenClass = node.expanded ? 'tree-children' : 'tree-children collapsed';
+
+            var html = '<div class="tree-node" data-path="' + escapeHtml(node.path) + '">';
+            html += '<div class="tree-node-row">';
+            html += '<span class="' + arrowClass + '" data-action="toggle">' + arrowChar + '</span>';
+            html += '<input type="checkbox" class="tree-checkbox" data-action="check"';
+            if (node.indeterminate) html += ' data-indeterminate="true"';
+            if (node.checked && !node.indeterminate) html += ' checked';
+            html += '>';
+            html += '<span class="tree-label">' + escapeHtml(node.key || 'root') + '</span>';
+            html += '</div>';
+
+            if (hasChildren) {
+                html += '<div class="' + childrenClass + '">';
+                for (var i = 0; i < node.children.length; i++) {
+                    html += renderTreeNode(node.children[i]);
+                }
+                html += '</div>';
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        function renderTree() {
+            var container = document.getElementById('treeContainer');
+            container.innerHTML = renderTreeNode(fieldTree);
+            updateStatusBar();
+        }
+
+        function findNodeByPath(node, path) {
+            if (node.path === path) return node;
+            if (node.children) {
+                for (var i = 0; i < node.children.length; i++) {
+                    var found = findNodeByPath(node.children[i], path);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+
+        function updateStatusBar() {
+            var total = countLeafNodes(fieldTree);
+            var checked = countCheckedLeaves(fieldTree);
+            document.getElementById('statusBar').textContent = '已选 ' + checked + '/' + total + ' 个字段';
+        }
+
+        // ===== Checkbox Cascade Logic =====
+
+        function setCheckedRecursive(node, checked) {
+            node.checked = checked;
+            node.indeterminate = false;
+            if (node.children) {
+                for (var i = 0; i < node.children.length; i++) {
+                    setCheckedRecursive(node.children[i], checked);
+                }
+            }
+        }
+
+        function updateParentState(node) {
+            var parts = node.path.split('.');
+            while (parts.length > 1) {
+                parts.pop();
+                var parentPath = parts.join('.');
+                var parent = findNodeByPath(fieldTree, parentPath);
+                if (!parent || !parent.children) break;
+
+                var allChecked = true;
+                var noneChecked = true;
+                for (var i = 0; i < parent.children.length; i++) {
+                    var c = parent.children[i];
+                    if (c.checked && !c.indeterminate) {
+                        noneChecked = false;
+                    } else {
+                        allChecked = false;
+                    }
+                }
+
+                parent.checked = allChecked;
+                parent.indeterminate = !allChecked && !noneChecked;
+            }
+        }
+
+        function handleCheck(path) {
+            var node = findNodeByPath(fieldTree, path);
+            if (!node) return;
+
+            if (node.checked && !node.indeterminate) {
+                setCheckedRecursive(node, false);
+                updateParentState(node);
+            } else {
+                setCheckedRecursive(fieldTree, false);
+                setCheckedRecursive(node, true);
+                updateParentState(node);
+            }
+
+            renderTree();
+            renderFilteredJson();
+        }
+
+        function handleToggle(path) {
+            var node = findNodeByPath(fieldTree, path);
+            if (!node || !node.children) return;
+            node.expanded = !node.expanded;
+            renderTree();
+        }
+
+        function selectAll() {
+            setCheckedRecursive(fieldTree, true);
+            renderTree();
+            renderFilteredJson();
+        }
+
+        function invertAll() {
+            function invertRecursive(node) {
+                if (!node.children) {
+                    node.checked = !node.checked;
+                } else {
+                    for (var i = 0; i < node.children.length; i++) {
+                        invertRecursive(node.children[i]);
+                    }
+                    var allChecked = true;
+                    var noneChecked = true;
+                    for (var j = 0; j < node.children.length; j++) {
+                        var c = node.children[j];
+                        if (c.checked && !c.indeterminate) {
+                            noneChecked = false;
+                        } else {
+                            allChecked = false;
+                        }
+                    }
+                    node.checked = allChecked;
+                    node.indeterminate = !allChecked && !noneChecked;
+                }
+            }
+            invertRecursive(fieldTree);
+            renderTree();
+            renderFilteredJson();
+        }
+
+        function bindEvents() {
+            document.getElementById('treeContainer').addEventListener('click', function(e) {
+                var target = e.target;
+                var action = target.dataset.action;
+                var nodeEl = target.closest('.tree-node');
+                if (!nodeEl) return;
+                var path = nodeEl.dataset.path;
+
+                if (action === 'check') {
+                    handleCheck(path);
+                    e.stopPropagation();
+                } else if (action === 'toggle') {
+                    handleToggle(path);
+                    e.stopPropagation();
+                }
+            });
+
+            document.getElementById('selectAll').addEventListener('click', selectAll);
+            document.getElementById('invertAll').addEventListener('click', invertAll);
+
+            document.getElementById('toggleSidebar').addEventListener('click', function() {
+                document.getElementById('sidebar').classList.toggle('collapsed');
+            });
+        }
+
+        // ===== JSON Filtering & Rendering =====
+
+        function filterJsonData(data, node) {
+            if (!node.children) {
+                return node.checked ? data : null;
+            }
+
+            if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
+                var result = {};
+                for (var i = 0; i < node.children.length; i++) {
+                    var child = node.children[i];
+                    if (data.hasOwnProperty(child.key)) {
+                        var filtered = filterJsonData(data[child.key], child);
+                        if (filtered !== null) {
+                            result[child.key] = filtered;
+                        }
+                    }
+                }
+                return Object.keys(result).length > 0 ? result : null;
+            }
+
+            if (Array.isArray(data)) {
+                var arr = [];
+                for (var i = 0; i < node.children.length; i++) {
+                    var child = node.children[i];
+                    var idx = parseInt(child.key, 10);
+                    if (!isNaN(idx) && idx < data.length) {
+                        var filtered = filterJsonData(data[idx], child);
+                        if (filtered !== null) {
+                            arr.push(filtered);
+                        }
+                    }
+                }
+                return arr.length > 0 ? arr : null;
+            }
+
+            return data;
+        }
+
+        function syntaxHighlight(json, indent) {
+            indent = indent || 0;
+            if (json === null || json === undefined) return '<span class="null">null</span>';
+            if (typeof json === 'string') return '<span class="string">"' + escapeHtml(json) + '"</span>';
+            if (typeof json === 'number') return '<span class="number">' + json + '</span>';
+            if (typeof json === 'boolean') return '<span class="boolean">' + json + '</span>';
+
+            var pad = '  '.repeat(indent);
+            var padInner = '  '.repeat(indent + 1);
+
+            if (Array.isArray(json)) {
+                if (json.length === 0) return '[]';
+                var html = '<span class="json-toggle" data-collapsed="false" data-bracket="[">[</span>';
+                html += '<span class="json-collapsed-hint" style="display:none"> ' + json.length + ' items ]</span>';
+                html += '<div class="json-block">';
+                for (var i = 0; i < json.length; i++) {
+                    html += padInner + syntaxHighlight(json[i], indent + 1);
+                    if (i < json.length - 1) html += ',';
+                    html += '\n';
+                }
+                html += pad + ']';
+                return html;
+            }
+
+            if (typeof json === 'object') {
+                var keys = Object.keys(json);
+                if (keys.length === 0) return '{}';
+                var html = '<span class="json-toggle" data-collapsed="false" data-bracket="{">{</span>';
+                html += '<span class="json-collapsed-hint" style="display:none"> ' + keys.length + ' fields }</span>';
+                html += '<div class="json-block">';
+                for (var i = 0; i < keys.length; i++) {
+                    var k = keys[i];
+                    html += padInner + '<span class="key">"' + escapeHtml(k) + '"</span>: ';
+                    html += syntaxHighlight(json[k], indent + 1);
+                    if (i < keys.length - 1) html += ',';
+                    html += '\n';
+                }
+                html += pad + '}';
+                return html;
+            }
+
+            return escapeHtml(String(json));
+        }
+
+        function renderFilteredJson() {
+            var main = document.getElementById('jsonMain');
+            if (!originalData || !fieldTree) {
+                main.innerHTML = '<span class="loading">无数据</span>';
+                return;
+            }
+
+            var filtered = filterJsonData(originalData, fieldTree);
+            if (filtered === null) {
+                main.innerHTML = '<span class="null">所有字段均已隐藏</span>';
+                return;
+            }
+
+            main.innerHTML = syntaxHighlight(filtered);
+            bindJsonToggleEvents();
+        }
+
+        function bindJsonToggleEvents() {
+            var toggles = document.querySelectorAll('.json-toggle');
+            for (var t = 0; t < toggles.length; t++) {
+                (function(el) {
+                    el.addEventListener('click', function() {
+                        var collapsed = el.dataset.collapsed === 'true';
+                        var hint = el.nextElementSibling;
+                        var block = hint.nextElementSibling;
+                        var bracket = el.dataset.bracket;
+
+                        if (collapsed) {
+                            el.dataset.collapsed = 'false';
+                            block.style.display = '';
+                            hint.style.display = 'none';
+                            el.textContent = bracket;
+                        } else {
+                            el.dataset.collapsed = 'true';
+                            block.style.display = 'none';
+                            hint.style.display = '';
+                            el.textContent = bracket;
+                        }
+                    });
+                })(toggles[t]);
+            }
+        }
+
+        // ===== Sidebar Resize =====
+
+        function initResize() {
+            var sidebar = document.getElementById('sidebar');
+            var handle = document.createElement('div');
+            handle.className = 'resize-handle';
+            sidebar.style.position = 'relative';
+            sidebar.appendChild(handle);
+
+            var startX = 0;
+            var startWidth = 0;
+
+            handle.addEventListener('mousedown', function(e) {
+                startX = e.clientX;
+                startWidth = sidebar.offsetWidth;
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+                e.preventDefault();
+            });
+
+            function onMouseMove(e) {
+                var newWidth = Math.max(200, Math.min(500, startWidth + (e.clientX - startX)));
+                sidebar.style.width = newWidth + 'px';
+            }
+
+            function onMouseUp() {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            }
+        }
+
+        // ===== Initialization =====
+
+        function applyFieldsFilter(fieldsPaths) {
+            setCheckedRecursive(fieldTree, false);
+
+            for (var i = 0; i < fieldsPaths.length; i++) {
+                var path = fieldsPaths[i];
+                var node = findNodeByPath(fieldTree, path);
+                if (node) {
+                    setCheckedRecursive(node, true);
+                    updateParentState(node);
+                }
+            }
+        }
+
+        async function init() {
+            var params = new URLSearchParams(window.location.search);
+            var url = params.get('url');
+            var title = params.get('title') || 'JSON 查看器';
+            var fieldsParam = params.get('fields');
+            document.title = title;
+            document.querySelector('.header-title').textContent = title;
+
+            if (!url) {
+                document.getElementById('jsonMain').innerHTML = '<div class="error">缺少 url 参数</div>';
+                document.getElementById('statusBar').textContent = '无数据';
+                return;
+            }
+
+            try {
+                var resp = await fetch(url);
+                if (!resp.ok) {
+                    document.getElementById('jsonMain').innerHTML = '<div class="error">请求失败: ' + resp.status + ' ' + escapeHtml(await resp.text()) + '</div>';
+                    document.getElementById('statusBar').textContent = '加载失败';
+                    return;
+                }
+                var result = await resp.json();
+                originalData = result.data;
+
+                fieldTree = buildFieldTree(originalData);
+                setDefaultExpansion(fieldTree, 0);
+
+                if (fieldsParam) {
+                    var fieldsPaths = fieldsParam.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+                    if (fieldsPaths.length > 0) {
+                        applyFieldsFilter(fieldsPaths);
+                    }
+                }
+
+                renderTree();
+                renderFilteredJson();
+                bindEvents();
+                initResize();
+
+            } catch (e) {
+                document.getElementById('jsonMain').innerHTML = '<div class="error">加载失败: ' + escapeHtml(e.message) + '</div>';
+                document.getElementById('statusBar').textContent = '加载失败';
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>

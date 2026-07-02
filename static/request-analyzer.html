@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>请求分析器</title>
+    <script src="/admin/static/tailwind.min.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/tailwind-config.js?v=__STATIC_ASSET_VERSION__"></script>
+    <link rel="stylesheet" href="/admin/static/css/admin.css?v=__STATIC_ASSET_VERSION__">
+    <link rel="stylesheet" href="/admin/static/css/request-analyzer.css?v=__STATIC_ASSET_VERSION__">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
+</head>
+<body>
+    <!-- 顶部导航 -->
+    <header class="bg-white border-b border-surface-200 sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center gap-4">
+                    <a href="/admin#requests" class="text-ink-600 hover:text-ink-900 transition">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                        </svg>
+                    </a>
+                    <h1 class="text-lg font-semibold text-ink-900">请求分析器</h1>
+                </div>
+                <div class="flex items-center gap-3">
+                    <a id="requestJsonViewerLink" href="#" target="_blank" class="btn-secondary text-sm px-3 py-1.5 font-medium">
+                        请求 JSON
+                    </a>
+                    <a id="outputJsonViewerLink" href="#" target="_blank" class="btn-secondary text-sm px-3 py-1.5 font-medium">
+                        输出 JSON
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容 -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <!-- 元数据栏 -->
+        <div id="metadataBar" class="card p-4 mb-6 hidden">
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
+                <div>
+                    <div class="text-xs text-ink-400 mb-1">格式</div>
+                    <div id="metaFormat" class="text-sm font-medium text-ink-900">-</div>
+                </div>
+                <div>
+                    <div class="text-xs text-ink-400 mb-1">模型</div>
+                    <div id="metaModel" class="text-sm font-medium text-ink-900">-</div>
+                </div>
+                <div>
+                    <div class="text-xs text-ink-400 mb-1">渠道</div>
+                    <div id="metaChannel" class="text-sm font-medium text-ink-900">-</div>
+                </div>
+                <div>
+                    <div class="text-xs text-ink-400 mb-1">状态</div>
+                    <div id="metaStatus" class="text-sm font-medium">-</div>
+                </div>
+                <div>
+                    <div class="text-xs text-ink-400 mb-1">耗时</div>
+                    <div id="metaLatency" class="text-sm font-medium text-ink-900">-</div>
+                </div>
+                <div>
+                    <div class="text-xs text-ink-400 mb-1">输入 Token</div>
+                    <div id="metaInputTokens" class="text-sm font-medium text-ink-900">-</div>
+                </div>
+                <div>
+                    <div class="text-xs text-ink-400 mb-1">输出 Token</div>
+                    <div id="metaOutputTokens" class="text-sm font-medium text-ink-900">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 标签页 -->
+        <div class="tabs">
+            <div class="tab active" data-view="overview">概览</div>
+            <div class="tab" data-view="messages">消息结构</div>
+            <div class="tab" data-view="output">模型输出</div>
+            <div class="tab" data-view="tools">Tool 调用</div>
+            <div class="tab" data-view="system">System 提示词</div>
+            <div class="tab" data-view="diagnostics">诊断</div>
+        </div>
+
+        <!-- 内容区域 -->
+        <div id="contentArea">
+            <div class="loading">
+                <div class="loading-spinner"></div>
+                <span>加载中...</span>
+            </div>
+        </div>
+    </main>
+
+    <script src="/admin/static/vendor/marked.min.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/vendor/highlight.min.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/request-analyzer.js?v=__STATIC_ASSET_VERSION__"></script>
+</body>
+</html>

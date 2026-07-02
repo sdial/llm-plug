@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流式响应测试工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .config-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .config-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+        }
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+            font-family: inherit;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .btn:active {
+            transform: translateY(0);
+        }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .output-section {
+            margin-top: 30px;
+        }
+        .output-box {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            min-height: 200px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-card .label {
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        .stat-card .value {
+            color: #333;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .streaming {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .error {
+            color: #e74c3c;
+            background: #fee;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+        }
+        .success {
+            color: #27ae60;
+            background: #efe;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 流式响应测试工具</h1>
+            <p>测试 LLM API 代理的流式响应功能</p>
+        </div>
+        
+        <div class="content">
+            <div class="config-section">
+                <h3>配置</h3>
+                <div class="form-group">
+                    <label>API 端点</label>
+                    <input type="text" id="apiUrl" value="http://localhost:8000/v1/chat/completions">
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="text" id="apiKey" value="test-key">
+                </div>
+                <div class="form-group">
+                    <label>模型名称</label>
+                    <input type="text" id="model" value="google/gemma-4-31b-it">
+                </div>
+                <div class="form-group">
+                    <label>提示词</label>
+                    <textarea id="prompt">请用一句话介绍Python</textarea>
+                </div>
+                <button class="btn" id="startBtn" onclick="startStream()">开始流式请求</button>
+                <button class="btn" id="stopBtn" onclick="stopStream()" style="display:none; background: #e74c3c;">停止</button>
+            </div>
+
+            <div class="output-section">
+                <h3>实时输出</h3>
+                <div class="output-box" id="output"></div>
+                
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="label">接收到的 Chunks</div>
+                        <div class="value" id="chunkCount">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">总字符数</div>
+                        <div class="value" id="charCount">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">耗时 (秒)</div>
+                        <div class="value" id="duration">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">状态</div>
+                        <div class="value" id="status">就绪</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let abortController = null;
+        let startTime = null;
+        let chunkCount = 0;
+        let charCount = 0;
+        let durationInterval = null;
+
+        async function startStream() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+            const model = document.getElementById('model').value;
+            const prompt = document.getElementById('prompt').value;
+            
+            // 重置状态
+            chunkCount = 0;
+            charCount = 0;
+            document.getElementById('output').textContent = '';
+            document.getElementById('chunkCount').textContent = '0';
+            document.getElementById('charCount').textContent = '0';
+            document.getElementById('duration').textContent = '0';
+            document.getElementById('status').textContent = '流式传输中...';
+            document.getElementById('status').classList.add('streaming');
+            
+            // 切换按钮
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'inline-block';
+            
+            // 创建 AbortController
+            abortController = new AbortController();
+            startTime = Date.now();
+            
+            // 开始计时
+            durationInterval = setInterval(() => {
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                document.getElementById('duration').textContent = elapsed;
+            }, 100);
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [
+                            { role: 'user', content: prompt }
+                        ],
+                        stream: true,
+                        max_tokens: 500
+                    }),
+                    signal: abortController.signal
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    
+                    if (done) {
+                        break;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // 保留最后一个不完整的行
+
+                    for (const line of lines) {
+                        if (line.trim() === '') continue;
+                        if (line.trim() === 'data: [DONE]') {
+                            console.log('Stream completed');
+                            continue;
+                        }
+                        
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const jsonStr = line.slice(6);
+                                const data = JSON.parse(jsonStr);
+                                
+                                chunkCount++;
+                                document.getElementById('chunkCount').textContent = chunkCount;
+                                
+                                const content = data.choices?.[0]?.delta?.content;
+                                if (content) {
+                                    charCount += content.length;
+                                    document.getElementById('charCount').textContent = charCount;
+                                    
+                                    const outputBox = document.getElementById('output');
+                                    outputBox.textContent += content;
+                                    outputBox.scrollTop = outputBox.scrollHeight;
+                                }
+                                
+                                console.log('Chunk received:', data);
+                            } catch (e) {
+                                console.error('Failed to parse chunk:', line, e);
+                            }
+                        }
+                    }
+                }
+
+                // 完成
+                document.getElementById('status').textContent = '完成';
+                document.getElementById('status').classList.remove('streaming');
+                
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    document.getElementById('status').textContent = '已停止';
+                } else {
+                    document.getElementById('status').textContent = '错误';
+                    console.error('Stream error:', error);
+                    alert('错误: ' + error.message);
+                }
+                document.getElementById('status').classList.remove('streaming');
+            } finally {
+                clearInterval(durationInterval);
+                document.getElementById('startBtn').style.display = 'inline-block';
+                document.getElementById('stopBtn').style.display = 'none';
+            }
+        }
+
+        function stopStream() {
+            if (abortController) {
+                abortController.abort();
+            }
+        }
+    </script>
+</body>
+</html>
