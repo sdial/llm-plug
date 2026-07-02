@@ -9,7 +9,7 @@
 - [存储层 (storage.py)](#存储层)
 - [HTTP 客户端 (client.py)](#http-客户端)
 - [路由层 (routers/)](#路由层)
-- [代理核心 (proxy_core.py)](#代理核心)
+- [代理核心 (proxy_core.py / proxy/)](#代理核心)
 - [转换器 (converters/)](#转换器)
 - [负载均衡器 (balancer/)](#负载均衡器)
 - [能力管理 (capability_manager.py)](#能力管理)
@@ -266,7 +266,7 @@ register_api_keys_save_callback(callback)  # API Keys 保存时触发
 ```
 
 用于缓存失效订阅。例如：
-- `proxy_core._schedule_invalidate_model_channels_cache()` 通过 `register_save_callback` 注册，渠道变更时自动清理渠道缓存
+- `proxy/channel_registry.py:schedule_invalidate_model_channels_cache()` 通过 `register_save_callback` 注册，渠道变更时自动清理渠道缓存；`proxy_core._schedule_invalidate_model_channels_cache()` 保留为兼容入口
 - `storage._invalidate_model_groups_cache_sync()` 也通过此机制串联
 - `main._invalidate_api_key_index()` 通过 `register_api_keys_save_callback` 注册
 
@@ -415,11 +415,23 @@ def make_proxy_router(path: str, api_type: APIType) -> APIRouter
 
 ## 代理核心
 
-> 对应文件：`proxy_core.py`
+> 对应文件：`proxy_core.py`（兼容门面）和 `proxy/`（实际实现包）
 
 ### 模块定位
 
-整个代理服务的**调度中心**，协调路由层、转换器、负载均衡器、HTTP 客户端、存储层和统计模块。
+`proxy_core.py` 是兼容门面，导入时会返回 `proxy.core`，用于保留旧 import、测试 monkeypatch 和模块级状态赋值行为。实际代理核心在 `proxy/` 包内拆分维护：`proxy/core.py` 负责调度主流程，其他子模块承载清晰的协议、缓存和转换职责。
+
+### 文件分工
+
+| 文件 | 职责 |
+|------|------|
+| `proxy_core.py` | 兼容门面，禁止新增业务实现 |
+| `proxy/core.py` | `proxy_request()`、单模型/模型组 Fallback、`_do_request()`、`_do_stream_request()` 主流程和旧私有 API 兼容 wrapper |
+| `proxy/channel_registry.py` | `_get_channels_for_model()` 的真实实现、模型渠道缓存、保存回调、删除渠道后的 LB 清理 |
+| `proxy/conversion.py` | `CONVERTER_MAP`、转换器选择、跨格式渠道过滤、Responses `previous_response_id` 历史展开 |
+| `proxy/stream_sse.py` | SSE block 解析、SSE 格式化、Anthropic 事件合成、非 SSE JSON 转流式事件 |
+| `proxy/stream_reconstruct.py` | 从流式 chunks 重建完整响应体，供请求日志保存 |
+| `proxy/errors.py` / `routing.py` / `non_stream_executor.py` / `stream_executor.py` / `media.py` | 窄 re-export 模块，用于表达边界并保留旧导入面 |
 
 ### 核心函数
 
@@ -454,12 +466,12 @@ def make_proxy_router(path: str, api_type: APIType) -> APIRouter
 
 1. 创建独立流式客户端（`create_stream_client()`）
 2. `client.stream("POST", ...)` 发起流式请求
-3. `_iter_sse_blocks()` 逐块解析上游 SSE
+3. `proxy/stream_sse.py:iter_sse_blocks()` 逐块解析上游 SSE
 4. 逐块转换 + ThinkFilter 过滤
 5. 增量提取 token 用量和 finish_reason
 6. 处理 `[DONE]` 信号 + finalize_stream
-7. 非 SSE 响应兜底：把整块 JSON 拆成流式事件序列
-8. `finally` 块：构建流式响应体、记录统计、关闭客户端
+7. 非 SSE 响应兜底：由 `proxy/stream_sse.py` 把整块 JSON 拆成流式事件序列
+8. `finally` 块：由 `proxy/stream_reconstruct.py` 构建流式响应体，随后记录统计、关闭客户端
 
 ### 异常体系
 
@@ -490,11 +502,11 @@ def make_proxy_router(path: str, api_type: APIType) -> APIRouter
 
 | 函数 | 说明 |
 |------|------|
-| `_get_channels_for_model(model)` | 筛选匹配模型的已启用渠道（带缓存） |
-| `_get_converter_and_upstream_type(channel, target_api_type)` | 从 CONVERTER_MAP 获取转换器 |
+| `_get_channels_for_model(model)` | 兼容 wrapper；真实实现位于 `proxy/channel_registry.py`，筛选匹配模型的已启用渠道（带缓存） |
+| `_get_converter_and_upstream_type(channel, target_api_type)` | 兼容 wrapper；真实实现位于 `proxy/conversion.py`，从 `CONVERTER_MAP` 获取转换器 |
 | `_get_upstream_url(channel)` | 调用 `url_builder.build_upstream_url()` |
 | `_build_upstream_headers(channel, client_headers)` | 构建上游请求头（含转发客户端头） |
-| `_build_stream_response_body(chunks, ...)` | 从流式 chunks 拼装完整响应体（用于请求记录） |
+| `_build_stream_response_body(chunks, ...)` | 兼容导出；真实实现位于 `proxy/stream_reconstruct.py`，从流式 chunks 拼装完整响应体（用于请求记录） |
 | `_record_request(**kwargs)` | 写统计 + 请求记录（不阻塞响应） |
 
 ### 注意事项
@@ -668,7 +680,7 @@ async def update_config(max_fail_count: int = 5, cooldown_seconds: int = 60)
 async def cleanup_removed_channels(active_channel_ids: set[str])
 ```
 
-从健康状态字典中移除已删除的渠道，防止内存泄漏。由 `proxy_core._schedule_invalidate_model_channels_cache()` 在渠道保存后触发。
+从健康状态字典中移除已删除的渠道，防止内存泄漏。由 `proxy/channel_registry.py:schedule_invalidate_model_channels_cache()` 在渠道保存后触发，并通过 `proxy_core._schedule_invalidate_model_channels_cache()` 兼容暴露。
 
 ### 注意事项
 
@@ -740,7 +752,7 @@ model_capabilities[model] > channel.capabilities > vendor 推断 > 默认值
 
 ### 多模态文件保存
 
-`proxy_core.py` 中的 `_save_multimodal_files()` 函数可在请求发送前保存请求中的多模态文件到磁盘。保存行为由设置页的三个开关控制：
+`proxy/core.py` 中的 `_save_multimodal_files()` 函数可在请求发送前保存请求中的多模态文件到磁盘，并通过 `proxy_core._save_multimodal_files()` 兼容暴露。保存行为由设置页的三个开关控制：
 
 | 设置项 | 说明 |
 |--------|------|
@@ -922,7 +934,7 @@ class WhitelistCache:
 ### 架构
 
 ```
-proxy_core._record_request()
+proxy.core._record_request()
     → record_request()              # 入队
         → asyncio.Queue (max=1000)
             → _request_log_worker() # 2 个后台 worker

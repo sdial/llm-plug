@@ -46,8 +46,8 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 ### 请求流程
 1. **入口** — `main.py:CombinedMiddleware`（纯 ASGI，不是 `BaseHTTPMiddleware`，避免流式 bug）：IP 白名单 → 鉴权 → 解析 body → 校验 `model` 是否在 `allowed_models` 列表里 → 写 `scope["state"]`
 2. **代理路由** — `/v1/chat/completions` 和 `/v1/messages` 由 `routers/proxy_base.py:make_proxy_router()` 工厂生成，仅做格式分发；`/v1/responses` 在 `routers/proxy_response.py` 中有独立实现，额外处理 `previous_response_id` 历史展开和响应状态保存（`_save_response_state`）。路由层通过 `routers/auth.py:check_proxy_authorization()` 检查 `scope["state"]["proxy_auth_checked"]`，实际鉴权逻辑在 `CombinedMiddleware` 完成
-3. **核心** — `proxy_core.proxy_request()`：解析模型组 → `_get_channels_for_model()` 拉取已启用渠道 → `_filter_channels_by_conversion()` 按目标格式与 `allow_format_conversion` 过滤 → `LoadBalancer.select_channel()` 选渠道 → `_do_request()` 执行
-4. **转换** — `CONVERTER_MAP[(source, target)]` 选择 request/response converter；同格式直通
+3. **核心** — `proxy_core.proxy_request()` 仍是兼容入口，实际实现位于 `proxy/core.py`：解析模型组 → `proxy/channel_registry.py:get_channels_for_model()` 拉取已启用渠道 → `proxy/conversion.py:filter_channels_by_conversion()` 按目标格式与 `allow_format_conversion` 过滤 → `LoadBalancer.select_channel()` 选渠道 → `_do_request()` 执行
+4. **转换** — `proxy/conversion.py:CONVERTER_MAP[(source, target)]` 选择 request/response converter；同格式直通
 5. **能力过滤** — `capability_manager.apply_capability_filter()` 在 converter 之后、发送之前运行（作用于真实发往上游的 payload，同格式透传也必须应用）
 6. **上游请求** — 非流式用 `client.create_client()` 缓存的 `httpx.AsyncClient`；流式用 `client.create_stream_client()` 新建客户端并在生成器 `finally` 中 `aclose()`（**绝不可加入 `_clients` 缓存池**，否则连接会被提前关闭或泄漏）
 7. **故障转移** — 失败时 `load_balancer.record_failure()`，加进 `all_tried` 排除集重选。首包前切换条件：`_is_retryable_exception()`（网络异常、`_UpstreamStreamErrorEvent`、`_EmptyStreamError`、5xx/429、`ConverterError`）或 `_is_channel_config_error()`（上游 401/403/404，视为渠道配置问题）
@@ -74,9 +74,9 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 ### 模块要点
 
 - **`main.py`** — `lifespan` 启动时初始化 settings、stats DB、request log backend、stats/request-log worker；后台循环：Responses 会话清理、请求日志过期清理、HTTP 客户端 stale 清理；关闭时停 worker 并释放连接池
-- **`proxy_core.py`** — `_do_stream_request()` 是异步生成器，逐行解析 SSE，由 `_prime_stream()` 消费首个 chunk 触发首包前错误进故障转移。`_EmptyStreamError` 处理"上游连接成功但无任何 SSE 输出"的情况。`_do_request()` 内的 `latency_ms` 起点是 `create_client` 返回之后（避免把连接建立时间算进去）
+- **`proxy_core.py` / `proxy/`** — `proxy_core.py` 只是兼容门面（`sys.modules` 指向 `proxy.core`），不要新增实现。`proxy/core.py` 保留代理调度、`_do_request()` 和 `_do_stream_request()` 主流程；`proxy/channel_registry.py` 管渠道缓存；`proxy/conversion.py` 管 `CONVERTER_MAP`、转换器选择和 Responses 历史展开；`proxy/stream_sse.py` 管 SSE 解析/格式化与非 SSE JSON 转流；`proxy/stream_reconstruct.py` 管流式 chunks 重建请求日志响应体。`_do_stream_request()` 由 `_prime_stream()` 消费首个 chunk 触发首包前错误进故障转移；`_do_request()` 内的 `latency_ms` 起点是 `create_client` 返回之后（避免把连接建立时间算进去）
 - **`client.py`** — 普通客户端按 `base_url|socks5_proxy` 缓存。`get_upstream_headers()` 对 Anthropic 发 `x-api-key` + `anthropic-version`（默认 `2023-06-01`）+ 可选 `anthropic-beta`；版本/beta 走 `AnthropicVersionPolicy` / `AnthropicBetaPolicy`（`channel` / `client` / `channel_if_missing` / `merge`）。`_apply_anthropic_headers()` 会从客户端 `extra_headers` 里 `pop` 走 `anthropic-version` 和 `anthropic-beta` 再按策略写回
-- **`storage.py`** — 原子写：临时文件 + `os.replace()`。提供 `register_save_callback()` / `register_api_keys_save_callback()` 给缓存失效逻辑订阅；`proxy_core._schedule_invalidate_model_channels_cache()` 和 `storage._invalidate_model_groups_cache_sync()` 都通过它串联
+- **`storage.py`** — 原子写：临时文件 + `os.replace()`。提供 `register_save_callback()` / `register_api_keys_save_callback()` 给缓存失效逻辑订阅；`proxy/channel_registry.py:schedule_invalidate_model_channels_cache()`（通过 `proxy_core._schedule_invalidate_model_channels_cache()` 兼容暴露）和 `storage._invalidate_model_groups_cache_sync()` 都通过它串联
 - **`request_logs.py`** — 异步 worker 写入请求记录；SQLite 后端按月分库并支持 legacy DB 迁移；RAW 字段（headers/body/附件）受 settings 开关控制
 - **`stats.py`** — SQLite 日聚合 + 后台 worker；管理端 `/admin/stats` 读聚合表，缺失时可 fallback 到 request_logs 实时统计
 - **`routers/admin.py`** — `AdminAuthRoute` 在路由级加会话校验 + CSRF 校验（写操作要 `X-CSRF-Token` 头）。上游 URL 创建前走 `_validate_outbound_url()` 防 SSRF（拒绝非公网、内网、本机地址）
@@ -131,6 +131,6 @@ LLM API 转换代理 — 把 OpenAI Chat Completions / OpenAI Responses / Anthro
 - **能力过滤发生在转换之后** — `apply_capability_filter()` 作用于实际发往上游的格式，同格式透传时仍需应用
 - **请求体大小** — 默认 10MB（`config.py`），`CombinedMiddleware` 提前校验并返回 413；设置页修改 `max_body_size` 后立即生效（中间件通过 `config.MAX_BODY_SIZE` 动态读取）
 - **无 API Key 即开放代理** — `api_keys.json` 为空时不校验客户端 key，部署生产环境前务必配置 API Key
-- **流式首包空** — `_prime_stream()` 触发 `_EmptyStreamError` 走故障转移；非流式空响应走另一条路径，参见 `proxy_core.py` 内注释
+- **流式首包空** — `_prime_stream()` 触发 `_EmptyStreamError` 走故障转移；非流式空响应走另一条路径，参见 `proxy/core.py` 内注释
 - **Windows 端口占用** — 热重载退出后端口可能短时间占用，研发改用 `--no-reload`；残留进程用 `./kill_port.sh 55555`
 - **`LOG_LEVEL` 模块级** — `config.LOG_LEVEL` 不会在 `update_settings()` 后热生效，只在 `--log-level` 启动参数时赋值

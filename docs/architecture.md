@@ -102,7 +102,8 @@ LLM-Plug 是一个 **LLM API 格式转换代理服务**：客户端用一种 API
                                                      │
                                                      ▼
                                           ┌──────────────────────┐
-                                          │    proxy_core.py     │
+                                          │ proxy_core.py facade │
+                                          │  proxy/core.py       │
                                           │  proxy_request()     │
                                           │                      │
                                           │  循环:               │
@@ -141,7 +142,7 @@ LLM-Plug 是一个 **LLM API 格式转换代理服务**：客户端用一种 API
 
 2. **路由分发**：`proxy_base.py` 的工厂函数 `make_proxy_router()` 为三个端点生成处理器，仅做格式分发
 3. **渠道选择**：从 storage 加载匹配 model 的已启用渠道，按 `allow_format_conversion` 过滤，通过 `LoadBalancer.select_channel()` 选择
-4. **请求转换**：根据客户端 API 类型与上游渠道类型，从 `CONVERTER_MAP` 选取对应 converter 转换请求体
+4. **请求转换**：根据客户端 API 类型与上游渠道类型，从 `proxy/conversion.py:CONVERTER_MAP` 选取对应 converter 转换请求体
 5. **能力过滤**：`capability_manager.apply_capability_filter()` 在转换之后、发送之前运行，移除上游不支持的参数（详见"能力管理"）
 6. **上游请求**：非流式用缓存的 `httpx.AsyncClient`；流式用独立的 `create_stream_client()` 新建客户端，在生成器 `finally` 中 `aclose()`
 7. **响应转换**：converter 将上游响应转换回客户端格式（非流式 JSON 或流式 SSE chunks）
@@ -337,7 +338,13 @@ llm-plug/
 ├── config.py            # 配置管理：_CONFIG_SCHEMA 定义、settings.json 读写、热更新
 ├── storage.py           # 存储层：JSON 文件读写（asyncio.Lock + 缓存 + 原子写入）
 ├── client.py            # HTTP 客户端：httpx 缓存池 + SOCKS5 + Anthropic 头管理
-├── proxy_core.py        # 代理核心：负载均衡调度、格式转换协调、故障转移
+├── proxy_core.py        # 兼容门面：保留旧 import / monkeypatch 路径
+├── proxy/               # 代理核心实现包
+│   ├── core.py          # 代理调度、请求执行、流式主流程、兼容 wrapper
+│   ├── channel_registry.py # 模型渠道缓存、保存回调、渠道清理
+│   ├── conversion.py    # CONVERTER_MAP、转换器选择、Responses 历史展开
+│   ├── stream_sse.py    # SSE 解析/格式化、非 SSE JSON 转流式事件
+│   └── stream_reconstruct.py # 流式 chunks 重建完整响应体
 ├── capability_manager.py # 能力管理：提供商推断 + 请求参数过滤
 ├── think_filter.py      # 思考内容过滤：<think>/💭 状态机（流式 + 静态）
 ├── url_builder.py       # URL 构建：上游地址拼接、query 合并
@@ -518,7 +525,7 @@ class ModelGroup(BaseModel):
 
 1. 在 `models/api_types.py` 添加枚举值
 2. 在 `converters/` 创建对应的转换器
-3. 在 `proxy_core.py` 的 `CONVERTER_MAP` 注册转换关系
+3. 在 `proxy/conversion.py` 的 `CONVERTER_MAP` 注册转换关系（`proxy_core.CONVERTER_MAP` 仅用于兼容旧导入）
 4. 在 `routers/` 创建新的代理路由
 5. 在 `url_builder.py` 的 `_UPSTREAM_PATHS` 注册路径
 

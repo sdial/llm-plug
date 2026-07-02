@@ -37,14 +37,19 @@ uv run ruff check .
 ### 请求处理流程
 
 1. `main.py` → CombinedMiddleware（认证 + 日志）
-2. `proxy_core.py:proxy_request()` → 模型路由 + 负载均衡选择渠道
-3. `_do_request()` → 格式转换 → 上游请求 → 格式转换 → 返回响应
+2. `proxy_core.py:proxy_request()` → 兼容入口，实际进入 `proxy/core.py` 做模型路由 + 负载均衡选择渠道
+3. `proxy/core.py:_do_request()` → 格式转换 → 上游请求 → 格式转换 → 返回响应
 
 ### 关键模块
 
 | 模块 | 职责 |
 |------|------|
-| `proxy_core.py` | 核心代理逻辑：模型路由、负载均衡调用、格式转换协调 |
+| `proxy_core.py` | 兼容门面：导入时指向 `proxy.core`，保留旧 import / monkeypatch 路径 |
+| `proxy/core.py` | 代理调度主流程：模型路由、负载均衡调用、请求执行、流式执行 |
+| `proxy/channel_registry.py` | 模型到渠道的缓存、保存回调、删除渠道后的 LB 清理 |
+| `proxy/conversion.py` | `CONVERTER_MAP`、转换器选择、跨格式渠道过滤、Responses 历史展开 |
+| `proxy/stream_sse.py` | SSE 解析/格式化、Anthropic 事件合成、非 SSE JSON 转流式事件 |
+| `proxy/stream_reconstruct.py` | 从流式 chunks 重建完整响应体，供请求日志保存 |
 | `converters/` | 格式转换器（`to_chat.py`, `to_response.py`, `to_anthropic.py`） |
 | `balancer/load_balancer.py` | 加权轮询 + 优先级分组 + 健康检查 |
 | `client.py` | HTTP 客户端缓存池，支持 SOCKS5 代理 |
@@ -53,7 +58,7 @@ uv run ruff check .
 
 ### 格式转换路由
 
-`proxy_core.py:CONVERTER_MAP` 定义 6 种转换方向：
+`proxy/conversion.py:CONVERTER_MAP` 定义 6 种转换方向，并通过 `proxy_core.CONVERTER_MAP` 兼容暴露：
 - OpenAI Chat ↔ Anthropic
 - OpenAI Response ↔ Anthropic
 - OpenAI Chat ↔ OpenAI Response
