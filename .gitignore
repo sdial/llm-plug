@@ -6,6 +6,15 @@ __pycache__/
 dist/
 build/
 *.egg
+.agents/
+.claude/
+.codebuddy/
+.joycode/
+.omc/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
 
 # Virtual environments
 .venv/
@@ -32,3 +41,6 @@ Thumbs.db
 
 # .omc
 .omc/
+
+
+REVIEW.md
