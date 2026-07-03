@@ -33,7 +33,61 @@ uv run python main.py
 # http://localhost:55555/
 ```
 
-Docker 部署时不需要传入配置环境变量；映射宿主机端口并挂载 `data/` 即可，例如 `-p 8000:55555 -v ./data:/app/data`。所有业务配置在前端设置页完成。
+## Docker 快速部署
+
+使用 Docker 可以快速部署 LLM-Plug，无需安装 Python 环境。
+
+### 使用 docker-compose（推荐）
+
+```bash
+# 1. 创建部署目录
+mkdir llm-plug && cd llm-plug
+
+# 2. 创建 docker-compose.yml 文件，内容如下：
+```
+
+```yaml
+services:
+  llm-plug:
+    image: ghcr.io/sdial/llm-plug:latest
+    container_name: llm-plug
+    user: root
+    mem_limit: 256m
+    restart: unless-stopped
+    ports:
+      - "55555:55555"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+```
+
+```bash
+# 3. 启动服务
+docker-compose up -d
+
+# 4. 访问管理页面
+# http://localhost:55555/
+```
+
+### 使用 docker run
+
+```bash
+docker run -d \
+  --name llm-plug \
+  --restart unless-stopped \
+  -p 55555:55555 \
+  -v ./data:/app/data \
+  -v ./logs:/app/logs \
+  ghcr.io/sdial/llm-plug:latest
+```
+
+### 数据持久化
+
+- **配置数据**：`./data` 目录包含所有业务配置，建议定期备份
+- **日志文件**：`./logs` 目录包含运行日志
+- **环境变量**：Docker 部署时不需要传入配置环境变量，所有业务配置在前端设置页完成
 
 ## 文档导航
 
