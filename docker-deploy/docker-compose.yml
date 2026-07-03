@@ -1,6 +1,6 @@
 services:
   llm-plug:
-    image: llm-plug:20260612-0712
+    image: ghcr.io/sdial/llm-plug:latest
     container_name: llm-plug
     user: root
     mem_limit: 256m          # 最大内存限制为 256MB
