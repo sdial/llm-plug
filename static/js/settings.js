@@ -108,12 +108,10 @@ function _bindChangePasswordForm() {
         }
 
         try {
-            const csrf = await getCsrfToken();
             const resp = await fetch('/admin/auth/change-password', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'x-csrf-token': csrf,
                 },
                 body: JSON.stringify({ old_password, new_password, confirm_password }),
             });
