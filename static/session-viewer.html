@@ -1075,8 +1075,19 @@
         // 复制JSON
         function copyJson(index) {
             const json = JSON.stringify(sessionData[index], null, 2);
-            navigator.clipboard.writeText(json);
-            alert('已复制到剪贴板');
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                navigator.clipboard.writeText(json).then(() => alert('已复制到剪贴板'));
+            } else {
+                const textarea = document.createElement('textarea');
+                textarea.value = json;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                alert('已复制到剪贴板');
+            }
         }
 
         // Modal操作
