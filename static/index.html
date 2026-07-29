@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
-    <title>大模型格式转换器</title>
+    <title data-i18n="page.title">大模型格式转换器</title>
     <script src="/admin/static/tailwind.min.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/tailwind-config.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/htmx.min.js?v=__STATIC_ASSET_VERSION__"></script>
@@ -15,12 +15,15 @@
     <div class="bg-white border-b border-surface-200">
         <div class="max-w-6xl mx-auto px-4 py-4 sm:py-5 flex items-center justify-between gap-3 flex-wrap">
             <div class="min-w-0">
-                <h1 class="text-lg sm:text-xl font-bold tracking-tight text-ink-900">LLM API 转换器</h1>
-                <p class="text-ink-600 text-xs mt-0.5">OpenAI Chat Completions / OpenAI Response / Anthropic 三种格式互转 + 负载均衡</p>
+                <h1 class="text-lg sm:text-xl font-bold tracking-tight text-ink-900" data-i18n="header.title">LLM API 转换器</h1>
+                <p class="text-ink-600 text-xs mt-0.5" data-i18n="header.subtitle">OpenAI Chat Completions / OpenAI Response / Anthropic 三种格式互转 + 负载均衡</p>
             </div>
             <div class="flex items-center gap-3 text-xs">
                 <div class="text-ink-400 hidden sm:block">__APP_VERSION__ release __APP_RELEASE_DATE__</div>
-                <button onclick="logoutAdmin()" class="text-ink-500 hover:text-ink-900 font-medium">退出</button>
+                <button onclick="I18n.toggle()" class="text-ink-500 hover:text-ink-900 font-medium border border-surface-200 rounded-md px-2 py-1" data-i18n-title="common.langLabel" title="切换语言">
+                    <span data-i18n="common.langLabel">中/EN</span>
+                </button>
+                <button onclick="logoutAdmin()" class="text-ink-500 hover:text-ink-900 font-medium" data-i18n="header.logout">退出</button>
             </div>
         </div>
     </div>
@@ -29,33 +32,33 @@
     <div class="bg-white border-b border-surface-200 sticky top-0 z-40">
         <!-- 桌面端：横排 tab -->
         <div class="max-w-6xl mx-auto px-4 hidden md:flex gap-1">
-            <button onclick="switchTab('channels')" id="tab_channels" class="px-4 py-2.5 text-sm font-medium tab-active">渠道管理</button>
-            <button onclick="switchTab('apikeys')" id="tab_apikeys" class="px-4 py-2.5 text-sm font-medium tab-inactive">API Key</button>
-            <button onclick="switchTab('lb')" id="tab_lb" class="px-4 py-2.5 text-sm font-medium tab-inactive">模型分组</button>
-            <button onclick="switchTab('stats')" id="tab_stats" class="px-4 py-2.5 text-sm font-medium tab-inactive">统计</button>
-            <button onclick="switchTab('requests')" id="tab_requests" class="px-4 py-2.5 text-sm font-medium tab-inactive">请求记录</button>
-            <button onclick="switchTab('settings')" id="tab_settings" class="px-4 py-2.5 text-sm font-medium tab-inactive">设置</button>
-            <button onclick="switchTab('whitelist')" id="tab_whitelist" class="px-4 py-2.5 text-sm font-medium tab-inactive">IP 白名单</button>
-            <button onclick="switchTab('storage')" id="tab_storage" class="px-4 py-2.5 text-sm font-medium tab-inactive">存储管理</button>
+            <button onclick="switchTab('channels')" id="tab_channels" class="px-4 py-2.5 text-sm font-medium tab-active" data-i18n="nav.channels">渠道管理</button>
+            <button onclick="switchTab('apikeys')" id="tab_apikeys" class="px-4 py-2.5 text-sm font-medium tab-inactive" data-i18n="nav.apikeys">API Key</button>
+            <button onclick="switchTab('lb')" id="tab_lb" class="px-4 py-2.5 text-sm font-medium tab-inactive" data-i18n="nav.modelGroups">模型分组</button>
+            <button onclick="switchTab('stats')" id="tab_stats" class="px-4 py-2.5 text-sm font-medium tab-inactive" data-i18n="nav.stats">统计</button>
+            <button onclick="switchTab('requests')" id="tab_requests" class="px-4 py-2.5 text-sm font-medium tab-inactive" data-i18n="nav.requests">请求记录</button>
+            <button onclick="switchTab('settings')" id="tab_settings" class="px-4 py-2.5 text-sm font-medium tab-inactive" data-i18n="nav.settings">设置</button>
+            <button onclick="switchTab('whitelist')" id="tab_whitelist" class="px-4 py-2.5 text-sm font-medium tab-inactive" data-i18n="nav.whitelist">IP 白名单</button>
+            <button onclick="switchTab('storage')" id="tab_storage" class="px-4 py-2.5 text-sm font-medium tab-inactive" data-i18n="nav.storage">存储管理</button>
         </div>
         <!-- 移动端：下拉选择 -->
         <div class="max-w-6xl mx-auto px-4 py-2 md:hidden">
-            <select id="tabMobileSelect" aria-label="选择管理页面" onchange="switchTab(this.value)" class="w-full text-sm font-medium border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-                <option value="channels">渠道管理</option>
-                <option value="apikeys">API Key</option>
-                <option value="lb">模型分组</option>
-                <option value="stats">统计</option>
-                <option value="requests">请求记录</option>
-                <option value="settings">设置</option>
-                <option value="whitelist">IP 白名单</option>
-                <option value="storage">存储管理</option>
+            <select id="tabMobileSelect" aria-label="选择管理页面" data-i18n-aria="nav.mobileSelectLabel" onchange="switchTab(this.value)" class="w-full text-sm font-medium border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+                <option value="channels" data-i18n="nav.channels">渠道管理</option>
+                <option value="apikeys" data-i18n="nav.apikeys">API Key</option>
+                <option value="lb" data-i18n="nav.modelGroups">模型分组</option>
+                <option value="stats" data-i18n="nav.stats">统计</option>
+                <option value="requests" data-i18n="nav.requests">请求记录</option>
+                <option value="settings" data-i18n="nav.settings">设置</option>
+                <option value="whitelist" data-i18n="nav.whitelist">IP 白名单</option>
+                <option value="storage" data-i18n="nav.storage">存储管理</option>
             </select>
         </div>
     </div>
 
     <div id="admin-layout" class="max-w-6xl mx-auto px-4 py-5 sm:py-8">
         <div id="admin-content" class="space-y-6 min-h-[24rem]" hx-get="/admin/ui/channels" hx-trigger="load" hx-swap="innerHTML">
-            <div class="card p-6 text-sm text-ink-400">加载中...</div>
+            <div class="card p-6 text-sm text-ink-400" data-i18n="common.loading">加载中...</div>
         </div>
     </div>
 
@@ -370,6 +373,9 @@
         </div>
     </div>
 
+    <script src="/admin/static/js/i18n.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/i18n-zh.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/i18n-en.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/utils.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/tag_input.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/channels.js?v=__STATIC_ASSET_VERSION__"></script>

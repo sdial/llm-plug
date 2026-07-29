@@ -308,6 +308,7 @@ window.addEventListener('DOMContentLoaded', bootstrapAdmin);
 window.addEventListener('htmx:afterSettle', (event) => {
     const target = event?.target;
     if (target && target.id === 'admin-content') {
+        if (window.I18n) I18n.translateRoot(target);
         _bootstrapCurrentTab();
     }
 });
