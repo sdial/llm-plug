@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 STATIC_JS = Path("static/js")
 REQUESTS_FRAGMENT = Path("static/fragments/admin/requests.html")
 

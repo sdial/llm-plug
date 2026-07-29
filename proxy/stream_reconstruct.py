@@ -207,7 +207,7 @@ def build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
 
         # 获取 usage（可能在最后一个 chunk）
         usage = chunk.get("usage")
-        if usage:
+        if isinstance(usage, dict):
             input_tokens = usage.get("prompt_tokens", input_tokens)
             output_tokens = usage.get("completion_tokens", output_tokens)
             # 优先使用上游的 total_tokens

@@ -1,9 +1,9 @@
 """Tests for startup lifespan behavior (cache pre-warming and diagnostic log)."""
 
 import json
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import patch
 
 import config
 import storage
@@ -79,6 +79,7 @@ class TestLifespanPreWarming:
     def test_lifespan_pre_warms_cache(self):
         """lifespan should call load_data() and load_api_keys() before yielding."""
         import asyncio
+
         from main import app
 
         with (
@@ -103,7 +104,9 @@ class TestLifespanPreWarming:
     def test_lifespan_logs_startup_info(self):
         """lifespan should print a startup summary with channel/model/key counts."""
         import asyncio
+
         from loguru import logger
+
         from main import app
 
         # Reset caches so load_data/load_api_keys actually run

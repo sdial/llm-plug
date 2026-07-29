@@ -2,30 +2,32 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Union, Iterable, Optional
-from typing_extensions import Literal, Required, TypeAlias, TypedDict
+from collections.abc import Iterable
+from typing import Literal, Required, TypeAlias, Union
+
+from typing_extensions import TypedDict
 
 from ..._types import SequenceNotStr
 from ..shared.chat_model import ChatModel
-from ..shared_params.metadata import Metadata
 from ..shared.reasoning_effort import ReasoningEffort
-from .chat_completion_audio_param import ChatCompletionAudioParam
-from .chat_completion_message_param import ChatCompletionMessageParam
-from .chat_completion_tool_union_param import ChatCompletionToolUnionParam
 from ..shared_params.function_parameters import FunctionParameters
-from ..shared_params.response_format_text import ResponseFormatText
-from .chat_completion_stream_options_param import ChatCompletionStreamOptionsParam
-from .chat_completion_prediction_content_param import (
-    ChatCompletionPredictionContentParam,
-)
-from .chat_completion_tool_choice_option_param import (
-    ChatCompletionToolChoiceOptionParam,
-)
+from ..shared_params.metadata import Metadata
 from ..shared_params.response_format_json_object import ResponseFormatJSONObject
 from ..shared_params.response_format_json_schema import ResponseFormatJSONSchema
+from ..shared_params.response_format_text import ResponseFormatText
+from .chat_completion_audio_param import ChatCompletionAudioParam
 from .chat_completion_function_call_option_param import (
     ChatCompletionFunctionCallOptionParam,
 )
+from .chat_completion_message_param import ChatCompletionMessageParam
+from .chat_completion_prediction_content_param import (
+    ChatCompletionPredictionContentParam,
+)
+from .chat_completion_stream_options_param import ChatCompletionStreamOptionsParam
+from .chat_completion_tool_choice_option_param import (
+    ChatCompletionToolChoiceOptionParam,
+)
+from .chat_completion_tool_union_param import ChatCompletionToolUnionParam
 
 __all__ = [
     "CompletionCreateParamsBase",
@@ -51,7 +53,7 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     [audio](https://platform.openai.com/docs/guides/audio).
     """
 
-    model: Required[Union[str, ChatModel]]
+    model: Required[str | ChatModel]
     """Model ID used to generate the response, like `gpt-4o` or `o3`.
 
     OpenAI offers a wide range of models with different capabilities, performance
@@ -60,14 +62,14 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     available models.
     """
 
-    audio: Optional[ChatCompletionAudioParam]
+    audio: ChatCompletionAudioParam | None
     """Parameters for audio output.
 
     Required when audio output is requested with `modalities: ["audio"]`.
     [Learn more](https://platform.openai.com/docs/guides/audio).
     """
 
-    frequency_penalty: Optional[float]
+    frequency_penalty: float | None
     """Number between -2.0 and 2.0.
 
     Positive values penalize new tokens based on their existing frequency in the
@@ -97,7 +99,7 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     A list of functions the model may generate JSON inputs for.
     """
 
-    logit_bias: Optional[Dict[str, int]]
+    logit_bias: dict[str, int] | None
     """Modify the likelihood of specified tokens appearing in the completion.
 
     Accepts a JSON object that maps tokens (specified by their token ID in the
@@ -108,21 +110,21 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     or exclusive selection of the relevant token.
     """
 
-    logprobs: Optional[bool]
+    logprobs: bool | None
     """Whether to return log probabilities of the output tokens or not.
 
     If true, returns the log probabilities of each output token returned in the
     `content` of `message`.
     """
 
-    max_completion_tokens: Optional[int]
+    max_completion_tokens: int | None
     """
     An upper bound for the number of tokens that can be generated for a completion,
     including visible output tokens and
     [reasoning tokens](https://platform.openai.com/docs/guides/reasoning).
     """
 
-    max_tokens: Optional[int]
+    max_tokens: int | None
     """
     The maximum number of [tokens](/tokenizer) that can be generated in the chat
     completion. This value can be used to control
@@ -133,7 +135,7 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     [o-series models](https://platform.openai.com/docs/guides/reasoning).
     """
 
-    metadata: Optional[Metadata]
+    metadata: Metadata | None
     """Set of 16 key-value pairs that can be attached to an object.
 
     This can be useful for storing additional information about the object in a
@@ -143,7 +145,7 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     a maximum length of 512 characters.
     """
 
-    modalities: Optional[List[Literal["text", "audio"]]]
+    modalities: list[Literal["text", "audio"]] | None
     """
     Output types that you would like the model to generate. Most models are capable
     of generating text, which is the default:
@@ -157,7 +159,7 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     `["text", "audio"]`
     """
 
-    n: Optional[int]
+    n: int | None
     """How many chat completion choices to generate for each input message.
 
     Note that you will be charged based on the number of generated tokens across all
@@ -171,13 +173,13 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     during tool use.
     """
 
-    prediction: Optional[ChatCompletionPredictionContentParam]
+    prediction: ChatCompletionPredictionContentParam | None
     """
     Static predicted output content, such as the content of a text file that is
     being regenerated.
     """
 
-    presence_penalty: Optional[float]
+    presence_penalty: float | None
     """Number between -2.0 and 2.0.
 
     Positive values penalize new tokens based on whether they appear in the text so
@@ -191,7 +193,7 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     [Learn more](https://platform.openai.com/docs/guides/prompt-caching).
     """
 
-    prompt_cache_retention: Optional[Literal["in_memory", "24h"]]
+    prompt_cache_retention: Literal["in_memory", "24h"] | None
     """The retention policy for the prompt cache.
 
     Set to `24h` to enable extended prompt caching, which keeps cached prefixes
@@ -199,7 +201,7 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     [Learn more](https://platform.openai.com/docs/guides/prompt-caching#prompt-cache-retention).
     """
 
-    reasoning_effort: Optional[ReasoningEffort]
+    reasoning_effort: ReasoningEffort | None
     """
     Constrains effort on reasoning for
     [reasoning models](https://platform.openai.com/docs/guides/reasoning). Currently
@@ -239,7 +241,7 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     [Learn more](https://platform.openai.com/docs/guides/safety-best-practices#safety-identifiers).
     """
 
-    seed: Optional[int]
+    seed: int | None
     """
     This feature is in Beta. If specified, our system will make a best effort to
     sample deterministically, such that repeated requests with the same `seed` and
@@ -248,7 +250,7 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     in the backend.
     """
 
-    service_tier: Optional[Literal["auto", "default", "flex", "scale", "priority"]]
+    service_tier: Literal["auto", "default", "flex", "scale", "priority"] | None
     """Specifies the processing type used for serving the request.
 
     - If set to 'auto', then the request will be processed with the service tier
@@ -267,14 +269,14 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     parameter.
     """
 
-    stop: Union[Optional[str], SequenceNotStr[str], None]
+    stop: str | None | SequenceNotStr[str] | None
     """Not supported with latest reasoning models `o3` and `o4-mini`.
 
     Up to 4 sequences where the API will stop generating further tokens. The
     returned text will not contain the stop sequence.
     """
 
-    store: Optional[bool]
+    store: bool | None
     """
     Whether or not to store the output of this chat completion request for use in
     our [model distillation](https://platform.openai.com/docs/guides/distillation)
@@ -283,10 +285,10 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     Supports text and image inputs. Note: image inputs over 8MB will be dropped.
     """
 
-    stream_options: Optional[ChatCompletionStreamOptionsParam]
+    stream_options: ChatCompletionStreamOptionsParam | None
     """Options for streaming response. Only set this when you set `stream: true`."""
 
-    temperature: Optional[float]
+    temperature: float | None
     """What sampling temperature to use, between 0 and 2.
 
     Higher values like 0.8 will make the output more random, while lower values like
@@ -315,14 +317,14 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     or [function tools](https://platform.openai.com/docs/guides/function-calling).
     """
 
-    top_logprobs: Optional[int]
+    top_logprobs: int | None
     """
     An integer between 0 and 20 specifying the number of most likely tokens to
     return at each token position, each with an associated log probability.
     `logprobs` must be set to `true` if this parameter is used.
     """
 
-    top_p: Optional[float]
+    top_p: float | None
     """
     An alternative to sampling with temperature, called nucleus sampling, where the
     model considers the results of the tokens with top_p probability mass. So 0.1
@@ -340,7 +342,7 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     [Learn more](https://platform.openai.com/docs/guides/safety-best-practices#safety-identifiers).
     """
 
-    verbosity: Optional[Literal["low", "medium", "high"]]
+    verbosity: Literal["low", "medium", "high"] | None
     """Constrains the verbosity of the model's response.
 
     Lower values will result in more concise responses, while higher values will
@@ -356,9 +358,9 @@ class CompletionCreateParamsBase(TypedDict, total=False):
     """
 
 
-FunctionCall: TypeAlias = Union[
-    Literal["none", "auto"], ChatCompletionFunctionCallOptionParam
-]
+FunctionCall: TypeAlias = (
+    Literal["none", "auto"] | ChatCompletionFunctionCallOptionParam
+)
 
 
 class Function(TypedDict, total=False):
@@ -387,9 +389,9 @@ class Function(TypedDict, total=False):
     """
 
 
-ResponseFormat: TypeAlias = Union[
-    ResponseFormatText, ResponseFormatJSONSchema, ResponseFormatJSONObject
-]
+ResponseFormat: TypeAlias = (
+    ResponseFormatText | ResponseFormatJSONSchema | ResponseFormatJSONObject
+)
 
 
 class WebSearchOptionsUserLocationApproximate(TypedDict, total=False):
@@ -436,12 +438,12 @@ class WebSearchOptions(TypedDict, total=False):
     search. One of `low`, `medium`, or `high`. `medium` is the default.
     """
 
-    user_location: Optional[WebSearchOptionsUserLocation]
+    user_location: WebSearchOptionsUserLocation | None
     """Approximate location parameters for the search."""
 
 
 class CompletionCreateParamsNonStreaming(CompletionCreateParamsBase, total=False):
-    stream: Optional[Literal[False]]
+    stream: Literal[False] | None
     """
     If set to true, the model response data will be streamed to the client as it is
     generated using

@@ -486,9 +486,9 @@ class TestIpWhitelist:
     def test_whitelist_deny_returns_403(self, tmp_path, monkeypatch):
         """白名单规则拒绝的 IP 应返回 403"""
         import config
+        import main as _main
         import storage
         import whitelist as _whitelist
-        import main as _main
 
         data_dir = tmp_path / "data"
         data_dir.mkdir()

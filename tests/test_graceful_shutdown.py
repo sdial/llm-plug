@@ -18,7 +18,6 @@ import config
 import storage
 from models.channel import Channel
 
-
 # ═══════════════════════════════════════════
 #  Lifespan 关闭清理
 # ═══════════════════════════════════════════
@@ -201,7 +200,7 @@ class TestClientPoolShutdown:
     @pytest.mark.asyncio
     async def test_close_all_clients_clears_cache(self):
         """close_all_clients 后缓存应为空"""
-        from client import get_or_create_client, close_all_clients, _clients, _lock
+        from client import _clients, _lock, close_all_clients, get_or_create_client
 
         # 创建一些客户端
         for i in range(5):
@@ -229,7 +228,7 @@ class TestClientPoolShutdown:
     @pytest.mark.asyncio
     async def test_close_all_clients_when_empty_is_safe(self):
         """空缓存时 close_all_clients 不应报错"""
-        from client import close_all_clients, _clients, _lock
+        from client import _clients, _lock, close_all_clients
 
         async with _lock:
             _clients.clear()

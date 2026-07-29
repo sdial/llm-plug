@@ -13,7 +13,9 @@ OpenAI:
 """
 
 from __future__ import annotations
+
 from typing import Any
+
 from loguru import logger
 
 
@@ -96,6 +98,8 @@ def anthropic_to_openai_response(usage: dict[str, Any] | None) -> dict[str, Any]
 def openai_chat_to_anthropic(usage: dict[str, Any] | None) -> dict[str, Any]:
     """OpenAI Chat usage → Anthropic usage。OpenAI 不区分 cache_creation。"""
     if not isinstance(usage, dict):
+        if usage is not None:
+            logger.warning("openai_chat_to_anthropic: usage is not a dict: %r", usage)
         usage = {}
     pt = _read_int(usage, "prompt_tokens")
     ct = _read_int(usage, "completion_tokens")
@@ -117,6 +121,8 @@ def openai_chat_to_anthropic(usage: dict[str, Any] | None) -> dict[str, Any]:
 def openai_response_to_anthropic(usage: dict[str, Any] | None) -> dict[str, Any]:
     """OpenAI Response usage → Anthropic usage。"""
     if not isinstance(usage, dict):
+        if usage is not None:
+            logger.warning("openai_response_to_anthropic: usage is not a dict: %r", usage)
         usage = {}
     inp = _read_int(usage, "input_tokens")
     out = _read_int(usage, "output_tokens")

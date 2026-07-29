@@ -9,13 +9,15 @@ import json
 import mimetypes
 import os
 import time
-from datetime import datetime
+from datetime import UTC, datetime, tzinfo
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from loguru import logger
 
+import config
 import request_logs
 import stats
 import storage
@@ -26,7 +28,6 @@ from capability_manager import (
     merge_system_messages,
 )
 from client import create_client, create_stream_client, get_upstream_headers
-import config
 from config import get_setting
 from converters.to_chat import ToChatCompletionsConverter
 from converters.usage import cache_token_details
@@ -151,21 +152,29 @@ def _filter_think_in_stream_chunk(
     return chunk
 
 
-from proxy.stream_reconstruct import (  # noqa: E402
-    build_anthropic_stream_response as _build_anthropic_stream_response,  # noqa: F401
-    build_openai_stream_response as _build_openai_stream_response,  # noqa: F401
-    build_stream_response_body as _build_stream_response_body,
-)
-
-
-from proxy.channel_registry import (  # noqa: E402
-    cleanup_removed_channels_after_save as _cleanup_removed_channels_after_save,  # noqa: F401
-    get_channels_for_model as _registry_get_channels_for_model,
-    invalidate_model_channels_cache as _invalidate_model_channels_cache,  # noqa: F401
-    schedule_invalidate_model_channels_cache as _registry_schedule_invalidate_model_channels_cache,
-)
 from proxy import channel_registry as _channel_registry  # noqa: E402
 from proxy import conversion as _conversion  # noqa: E402
+from proxy.channel_registry import (  # noqa: E402
+    cleanup_removed_channels_after_save as _cleanup_removed_channels_after_save,  # noqa: F401
+)
+from proxy.channel_registry import (
+    get_channels_for_model as _registry_get_channels_for_model,
+)
+from proxy.channel_registry import (
+    invalidate_model_channels_cache as _invalidate_model_channels_cache,  # noqa: F401
+)
+from proxy.channel_registry import (
+    schedule_invalidate_model_channels_cache as _registry_schedule_invalidate_model_channels_cache,
+)
+from proxy.stream_reconstruct import (  # noqa: E402
+    build_anthropic_stream_response as _build_anthropic_stream_response,  # noqa: F401
+)
+from proxy.stream_reconstruct import (
+    build_openai_stream_response as _build_openai_stream_response,  # noqa: F401
+)
+from proxy.stream_reconstruct import (
+    build_stream_response_body as _build_stream_response_body,
+)
 
 _model_channels_cache = _channel_registry._model_channels_cache
 _model_channels_cache_version = _channel_registry._model_channels_cache_version
@@ -290,9 +299,7 @@ def _build_upstream_headers(
 
 _RETRYABLE_EXCEPTIONS = (
     httpx.TimeoutException,
-    httpx.ConnectError,
-    httpx.ReadError,
-    httpx.WriteError,
+    httpx.TransportError,
 )
 
 
@@ -349,9 +356,15 @@ def _is_stream_terminal_event_missing(
                 for chunk in stream_chunks
             )
         return True
-    if target_api_type != APIType.OPENAI_RESPONSE:
-        return not done_received
-    return False
+    if target_api_type == APIType.OPENAI_RESPONSE:
+        # 检查 stream_chunks 中是否已有 response.completed 或 response.failed
+        return not any(
+            isinstance(chunk, dict)
+            and chunk.get("type") in ("response.completed", "response.failed")
+            for chunk in stream_chunks
+        )
+    # Chat Completions target
+    return not done_received
 
 
 class _StreamPreflightError(Exception):
@@ -507,6 +520,58 @@ async def _proxy_single_model_request(
                 raise
 
 
+def _get_schedule_tz() -> tzinfo:
+    """返回定时屏蔽使用的时区：优先 aggregation_timezone，否则系统本地时区。"""
+    name = (config.get_setting("aggregation_timezone") or "").strip()
+    if name:
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    return datetime.now().astimezone().tzinfo or UTC
+
+
+def _schedule_window_value(window: Any, key: str, default: Any = None) -> Any:
+    if isinstance(window, dict):
+        return window.get(key, default)
+    return getattr(window, key, default)
+
+
+def _is_model_blocked_by_schedule(model: str, model_schedules: dict) -> bool:
+    """检查模型当前是否被定时屏蔽。
+
+    model_schedules 格式: {"model_name": [{"start": "HH:MM", "end": "HH:MM", "enabled": true}, ...]}
+    """
+    windows = model_schedules.get(model)
+    if not windows:
+        return False
+    now = datetime.now(_get_schedule_tz())
+    current_minutes = now.hour * 60 + now.minute
+    for w in windows:
+        if not _schedule_window_value(w, "enabled", True):
+            continue
+        start_str = _schedule_window_value(w, "start", "")
+        end_str = _schedule_window_value(w, "end", "")
+        if not start_str or not end_str:
+            continue
+        try:
+            sh, sm = int(start_str[:2]), int(start_str[3:5])
+            eh, em = int(end_str[:2]), int(end_str[3:5])
+        except (ValueError, IndexError):
+            continue
+        start_min = sh * 60 + sm
+        end_min = eh * 60 + em
+        if start_min <= end_min:
+            # 同日窗口，如 09:00-17:00
+            if start_min <= current_minutes < end_min:
+                return True
+        else:
+            # 跨午夜窗口，如 22:00-08:00
+            if current_minutes >= start_min or current_minutes < end_min:
+                return True
+    return False
+
+
 async def _proxy_model_group_request(
     group,
     request_data: dict[str, Any],
@@ -524,6 +589,11 @@ async def _proxy_model_group_request(
     attempted_models: list[str] = []
 
     for current_model in group.models:
+        if _is_model_blocked_by_schedule(
+            current_model, getattr(group, "model_schedules", {})
+        ):
+            logger.debug(f"模型 {current_model} 在组 {group.name} 中被定时屏蔽，跳过")
+            continue
         if current_model not in attempted_models:
             attempted_models.append(current_model)
         channels = await _get_channels_for_model(current_model)
@@ -866,6 +936,11 @@ async def _do_request(
         client = await create_client(channel)
         upstream_start = time.time()
         resp = await client.post(url, json=upstream_data, headers=headers)
+        if resp.is_error:
+            logger.error(
+                f"[UPSTREAM ERROR] status={resp.status_code} url={url} "
+                f"body={resp.text[:1000]}"
+            )
         resp.raise_for_status()
         response_data = resp.json()
 
@@ -887,9 +962,12 @@ async def _do_request(
 
         # 提取 token 使用量
         # 注意：某些 API（如 Kimi）的 input_tokens 可能为 0（表示缓存后），实际值在 prompt_tokens
+        # 注意：部分上游（如 NVIDIA z-ai/glm-5.2）可能显式返回 usage: null
         usage = (
-            response_data.get("usage", {}) if isinstance(response_data, dict) else {}
+            response_data.get("usage") if isinstance(response_data, dict) else {}
         )
+        if not isinstance(usage, dict):
+            usage = {}
         input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
         output_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
         token_details = cache_token_details(usage)
@@ -1058,13 +1136,29 @@ async def _do_request(
 
 from proxy.stream_sse import (  # noqa: E402
     build_chat_stream_chunks_from_object as _build_chat_stream_chunks_from_object,
+)
+from proxy.stream_sse import (
     build_responses_stream_events_from_object as _build_responses_stream_events_from_object,  # noqa: F401
+)
+from proxy.stream_sse import (
     convert_anthropic_response_to_events as _convert_anthropic_response_to_events,
+)
+from proxy.stream_sse import (
     convert_non_stream_to_stream_events as _convert_non_stream_to_stream_events,
+)
+from proxy.stream_sse import (
     format_passthrough_sse_block as _format_passthrough_sse_block,
+)
+from proxy.stream_sse import (
     format_raw_sse as _format_raw_sse,
+)
+from proxy.stream_sse import (
     format_sse_for_list as _format_sse_for_list,  # noqa: F401
+)
+from proxy.stream_sse import (
     iter_sse_blocks as _iter_sse_blocks,
+)
+from proxy.stream_sse import (
     yield_anthropic_event as _yield_anthropic_event,
 )
 
@@ -1158,7 +1252,7 @@ async def _do_stream_request(
             logger.debug(f"data: {data_summary}")
 
     _chunk_truncate_warned = False
-    _max_stream_chunks = int(config.get_setting("max_stream_chunks") or 10000)
+    _max_stream_chunks = int(config.get_setting("max_stream_chunks") or 50000)
 
     def _record_chunk(item: Any):
         """记录stream chunk，超过限制后停止记录并警告一次"""
@@ -1199,6 +1293,10 @@ async def _do_stream_request(
         ) as resp:
             if resp.is_error:
                 await resp.aread()
+                logger.error(
+                    f"[STREAM UPSTREAM ERROR] status={resp.status_code} url={url} "
+                    f"body={resp.text[:1000]}"
+                )
             resp.raise_for_status()
             resp_status_code = resp.status_code
             resp_headers = dict(resp.headers)
@@ -1285,9 +1383,26 @@ async def _do_stream_request(
                     return [
                         _yield_anthropic_event("message_stop", {"type": "message_stop"})
                     ]
-                if not output_sse_events:
-                    return ["data: [DONE]\n\n"]
-                return []
+                if output_responses_sse:
+                    # Responses 目标：补发 response.completed 避免客户端挂起
+                    completed_evt = {
+                        "type": "response.completed",
+                        "response": {
+                            "id": "",
+                            "object": "response",
+                            "status": "completed",
+                            "model": model,
+                            "output": [],
+                            "usage": {
+                                "input_tokens": input_tokens,
+                                "output_tokens": output_tokens,
+                                "total_tokens": input_tokens + output_tokens,
+                            },
+                        },
+                    }
+                    return [_yield_anthropic_event("response.completed", completed_evt)]
+                # Chat Completions
+                return ["data: [DONE]\n\n"]
 
             async for (
                 upstream_event_type,
@@ -1415,20 +1530,26 @@ async def _do_stream_request(
                 _record_chunk(chunk)
                 _mark_first_token()
 
+                if not isinstance(chunk, dict):
+                    if response_converter:
+                        continue
+
                 upstream_error_detected = False
                 if isinstance(chunk, dict):
-                    if is_upstream_anthropic and (
-                        upstream_event_type == "error" or chunk.get("type") == "error"
-                    ):
-                        upstream_error_detected = True
-                    elif source_type == "openai-response" and (
-                        upstream_event_type == "error"
-                        or chunk.get("type") == "error"
-                        or chunk.get("type") == "response.failed"
-                    ):
-                        upstream_error_detected = True
-                    elif source_type == "openai-chat-completions" and isinstance(
-                        chunk.get("error"), dict
+                    if (
+                        is_upstream_anthropic
+                        and (
+                            upstream_event_type == "error"
+                            or chunk.get("type") == "error"
+                        )
+                        or source_type == "openai-response"
+                        and (
+                            upstream_event_type == "error"
+                            or chunk.get("type") == "error"
+                            or chunk.get("type") == "response.failed"
+                        )
+                        or source_type == "openai-chat-completions"
+                        and isinstance(chunk.get("error"), dict)
                     ):
                         upstream_error_detected = True
 
@@ -1525,25 +1646,57 @@ async def _do_stream_request(
                             if fr:
                                 finish_reason = fr
                     else:
-                        usage = chunk.get("usage")
-                        if usage:
-                            logger.info(
-                                f"[STREAM USAGE] upstream returned usage: {usage}"
-                            )
-                            input_tokens = usage.get(
-                                "prompt_tokens", usage.get("input_tokens", input_tokens)
-                            )
-                            output_tokens = usage.get(
-                                "completion_tokens",
-                                usage.get("output_tokens", output_tokens),
-                            )
-                            token_details = cache_token_details(usage)
-                            cache_read_input_tokens = token_details[
-                                "cache_read_input_tokens"
-                            ]
-                            cache_creation_input_tokens = token_details[
-                                "cache_creation_input_tokens"
-                            ]
+                        # OpenAI Responses 上游：usage 嵌套在 response.completed /
+                        # response.failed 事件的 response.usage 里，与 Chat Completions
+                        # 的顶层 usage 字段位置不同，必须单独处理，否则 token 全为 0。
+                        if source_type == "openai-response":
+                            resp_obj = chunk.get("response")
+                            if isinstance(resp_obj, dict):
+                                usage = resp_obj.get("usage")
+                                if usage:
+                                    logger.info(
+                                        f"[STREAM USAGE] upstream returned usage: {usage}"
+                                    )
+                                    input_tokens = usage.get(
+                                        "input_tokens",
+                                        usage.get("prompt_tokens", input_tokens),
+                                    )
+                                    output_tokens = usage.get(
+                                        "output_tokens",
+                                        usage.get("completion_tokens", output_tokens),
+                                    )
+                                    token_details = cache_token_details(usage)
+                                    cache_read_input_tokens = token_details[
+                                        "cache_read_input_tokens"
+                                    ]
+                                    cache_creation_input_tokens = token_details[
+                                        "cache_creation_input_tokens"
+                                    ]
+                                # response.completed 事件携带最终 status，作为 finish_reason
+                                status = resp_obj.get("status")
+                                if status:
+                                    finish_reason = status
+                        else:
+                            # OpenAI Chat Completions 上游：usage 在 chunk 顶层
+                            usage = chunk.get("usage")
+                            if isinstance(usage, dict):
+                                logger.info(
+                                    f"[STREAM USAGE] upstream returned usage: {usage}"
+                                )
+                                input_tokens = usage.get(
+                                    "prompt_tokens", usage.get("input_tokens", input_tokens)
+                                )
+                                output_tokens = usage.get(
+                                    "completion_tokens",
+                                    usage.get("output_tokens", output_tokens),
+                                )
+                                token_details = cache_token_details(usage)
+                                cache_read_input_tokens = token_details[
+                                    "cache_read_input_tokens"
+                                ]
+                                cache_creation_input_tokens = token_details[
+                                    "cache_creation_input_tokens"
+                                ]
                         choices = chunk.get("choices", [])
                         if choices and isinstance(choices[0], dict):
                             fr = choices[0].get("finish_reason")
@@ -1694,10 +1847,12 @@ async def _do_stream_request(
                     for extra_sse in extra_events:
                         _mark_output()
                         yield extra_sse
-                # 3. Chat Completions 补发 data: [DONE]
-                if not output_sse_events:
-                    _mark_output()
-                    yield "data: [DONE]\n\n"
+                # 3. 直通路径补发协议终止事件（converter 路径由 step 2 finalize_stream 处理）
+                if response_converter is None:
+                    for terminal_sse in _terminal_events_for_error():
+                        _log_stream_event(terminal_sse)
+                        _mark_output()
+                        yield terminal_sse
         if non_sse_stream_body is not None:
             logger.debug(
                 f"[STREAM NON-SSE] model={model} body_length={len(non_sse_stream_body)}"
@@ -1775,7 +1930,7 @@ async def _do_stream_request(
                 if not output_sse_events:
                     _mark_output()
                     yield "data: [DONE]\n\n"
-                full_usage = full_response.get("usage", {})
+                full_usage = full_response.get("usage") or {}
                 input_tokens = full_usage.get(
                     "prompt_tokens", full_usage.get("input_tokens", input_tokens)
                 )
@@ -1873,6 +2028,20 @@ async def _do_stream_request(
             stream_error = "client_disconnected_mid_stream"
         logger.warning(
             f"[STREAM CANCELLED] model={model} emitted={emitted_output} "
+            f"chunks={len(stream_chunks)} first_token={first_token_time is not None} "
+            f"error={stream_error}"
+        )
+        raise
+    except GeneratorExit:
+        # GeneratorExit 是 BaseException 子类，客户端断开连接时由生成器 close() 注入。
+        # 必须显式捕获，否则会穿透到 finally 被误记为失败请求。
+        cancelled = True
+        if not emitted_output:
+            stream_error = "client_disconnected_before_first_chunk"
+        else:
+            stream_error = "client_disconnected_mid_stream"
+        logger.warning(
+            f"[STREAM GENERATOREXIT] model={model} emitted={emitted_output} "
             f"chunks={len(stream_chunks)} first_token={first_token_time is not None} "
             f"error={stream_error}"
         )

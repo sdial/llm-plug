@@ -29,6 +29,8 @@ HOSTED_RESPONSE_INPUT_ITEM_TYPES = {
     "image_generation_call",
 }
 
+UNSUPPORTED_RESPONSE_INPUT_ITEM_TYPES = HOSTED_RESPONSE_INPUT_ITEM_TYPES | {"reasoning"}
+
 UNSUPPORTED_RESPONSE_REQUEST_FIELDS = {
     "background",
     "conversation",
@@ -266,6 +268,8 @@ class ToChatCompletionsConverter(BaseConverter):
             "messages": messages,
             "stream": data.get("stream", False),
         }
+        if result["stream"]:
+            result["stream_options"] = {"include_usage": True}
         if data.get("max_tokens") is not None:
             result["max_tokens"] = data["max_tokens"]
         if data.get("temperature") is not None:
@@ -539,7 +543,7 @@ class ToChatCompletionsConverter(BaseConverter):
                 }
 
         elif event_type == "content_block_delta":
-            delta = chunk.get("delta", {})
+            delta = chunk.get("delta") or {}
             if delta.get("type") == "text_delta":
                 return {
                     "id": self._stream_state["msg_id"],
@@ -617,8 +621,8 @@ class ToChatCompletionsConverter(BaseConverter):
             return None
 
         elif event_type == "message_delta":
-            stop_reason = chunk.get("delta", {}).get("stop_reason")
-            # 累积 message_delta 中的 usage
+            delta = chunk.get("delta") or {}
+            stop_reason = delta.get("stop_reason")
             delta_usage = chunk.get("usage")
             if isinstance(delta_usage, dict):
                 self._stream_state["anthropic_usage"].update(delta_usage)
@@ -627,7 +631,7 @@ class ToChatCompletionsConverter(BaseConverter):
                 "delta": {},
                 "finish_reason": self._map_stop_reason(stop_reason),
             }
-            stop_seq = chunk.get("delta", {}).get("stop_sequence") or chunk.get(
+            stop_seq = delta.get("stop_sequence") or chunk.get(
                 "stop_sequence"
             )
             if stop_reason == "stop_sequence" and stop_seq:
@@ -721,7 +725,7 @@ class ToChatCompletionsConverter(BaseConverter):
         for item in input_data:
             if (
                 isinstance(item, dict)
-                and item.get("type") in HOSTED_RESPONSE_INPUT_ITEM_TYPES
+                and item.get("type") in UNSUPPORTED_RESPONSE_INPUT_ITEM_TYPES
             ):
                 dropped_types.append(item.get("type", ""))
                 continue
@@ -729,7 +733,7 @@ class ToChatCompletionsConverter(BaseConverter):
 
         if dropped_types:
             logger.warning(
-                "[RESPONSES->CHAT] 降级: hosted input items dropped for Chat Completions upstream: %s",
+                "[RESPONSES->CHAT] 降级: unsupported input items dropped for Chat Completions upstream: %s",
                 ", ".join(dropped_types),
             )
         return sanitized
@@ -922,11 +926,22 @@ class ToChatCompletionsConverter(BaseConverter):
                     }
                 )
 
+        system_contents = [
+            msg.get("content", "")
+            for msg in messages
+            if msg.get("role") == "system" and msg.get("content")
+        ]
+        if system_contents:
+            messages = [
+                {"role": "system", "content": "\n\n".join(map(str, system_contents))}
+            ] + [msg for msg in messages if msg.get("role") != "system"]
         result = {
             "model": data.get("model", ""),
             "messages": messages,
             "stream": data.get("stream", False),
         }
+        if result["stream"]:
+            result["stream_options"] = {"include_usage": True}
         if data.get("max_output_tokens"):
             result["max_tokens"] = data["max_output_tokens"]
         if data.get("temperature") is not None:
@@ -1030,7 +1045,7 @@ class ToChatCompletionsConverter(BaseConverter):
         event_type = chunk.get("type", "")
 
         if event_type == "response.created":
-            resp = chunk.get("response", {})
+            resp = chunk.get("response") or {}
             self._stream_state["msg_id"] = f"chatcmpl-{resp.get('id', '')}"
             self._stream_state["model"] = resp.get("model", "")
             self._stream_state["tool_call_index"] = 0
@@ -1049,7 +1064,7 @@ class ToChatCompletionsConverter(BaseConverter):
             }
 
         elif event_type == "response.output_item.added":
-            item = chunk.get("item", {})
+            item = chunk.get("item") or {}
             if item.get("type") == "function_call":
                 tc_idx = self._stream_state["tool_call_index"]
                 self._stream_state["tool_call_index"] = tc_idx + 1
@@ -1122,7 +1137,7 @@ class ToChatCompletionsConverter(BaseConverter):
             }
 
         elif event_type == "response.completed":
-            resp = chunk.get("response", {})
+            resp = chunk.get("response") or {}
             finish_reason = "stop"
             if resp.get("status") == "incomplete":
                 finish_reason = "length"

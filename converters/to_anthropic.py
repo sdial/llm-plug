@@ -36,6 +36,9 @@ class ToAnthropicConverter(BaseConverter):
     def _ensure_message_started(self, chunk: dict[str, Any], events: list) -> None:
         """确保 message_start 已发出。如果尚未发出，在 events 列表头部插入。"""
         if not self._stream_state["started"]:
+            usage = chunk.get("usage")
+            if not isinstance(usage, dict):
+                usage = {}
             self._stream_state["started"] = True
             events.insert(
                 0,
@@ -52,9 +55,7 @@ class ToAnthropicConverter(BaseConverter):
                             "stop_reason": None,
                             "stop_sequence": None,
                             "usage": {
-                                "input_tokens": chunk.get("usage", {}).get(
-                                    "prompt_tokens", 0
-                                ),
+                                "input_tokens": usage.get("prompt_tokens", 0),
                                 "output_tokens": 0,
                                 "cache_creation_input_tokens": 0,
                                 "cache_read_input_tokens": 0,
@@ -452,6 +453,7 @@ class ToAnthropicConverter(BaseConverter):
             "stop": "end_turn",
             "length": "max_tokens",
             "tool_calls": "tool_use",
+            "function_call": "tool_use",
             "content_filter": "refusal",
         }
         if choices:
@@ -525,7 +527,7 @@ class ToAnthropicConverter(BaseConverter):
         events: list[tuple[str, dict[str, Any]]] = []
         choices = chunk.get("choices", [])
 
-        if not choices:
+        if not choices or choices[0] is None:
             usage = chunk.get("usage")
             if not (usage and self._stream_state["started"]):
                 return events
@@ -958,7 +960,7 @@ class ToAnthropicConverter(BaseConverter):
         event_type = chunk.get("type", "")
 
         if event_type == "response.created":
-            resp = chunk.get("response", {})
+            resp = chunk.get("response") or {}
             self._stream_state["started"] = True
             events.append(
                 (
@@ -980,7 +982,7 @@ class ToAnthropicConverter(BaseConverter):
             )
 
         elif event_type == "response.output_item.added":
-            item = chunk.get("item", {})
+            item = chunk.get("item") or {}
             if item.get("type") == "function_call":
                 if self._stream_state["content_block_started"]:
                     events.append(
@@ -1150,7 +1152,7 @@ class ToAnthropicConverter(BaseConverter):
                 self._stream_state["content_block_index"] += 1
 
         elif event_type == "response.completed":
-            resp = chunk.get("response", {})
+            resp = chunk.get("response") or {}
             if self._stream_state["content_block_started"]:
                 events.append(
                     (

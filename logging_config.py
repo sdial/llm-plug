@@ -2,7 +2,6 @@ from pathlib import Path
 
 from loguru import logger
 
-
 LOG_FILE_FORMAT = (
     "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
     "{name}:{function}:{line} - {message}"

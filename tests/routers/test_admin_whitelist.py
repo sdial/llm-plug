@@ -3,9 +3,9 @@ import json
 import os
 import tempfile
 
+import httpx
 import pytest
 import pytest_asyncio
-import httpx
 
 import config
 import request_logs
@@ -172,8 +172,8 @@ class TestWhitelistAPI:
     @pytest_asyncio.fixture(autouse=True)
     async def patch_whitelist_path(self, tmp_path, monkeypatch):
         """每个测试使用独立临时目录，白名单检查全部放行"""
-        import routers.admin as admin_router
         import main
+        import routers.admin as admin_router
 
         monkeypatch.setattr(admin_router, "WHITELIST_PATH", tmp_path / "whitelist.csv")
         monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: [])
@@ -264,6 +264,7 @@ class TestWhitelistAPI:
     async def test_put_whitelist_concurrent_no_data_loss(self, client, tmp_path):
         """并发写入白名单不应丢失数据（固定 .tmp 临时文件会冲突）"""
         import asyncio
+
         import routers.admin as admin_router
 
         content1 = "/v1/*,*,10.0.0.0/8,内网1\n"

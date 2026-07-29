@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-import serve_viewer
 from loguru import logger
 
+import serve_viewer
 
 # ═══════════════════════════════════════════
 #  SessionViewerHandler._get_content_type

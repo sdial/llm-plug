@@ -1,15 +1,15 @@
 import json
 
+import httpx
 import pytest
 import pytest_asyncio
-import httpx
 
 import config
 import request_logs
-from routers import admin
 import stats
 import storage
 from main import app
+from routers import admin
 from tests.admin_auth_utils import login_admin
 
 pytestmark = pytest.mark.asyncio

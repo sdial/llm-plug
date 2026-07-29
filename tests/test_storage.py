@@ -65,6 +65,38 @@ class TestLoadData:
         assert data == payload
 
     @pytest.mark.anyio
+    async def test_corrupt_channels_file_is_preserved_and_rejected(self):
+        with open(config.CHANNELS_FILE, "w", encoding="utf-8") as f:
+            f.write('{"channels": [')
+
+        with pytest.raises(storage.StorageCorruptionError):
+            await storage.load_data()
+
+        assert open(config.CHANNELS_FILE, encoding="utf-8").read() == '{"channels": ['
+        backups = list(os.scandir(os.path.dirname(config.CHANNELS_FILE)))
+        corrupt_backups = [
+            entry
+            for entry in backups
+            if entry.name.startswith("channels.json.corrupt-")
+        ]
+        assert len(corrupt_backups) == 1
+        assert (
+            open(corrupt_backups[0].path, encoding="utf-8").read() == '{"channels": ['
+        )
+
+    @pytest.mark.anyio
+    async def test_atomic_update_data_refuses_to_overwrite_corrupt_file(self):
+        with open(config.CHANNELS_FILE, "w", encoding="utf-8") as f:
+            f.write('{"channels": [')
+
+        with pytest.raises(storage.StorageCorruptionError):
+            await storage.atomic_update_data(
+                lambda data: data["channels"].append({"id": "new"})
+            )
+
+        assert open(config.CHANNELS_FILE, encoding="utf-8").read() == '{"channels": ['
+
+    @pytest.mark.anyio
     async def test_uses_cache_within_ttl(self):
         payload = {"channels": [{"id": "ch_1", "name": "first"}]}
         with open(config.CHANNELS_FILE, "w", encoding="utf-8") as f:
@@ -98,13 +130,12 @@ class TestLoadData:
         assert data2["channels"][0]["name"] == "second"
 
     @pytest.mark.anyio
-    async def test_malformed_channels_json_returns_empty_skeleton(self):
+    async def test_malformed_channels_json_is_rejected(self):
         with open(config.CHANNELS_FILE, "w", encoding="utf-8") as f:
             f.write("{not valid json")
 
-        data = await storage.load_data()
-
-        assert data == {"channels": []}
+        with pytest.raises(storage.StorageCorruptionError):
+            await storage.load_data()
 
 
 class TestSaveData:
@@ -113,12 +144,14 @@ class TestSaveData:
         payload = {"channels": [{"id": "ch_2", "name": "saved"}]}
         await storage.save_data(payload)
 
-        with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
+        with open(config.CHANNELS_FILE, encoding="utf-8") as f:
             on_disk = json.load(f)
         assert on_disk == payload
 
     @pytest.mark.anyio
     async def test_channels_file_is_not_world_readable(self):
+        if os.name == "nt":
+            pytest.skip("POSIX mode bits are not reliable on Windows")
         payload = {"channels": [{"id": "ch_2", "name": "saved"}]}
         await storage.save_data(payload)
 
@@ -155,7 +188,7 @@ class TestSaveData:
             with pytest.raises(OSError):
                 await storage.save_data({"channels": []})
 
-        with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
+        with open(config.CHANNELS_FILE, encoding="utf-8") as f:
             on_disk = json.load(f)
         assert on_disk == valid
 
@@ -181,7 +214,7 @@ class TestAtomicUpdateData:
 
         await storage.atomic_update_data(mutator)
 
-        with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
+        with open(config.CHANNELS_FILE, encoding="utf-8") as f:
             on_disk = json.load(f)
         assert [ch["id"] for ch in on_disk["channels"]] == ["ch_existing", "ch_new"]
 
@@ -201,7 +234,7 @@ class TestAtomicUpdateData:
 
         await asyncio.gather(*(add_channel(i) for i in range(20)))
 
-        with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
+        with open(config.CHANNELS_FILE, encoding="utf-8") as f:
             on_disk = json.load(f)
         assert sorted(
             (ch["id"] for ch in on_disk["channels"]),
@@ -221,7 +254,7 @@ class TestAtomicUpdateApiKeys:
 
         await storage.atomic_update_api_keys(mutator)
 
-        with open(config.API_KEYS_FILE, "r", encoding="utf-8") as f:
+        with open(config.API_KEYS_FILE, encoding="utf-8") as f:
             on_disk = json.load(f)
         assert [key["id"] for key in on_disk["api_keys"]] == ["key_existing", "key_new"]
 
@@ -259,6 +292,38 @@ class TestApiKeysStorage:
         assert data == {"api_keys": []}
 
     @pytest.mark.anyio
+    async def test_corrupt_api_keys_file_is_preserved_and_rejected(self):
+        with open(config.API_KEYS_FILE, "w", encoding="utf-8") as f:
+            f.write('{"api_keys": [')
+
+        with pytest.raises(storage.StorageCorruptionError):
+            await storage.load_api_keys()
+
+        assert open(config.API_KEYS_FILE, encoding="utf-8").read() == '{"api_keys": ['
+        backups = list(os.scandir(os.path.dirname(config.API_KEYS_FILE)))
+        corrupt_backups = [
+            entry
+            for entry in backups
+            if entry.name.startswith("api_keys.json.corrupt-")
+        ]
+        assert len(corrupt_backups) == 1
+        assert (
+            open(corrupt_backups[0].path, encoding="utf-8").read() == '{"api_keys": ['
+        )
+
+    @pytest.mark.anyio
+    async def test_atomic_update_api_keys_refuses_to_overwrite_corrupt_file(self):
+        with open(config.API_KEYS_FILE, "w", encoding="utf-8") as f:
+            f.write('{"api_keys": [')
+
+        with pytest.raises(storage.StorageCorruptionError):
+            await storage.atomic_update_api_keys(
+                lambda data: data["api_keys"].append({"id": "new"})
+            )
+
+        assert open(config.API_KEYS_FILE, encoding="utf-8").read() == '{"api_keys": ['
+
+    @pytest.mark.anyio
     async def test_save_and_load_api_keys(self):
         payload = {"api_keys": [{"id": "key_1", "name": "test-key"}]}
         await storage.save_api_keys(payload)
@@ -269,6 +334,8 @@ class TestApiKeysStorage:
 
     @pytest.mark.anyio
     async def test_api_keys_file_is_not_world_readable(self):
+        if os.name == "nt":
+            pytest.skip("POSIX mode bits are not reliable on Windows")
         payload = {"api_keys": [{"id": "key_1", "name": "test-key"}]}
         await storage.save_api_keys(payload)
 
@@ -307,13 +374,12 @@ class TestApiKeysStorage:
         assert data["api_keys"][0]["name"] == "modified"
 
     @pytest.mark.anyio
-    async def test_malformed_api_keys_json_returns_empty_skeleton(self):
+    async def test_malformed_api_keys_json_is_rejected(self):
         with open(config.API_KEYS_FILE, "w", encoding="utf-8") as f:
             f.write("{not valid json")
 
-        data = await storage.load_api_keys()
-
-        assert data == {"api_keys": []}
+        with pytest.raises(storage.StorageCorruptionError):
+            await storage.load_api_keys()
 
 
 class TestModelGroupsStorage:

@@ -203,9 +203,7 @@ class ToResponseConverter(BaseConverter):
             result["tools"] = self._chat_tools_to_response(data["tools"])
         if data.get("tool_choice"):
             tc = data["tool_choice"]
-            if isinstance(tc, str):
-                result["tool_choice"] = tc
-            elif isinstance(tc, dict):
+            if isinstance(tc, str) or isinstance(tc, dict):
                 result["tool_choice"] = tc
         if data.get("reasoning_effort") is not None:
             result["reasoning"] = {"effort": data["reasoning_effort"]}
@@ -213,67 +211,76 @@ class ToResponseConverter(BaseConverter):
 
     def _chat_response_to_response(self, data: dict[str, Any]) -> dict[str, Any]:
         choices = data.get("choices", [])
-        text = ""
-        tool_calls = None
-        reasoning_content = None
-        finish_reason = "stop"
-        if choices:
-            msg = choices[0].get("message", {})
+        upstream_id = data.get("id", "")
+        response_id = self._make_response_id(upstream_id)
+        output = []
+        output_text_parts = []
+        finish_reasons = []
+
+        for choice_pos, choice in enumerate(choices):
+            if not isinstance(choice, dict):
+                continue
+            msg = choice.get("message", {})
+            if not isinstance(msg, dict):
+                msg = {}
             text = msg.get("content", "") or ""
             refusal = msg.get("refusal")
             tool_calls = msg.get("tool_calls")
             reasoning_content = msg.get("reasoning_content")
-            finish_reason = choices[0].get("finish_reason", "stop")
-        else:
-            refusal = None
+            finish_reasons.append(choice.get("finish_reason", "stop"))
+            choice_index = choice.get("index", choice_pos)
+            id_suffix = "" if len(choices) <= 1 else f"_{choice_index}"
 
-        upstream_id = data.get("id", "")
-        response_id = self._make_response_id(upstream_id)
-        output = []
-        if reasoning_content:
-            output.append(
-                {
-                    "type": "reasoning",
-                    "id": f"rs_{response_id.removeprefix('resp_')}",
-                    "summary": [],
-                    "content": [{"type": "reasoning_text", "text": reasoning_content}],
-                }
-            )
-        if text or refusal:
-            content = []
-            if text:
-                content.append({"type": "output_text", "text": text})
-            if refusal:
-                content.append({"type": "refusal", "refusal": refusal})
-            output.append(
-                {
-                    "type": "message",
-                    "id": self._make_message_id(response_id, upstream_id),
-                    "status": "completed",
-                    "role": "assistant",
-                    "content": content,
-                }
-            )
-        if tool_calls:
-            for tc in tool_calls:
-                call_id = tc.get("id", "")
+            if reasoning_content:
                 output.append(
                     {
-                        "type": "function_call",
-                        "id": self._make_function_call_id(call_id),
-                        "call_id": call_id,
-                        "name": tc.get("function", {}).get("name", ""),
-                        "arguments": tc.get("function", {}).get("arguments", "{}"),
-                        "status": "completed",
+                        "type": "reasoning",
+                        "id": f"rs_{response_id.removeprefix('resp_')}{id_suffix}",
+                        "summary": [],
+                        "content": [
+                            {"type": "reasoning_text", "text": reasoning_content}
+                        ],
                     }
                 )
+            if text or refusal:
+                content = []
+                if text:
+                    content.append({"type": "output_text", "text": text})
+                    output_text_parts.append(text)
+                if refusal:
+                    content.append({"type": "refusal", "refusal": refusal})
+                message_id = self._make_message_id(response_id, upstream_id)
+                if id_suffix:
+                    message_id = f"{message_id}{id_suffix}"
+                output.append(
+                    {
+                        "type": "message",
+                        "id": message_id,
+                        "status": "completed",
+                        "role": "assistant",
+                        "content": content,
+                    }
+                )
+            if tool_calls:
+                for tc in tool_calls:
+                    call_id = tc.get("id", "")
+                    output.append(
+                        {
+                            "type": "function_call",
+                            "id": self._make_function_call_id(call_id),
+                            "call_id": call_id,
+                            "name": tc.get("function", {}).get("name", ""),
+                            "arguments": tc.get("function", {}).get("arguments", "{}"),
+                            "status": "completed",
+                        }
+                    )
 
         status = "completed"
         incomplete_details = None
-        if finish_reason == "length":
+        if "length" in finish_reasons:
             status = "incomplete"
             incomplete_details = {"reason": "max_output_tokens"}
-        elif finish_reason == "content_filter":
+        elif "content_filter" in finish_reasons:
             status = "incomplete"
             incomplete_details = {"reason": "content_filter"}
 
@@ -295,7 +302,7 @@ class ToResponseConverter(BaseConverter):
             "model": data.get("model", ""),
             "status": status,
             "output": output,
-            "output_text": text,
+            "output_text": "\n".join(output_text_parts),
             "usage": self._chat_usage_to_response_usage(data.get("usage", {})),
         }
         if upstream_id and upstream_id != response_id:
@@ -608,12 +615,17 @@ class ToResponseConverter(BaseConverter):
                 }
 
         choices = chunk.get("choices", [])
-        if not choices:
+        if not choices or choices[0] is None:
             if self._stream_state.get("waiting_for_usage_after_finish"):
                 completed_events = self._release_pending_completed_event()
                 if completed_events:
                     return completed_events[0]
             return None
+        if len(choices) > 1:
+            raise ValueError(
+                "Chat Completions stream with multiple choices is not supported "
+                "for Responses conversion"
+            )
         delta = choices[0].get("delta", {})
         finish_reason = choices[0].get("finish_reason")
 
@@ -824,19 +836,45 @@ class ToResponseConverter(BaseConverter):
                         "type": "reasoning",
                         "id": self._stream_state["reasoning_id"],
                         "summary": [],
+                        "content": [],
                     },
                 )
+                content_added_event = self._make_response_event(
+                    "response.content_part.added",
+                    item_id=self._stream_state["reasoning_id"],
+                    output_index=idx,
+                    content_index=0,
+                    part={"type": "reasoning_text", "text": ""},
+                )
                 delta_event = self._make_response_event(
-                    "response.reasoning_summary_text.delta",
+                    "response.reasoning_text.delta",
+                    item_id=self._stream_state["reasoning_id"],
+                    output_index=idx,
+                    content_index=0,
                     delta=rc,
                 )
                 if _ensure_created():
-                    self._pending_extra_events = [added_event, delta_event]
+                    self._pending_extra_events = [
+                        added_event,
+                        content_added_event,
+                        delta_event,
+                    ]
                     return _make_created_event()
-                self._pending_extra_events = [delta_event]
+                self._pending_extra_events = [content_added_event, delta_event]
                 return added_event
+            output_index = next(
+                (
+                    item["output_index"]
+                    for item in self._stream_state["output_items"]
+                    if item.get("type") == "reasoning"
+                ),
+                0,
+            )
             event = self._make_response_event(
-                "response.reasoning_summary_text.delta",
+                "response.reasoning_text.delta",
+                item_id=self._stream_state["reasoning_id"],
+                output_index=output_index,
+                content_index=0,
                 delta=rc,
             )
             if _ensure_created():
@@ -1005,7 +1043,7 @@ class ToResponseConverter(BaseConverter):
             return None
 
         elif event_type == "content_block_delta":
-            delta = chunk.get("delta", {})
+            delta = chunk.get("delta") or {}
             block = self._stream_state["anthropic_content_blocks"].get(
                 chunk.get("index", 0), {}
             )
@@ -1061,7 +1099,7 @@ class ToResponseConverter(BaseConverter):
                         },
                     }
                     delta_event = {
-                        "type": "response.reasoning_summary_text.delta",
+                        "type": "response.reasoning_text.delta",
                         "item_id": block["item_id"],
                         "output_index": block["output_index"],
                         "content_index": block["content_index"],
@@ -1070,7 +1108,7 @@ class ToResponseConverter(BaseConverter):
                     self._pending_extra_events = [delta_event]
                     return result
                 return {
-                    "type": "response.reasoning_summary_text.delta",
+                    "type": "response.reasoning_text.delta",
                     "item_id": block.get("item_id", self._stream_state["reasoning_id"]),
                     "output_index": block.get("output_index", 0),
                     "content_index": block.get("content_index", 0),
@@ -1089,7 +1127,7 @@ class ToResponseConverter(BaseConverter):
                 existing["output_tokens"] = (
                     existing.get("output_tokens", 0) + delta_usage["output_tokens"]
                 )
-            stop_reason = chunk.get("delta", {}).get("stop_reason")
+            stop_reason = (chunk.get("delta") or {}).get("stop_reason")
             status = "completed"
             if stop_reason == "max_tokens":
                 status = "incomplete"
@@ -1107,10 +1145,7 @@ class ToResponseConverter(BaseConverter):
                 },
             }
 
-        elif event_type == "message_stop":
-            return None
-
-        elif event_type == "ping":
+        elif event_type == "message_stop" or event_type == "ping":
             return None
 
         return None
@@ -1200,7 +1235,15 @@ class ToResponseConverter(BaseConverter):
 
     def _build_output_items(self) -> list[dict[str, Any]]:
         output = []
-        if self._stream_state["reasoning_content"]:
+        if self._stream_state["output_items"]:
+            for entry in sorted(
+                self._stream_state["output_items"],
+                key=lambda item: item.get("output_index", 0),
+            ):
+                item = self._build_completed_output_item(entry)
+                if item is not None:
+                    output.append(item)
+        elif self._stream_state["reasoning_content"]:
             output.append(
                 {
                     "type": "reasoning",
@@ -1212,40 +1255,6 @@ class ToResponseConverter(BaseConverter):
                             "text": self._stream_state["reasoning_content"],
                         }
                     ],
-                }
-            )
-        if self._stream_state["accumulated_text"]:
-            item_id = (
-                self._stream_state["active_text_item_id"]
-                or self._stream_state["message_id"]
-            )
-            if not item_id.startswith("msg_"):
-                item_id = self._make_message_id(
-                    self._stream_state["response_id"] or "resp_stream", item_id
-                )
-            output.append(
-                {
-                    "type": "message",
-                    "id": item_id,
-                    "status": "completed",
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "output_text",
-                            "text": self._stream_state["accumulated_text"],
-                        }
-                    ],
-                }
-            )
-        for call_id, tc_data in self._stream_state["tool_calls"].items():
-            output.append(
-                {
-                    "type": "function_call",
-                    "id": self._make_function_call_id(call_id),
-                    "call_id": call_id,
-                    "name": tc_data["name"],
-                    "arguments": tc_data["arguments"],
-                    "status": "completed",
                 }
             )
         if not output:
@@ -1264,6 +1273,57 @@ class ToResponseConverter(BaseConverter):
                 }
             )
         return output
+
+    def _build_completed_output_item(
+        self, entry: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        item_type = entry.get("type")
+        if item_type == "reasoning":
+            if not self._stream_state["reasoning_content"]:
+                return None
+            return {
+                "type": "reasoning",
+                "id": entry.get("id") or self._stream_state["reasoning_id"],
+                "summary": [],
+                "content": [
+                    {
+                        "type": "reasoning_text",
+                        "text": self._stream_state["reasoning_content"],
+                    }
+                ],
+            }
+        if item_type == "message":
+            item_id = entry.get("item_id") or self._stream_state["message_id"]
+            if not item_id.startswith("msg_"):
+                item_id = self._make_message_id(
+                    self._stream_state["response_id"] or "resp_stream", item_id
+                )
+            return {
+                "type": "message",
+                "id": item_id,
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": self._stream_state["accumulated_text"],
+                    }
+                ],
+            }
+        if item_type == "function_call":
+            call_id = entry.get("call_id", "")
+            tc_data = self._stream_state["tool_calls"].get(call_id)
+            if not tc_data:
+                return None
+            return {
+                "type": "function_call",
+                "id": self._make_function_call_id(call_id),
+                "call_id": call_id,
+                "name": tc_data["name"],
+                "arguments": tc_data["arguments"],
+                "status": "completed",
+            }
+        return None
 
     def _build_final_events(
         self, finish_reason: str, mark_completed: bool = True
@@ -1305,52 +1365,97 @@ class ToResponseConverter(BaseConverter):
             }
 
         done_events = []
-        # 文本项的完成事件
-        if self._stream_state["active_text_item_id"] is not None:
-            item_id = self._stream_state["active_text_item_id"]
-            text_output_index = self._stream_state["active_text_output_index"]
-            if text_output_index is None:
-                text_output_index = 0
-            if self._stream_state["accumulated_text"]:
-                done_events.append(
-                    {
-                        "type": "response.output_text.done",
-                        "item_id": item_id,
-                        "output_index": text_output_index,
-                        "content_index": 0,
-                        "text": self._stream_state["accumulated_text"],
-                    }
-                )
-                done_events.append(
-                    {
-                        "type": "response.content_part.done",
-                        "item_id": item_id,
-                        "output_index": text_output_index,
-                        "content_index": 0,
-                        "part": {
-                            "type": "output_text",
+        for entry in sorted(
+            self._stream_state["output_items"],
+            key=lambda item: item.get("output_index", 0),
+        ):
+            item_type = entry.get("type")
+            output_index = entry.get("output_index", 0)
+            item = self._build_completed_output_item(entry)
+            if item_type == "message":
+                item_id = entry.get("item_id")
+                if item_id != self._stream_state.get("active_text_item_id"):
+                    continue
+                if self._stream_state["accumulated_text"]:
+                    done_events.append(
+                        {
+                            "type": "response.output_text.done",
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "content_index": 0,
                             "text": self._stream_state["accumulated_text"],
-                        },
+                        }
+                    )
+                    done_events.append(
+                        {
+                            "type": "response.content_part.done",
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "content_index": 0,
+                            "part": {
+                                "type": "output_text",
+                                "text": self._stream_state["accumulated_text"],
+                            },
+                        }
+                    )
+                done_events.append(
+                    {
+                        "type": "response.output_item.done",
+                        "output_index": output_index,
+                        "item": item or {},
                     }
                 )
-            done_events.append(
-                {
-                    "type": "response.output_item.done",
-                    "output_index": text_output_index,
-                    "item": output[0] if output else {},
-                }
-            )
-        # 工具调用项的完成事件
-        for call_id, tc_data in self._stream_state["tool_calls"].items():
-            done_events.append(
-                {
-                    "type": "response.function_call_arguments.done",
-                    "item_id": self._make_function_call_id(call_id),
-                    "output_index": tc_data.get("output_index", 0),
-                    "name": tc_data.get("name", ""),
-                    "arguments": tc_data.get("arguments", ""),
-                }
-            )
+            elif item_type == "reasoning":
+                item_id = entry.get("id") or self._stream_state["reasoning_id"]
+                reasoning_text = self._stream_state["reasoning_content"]
+                if reasoning_text:
+                    done_events.append(
+                        {
+                            "type": "response.reasoning_text.done",
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "content_index": 0,
+                            "text": reasoning_text,
+                        }
+                    )
+                    done_events.append(
+                        {
+                            "type": "response.content_part.done",
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "content_index": 0,
+                            "part": {
+                                "type": "reasoning_text",
+                                "text": reasoning_text,
+                            },
+                        }
+                    )
+                done_events.append(
+                    {
+                        "type": "response.output_item.done",
+                        "output_index": output_index,
+                        "item": item or {},
+                    }
+                )
+            elif item_type == "function_call":
+                call_id = entry.get("call_id", "")
+                tc_data = self._stream_state["tool_calls"].get(call_id, {})
+                done_events.append(
+                    {
+                        "type": "response.function_call_arguments.done",
+                        "item_id": self._make_function_call_id(call_id),
+                        "output_index": output_index,
+                        "name": tc_data.get("name", ""),
+                        "arguments": tc_data.get("arguments", ""),
+                    }
+                )
+                done_events.append(
+                    {
+                        "type": "response.output_item.done",
+                        "output_index": output_index,
+                        "item": item or {},
+                    }
+                )
         done_events.append(completed_event)
         if mark_completed:
             self._stream_state["completed_sent"] = True

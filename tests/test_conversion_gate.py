@@ -1,6 +1,6 @@
 """跨格式转换开关（全局 + 渠道级）的单元/集成测试。"""
 
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -104,20 +104,22 @@ class TestProxySingleModelRequestErrorMessages:
 
     @pytest.mark.anyio
     async def test_no_channel_at_all_still_raises_original_error(self):
-        with patch(
-            "proxy_core._get_channels_for_model",
-            new_callable=AsyncMock,
-            return_value=[],
+        with (
+            patch(
+                "proxy_core._get_channels_for_model",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            pytest.raises(ValueError) as exc,
         ):
-            with pytest.raises(ValueError) as exc:
-                await _proxy_single_model_request(
-                    model="m",
-                    request_data={"model": "m"},
-                    target_api_type=APIType.ANTHROPIC,
-                    is_stream=False,
-                    query_string=None,
-                    client_headers=None,
-                    api_key_id=None,
-                    client_ip=None,
-                )
+            await _proxy_single_model_request(
+                model="m",
+                request_data={"model": "m"},
+                target_api_type=APIType.ANTHROPIC,
+                is_stream=False,
+                query_string=None,
+                client_headers=None,
+                api_key_id=None,
+                client_ip=None,
+            )
         assert "没有可用渠道支持模型" in str(exc.value)

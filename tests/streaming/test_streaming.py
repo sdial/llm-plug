@@ -6,15 +6,14 @@ import json
 import pytest
 
 from proxy_core import (
-    _iter_sse_blocks,
-    _format_raw_sse,
     _build_chat_stream_chunks_from_object,
     _build_responses_stream_events_from_object,
-    _prime_stream,
     _EmptyStreamError,
+    _format_raw_sse,
+    _iter_sse_blocks,
+    _prime_stream,
     _StreamPreflightError,
 )
-
 
 # ─── helpers ───
 
