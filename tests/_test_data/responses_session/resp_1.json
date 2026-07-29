@@ -1,0 +1,23 @@
+{
+  "response_id": "resp_1",
+  "conversation": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      }
+    ],
+    "instructions": "",
+    "reasoning_history": [],
+    "tool_calls": []
+  },
+  "response": {
+    "id": "resp_1",
+    "object": "response",
+    "status": "completed",
+    "output": []
+  },
+  "created_at": 1783494975,
+  "expires_at": 1783498575,
+  "last_access_at": 1783494975
+}

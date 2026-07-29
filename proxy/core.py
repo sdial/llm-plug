@@ -907,7 +907,7 @@ async def _do_request(
     )
 
     url = _get_upstream_url(channel)
-    if query_string:
+    if query_string and source_type == target_api_type.value:
         url = append_query(url, query_string)
     headers = _build_upstream_headers(
         channel,

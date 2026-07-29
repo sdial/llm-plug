@@ -103,15 +103,19 @@ function addModelInput(value = '', schedules = []) {
     refreshModelInputs();
 }
 
+const DEFAULT_SCHEDULE_START = '22:00';
+const DEFAULT_SCHEDULE_END = '08:00';
+
 function addScheduleRow(btn, rowsContainer, schedule) {
-    const container = rowsContainer || btn.closest('.model-schedule-panel').querySelector('.schedule-rows');
+    const container = rowsContainer || (btn && btn.closest('.model-schedule-panel')?.querySelector('.schedule-rows'));
+    if (!container) return;
     const row = document.createElement('div');
     row.className = 'schedule-row flex items-center gap-2 text-xs';
     const checked = schedule ? schedule.enabled : true;
     row.innerHTML = `
-        <input type="time" class="schedule-start border border-surface-200 rounded px-2 py-1 text-xs" value="${schedule ? esc(schedule.start) : '22:00'}">
+        <input type="time" class="schedule-start border border-surface-200 rounded px-2 py-1 text-xs" value="${schedule ? esc(schedule.start) : DEFAULT_SCHEDULE_START}">
         <span class="text-ink-400">至</span>
-        <input type="time" class="schedule-end border border-surface-200 rounded px-2 py-1 text-xs" value="${schedule ? esc(schedule.end) : '08:00'}">
+        <input type="time" class="schedule-end border border-surface-200 rounded px-2 py-1 text-xs" value="${schedule ? esc(schedule.end) : DEFAULT_SCHEDULE_END}">
         <label class="flex items-center gap-1 text-ink-400">
             <input type="checkbox" class="schedule-enabled w-3 h-3" ${checked ? 'checked' : ''}> 启用
         </label>
@@ -132,7 +136,10 @@ function removeScheduleRow(btn) {
 }
 
 function toggleModelSchedule(btn) {
-    const panel = btn.closest('.model-row').querySelector('.model-schedule-panel');
+    const modelRow = btn.closest('.model-row');
+    if (!modelRow) return;
+    const panel = modelRow.querySelector('.model-schedule-panel');
+    if (!panel) return;
     panel.classList.toggle('hidden');
     // 如果展开且没有任何时段，自动添加一个
     if (!panel.classList.contains('hidden') && panel.querySelector('.schedule-rows').children.length === 0) {
