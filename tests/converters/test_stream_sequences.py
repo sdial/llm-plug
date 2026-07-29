@@ -1,3 +1,5 @@
+import pytest
+
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
@@ -135,6 +137,77 @@ class TestChatToResponseStreamGolden:
         assert "response.function_call_arguments.done" in event_types
         assert "response.completed" in event_types
 
+    def test_reasoning_content_stream_uses_reasoning_text_delta(self):
+        """Chat reasoning_content 是详细推理流，应映射为 reasoning_text delta。"""
+        converter = ToResponseConverter()
+        events = [
+            {
+                "id": "chatcmpl_reasoning",
+                "model": "deepseek-reasoner",
+                "choices": [{"delta": {"reasoning_content": "Think first"}}],
+            },
+            {
+                "id": "chatcmpl_reasoning",
+                "model": "deepseek-reasoner",
+                "choices": [{"delta": {}, "finish_reason": "stop"}],
+            },
+        ]
+
+        outputs = feed_response_events(converter, events)
+        event_types = [o.get("type") for o in outputs if isinstance(o, dict)]
+
+        assert "response.reasoning_text.delta" in event_types
+        assert "response.reasoning_summary_text.delta" not in event_types
+
+    def test_reasoning_content_stream_emits_full_item_lifecycle(self):
+        """reasoning output_item 应有 content_part 和 done 收尾。"""
+        converter = ToResponseConverter()
+        events = [
+            {
+                "id": "chatcmpl_reasoning",
+                "model": "deepseek-reasoner",
+                "choices": [{"delta": {"reasoning_content": "Think"}}],
+            },
+            {
+                "id": "chatcmpl_reasoning",
+                "model": "deepseek-reasoner",
+                "choices": [{"delta": {"reasoning_content": " first"}}],
+            },
+            {
+                "id": "chatcmpl_reasoning",
+                "model": "deepseek-reasoner",
+                "choices": [{"delta": {}, "finish_reason": "stop"}],
+            },
+        ]
+
+        outputs = feed_response_events(converter, events)
+        event_types = [o.get("type") for o in outputs if isinstance(o, dict)]
+
+        assert event_types == [
+            "response.created",
+            "response.in_progress",
+            "response.output_item.added",
+            "response.content_part.added",
+            "response.reasoning_text.delta",
+            "response.reasoning_text.delta",
+            "response.reasoning_text.done",
+            "response.content_part.done",
+            "response.output_item.done",
+            "response.completed",
+        ]
+
+        reasoning_done = next(
+            o for o in outputs if o.get("type") == "response.reasoning_text.done"
+        )
+        assert reasoning_done["text"] == "Think first"
+        item_done = next(
+            o
+            for o in outputs
+            if o.get("type") == "response.output_item.done"
+            and o.get("item", {}).get("type") == "reasoning"
+        )
+        assert item_done["item"]["content"][0]["text"] == "Think first"
+
     def test_mixed_text_and_tool_stream_golden(self):
         """文本 + 工具调用流的事件顺序。"""
         converter = ToResponseConverter()
@@ -255,6 +328,24 @@ class TestChatToAnthropicStream:
         outputs = feed_anthropic_events(converter, events)
         msg_start = [d for et, d in outputs if et == "message_start"][0]
         assert msg_start["message"]["usage"]["input_tokens"] == 42
+
+
+class TestChatToResponseStreamRejectsMultipleChoices:
+    def test_stream_chunk_with_multiple_choices_raises_instead_of_dropping_choices(
+        self,
+    ):
+        converter = ToResponseConverter()
+
+        with pytest.raises(ValueError, match="multiple choices"):
+            converter.convert_stream_chunk(
+                {
+                    "choices": [
+                        {"index": 0, "delta": {"content": "first"}},
+                        {"index": 1, "delta": {"content": "second"}},
+                    ]
+                },
+                "openai-chat-completions",
+            )
 
 
 class TestChatToResponseStream:
@@ -701,8 +792,8 @@ class TestChatToResponseStream:
         assert "output_tokens" in resp["usage"]
         assert resp["output_text"] == "Hello"
 
-    def test_response_completed_orders_reasoning_before_message_and_function_call(self):
-        """response.completed output 应按 reasoning → message → function_call 排序"""
+    def test_response_completed_output_keeps_stream_output_index_order(self):
+        """response.completed output 应按流式 output_index 顺序收尾。"""
         converter = ToResponseConverter()
         events = [
             {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
@@ -742,9 +833,9 @@ class TestChatToResponseStream:
             if isinstance(o, dict) and o.get("type") == "response.completed"
         ][0]
         assert [item["type"] for item in completed["response"]["output"]] == [
-            "reasoning",
             "message",
             "function_call",
+            "reasoning",
         ]
 
     def test_response_completed_with_empty_choices(self):
@@ -1021,6 +1112,17 @@ class TestChatToResponseStream:
         assert done_events[0]["item_id"].startswith("fc_")
         assert done_events[0]["output_index"] == 0
         assert done_events[0]["arguments"] == '{"q":"x"}'
+
+        item_done_events = [
+            o
+            for o in outputs
+            if o.get("type") == "response.output_item.done"
+            and o.get("item", {}).get("type") == "function_call"
+        ]
+        assert len(item_done_events) == 1
+        assert item_done_events[0]["output_index"] == 0
+        assert item_done_events[0]["item"]["call_id"] == "call_1"
+        assert item_done_events[0]["item"]["arguments"] == '{"q":"x"}'
 
     def test_output_item_added_before_text_delta(self):
         """response.output_item.added 应在第一个 text delta 之前发送"""
@@ -1727,17 +1829,15 @@ class TestAnthropicToResponseStreamIndexes:
             for event in outputs
             if event.get("type")
             in {
-                "response.reasoning_summary_text.delta",
+                "response.reasoning_text.delta",
                 "response.function_call_arguments.delta",
                 "response.output_text.delta",
             }
         }
 
-        assert (
-            deltas["response.reasoning_summary_text.delta"]["item_id"] == "rs_msg_idx"
-        )
-        assert deltas["response.reasoning_summary_text.delta"]["output_index"] == 0
-        assert deltas["response.reasoning_summary_text.delta"]["content_index"] == 0
+        assert deltas["response.reasoning_text.delta"]["item_id"] == "rs_msg_idx"
+        assert deltas["response.reasoning_text.delta"]["output_index"] == 0
+        assert deltas["response.reasoning_text.delta"]["content_index"] == 0
 
         assert (
             deltas["response.function_call_arguments.delta"]["item_id"]
@@ -1748,6 +1848,40 @@ class TestAnthropicToResponseStreamIndexes:
         assert deltas["response.output_text.delta"]["item_id"] == "msg_idx"
         assert deltas["response.output_text.delta"]["output_index"] == 2
         assert deltas["response.output_text.delta"]["content_index"] == 0
+
+    def test_thinking_stream_uses_reasoning_text_delta(self):
+        """Anthropic thinking 是详细推理流，应映射为 reasoning_text delta。"""
+        converter = ToResponseConverter()
+        events = [
+            {
+                "type": "message_start",
+                "message": {"id": "msg_reasoning", "model": "claude-opus-4-7"},
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "plan"},
+            },
+        ]
+
+        outputs = []
+        for event in events:
+            out = converter.convert_stream_chunk(event, "anthropic")
+            if out is not None:
+                outputs.append(out)
+                outputs.extend(converter.get_extra_events(out))
+
+        event_types = [
+            event.get("type") for event in outputs if isinstance(event, dict)
+        ]
+
+        assert "response.reasoning_text.delta" in event_types
+        assert "response.reasoning_summary_text.delta" not in event_types
 
 
 class TestReviewBugFixes:
@@ -1924,7 +2058,12 @@ class TestReviewBugFixes:
             {
                 "type": "response.output_item.added",
                 "output_index": 0,
-                "item": {"type": "reasoning", "id": "rs_1", "summary": []},
+                "item": {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [],
+                    "content": [],
+                },
             },
             {
                 "type": "response.reasoning_summary_text.delta",

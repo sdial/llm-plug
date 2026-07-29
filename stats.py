@@ -6,7 +6,7 @@ import json
 import os
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime, timedelta, timezone, tzinfo
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -94,16 +94,16 @@ def _agg_tz() -> tzinfo:
             logger.warning(
                 f"Invalid aggregation_timezone {name!r}, falling back to system local"
             )
-    return datetime.now().astimezone().tzinfo or timezone.utc
+    return datetime.now().astimezone().tzinfo or UTC
 
 
 def _agg_offset_seconds(at: datetime | None = None) -> int:
     """返回聚合时区相对 UTC 的偏移秒数（按指定时刻，处理 DST）。"""
     tz = _agg_tz()
     if at is None:
-        at = datetime.now(timezone.utc)
+        at = datetime.now(UTC)
     elif at.tzinfo is None:
-        at = at.replace(tzinfo=timezone.utc)
+        at = at.replace(tzinfo=UTC)
     offset = tz.utcoffset(at.astimezone(tz).replace(tzinfo=None))
     return int((offset or timedelta(0)).total_seconds())
 
@@ -117,7 +117,7 @@ def _agg_offset_sql(at: datetime | None = None) -> str:
 
 def agg_now() -> datetime:
     """返回聚合时区的当前时间（naive，仅用于日聚合切日与同时区运算）。"""
-    return datetime.now(timezone.utc).astimezone(_agg_tz()).replace(tzinfo=None)
+    return datetime.now(UTC).astimezone(_agg_tz()).replace(tzinfo=None)
 
 
 def _resolve_db_path(db_path: str | None = None) -> str:
@@ -342,7 +342,7 @@ async def _stats_worker():
                 await asyncio.wait_for(
                     _write_record(record), timeout=_STATS_WRITE_TIMEOUT
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     f"Stats write timed out ({_STATS_WRITE_TIMEOUT}s), "
                     f"discarding record for model={record.get('model')}"
@@ -365,9 +365,7 @@ def _write_record_sync(record: dict[str, Any]) -> None:
     if not _DB_AVAILABLE:
         return
     lightweight = _normalize_record(record)
-    timestamp = lightweight.get("timestamp") or datetime.now(timezone.utc).replace(
-        tzinfo=None
-    )
+    timestamp = lightweight.get("timestamp") or datetime.now(UTC).replace(tzinfo=None)
     if isinstance(timestamp, datetime):
         timestamp = _to_iso(timestamp)
     with _open_conn() as conn:
@@ -483,8 +481,8 @@ def _daily_bounds(start_date: date, end_date: date) -> tuple[str, str]:
     end_local = datetime.combine(
         end_date + timedelta(days=1), datetime.min.time()
     ).replace(tzinfo=tz)
-    start_utc = start_local.astimezone(timezone.utc).replace(tzinfo=None)
-    end_utc = end_local.astimezone(timezone.utc).replace(tzinfo=None)
+    start_utc = start_local.astimezone(UTC).replace(tzinfo=None)
+    end_utc = end_local.astimezone(UTC).replace(tzinfo=None)
     return _to_iso(start_utc), _to_iso(end_utc)
 
 
@@ -545,7 +543,7 @@ def local_date_to_utc_iso(local_date: date) -> str:
     """将聚合时区某日 0 点转为 naive UTC 的 ISO 字符串（DB timestamp 用）。"""
     tz = _agg_tz()
     local = datetime.combine(local_date, datetime.min.time()).replace(tzinfo=tz)
-    return _to_iso(local.astimezone(timezone.utc).replace(tzinfo=None))
+    return _to_iso(local.astimezone(UTC).replace(tzinfo=None))
 
 
 def _get_daily_stats_sync(
@@ -739,9 +737,7 @@ def _overall_zero() -> dict[str, Any]:
 def _get_overall_stats_sync(days: int = 7) -> dict[str, Any]:
     if not _DB_AVAILABLE:
         return _overall_zero()
-    since = _to_iso(
-        datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
-    )
+    since = _to_iso(datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days))
     with _open_conn() as conn:
         row = conn.execute(
             """
@@ -1018,7 +1014,7 @@ async def get_request_field(request_id: int, field: str) -> dict | None:  # noqa
 def _to_db_utc_iso(value: datetime) -> str:
     """将任意 datetime（aware/naive）归一为 naive UTC ISO，与 DB 中的 timestamp 字符串可比。"""
     if value.tzinfo is not None:
-        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        value = value.astimezone(UTC).replace(tzinfo=None)
     return _to_iso(value)
 
 

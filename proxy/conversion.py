@@ -83,6 +83,7 @@ def get_converter_and_upstream_type(
     req_cls, resp_cls = converters
     return req_cls(), resp_cls(), source
 
+
 async def prepare_openai_response_request_for_upstream(
     request_data: dict[str, Any],
     source_type: str,
@@ -129,5 +130,7 @@ def response_input_to_items(input_data: Any) -> list[dict[str, Any]]:
 
 _filter_channels_by_conversion = filter_channels_by_conversion
 _get_converter_and_upstream_type = get_converter_and_upstream_type
-_prepare_openai_response_request_for_upstream = prepare_openai_response_request_for_upstream
+_prepare_openai_response_request_for_upstream = (
+    prepare_openai_response_request_for_upstream
+)
 _response_input_to_items = response_input_to_items

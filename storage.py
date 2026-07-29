@@ -2,14 +2,16 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
 import tempfile
 import time
 from collections.abc import Callable
 from typing import Any
 
+from pydantic import ValidationError
+
 import config
 from models.model_group import LBConfig, ModelGroup
-from pydantic import ValidationError
 
 _channels_lock: asyncio.Lock | None = None
 _keys_lock: asyncio.Lock | None = None
@@ -58,21 +60,42 @@ def _trigger_api_keys_save_callbacks() -> None:
             cb()
 
 
+class StorageCorruptionError(RuntimeError):
+    """Raised when a runtime JSON data file cannot be decoded safely."""
+
+    def __init__(self, path: str, backup_path: str, original: Exception):
+        super().__init__(
+            f"{path} is not valid JSON; preserved original and backed up to {backup_path}"
+        )
+        self.path = path
+        self.backup_path = backup_path
+        self.original = original
+
+
 def _ensure_data_dir():
     os.makedirs(config.DATA_DIR, exist_ok=True)
 
 
+def _backup_corrupt_json_file(path: str) -> str:
+    timestamp = time.strftime("%Y%m%dT%H%M%S", time.localtime())
+    backup_path = f"{path}.corrupt-{timestamp}-{time.time_ns()}"
+    shutil.copy2(path, backup_path)
+    return backup_path
+
+
 def _read_channels_from_disk() -> dict[str, Any]:
     try:
-        with open(config.CHANNELS_FILE, "r", encoding="utf-8") as f:
+        with open(config.CHANNELS_FILE, encoding="utf-8") as f:
             return json.load(f)
     except json.JSONDecodeError as exc:
         from loguru import logger
 
-        logger.warning(
-            f"channels file is not valid JSON, using empty channel list: {exc}"
+        backup_path = _backup_corrupt_json_file(config.CHANNELS_FILE)
+        logger.error(
+            f"channels file is not valid JSON, refusing to overwrite it; "
+            f"backup saved to {backup_path}: {exc}"
         )
-        return {"channels": []}
+        raise StorageCorruptionError(config.CHANNELS_FILE, backup_path, exc) from exc
 
 
 def _file_signature(path: str) -> tuple[int, int] | None:
@@ -196,15 +219,17 @@ _keys_cache_file_sig: tuple[int, int] | None = None
 
 def _read_api_keys_from_disk() -> dict[str, Any]:
     try:
-        with open(config.API_KEYS_FILE, "r", encoding="utf-8") as f:
+        with open(config.API_KEYS_FILE, encoding="utf-8") as f:
             return json.load(f)
     except json.JSONDecodeError as exc:
         from loguru import logger
 
-        logger.warning(
-            f"api keys file is not valid JSON, using empty api key list: {exc}"
+        backup_path = _backup_corrupt_json_file(config.API_KEYS_FILE)
+        logger.error(
+            f"api keys file is not valid JSON, refusing to overwrite it; "
+            f"backup saved to {backup_path}: {exc}"
         )
-        return {"api_keys": []}
+        raise StorageCorruptionError(config.API_KEYS_FILE, backup_path, exc) from exc
 
 
 def _write_api_keys_to_disk(data: dict[str, Any]) -> None:

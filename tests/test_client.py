@@ -14,9 +14,10 @@ def reset_client_state():
     """每个测试前清理全局客户端缓存。"""
     client._clients.clear()
     client._cache_ts.clear()
+    client._retired_clients.clear()
     yield
     # teardown: 关闭所有未关闭的客户端
-    for c in list(client._clients.values()):
+    for c in list(client._clients.values()) + list(client._retired_clients):
         if not c.is_closed:
             try:
                 loop = asyncio.new_event_loop()
@@ -26,6 +27,7 @@ def reset_client_state():
                 pass
     client._clients.clear()
     client._cache_ts.clear()
+    client._retired_clients.clear()
 
 
 @pytest.fixture
@@ -168,7 +170,8 @@ class TestGetOrCreateClient:
         await client.get_or_create_client(channels[1])
         await client.get_or_create_client(channels[2])
 
-        assert c1.is_closed
+        assert not c1.is_closed
+        assert c1 in client._retired_clients
         assert client._cache_key(channels[0]) not in client._clients
         assert len(client._clients) == 2
 
@@ -226,6 +229,11 @@ class TestInvalidateAllClients:
         assert not c1.is_closed
         assert not c2.is_closed
 
+    def test_retired_close_delay_is_at_least_request_timeout(self, monkeypatch):
+        monkeypatch.setattr(client.config, "REQUEST_TIMEOUT", 300)
+
+        assert client._retired_client_close_delay_seconds() >= 300
+
 
 class TestCleanupStaleClients:
     @pytest.mark.anyio
@@ -275,11 +283,15 @@ class TestCleanupStaleClients:
 
 class TestRemoveChannelClient:
     @pytest.mark.anyio
-    async def test_removes_and_closes_client(self, sample_channel):
+    async def test_removes_and_retires_client_without_immediate_close(
+        self, sample_channel
+    ):
         c = await client.get_or_create_client(sample_channel)
         removed = await client.remove_channel_client(sample_channel)
         assert removed is c
         assert client._cache_key(sample_channel) not in client._clients
+        assert not c.is_closed
+        assert c in client._retired_clients
 
     @pytest.mark.anyio
     async def test_returns_none_when_not_cached(self, sample_channel):

@@ -6,27 +6,6 @@ let tagInputKey = null;      // TagInput 实例: API Key 允许模型
 let pendingCopyKey = '';
 let lastApiKeysInitRoot = null;
 
-function copyToClipboard(text) {
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        return navigator.clipboard.writeText(text);
-    }
-    return new Promise((resolve, reject) => {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            document.execCommand('copy') ? resolve() : reject(new Error('execCommand failed'));
-        } catch (e) {
-            reject(e);
-        } finally {
-            document.body.removeChild(textarea);
-        }
-    });
-}
-
 function invalidateRequestApiKeys() {
     if (typeof window.invalidateRequestApiKeys === 'function') {
         window.invalidateRequestApiKeys();
@@ -207,6 +186,21 @@ async function copyApiKey(id) {
     }
 }
 
+async function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+    } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+    }
+}
+
 function closeCopyKeyModal() {
     document.getElementById('copyKeyModal').classList.add('hidden');
     pendingCopyKey = '';
@@ -216,10 +210,10 @@ async function doCopyKey() {
     if (!pendingCopyKey) return;
     try {
         await copyToClipboard(pendingCopyKey);
-        closeCopyKeyModal();
     } catch (e) {
-        showGlobalToast('复制失败: ' + e.message);
+        // copyToClipboard 内部已有 textarea fallback，此处仅捕获极端情况
     }
+    closeCopyKeyModal();
 }
 
 function initApiKeys() {

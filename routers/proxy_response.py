@@ -1,6 +1,6 @@
 import json
-from collections.abc import AsyncGenerator, Awaitable
-from typing import Annotated, Any, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Header, Request
@@ -11,8 +11,6 @@ from balancer.load_balancer import load_balancer
 from client import create_client, get_upstream_headers
 from models.api_types import APIType
 from models.channel import Channel
-from storage import load_data
-from url_builder import append_api_path, append_query
 from proxy_core import AllChannelsExhausted, ConverterError, proxy_request
 from response_state import get_responses_store
 from routers.auth import check_proxy_authorization
@@ -22,6 +20,8 @@ from routers.proxy_errors import (
     safe_httpx_response_content,
     unauthorized,
 )
+from storage import load_data
+from url_builder import append_api_path, append_query
 
 router = APIRouter(tags=["代理"])
 
@@ -151,7 +151,10 @@ async def _forward_responses_request(
     headers = _forward_headers(channel, client_headers, body is not None)
     client = await create_client(channel)
     resp = await client.request(method, url, json=body, headers=headers)
-    await load_balancer.record_success(channel.id)
+    if resp.status_code == 429 or resp.status_code >= 500:
+        await load_balancer.record_failure(channel.id)
+    else:
+        await load_balancer.record_success(channel.id)
     return _json_response_from_upstream(resp)
 
 

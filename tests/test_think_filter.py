@@ -2,7 +2,7 @@
 测试 think_filter 模块
 """
 
-from think_filter import filter_think_content_static, ThinkFilter
+from think_filter import ThinkFilter, filter_think_content_static
 
 
 class TestFilterThinkContentStatic:

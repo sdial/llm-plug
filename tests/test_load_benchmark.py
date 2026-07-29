@@ -116,8 +116,8 @@ class TestClientPoolStability:
     async def test_rapid_create_and_close(self):
         """快速创建/销毁 100 个客户端不应泄漏或崩溃"""
         from client import (
-            get_or_create_client,
             close_all_clients,
+            get_or_create_client,
             invalidate_all_clients,
         )
 
@@ -142,7 +142,7 @@ class TestClientPoolStability:
     @pytest.mark.asyncio
     async def test_concurrent_client_creation(self):
         """并发创建 50 个不同渠道的客户端"""
-        from client import get_or_create_client, close_all_clients
+        from client import close_all_clients, get_or_create_client
 
         channels = [_make_channel(id=f"ch_conc_{i}") for i in range(50)]
 

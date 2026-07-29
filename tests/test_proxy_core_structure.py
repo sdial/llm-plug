@@ -12,7 +12,10 @@ def test_proxy_core_is_facade_over_proxy_package():
     assert proxy_core.proxy_request is proxy.routing.proxy_request
     assert proxy_core.AllChannelsExhausted is proxy.errors.AllChannelsExhausted
     assert proxy_core.ConverterError is proxy.errors.ConverterError
-    assert proxy_core._registry_get_channels_for_model is proxy.channel_registry.get_channels_for_model
+    assert (
+        proxy_core._registry_get_channels_for_model
+        is proxy.channel_registry.get_channels_for_model
+    )
     assert proxy_core._conversion.get_converter_and_upstream_type is (
         proxy.conversion.get_converter_and_upstream_type
     )

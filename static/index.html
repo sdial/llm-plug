@@ -19,7 +19,7 @@
                 <p class="text-ink-600 text-xs mt-0.5">OpenAI Chat Completions / OpenAI Response / Anthropic 三种格式互转 + 负载均衡</p>
             </div>
             <div class="flex items-center gap-3 text-xs">
-                <div class="text-ink-400 hidden sm:block">v1.0.6 release 2026-06-14</div>
+                <div class="text-ink-400 hidden sm:block">__APP_VERSION__ release __APP_RELEASE_DATE__</div>
                 <button onclick="logoutAdmin()" class="text-ink-500 hover:text-ink-900 font-medium">退出</button>
             </div>
         </div>
@@ -36,10 +36,11 @@
             <button onclick="switchTab('requests')" id="tab_requests" class="px-4 py-2.5 text-sm font-medium tab-inactive">请求记录</button>
             <button onclick="switchTab('settings')" id="tab_settings" class="px-4 py-2.5 text-sm font-medium tab-inactive">设置</button>
             <button onclick="switchTab('whitelist')" id="tab_whitelist" class="px-4 py-2.5 text-sm font-medium tab-inactive">IP 白名单</button>
+            <button onclick="switchTab('storage')" id="tab_storage" class="px-4 py-2.5 text-sm font-medium tab-inactive">存储管理</button>
         </div>
         <!-- 移动端：下拉选择 -->
         <div class="max-w-6xl mx-auto px-4 py-2 md:hidden">
-            <select id="tabMobileSelect" onchange="switchTab(this.value)" class="w-full text-sm font-medium border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+            <select id="tabMobileSelect" aria-label="选择管理页面" onchange="switchTab(this.value)" class="w-full text-sm font-medium border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
                 <option value="channels">渠道管理</option>
                 <option value="apikeys">API Key</option>
                 <option value="lb">模型分组</option>
@@ -47,6 +48,7 @@
                 <option value="requests">请求记录</option>
                 <option value="settings">设置</option>
                 <option value="whitelist">IP 白名单</option>
+                <option value="storage">存储管理</option>
             </select>
         </div>
     </div>
@@ -59,7 +61,7 @@
 
     <!-- 添加/编辑渠道模态框 -->
     <div id="channelModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl mx-4 max-h-[90vh] overflow-y-auto" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl mx-4 max-h-[90vh] overflow-y-auto modal-panel-shadow">
             <div class="p-6">
                 <div class="flex justify-between items-center mb-6">
                     <h3 id="modalTitle" class="text-base font-bold text-ink-900">添加渠道</h3>
@@ -69,11 +71,11 @@
                     <input type="hidden" id="editId">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-ink-900 mb-1">名称</label>
+                            <label for="f_name" class="block text-sm font-medium text-ink-900 mb-1">名称</label>
                             <input type="text" id="f_name" required class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-ink-900 mb-1">API类型</label>
+                            <label for="f_api_type" class="block text-sm font-medium text-ink-900 mb-1">API类型</label>
                             <select id="f_api_type" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                                 <option value="openai-chat-completions">OpenAI Chat Completions</option>
                                 <option value="openai-response">OpenAI Response</option>
@@ -127,12 +129,12 @@
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-ink-900 mb-1">权重</label>
+                            <label for="f_weight" class="block text-sm font-medium text-ink-900 mb-1">权重</label>
                             <input type="number" id="f_weight" value="1" min="1" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                             <p class="text-xs text-ink-400 mt-1">同一优先级内按权重分流，数值越大命中概率越高。</p>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-ink-900 mb-1">优先级</label>
+                            <label for="f_priority" class="block text-sm font-medium text-ink-900 mb-1">优先级</label>
                             <input type="number" id="f_priority" value="1" min="1" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                             <p class="text-xs text-ink-400 mt-1">数值越小越优先；高优先级失败后才会回落到低优先级。</p>
                         </div>
@@ -148,7 +150,7 @@
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-sm font-medium text-ink-900 mb-1">Version 策略</label>
+                                <label for="f_anthropic_version_policy" class="block text-sm font-medium text-ink-900 mb-1">Version 策略</label>
                                 <select id="f_anthropic_version_policy" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                                     <option value="channel">始终使用本渠道配置</option>
                                     <option value="client">始终使用客户端传入</option>
@@ -156,7 +158,7 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-ink-900 mb-1">Beta 策略</label>
+                                <label for="f_anthropic_beta_policy" class="block text-sm font-medium text-ink-900 mb-1">Beta 策略</label>
                                 <select id="f_anthropic_beta_policy" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                                     <option value="channel">始终使用本渠道配置</option>
                                     <option value="client">始终使用客户端传入</option>
@@ -190,7 +192,7 @@
 
     <!-- 添加/编辑 API Key 模态框 -->
     <div id="keyModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto modal-panel-shadow">
             <div class="p-6">
                 <div class="flex justify-between items-center mb-6">
                     <h3 id="keyModalTitle" class="text-base font-bold text-ink-900">创建 API Key</h3>
@@ -199,7 +201,7 @@
                 <form id="keyForm" onsubmit="saveApiKey(event)" class="space-y-4">
                     <input type="hidden" id="keyEditId">
                     <div>
-                        <label class="block text-sm font-medium text-ink-900 mb-1">名称</label>
+                        <label for="fk_name" class="block text-sm font-medium text-ink-900 mb-1">名称</label>
                         <input type="text" id="fk_name" required class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                     </div>
                     <div>
@@ -226,7 +228,7 @@
 
     <!-- 复制 Key 提示模态框 -->
     <div id="copyKeyModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 modal-panel-shadow">
             <div class="p-6">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-base font-bold text-ink-900">API Key 已创建</h3>
@@ -258,7 +260,7 @@
 
     <!-- 测试模型选择弹窗 -->
     <div id="testModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 modal-panel-shadow">
             <div class="p-6">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-base font-bold text-ink-900">测试连接</h3>
@@ -266,7 +268,7 @@
                 </div>
                 <div class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium text-ink-900 mb-1">选择模型</label>
+                        <label for="testModelSelect" class="block text-sm font-medium text-ink-900 mb-1">选择模型</label>
                         <select id="testModelSelect" class="w-full border border-surface-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                         </select>
                     </div>
@@ -285,7 +287,7 @@
 
     <!-- 确认弹窗 -->
     <div id="confirmModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 modal-panel-shadow">
             <div class="p-6">
                 <div class="flex justify-between items-center mb-4">
                     <h3 id="confirmTitle" class="text-base font-bold text-ink-900">确认操作</h3>
@@ -340,7 +342,7 @@
 
     <!-- 模型能力设置模态框 -->
     <div id="modelCapModal" class="fixed inset-0 bg-black/30 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-xs mx-4" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-xs mx-4 modal-panel-shadow">
             <div class="p-5">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-sm font-bold text-ink-900">模型能力</h3>

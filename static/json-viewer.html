@@ -43,6 +43,32 @@
             color: #999;
             background: #2a2d2e;
         }
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .download-btn {
+            background: #2a2d2e;
+            border: 1px solid #444;
+            color: #4a9eff;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-family: inherit;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .download-btn:hover {
+            background: #313435;
+            border-color: #4a9eff;
+        }
+        .download-btn:disabled {
+            color: #555;
+            cursor: not-allowed;
+        }
 
         /* Main layout */
         .main-layout {
@@ -218,7 +244,10 @@
 <body>
     <div class="header">
         <span class="header-title">JSON 查看器</span>
-        <button class="toggle-sidebar-btn" id="toggleSidebar" title="收起/展开侧栏">&#9776;</button>
+        <div class="header-actions">
+            <button class="download-btn" id="downloadBtn" title="下载当前 JSON" disabled>&#11015; 下载</button>
+            <button class="toggle-sidebar-btn" id="toggleSidebar" title="收起/展开侧栏">&#9776;</button>
+        </div>
     </div>
     <div class="main-layout">
         <div class="sidebar" id="sidebar">
@@ -446,6 +475,39 @@
             renderFilteredJson();
         }
 
+        // ===== Download =====
+
+        function downloadJson() {
+            if (originalData === null || originalData === undefined || !fieldTree) return;
+            var filtered = filterJsonData(originalData, fieldTree);
+            if (filtered === null) {
+                alert('所有字段均已隐藏，无可下载数据');
+                return;
+            }
+
+            try {
+                var jsonStr = JSON.stringify(filtered, null, 2);
+            } catch (e) {
+                alert('序列化 JSON 失败: ' + e.message);
+                return;
+            }
+
+            var blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+
+            var title = document.title || 'json';
+            var safeName = title.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'json';
+            a.download = safeName + '.json';
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            setTimeout(function() { URL.revokeObjectURL(url); }, 0);
+        }
+
         function bindEvents() {
             document.getElementById('treeContainer').addEventListener('click', function(e) {
                 var target = e.target;
@@ -469,6 +531,8 @@
             document.getElementById('toggleSidebar').addEventListener('click', function() {
                 document.getElementById('sidebar').classList.toggle('collapsed');
             });
+
+            document.getElementById('downloadBtn').addEventListener('click', downloadJson);
         }
 
         // ===== JSON Filtering & Rendering =====
@@ -681,6 +745,8 @@
                 renderFilteredJson();
                 bindEvents();
                 initResize();
+
+                document.getElementById('downloadBtn').disabled = false;
 
             } catch (e) {
                 document.getElementById('jsonMain').innerHTML = '<div class="error">加载失败: ' + escapeHtml(e.message) + '</div>';

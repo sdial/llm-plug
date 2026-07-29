@@ -12,7 +12,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-
 # ═══════════════════════════════════════════
 #  单元测试：normalize_path 函数
 # ═══════════════════════════════════════════
@@ -163,9 +162,9 @@ class TestNormalizePath:
 def middleware_app(tmp_path, monkeypatch):
     """构建一个最小 FastAPI 应用 + CombinedMiddleware 的测试环境。"""
     import config
+    import main as _main
     import storage
     import whitelist as _whitelist
-    import main as _main
 
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -383,7 +382,9 @@ class TestOriginalPathPreservation:
     def test_log_shows_original_path_when_different(self):
         """当原始路径与归一化路径不同时，日志应同时显示两者"""
         import io
+
         from loguru import logger
+
         from main import CombinedMiddleware
 
         sink = io.StringIO()
@@ -412,7 +413,9 @@ class TestOriginalPathPreservation:
     def test_log_no_duplicate_when_paths_same(self):
         """当原始路径与归一化路径相同时，日志不应重复显示"""
         import io
+
         from loguru import logger
+
         from main import CombinedMiddleware
 
         sink = io.StringIO()

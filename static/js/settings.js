@@ -108,10 +108,12 @@ function _bindChangePasswordForm() {
         }
 
         try {
+            const csrf = await getCsrfToken();
             const resp = await fetch('/admin/auth/change-password', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'x-csrf-token': csrf,
                 },
                 body: JSON.stringify({ old_password, new_password, confirm_password }),
             });
@@ -210,7 +212,6 @@ async function loadSettings() {
     syncLbStrategyMode();
     await loadSecurityConfig();
     _bindChangePasswordForm();
-    document.getElementById('restartBtn').classList.add('hidden');
   } catch (e) {
     console.error('加载设置失败:', e);
   }
@@ -267,11 +268,6 @@ async function saveSettings() {
     if (resp.ok) {
       const result = await resp.json();
       showGlobalToast('保存成功', 'success');
-      if (result.needs_restart) {
-        document.getElementById('restartBtn').classList.remove('hidden');
-      } else {
-        document.getElementById('restartBtn').classList.add('hidden');
-      }
       loadSettings();
     } else {
       const err = await resp.json().catch(() => ({}));
@@ -280,16 +276,6 @@ async function saveSettings() {
   } catch (e) {
     showGlobalToast('保存失败: ' + e.message, 'error');
   }
-}
-
-async function restartServer() {
-  showConfirmModal('确认重启', '确定要重启服务吗？重启后当前页面将刷新。', async () => {
-    try {
-      await fetch('/admin/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
-    } catch (e) { }
-    showGlobalToast('正在重启，5秒后刷新页面...', 'info');
-    setTimeout(() => location.reload(), 5000);
-  });
 }
 
 function getOriginalSettings() {
@@ -485,7 +471,6 @@ Object.assign(window, {
     syncLbStrategyMode,
     loadSettings,
     saveSettings,
-    restartServer,
     loadFormatConversionPanel,
     loadSecurityConfig,
 });

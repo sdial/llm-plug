@@ -1,7 +1,8 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.api_types import APIType
 from proxy_core import ConverterError
@@ -10,6 +11,7 @@ from proxy_core import ConverterError
 @pytest.fixture
 def client(monkeypatch):
     from fastapi import FastAPI
+
     import routers.proxy_response as proxy_response
     from routers.proxy_response import router
 

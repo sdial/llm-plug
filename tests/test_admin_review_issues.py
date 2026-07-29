@@ -8,6 +8,7 @@
 import asyncio
 import inspect
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -17,7 +18,6 @@ import config
 import storage
 from main import app
 from routers import admin
-
 
 pytestmark = pytest.mark.anyio
 
@@ -67,18 +67,10 @@ def admin_files(tmp_path, monkeypatch):
 # ─────────────────────────── N1 ───────────────────────────
 
 
-class TestN1RestartSilentlyFails:
-    """N1: /admin/restart 静默失效，仅返回 200，不会真的终止进程。"""
+class TestN1RestartEndpointRemoved:
+    """N1/D3: 无效的 /admin/restart 入口已移除。"""
 
-    async def test_restart_endpoint_returns_200_synchronously(self, admin_files):
-        """Bug N1: 调用 /admin/restart 同步返回 200, 不会 kill 当前进程。
-
-        关键不变量：响应返回时, 进程还活着。如果代码改为同步 os.kill / SIGTERM,
-        这个测试也能继续工作（FastAPI handler 不在同一线程内被 kill 之前会先 ack）。
-        但当前 bug 是后台 task 内的 SystemExit 永远不会终止进程, 表现是
-        即便后台 task 跑完, 服务依然存活。我们这里只断言 handler 返回 200,
-        其余 bug 通过下面的源码检查覆盖。
-        """
+    async def test_restart_endpoint_is_not_registered(self, admin_files):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
@@ -92,20 +84,17 @@ class TestN1RestartSilentlyFails:
                 json={"confirm": True},
             )
 
-        assert resp.status_code == 200
-        assert resp.json() == {"message": "服务正在重启"}
+        assert resp.status_code == 404
 
-    def test_restart_handler_uses_unreferenced_create_task(self):
-        """Bug N1: asyncio.create_task 的返回值没被持有, 不在 _background_tasks 集合中。"""
-        source = inspect.getsource(admin.restart_server)
-        assert "asyncio.create_task(_shutdown_after_response())" in source
-        # 关键 bug：task 创建后立刻被丢弃
-        assert "_background_tasks.add" not in source
-        # SystemExit 在 task 内部抛出, 会被 asyncio 异常机制吞掉
-        assert "SystemExit" in source
-        # 没有 os.kill / signal.SIGTERM 之类真正能终止进程的调用
-        assert "os.kill" not in source
-        assert "SIGTERM" not in source
+    def test_admin_frontend_no_longer_calls_restart_endpoint(self):
+        js = Path("static/js/settings.js").read_text(encoding="utf-8")
+        html = Path("static/fragments/admin/settings.html").read_text(encoding="utf-8")
+
+        assert "/admin/restart" not in js
+        assert "restartServer" not in js
+        assert "restartBtn" not in js
+        assert "restartServer" not in html
+        assert "restartBtn" not in html
 
 
 # ─────────────────────────── N3 ───────────────────────────

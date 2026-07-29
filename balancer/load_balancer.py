@@ -5,10 +5,8 @@ import math
 import time
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
-from typing import Optional
 
 from models.channel import Channel
-
 
 VALID_STRATEGIES = {"round_robin", "backup", "sticky"}
 
@@ -109,7 +107,7 @@ class LoadBalancer:
         client_ip: str | None = None,
         api_key_id: str | None = None,
         client_headers: dict[str, str] | None = None,
-    ) -> Optional[Channel]:
+    ) -> Channel | None:
         """
         从候选渠道中选择一个：
         1. 过滤掉禁用、不健康及 exclude_ids 中的渠道
@@ -161,12 +159,10 @@ class LoadBalancer:
     ) -> Channel:
         if not candidates:
             raise ValueError("candidates must not be empty")
-        best_channel: Optional[Channel] = None
+        best_channel: Channel | None = None
         best_score: float | None = None
         for channel in candidates:
-            digest = hashlib.sha256(
-                f"{session_key}:{channel.id}".encode("utf-8")
-            ).digest()
+            digest = hashlib.sha256(f"{session_key}:{channel.id}".encode()).digest()
             value = int.from_bytes(digest[:8], "big") / 2**64
             value = max(value, 1e-12)
             score = -math.log(value) / max(channel.weight, 1)
@@ -233,8 +229,8 @@ class LoadBalancer:
         """
         total_weight = sum(ch.weight for ch in channels)
 
-        best: Optional[Channel] = None
-        best_health: Optional[ChannelHealth] = None
+        best: Channel | None = None
+        best_health: ChannelHealth | None = None
         for ch in channels:
             health = self._health[ch.id]
             health.current_weight += ch.weight

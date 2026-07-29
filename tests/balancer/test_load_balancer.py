@@ -3,9 +3,9 @@ import inspect
 
 import pytest
 
-from balancer.load_balancer import LoadBalancer, ChannelHealth
-from models.channel import Channel
+from balancer.load_balancer import ChannelHealth, LoadBalancer
 from models.api_types import APIType
+from models.channel import Channel
 
 
 def create_channel(id: str, weight: int) -> Channel:

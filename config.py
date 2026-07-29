@@ -37,10 +37,10 @@ _CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
         "requires_restart": True,
         "readonly": True,
     },
-    "request_timeout": {"type": "int", "default": 300, "requires_restart": False},
+    "request_timeout": {"type": "int", "default": 600, "requires_restart": False},
     "max_body_size": {
         "type": "int",
-        "default": 10 * 1024 * 1024,
+        "default": 20 * 1024 * 1024,
         "requires_restart": False,
     },
     "stats_sqlite_path": {
@@ -90,12 +90,12 @@ _CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
     },
     "max_log_body_size": {
         "type": "int",
-        "default": 64 * 1024,
+        "default": 0,
         "requires_restart": False,
     },
     "max_stream_chunks": {
         "type": "int",
-        "default": 10000,
+        "default": 50000,
         "requires_restart": False,
     },
     "allow_format_conversion": {
@@ -234,7 +234,7 @@ def _init_settings_sync():
     file_data = {}
     if os.path.exists(_SETTINGS_FILE):
         try:
-            with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            with open(_SETTINGS_FILE, encoding="utf-8") as f:
                 file_data = json.load(f)
         except (json.JSONDecodeError, OSError):
             logger.warning(f"Failed to read {_SETTINGS_FILE}, using defaults")
@@ -257,8 +257,8 @@ def _sync_module_vars():
     global HOST, PORT, REQUEST_TIMEOUT, MAX_BODY_SIZE
     HOST = _settings.get("host", "0.0.0.0")
     PORT = _settings.get("port", 55555)
-    REQUEST_TIMEOUT = _settings.get("request_timeout", 300)
-    MAX_BODY_SIZE = _settings.get("max_body_size", 10 * 1024 * 1024)
+    REQUEST_TIMEOUT = _settings.get("request_timeout", 600)
+    MAX_BODY_SIZE = _settings.get("max_body_size", 20 * 1024 * 1024)
 
 
 def get_setting(key: str):
@@ -332,7 +332,7 @@ def _migrate_lb_config_sync(channels_file: str):
     if not os.path.exists(channels_file):
         return
     try:
-        with open(channels_file, "r", encoding="utf-8") as f:
+        with open(channels_file, encoding="utf-8") as f:
             data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return
@@ -371,6 +371,7 @@ def _migrate_lb_config_sync(channels_file: str):
 async def _migrate_lb_config():
     """异步迁移（从 CHANNELS_FILE 读取）"""
     _migrate_lb_config_sync(CHANNELS_FILE)
+    await asyncio.to_thread(_save_settings_to_disk_sync)
 
 
 async def update_settings(updates: dict) -> dict:

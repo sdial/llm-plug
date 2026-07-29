@@ -1,7 +1,6 @@
 import secrets
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -19,20 +18,18 @@ class ApiKey(BaseModel):
     request_count: int = 0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 class ApiKeyCreate(BaseModel):
     name: str
-    key: Optional[str] = None
+    key: str | None = None
     allowed_models: list[str] = Field(default_factory=list)
     notes: str = ""
 
 
 class ApiKeyUpdate(BaseModel):
-    name: Optional[str] = None
-    key: Optional[str] = None
-    allowed_models: Optional[list[str]] = None
-    notes: Optional[str] = None
+    name: str | None = None
+    key: str | None = None
+    allowed_models: list[str] | None = None
+    notes: str | None = None

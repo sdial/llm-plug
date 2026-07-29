@@ -43,7 +43,7 @@ class FileStore:
         if not os.path.exists(path):
             return None
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             if data.get("expires_at", 0) < time.time():
                 return None
@@ -147,7 +147,7 @@ class FileStore:
                 continue
             path = os.path.join(self.data_dir, filename)
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     data = json.load(f)
                 if data.get("expires_at", 0) < now:
                     os.unlink(path)
@@ -169,7 +169,7 @@ class FileStore:
                 continue
             path = os.path.join(self.data_dir, filename)
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     data = json.load(f)
                 access_time = float(
                     data.get("last_access_at")
@@ -178,14 +178,19 @@ class FileStore:
                 )
             except (json.JSONDecodeError, OSError, TypeError, ValueError):
                 continue
-            files.append((path, access_time))
+            # 次级排序键：mtime，避免 last_access_at 相同时淘汰顺序不确定
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:
+                mtime = 0.0
+            files.append((path, access_time, mtime))
 
         if len(files) <= self.max_entries:
             return 0
 
-        files.sort(key=lambda x: x[1])
+        files.sort(key=lambda x: (x[1], x[2]))
         removed = 0
-        for path, _ in files[: len(files) - self.max_entries]:
+        for path, _, _ in files[: len(files) - self.max_entries]:
             try:
                 os.unlink(path)
                 removed += 1

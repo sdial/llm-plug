@@ -1,6 +1,6 @@
 from proxy.core import (
-    _extract_base64_data,
     _ext_for_mime,
+    _extract_base64_data,
     _save_multimodal_files,
     _write_media_file,
 )

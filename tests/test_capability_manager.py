@@ -2,12 +2,13 @@
 
 from capability_manager import (
     ProviderCapabilities,
-    infer_capabilities,
     apply_capability_filter,
+    infer_capabilities,
     merge_system_messages,
 )
-from models.channel import Channel, ModelCapabilities
+from converters.to_chat import ToChatCompletionsConverter
 from models.api_types import APIType
+from models.channel import Channel, ModelCapabilities
 
 
 class TestInferCapabilities:
@@ -26,6 +27,7 @@ class TestInferCapabilities:
         assert caps.supports_tool_choice_auto is True
         assert caps.supports_response_format is True
         assert caps.supports_reasoning_effort is True
+        assert caps.supports_enable_thinking is False
         assert caps.supports_file_content is False
         assert caps.supports_audio_content is False
         assert caps.supports_image_content is False
@@ -57,6 +59,28 @@ class TestInferCapabilities:
         caps = infer_capabilities(channel)
         assert caps.requires_single_system_message is True
 
+    def test_qwen_capabilities(self):
+        """通义千问 / DashScope 渠道应默认启用 enable_thinking"""
+        channel = Channel(
+            name="qwen",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            api_key="test-key",
+        )
+        caps = infer_capabilities(channel)
+        assert caps.supports_enable_thinking is True
+
+    def test_generic_openai_capabilities_do_not_enable_thinking(self):
+        """NVIDIA 等通用 OpenAI 兼容渠道不应默认启用 enable_thinking"""
+        channel = Channel(
+            name="nvidia",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key="test-key",
+        )
+        caps = infer_capabilities(channel)
+        assert caps.supports_enable_thinking is False
+
     def test_deepseek_case_insensitive(self):
         """base_url 判断应不区分大小写"""
         channel = Channel(
@@ -81,6 +105,7 @@ class TestInferCapabilities:
                 "filter_think_content": False,
                 "supports_response_format": False,
                 "supports_reasoning_effort": False,
+                "supports_enable_thinking": True,
                 "supports_file_content": True,
                 "supports_audio_content": True,
                 "supports_image_content": True,
@@ -93,6 +118,7 @@ class TestInferCapabilities:
         assert caps.filter_think_content is False
         assert caps.supports_response_format is False
         assert caps.supports_reasoning_effort is False
+        assert caps.supports_enable_thinking is True
         assert caps.supports_file_content is True
         assert caps.supports_audio_content is True
         assert caps.supports_image_content is True
@@ -188,6 +214,51 @@ class TestApplyCapabilityFilter:
         }
         result = apply_capability_filter(request, caps)
         assert "parallel_tool_calls" not in result  # False 也应移除
+
+    def test_filter_strict_tools_does_not_mutate_original_request(self):
+        """移除 strict tools 时不应污染调用方原始请求对象。"""
+        caps = ProviderCapabilities(supports_strict_tools=False)
+        request = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "hello"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "lookup",
+                        "parameters": {"type": "object"},
+                        "strict": True,
+                    },
+                }
+            ],
+        }
+
+        result = apply_capability_filter(request, caps)
+
+        assert "strict" not in result["tools"][0]["function"]
+        assert request["tools"][0]["function"]["strict"] is True
+
+    def test_filter_enable_thinking_when_not_supported(self):
+        """当上游不支持 enable_thinking 时，应移除该非标准参数。"""
+        caps = ProviderCapabilities()
+        request = {
+            "model": "z-ai/glm-5.2",
+            "messages": [{"role": "user", "content": "hello"}],
+            "enable_thinking": True,
+        }
+        result = apply_capability_filter(request, caps)
+        assert "enable_thinking" not in result
+
+    def test_keep_enable_thinking_when_supported(self):
+        """当上游显式支持 enable_thinking 时，应保留该参数。"""
+        caps = ProviderCapabilities(supports_enable_thinking=True)
+        request = {
+            "model": "qwen-plus",
+            "messages": [{"role": "user", "content": "hello"}],
+            "enable_thinking": True,
+        }
+        result = apply_capability_filter(request, caps)
+        assert result["enable_thinking"] is True
 
 
 class TestCapabilityDegradation:
@@ -620,3 +691,51 @@ class TestMergeSystemMessages:
         result = merge_system_messages(messages)
         assert len(result) == 2
         assert result[0]["content"] == "Keep this."
+
+
+class TestAnthropicToChatEnableThinkingIntegration:
+    """Anthropic Messages → OpenAI Chat Completions 时 enable_thinking 的能力过滤回归测试"""
+
+    def test_nvidia_channel_removes_enable_thinking(self):
+        """NVIDIA 等通用上游不应收到非标准的 enable_thinking"""
+        request = {
+            "model": "z-ai/glm-5.2",
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 100,
+            "thinking": {"type": "enabled", "budget_tokens": 4096},
+        }
+        converter = ToChatCompletionsConverter()
+        upstream_data = converter.convert_request(request, APIType.ANTHROPIC.value)
+        assert upstream_data["enable_thinking"] is True
+
+        channel = Channel(
+            name="nvidia",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key="test-key",
+        )
+        caps = infer_capabilities(channel)
+        result = apply_capability_filter(upstream_data, caps)
+        assert "enable_thinking" not in result
+
+    def test_qwen_channel_keeps_enable_thinking(self):
+        """DashScope / 通义千问上游应保留 enable_thinking"""
+        request = {
+            "model": "qwen-plus",
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 100,
+            "thinking": {"type": "enabled", "budget_tokens": 4096},
+        }
+        converter = ToChatCompletionsConverter()
+        upstream_data = converter.convert_request(request, APIType.ANTHROPIC.value)
+        assert upstream_data["enable_thinking"] is True
+
+        channel = Channel(
+            name="qwen",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            api_key="test-key",
+        )
+        caps = infer_capabilities(channel)
+        result = apply_capability_filter(upstream_data, caps)
+        assert result["enable_thinking"] is True

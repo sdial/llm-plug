@@ -6,22 +6,21 @@ from unittest.mock import MagicMock, PropertyMock
 import httpx
 
 from routers.proxy_errors import (
-    safe_httpx_response_content,
-    safe_httpx_response_text,
-    upstream_http_error_message,
-    anthropic_error,
-    anthropic_unauthorized,
-    anthropic_invalid_request,
     anthropic_bad_gateway,
+    anthropic_error,
     anthropic_gateway_timeout,
+    anthropic_invalid_request,
     anthropic_response_from_exception,
-    unauthorized,
-    invalid_request,
+    anthropic_unauthorized,
     bad_gateway,
     gateway_timeout,
+    invalid_request,
     response_from_proxy_exception,
+    safe_httpx_response_content,
+    safe_httpx_response_text,
+    unauthorized,
+    upstream_http_error_message,
 )
-
 
 # ─── helpers ───
 
@@ -105,7 +104,7 @@ class TestSafeHttpxResponseText:
         assert safe_httpx_response_text(resp) == ""
 
     def test_utf8_encoding(self):
-        resp = _make_mock_response("你好".encode("utf-8"))
+        resp = _make_mock_response("你好".encode())
         assert safe_httpx_response_text(resp) == "你好"
 
     def test_invalid_utf8_replaced(self):

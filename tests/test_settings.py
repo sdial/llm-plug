@@ -65,7 +65,7 @@ def test_init_settings_ignores_environment_fallback(tmp_settings_file, monkeypat
         config._SETTINGS_FILE = tmp_settings_file
         config._settings = {}
         config._init_settings_sync()
-        assert config._settings["request_timeout"] == 300
+        assert config._settings["request_timeout"] == 600
     finally:
         config._SETTINGS_FILE = original
 
@@ -79,7 +79,7 @@ def test_init_settings_defaults(tmp_settings_file):
         config._SETTINGS_FILE = tmp_settings_file
         config._settings = {}
         config._init_settings_sync()
-        assert config._settings["request_timeout"] == 300
+        assert config._settings["request_timeout"] == 600
         assert config._settings["max_fail_count"] == 5
     finally:
         config._SETTINGS_FILE = original
@@ -110,8 +110,8 @@ def test_config_defaults():
     assert "debug" not in _CONFIG_SCHEMA
     assert _CONFIG_SCHEMA["host"]["default"] == "0.0.0.0"
     assert _CONFIG_SCHEMA["port"]["default"] == 55555
-    assert _CONFIG_SCHEMA["request_timeout"]["default"] == 300
-    assert _CONFIG_SCHEMA["max_body_size"]["default"] == 10485760
+    assert _CONFIG_SCHEMA["request_timeout"]["default"] == 600
+    assert _CONFIG_SCHEMA["max_body_size"]["default"] == 20971520
     assert "log_level" not in _CONFIG_SCHEMA  # 已移除，改用 --log-level CLI 参数
     assert "database_url" not in _CONFIG_SCHEMA
     assert (
@@ -237,8 +237,45 @@ def test_migrate_lb_config(tmp_path):
         config._migrate_lb_config_sync(channels_file)
         assert config._settings["max_fail_count"] == 8
         assert config._settings["cooldown_seconds"] == 120
-        with open(channels_file, "r") as f:
+        with open(channels_file) as f:
             migrated = json.load(f)
         assert "lb_config" not in migrated
     finally:
         config._SETTINGS_FILE = orig_settings
+
+
+@pytest.mark.anyio
+async def test_init_settings_persists_migrated_lb_config(tmp_path, monkeypatch):
+    """init_settings 迁移 lb_config 后必须写入 settings.json，避免重启后丢失。"""
+    import json
+
+    channels_file = tmp_path / "channels.json"
+    settings_file = tmp_path / "settings.json"
+    channels_file.write_text(
+        json.dumps(
+            {
+                "channels": [],
+                "lb_config": {"max_fail_count": 8, "cooldown_seconds": 120},
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings_file.write_text(json.dumps({}), encoding="utf-8")
+
+    import config
+
+    async def noop_apply_lb_settings():
+        return None
+
+    monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
+    monkeypatch.setattr(config, "_SETTINGS_FILE", str(settings_file))
+    monkeypatch.setattr(config, "_apply_lb_settings", noop_apply_lb_settings)
+    config._settings = {}
+
+    await config.init_settings()
+
+    persisted = json.loads(settings_file.read_text(encoding="utf-8"))
+    assert persisted["max_fail_count"] == 8
+    assert persisted["cooldown_seconds"] == 120
+    migrated = json.loads(channels_file.read_text(encoding="utf-8"))
+    assert "lb_config" not in migrated

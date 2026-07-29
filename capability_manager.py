@@ -4,6 +4,7 @@ Provider Capability 管理模块
 根据渠道配置推断上游提供商的能力，并在请求转发前过滤不支持的参数。
 """
 
+import copy
 from dataclasses import dataclass
 
 from loguru import logger
@@ -17,6 +18,7 @@ class ProviderCapabilities:
     supports_tool_choice_auto: bool = True
     supports_response_format: bool = True
     supports_reasoning_effort: bool = True
+    supports_enable_thinking: bool = False
     supports_file_content: bool = False
     supports_audio_content: bool = False
     supports_image_content: bool = False
@@ -58,6 +60,9 @@ def infer_capabilities(channel, model_name: str = "") -> ProviderCapabilities:
             supports_tool_choice_auto=caps_dict.get("supports_tool_choice_auto", True),
             supports_response_format=caps_dict.get("supports_response_format", True),
             supports_reasoning_effort=caps_dict.get("supports_reasoning_effort", True),
+            supports_enable_thinking=caps_dict.get(
+                "supports_enable_thinking", False
+            ),
             supports_file_content=caps_dict.get("supports_file_content", False),
             supports_audio_content=caps_dict.get("supports_audio_content", False),
             supports_image_content=caps_dict.get("supports_image_content", False),
@@ -80,6 +85,11 @@ def infer_capabilities(channel, model_name: str = "") -> ProviderCapabilities:
     elif "minimax" in base_url:
         caps = ProviderCapabilities(
             requires_single_system_message=True,
+        )
+    # DashScope / 通义千问等国产推理模型支持 enable_thinking 扩展参数
+    elif any(kw in base_url for kw in ("dashscope", "qwen")):
+        caps = ProviderCapabilities(
+            supports_enable_thinking=True,
         )
     else:
         # 默认：全部支持
@@ -121,7 +131,7 @@ def apply_capability_filter(
     Returns:
         过滤后的请求数据
     """
-    result = dict(request_data)
+    result = copy.deepcopy(request_data)
 
     # 过滤 parallel_tool_calls
     if not caps.supports_parallel_tool_calls:
@@ -162,6 +172,11 @@ def apply_capability_filter(
         if "reasoning_effort" in result:
             del result["reasoning_effort"]
             logger.warning("[CAPABILITY] 降级: reasoning_effort 被移除（渠道不支持）")
+
+    # 过滤 enable_thinking（非 OpenAI 标准参数，仅部分国产推理模型支持）
+    if not caps.supports_enable_thinking and "enable_thinking" in result:
+        del result["enable_thinking"]
+        logger.warning("[CAPABILITY] 降级: enable_thinking 被移除（渠道不支持）")
 
     # 过滤 strict tools
     if not caps.supports_strict_tools:
