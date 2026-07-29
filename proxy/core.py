@@ -267,6 +267,14 @@ def _get_upstream_url(channel: Channel) -> str:
     return build_upstream_url(channel)
 
 
+def _safe_response_text(resp: httpx.Response, max_len: int = 1000) -> str:
+    """安全读取响应体用于错误日志，解码失败时回退到 raw bytes repr。"""
+    try:
+        return resp.text[:max_len]
+    except Exception:
+        return repr(resp.content[:max_len])
+
+
 def _build_upstream_headers(
     channel: Channel,
     client_headers: dict[str, str] | None,
@@ -278,6 +286,9 @@ def _build_upstream_headers(
         "x-api-key",
         "content-type",
         "content-length",
+        # 流式响应会按 UTF-8 逐行解析；不转发客户端声明的压缩编码，
+        # 避免不兼容上游返回压缩字节流导致 SSE/JSON 解析失败。
+        "accept-encoding",
         # hop-by-hop headers (RFC 2616 Section 13.5.1)
         "connection",
         "keep-alive",
@@ -294,6 +305,8 @@ def _build_upstream_headers(
 
     headers = get_upstream_headers(channel, forwarded_headers)
     headers["Content-Type"] = "application/json"
+    # Accept-Encoding 由 httpx 自动管理（gzip, deflate, br, zstd），
+    # 不再强制 identity；brotli/zstandard 已装，上游无论返回哪种编码都能解压。
     return headers
 
 
@@ -939,7 +952,7 @@ async def _do_request(
         if resp.is_error:
             logger.error(
                 f"[UPSTREAM ERROR] status={resp.status_code} url={url} "
-                f"body={resp.text[:1000]}"
+                f"body={_safe_response_text(resp)}"
             )
         resp.raise_for_status()
         response_data = resp.json()
@@ -1125,7 +1138,7 @@ async def _do_request(
         # 控制台输出详细错误
         err_body = ""
         if isinstance(e, httpx.HTTPStatusError):
-            err_body = e.response.text[:500]
+            err_body = _safe_response_text(e.response, 500)
             logger.error(f"upstream {e.response.status_code} {url}")
             logger.error(f"body: {err_body}")
         else:
@@ -1295,7 +1308,7 @@ async def _do_stream_request(
                 await resp.aread()
                 logger.error(
                     f"[STREAM UPSTREAM ERROR] status={resp.status_code} url={url} "
-                    f"body={resp.text[:1000]}"
+                    f"body={_safe_response_text(resp)}"
                 )
             resp.raise_for_status()
             resp_status_code = resp.status_code
