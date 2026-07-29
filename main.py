@@ -29,8 +29,8 @@ from storage import load_api_keys, load_data, register_api_keys_save_callback
 STATIC_ASSET_VERSION = "3"
 
 # 应用版本号 — 发布新版本时改这一行即可，无需动 static/index.html
-APP_VERSION = "v1.0.74"
-APP_RELEASE_DATE = "2026-07-28"
+APP_VERSION = "v1.0.75"
+APP_RELEASE_DATE = "2026-07-29"
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
