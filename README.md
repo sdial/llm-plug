@@ -1,50 +1,72 @@
-# LLM-Plug — LLM API 格式转换代理
+<div align="center">
 
-一个 LLM API 格式转换代理服务：客户端用一种 API 格式发请求，服务端自动转换后转发给不同格式的上游 LLM 提供商，再把响应转换回来——对客户端完全透明。
+# LLM-Plug
 
-## 核心功能
+**LLM API Format Conversion Proxy**
 
-- **三种 API 格式互转**：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages。对 Chat Completions 无法表达的 Responses 托管能力，代理会显式拒绝或按渠道能力降级，不做静默丢弃。
-- **负载均衡与故障转移**：优先级分组 + 加权轮询 + 自动健康检查
-- **SOCKS5 代理支持**：每个渠道可独立配置代理
-- **Web 管理界面**：可视化配置渠道、API Key、模型组和业务设置
-- **零配置启动**：无需 `.env`，默认监听 `0.0.0.0:55555`，业务设置写入 `data/settings.json`
-- **请求记录与统计**：请求记录使用 SQLite3，本地持久化，按月分库
+**English** | [中文](./README_zh-CN.md)
 
-## 技术栈
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.136+-009688.svg)](https://fastapi.tiangolo.com/)
 
-| 层级 | 技术 |
-|------|------|
-| 后端 | Python 3.11+ / FastAPI |
-| 前端 | 原生 HTML + TailwindCSS (CDN) |
-| 存储 | JSON 文件 / SQLite3 |
-| HTTP | httpx[socks] |
+</div>
 
-## 快速开始
+---
+
+LLM-Plug is an LLM API format conversion proxy. Clients send requests in one API format, and the proxy transparently converts and forwards them to upstream LLM providers using a different format, then converts the response back — completely invisible to the client.
+
+## Key Features
+
+- **Tri-format Conversion** — Convert between OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages in any combination
+- **Load Balancing & Failover** — Smooth Weighted Round-Robin (SWRR) + priority groups + automatic health checks with cooldown
+- **Model Group Fallback** — Two-tier degradation: switch models within a group first, then switch channels within a model
+- **SOCKS5 Proxy** — Per-channel outbound proxy configuration
+- **Capability Management** — Auto-infer and filter unsupported multimodal content (images, audio, files) per channel/model
+- **Web Admin UI** — Visual management for channels, API keys, model groups, IP whitelist, and settings
+- **Request Logging & Stats** — SQLite persistence with monthly database rotation and raw request/response replay
+- **Security** — Admin session auth (PBKDF2-SHA256), CSRF protection, IP whitelist, SSRF prevention
+- **Zero-config Startup** — No `.env` required, listens on `0.0.0.0:55555` by default
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | Python 3.12+ / FastAPI / Uvicorn |
+| Frontend | Native HTML + TailwindCSS + htmx (local assets, zero CDN dependency) |
+| Storage | JSON files / SQLite3 |
+| HTTP Client | httpx[socks] + brotli + zstandard |
+| Logging | Loguru |
+
+## Quick Start
+
+### Prerequisites
+
+- Python >= 3.12
+- [uv](https://docs.astral.sh/uv/) package manager
+
+### Run Locally
 
 ```bash
-# 1. 安装依赖
+# Install dependencies
 uv sync
 
-# 2. 启动服务
+# Start the server (hot-reload by default)
 uv run python main.py
 
-# 3. 访问管理页面
-# http://localhost:55555/
+# Recommended on Windows (avoids port occupation after reload exit)
+uv run python main.py --no-reload
 ```
 
-## Docker 快速部署
+Visit `http://localhost:55555/admin` to access the admin panel. You'll be prompted to set an admin password on first visit.
 
-使用 Docker 可以快速部署 LLM-Plug，无需安装 Python 环境。
-
-### 使用 docker-compose（推荐）
+### Docker Deployment (Recommended)
 
 ```bash
-# 1. 创建部署目录
 mkdir llm-plug && cd llm-plug
-
-# 2. 创建 docker-compose.yml 文件，内容如下：
 ```
+
+Create a `docker-compose.yml`:
 
 ```yaml
 services:
@@ -64,14 +86,10 @@ services:
 ```
 
 ```bash
-# 3. 启动服务
 docker-compose up -d
-
-# 4. 访问管理页面
-# http://localhost:55555/
 ```
 
-### 使用 docker run
+Or use `docker run`:
 
 ```bash
 docker run -d \
@@ -83,32 +101,66 @@ docker run -d \
   ghcr.io/sdial/llm-plug:latest
 ```
 
-### 数据持久化
+## Supported API Endpoints
 
-- **配置数据**：`./data` 目录包含所有业务配置，建议定期备份
-- **日志文件**：`./logs` 目录包含运行日志
-- **环境变量**：Docker 部署时不需要传入配置环境变量，所有业务配置在前端设置页完成
-
-## 文档导航
-
-| 文档 | 说明 |
-|------|------|
-| [快速上手](docs/getting-started.md) | 安装、配置、使用指南 |
-| [架构设计](docs/architecture.md) | 核心概念、请求流程、模块划分 |
-| [模块详解](docs/modules.md) | 各模块详细实现文档 |
-| [部署指南](docs/deployment.md) | 零配置启动、Docker、生产部署 |
-| [故障排查](docs/troubleshooting.md) | 常见问题与解决方案 |
-
-## 支持的 API 格式
-
-| 格式 | 代理端点 |
-|------|----------|
+| Format | Endpoint |
+|--------|----------|
 | OpenAI Chat Completions | `POST /v1/chat/completions` |
 | OpenAI Responses | `POST /v1/responses` |
 | Anthropic Messages | `POST /v1/messages` |
+| Model List | `GET /v1/models` |
 
-`GET /v1/responses/{id}` 和 `DELETE /v1/responses/{id}` 只读取或删除代理本地保存的 Responses 状态，不会转发到上游官方 Responses API。
+Clients only need to use any of the endpoints above — the proxy handles format conversion automatically. `GET /v1/responses/{id}` and `DELETE /v1/responses/{id}` operate on locally stored Responses session state.
+
+## Conversion Matrix
+
+| Inbound \ Upstream | Chat Completions | Responses | Anthropic |
+|---|---|---|---|
+| **Chat Completions** | Passthrough | ✅ | ✅ |
+| **Responses** | ✅ | Passthrough | ✅ |
+| **Anthropic** | ✅ | ✅ | Passthrough |
+
+Both streaming and non-streaming modes are supported.
+
+## Data Persistence
+
+All runtime data is stored in the `data/` directory:
+
+| File | Purpose |
+|------|---------|
+| `channels.json` | Channel and model group configuration |
+| `api_keys.json` | Client access keys |
+| `settings.json` | Business settings (timeouts, load balancing, etc.) |
+| `admin_auth.json` | Admin password hash |
+| `whitelist.csv` | IP whitelist rules |
+| `stats.db` | Statistics aggregation (by channel/model/day) |
+| `request_logs.db` | Request logs (monthly rotation) |
+
+For Docker deployments, mount `./data` and `./logs` for persistence. Regular backups are recommended.
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Getting Started](docs/getting-started.md) | Installation, configuration, and usage guide |
+| [Architecture](docs/architecture.md) | Core concepts, request flow, module layout |
+| [Module Reference](docs/modules.md) | Detailed implementation docs per module |
+| [Deployment Guide](docs/deployment.md) | Zero-config startup, Docker, production deployment |
+| [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
+
+## Development
+
+```bash
+# Run tests
+uv run pytest
+
+# Lint
+uv run ruff check .
+
+# Format
+uv run ruff format .
+```
 
 ## License
 
-MIT
+[MIT](./LICENSE)
