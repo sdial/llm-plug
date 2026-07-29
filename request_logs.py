@@ -9,7 +9,7 @@ import json
 import os
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from loguru import logger
@@ -82,14 +82,14 @@ _REQUEST_WRITE_TIMEOUT = 60
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _normalize_to_utc_aware(value: datetime) -> datetime:
     """naive 输入按 UTC 解释；aware 转 UTC。返回 aware UTC datetime。"""
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _normalize_to_utc_naive(value: datetime) -> datetime:
@@ -277,27 +277,6 @@ class SQLiteRequestLogBackend:
                     CREATE INDEX IF NOT EXISTS idx_request_logs_api_key ON request_logs(api_key_id);
                     CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip);
                     """
-                )
-        else:
-            with closing(sqlite3.connect(path)) as conn, conn:
-                existing = {
-                    row[1] for row in conn.execute("PRAGMA table_info(request_logs)")
-                }
-                migrations = {
-                    "client_ip": "TEXT",
-                    "cache_read_input_tokens": "INTEGER NOT NULL DEFAULT 0",
-                    "cache_creation_input_tokens": "INTEGER NOT NULL DEFAULT 0",
-                }
-                for column, definition in migrations.items():
-                    if column not in existing:
-                        conn.execute(
-                            f"ALTER TABLE request_logs ADD COLUMN {column} {definition}"
-                        )
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip)"
-                )
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_request_logs_list_order ON request_logs(timestamp DESC, id DESC)"
                 )
         return path
 
@@ -760,7 +739,7 @@ async def _request_log_worker() -> None:
                     await asyncio.wait_for(
                         backend.write_record(record), timeout=_REQUEST_WRITE_TIMEOUT
                     )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     f"Request log write timed out ({_REQUEST_WRITE_TIMEOUT}s), "
                     f"discarding record for model={record.get('model')}"

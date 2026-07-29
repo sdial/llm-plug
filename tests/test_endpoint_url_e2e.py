@@ -10,17 +10,14 @@
 
 import json
 
-
 import config
 import storage
-
 
 # ═══════════════════════════════════════════
 #  URL 构建函数直接测试（高级覆盖路径）
 # ═══════════════════════════════════════════
-
 from models.channel import Channel
-from url_builder import build_upstream_url, build_models_url
+from url_builder import build_models_url, build_upstream_url
 
 
 class TestEndpointUrlInBuildUpstreamUrl:

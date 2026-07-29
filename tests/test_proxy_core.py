@@ -1,6 +1,6 @@
 import asyncio
 import json
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -11,6 +11,7 @@ from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 from models.channel import Channel
 from proxy_core import (
+    CONVERTER_MAP,
     AllChannelsExhausted,
     _build_anthropic_stream_response,
     _build_openai_stream_response,
@@ -20,12 +21,12 @@ from proxy_core import (
     _get_channels_for_model,
     _get_converter_and_upstream_type,
     _get_upstream_url,
+    _is_channel_config_error,
+    _is_retryable_exception,
+    _model_channels_cache,
     _proxy_single_model_request,
     _raise_preflight_stream_errors,
     _yield_anthropic_event,
-    CONVERTER_MAP,
-    _is_channel_config_error,
-    _model_channels_cache,
 )
 
 
@@ -271,6 +272,14 @@ class TestStreamPreflight:
         assert closed is True
 
 
+class TestRetryableException:
+    def test_proxy_error_is_retryable_transport_failure(self):
+        request = httpx.Request("POST", "https://upstream.example/v1/chat/completions")
+        exc = httpx.ProxyError("proxy unavailable", request=request)
+
+        assert _is_retryable_exception(exc) is True
+
+
 class TestChannelConfigError:
     def test_auth_and_not_found_statuses_are_channel_config_errors(self):
         request = httpx.Request("POST", "https://upstream.example/v1/messages")
@@ -316,6 +325,76 @@ class TestChannelConfigError:
 
 
 class TestModelGroupFallbackErrors:
+    def test_model_schedule_accepts_time_window_objects(self):
+        import proxy_core
+        from models.model_group import TimeWindow
+
+        assert proxy_core._is_model_blocked_by_schedule(
+            "model-a",
+            {
+                "model-a": [
+                    TimeWindow(start="00:00", end="23:59", enabled=True),
+                ]
+            },
+        )
+
+    @pytest.mark.anyio
+    async def test_model_group_schedule_skips_blocked_model(self, monkeypatch):
+        import proxy_core
+        from models.api_types import APIType
+        from models.channel import Channel
+        from models.model_group import ModelGroup, TimeWindow
+
+        channel_b = Channel(
+            id="ch_b",
+            name="Channel B",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://b.example",
+            api_key="sk-b",
+            models=["model-b"],
+        )
+        group = ModelGroup(
+            id="grp_1",
+            name="production-group",
+            models=["model-a", "model-b"],
+            model_schedules={
+                "model-a": [TimeWindow(start="00:00", end="23:59", enabled=True)]
+            },
+            enabled=True,
+        )
+        requested_models = []
+
+        async def fake_get_channels(model):
+            requested_models.append(model)
+            return [channel_b] if model == "model-b" else []
+
+        async def fake_select_channel(channels, **kwargs):
+            return channels[0]
+
+        async def fake_do_request(channel, request_data, *args, **kwargs):
+            return {"model": request_data["model"], "channel": channel.id}
+
+        monkeypatch.setattr(proxy_core, "_get_channels_for_model", fake_get_channels)
+        monkeypatch.setattr(
+            proxy_core.load_balancer, "select_channel", fake_select_channel
+        )
+        monkeypatch.setattr(proxy_core, "_do_request", fake_do_request)
+
+        result, selected = await proxy_core._proxy_model_group_request(
+            group,
+            {"model": group.name, "messages": [{"role": "user", "content": "hi"}]},
+            APIType.OPENAI_CHAT,
+            False,
+            None,
+            None,
+            None,
+            None,
+        )
+
+        assert requested_models == ["model-b"]
+        assert result == {"model": "model-b", "channel": "ch_b"}
+        assert selected == channel_b
+
     @pytest.mark.anyio
     async def test_exhausted_model_group_error_includes_group_and_models(self):
         import storage
@@ -1727,6 +1806,7 @@ class TestDoRequest:
                     "messages": [
                         {"role": "user", "content": "Hello"},
                         {"role": "assistant", "content": "Hi there"},
+                        {"type": "reasoning", "id": "rs_1", "summary": []},
                     ],
                     "instructions": "Be terse.",
                 }
@@ -1864,6 +1944,60 @@ class TestDoRequest:
         assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 5000
         assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 200
 
+    @pytest.mark.anyio
+    async def test_non_stream_chat_usage_null_does_not_crash(self):
+        """直通 Chat→Chat 非流式：上游返回 usage: null 时不崩溃，tokens 为 0。"""
+        upstream_response = {
+            "id": "chatcmpl-001",
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hello"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": None,
+        }
+
+        class FakeClient:
+            async def post(self, url, json, headers):
+                request = httpx.Request("POST", url)
+                return httpx.Response(200, json=upstream_response, request=request)
+
+        channel = Channel(
+            id="ch_nvidia",
+            name="NVIDIA",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://integrate.api.nvidia.com",
+            api_key="nvapi-test",
+            models=["z-ai/glm-5.2"],
+        )
+
+        with (
+            patch(
+                "proxy_core.create_client",
+                new_callable=AsyncMock,
+                return_value=FakeClient(),
+            ),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            response = await _do_request(
+                channel,
+                {
+                    "model": "z-ai/glm-5.2",
+                    "messages": [{"role": "user", "content": "hello"}],
+                },
+                APIType.OPENAI_CHAT,
+                is_stream=False,
+            )
+
+        assert response["choices"][0]["message"]["content"] == "Hello"
+        assert request_log_record.call_args.kwargs["input_tokens"] == 0
+        assert request_log_record.call_args.kwargs["output_tokens"] == 0
+        assert request_log_record.call_args.kwargs["success"] is True
+
 
 class TestDoStreamRequest:
     @pytest.mark.anyio
@@ -1920,6 +2054,67 @@ class TestDoStreamRequest:
         joined = "".join(outputs)
         assert "event: message_start" in joined
         assert "_event_type" not in joined
+
+    @pytest.mark.anyio
+    async def test_same_type_chat_stream_usage_null_does_not_crash(self):
+        """直通 Chat→Chat 流式：上游 chunk 中 usage: null 时不崩溃，tokens 为 0。"""
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"}}],"usage":null}'
+                yield ""
+                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}'
+                yield ""
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_nvidia",
+            name="NVIDIA",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://integrate.api.nvidia.com",
+            api_key="nvapi-test",
+            models=["z-ai/glm-5.2"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://integrate.api.nvidia.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "z-ai/glm-5.2", "stream": True},
+                response_converter=None,
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_CHAT,
+            )
+            [chunk async for chunk in stream]
+
+        assert request_log_record.call_args.kwargs["input_tokens"] == 0
+        assert request_log_record.call_args.kwargs["output_tokens"] == 0
+        assert request_log_record.call_args.kwargs["success"] is True
 
     @pytest.mark.anyio
     async def test_same_type_anthropic_stream_preserves_event_type_for_multiline_data(
@@ -4976,9 +5171,9 @@ class TestDoRequestSetsIncludeUsage:
 async def test_single_model_select_channel_receives_request_context(monkeypatch):
     from unittest.mock import AsyncMock
 
+    import proxy_core
     from models.api_types import APIType
     from models.channel import Channel
-    import proxy_core
 
     channel = Channel(
         id="ch_ctx",
@@ -5032,10 +5227,10 @@ async def test_single_model_select_channel_receives_request_context(monkeypatch)
 async def test_model_group_select_channel_receives_request_context(monkeypatch):
     from unittest.mock import AsyncMock
 
+    import proxy_core
     from models.api_types import APIType
     from models.channel import Channel
     from models.model_group import ModelGroup
-    import proxy_core
 
     channel = Channel(
         id="ch_ctx_group",

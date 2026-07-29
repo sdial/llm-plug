@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from config import get_setting, _CONFIG_SCHEMA
+from config import _CONFIG_SCHEMA, get_setting
 
 
 def test_response_state_config_schema():

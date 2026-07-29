@@ -3,7 +3,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from models.api_types import APIType
 from models.channel import Channel
 
-
 _UPSTREAM_PATHS = {
     APIType.OPENAI_CHAT.value: "/chat/completions",
     APIType.OPENAI_RESPONSE.value: "/responses",

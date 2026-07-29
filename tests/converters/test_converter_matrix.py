@@ -5,7 +5,6 @@ from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
 from models.api_types import APIType
 
-
 # ─── OpenAI Chat → Anthropic (OpenCode → Anthropic渠道) ───
 
 
@@ -274,6 +273,33 @@ class TestChatToResponse:
         assert "input" in result
         assert result["model"] == "gpt-4o"
 
+    def test_non_stream_response_preserves_multiple_choices_as_output_messages(self):
+        response = {
+            "id": "chatcmpl_multi",
+            "created": 123,
+            "model": "gpt-4o",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "First answer"},
+                    "finish_reason": "stop",
+                },
+                {
+                    "index": 1,
+                    "message": {"role": "assistant", "content": "Second answer"},
+                    "finish_reason": "stop",
+                },
+            ],
+        }
+
+        result = self.converter.convert_response(response, APIType.OPENAI_CHAT)
+
+        assert [item["content"][0]["text"] for item in result["output"]] == [
+            "First answer",
+            "Second answer",
+        ]
+        assert result["output_text"] == "First answer\nSecond answer"
+
 
 # ─── 透传测试 ───
 
@@ -388,9 +414,9 @@ class TestConverterRouting:
 
     def test_passthrough_same_type(self):
         """同格式应返回 None, None"""
-        from proxy_core import _get_converter_and_upstream_type
-        from models.channel import Channel
         from models.api_types import APIType
+        from models.channel import Channel
+        from proxy_core import _get_converter_and_upstream_type
 
         channel = Channel(
             name="test",
@@ -406,8 +432,9 @@ class TestConverterRouting:
 
     def test_unsupported_direction_raises(self):
         """不支持的转换方向应抛出 ValueError"""
-        import pytest
         from unittest.mock import patch
+
+        import pytest
 
         # 验证 CONVERTER_MAP 对不存在的键返回 None
         from proxy_core import CONVERTER_MAP
@@ -415,9 +442,9 @@ class TestConverterRouting:
         assert CONVERTER_MAP.get(("nonexistent", "type")) is None
 
         # 通过 mock CONVERTER_MAP.get 触发 ValueError 分支
-        from proxy_core import _get_converter_and_upstream_type
-        from models.channel import Channel
         from models.api_types import APIType
+        from models.channel import Channel
+        from proxy_core import _get_converter_and_upstream_type
 
         channel = Channel(
             name="test",

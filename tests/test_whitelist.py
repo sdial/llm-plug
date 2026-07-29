@@ -4,7 +4,6 @@ import time
 
 import whitelist as wl
 
-
 # ─── load_rules ───
 
 

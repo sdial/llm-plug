@@ -178,11 +178,26 @@ async function copyApiKey(id) {
         }
         const result = await resp.json();
         if (result.key) {
-            await navigator.clipboard.writeText(result.key);
+            await copyToClipboard(result.key);
             showGlobalToast('Key 已复制到剪贴板', 'success');
         }
     } catch (e) {
         showGlobalToast('复制失败: ' + e.message);
+    }
+}
+
+async function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+    } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
     }
 }
 
@@ -194,17 +209,11 @@ function closeCopyKeyModal() {
 async function doCopyKey() {
     if (!pendingCopyKey) return;
     try {
-        await navigator.clipboard.writeText(pendingCopyKey);
-        closeCopyKeyModal();
+        await copyToClipboard(pendingCopyKey);
     } catch (e) {
-        const textarea = document.createElement('textarea');
-        textarea.value = pendingCopyKey;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-        closeCopyKeyModal();
+        // copyToClipboard 内部已有 textarea fallback，此处仅捕获极端情况
     }
+    closeCopyKeyModal();
 }
 
 function initApiKeys() {

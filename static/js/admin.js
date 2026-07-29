@@ -209,7 +209,7 @@ function switchTab(tab, updateHash = true) {
 function initTabFromHash() {
     const hash = window.location.hash.slice(1);
     const [tab, queryString] = hash.split('?');
-    const validTabs = ['channels', 'apikeys', 'lb', 'stats', 'requests', 'settings', 'whitelist'];
+    const validTabs = ['channels', 'apikeys', 'lb', 'stats', 'requests', 'settings', 'whitelist', 'storage'];
     if (tab && validTabs.includes(tab)) {
         if (tab === 'requests' && queryString) {
             pendingRequestHashQuery = queryString;
@@ -226,6 +226,7 @@ function _isAdminContentReady() {
     if (currentTab === 'requests') return Boolean(document.getElementById('requestsTbody') || document.getElementById('reqFilterModel'));
     if (currentTab === 'settings') return Boolean(document.getElementById('set_host') || document.getElementById('settings_server'));
     if (currentTab === 'whitelist') return Boolean(document.getElementById('whitelist_content') || document.getElementById('whitelist_save_btn'));
+    if (currentTab === 'storage') return Boolean(document.getElementById('storageTab'));
     return false;
 }
 
@@ -282,6 +283,10 @@ function _bootstrapCurrentTab() {
         loadSettings();
     } else if (currentTab === 'whitelist') {
         loadWhitelist();
+    } else if (currentTab === 'storage') {
+        if (typeof window.loadStorageStats === 'function') {
+            window.loadStorageStats();
+        }
     }
 }
 
@@ -314,5 +319,6 @@ window.addEventListener('hashchange', () => {
 window.switchTab = switchTab;
 window.initTabFromHash = initTabFromHash;
 window.logoutAdmin = logoutAdmin;
+window.getCsrfToken = getCsrfToken;
 
 })();

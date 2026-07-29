@@ -461,6 +461,28 @@ class TestChatToAnthropic:
         md = delta_events[-1][1]
         assert md["usage"] == {"output_tokens": 50}
 
+    def test_chat_to_anthropic_stream_usage_null_starts_message(self):
+        """兼容 OpenAI-compatible 流式 chunk 中显式 usage: null。"""
+        chunk = {
+            "id": "chatcmpl-a",
+            "model": "z-ai/glm-5.2",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant"},
+                    "finish_reason": None,
+                }
+            ],
+            "usage": None,
+        }
+
+        events = self.converter.convert_stream_chunk(
+            chunk, APIType.OPENAI_CHAT.value
+        )
+
+        assert events["type"] == "message_start"
+        assert events["message"]["usage"]["input_tokens"] == 0
+
     def test_chat_to_anthropic_stream_content_filter_maps_to_refusal(self):
         """Chat 流式 content_filter finish_reason 应映射为 Anthropic refusal stop_reason。"""
         chunks = [

@@ -1,14 +1,14 @@
 import json
 import time
 
+import httpx
 import pytest
 import pytest_asyncio
-import httpx
 
 import config
 import storage
-from admin_auth import change_admin_password, setup_admin_password, get_admin_auth_state
-from config import _CONFIG_SCHEMA, _CONFIG_CONSTRAINTS
+from admin_auth import change_admin_password, get_admin_auth_state, setup_admin_password
+from config import _CONFIG_CONSTRAINTS, _CONFIG_SCHEMA
 from main import app
 from tests.admin_auth_utils import login_admin
 
@@ -95,7 +95,7 @@ def test_lockout_tier_calculation():
 
 def test_lockout_check_blocks_during_lockout():
     """验证封锁期间拒绝请求"""
-    from routers.admin import _login_attempts, _check_login_allowed
+    from routers.admin import _check_login_allowed, _login_attempts
 
     # 模拟10次失败
     ip = "192.168.1.1"
@@ -110,7 +110,7 @@ def test_lockout_check_blocks_during_lockout():
 
 def test_lockout_check_allows_after_cooldown():
     """验证冷却后允许请求"""
-    from routers.admin import _login_attempts, _check_login_allowed
+    from routers.admin import _check_login_allowed, _login_attempts
 
     ip = "192.168.1.2"
     # 模拟10次失败，但都是70秒前（超过60秒封锁）
@@ -124,8 +124,8 @@ def test_lockout_check_allows_after_cooldown():
 def test_lockout_tier_escalation():
     """验证阶梯递增"""
     from routers.admin import (
-        _login_attempts,
         _check_login_allowed,
+        _login_attempts,
         _record_login_failure,
     )
 

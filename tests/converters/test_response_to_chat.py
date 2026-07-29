@@ -370,6 +370,27 @@ class TestResponseRequestToChat:
         }
         assert result["messages"][1] == {"role": "user", "content": "Hello"}
 
+    def test_instructions_and_system_input_are_merged_into_one_system_message(self):
+        request = {
+            "model": "gpt-4o",
+            "instructions": "Follow policy.",
+            "input": [
+                {"role": "developer", "content": "Use concise answers."},
+                {"role": "system", "content": "Prefer metric units."},
+                {"role": "user", "content": "Hello"},
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+        assert result["messages"] == [
+            {
+                "role": "system",
+                "content": "Follow policy.\n\nUse concise answers.\n\nPrefer metric units.",
+            },
+            {"role": "user", "content": "Hello"},
+        ]
+
     def test_structured_input_text_content_is_preserved(self):
         request = {
             "model": "gpt-4o",
@@ -528,6 +549,30 @@ class TestResponseRequestToChat:
         }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
         assert result["messages"] == [{"role": "user", "content": "Hello"}]
+
+    def test_drops_reasoning_history_items(self):
+        request = {
+            "model": "gpt-4o",
+            "input": [
+                {"role": "user", "content": "Hello"},
+                {"type": "reasoning", "id": "rs_1", "summary": []},
+                {"role": "user", "content": "Continue"},
+            ],
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["messages"] == [
+            {"role": "user", "content": "Hello"},
+            {"role": "user", "content": "Continue"},
+        ]
+
+    def test_streaming_request_forces_chat_usage_chunk(self):
+        request = {
+            "model": "gpt-4o",
+            "input": "Hello",
+            "stream": True,
+        }
+        result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+        assert result["stream_options"] == {"include_usage": True}
 
 
 class TestResponseRequestFieldContract:

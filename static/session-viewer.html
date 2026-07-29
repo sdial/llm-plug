@@ -908,7 +908,7 @@
             }
 
             return `
-                <div class="chunk-item" onclick="showChunkDetail(${index})">
+                <div class="chunk-item" onclick="showChunkDetail(${index}, event)">
                     <div class="chunk-header">
                         <span class="chunk-index">Chunk ${index + 1}</span>
                         <span class="chunk-type">${chunkType}</span>
@@ -1037,9 +1037,9 @@
         }
 
         // 显示chunk详情
-        function showChunkDetail(chunkIndex) {
+        function showChunkDetail(chunkIndex, evt) {
             // 找到对应的chunk
-            const turnEl = event.target.closest('.turn');
+            const turnEl = evt.target.closest('.turn');
             const turnIndex = Array.from(document.querySelectorAll('.turn')).indexOf(turnEl);
             const chunk = sessionData[turnIndex]?.response?.stream_content?.[chunkIndex];
 
@@ -1075,8 +1075,23 @@
         // 复制JSON
         function copyJson(index) {
             const json = JSON.stringify(sessionData[index], null, 2);
-            navigator.clipboard.writeText(json);
-            alert('已复制到剪贴板');
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(json);
+                } else {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = json;
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                }
+                alert('已复制到剪贴板');
+            } catch (e) {
+                alert('复制失败: ' + e.message);
+            }
         }
 
         // Modal操作

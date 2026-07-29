@@ -1,10 +1,11 @@
-import pytest
 import asyncio
 import json
 import os
 import time
-from pathlib import Path
 from multiprocessing import Process
+from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture(scope="session")
@@ -110,6 +111,7 @@ def _setup_e2e_channels():
 
 def _run_mock_server():
     import uvicorn
+
     from tests.mock_server import app
 
     uvicorn.run(app, host="127.0.0.1", port=19999, log_level="error", loop="auto")
@@ -139,8 +141,8 @@ def e2e_mock_server():
 @pytest.fixture
 def e2e_client(e2e_mock_server):
     """创建 E2E 测试客户端（每次清除 storage 缓存和 proxy_core 渠道缓存）"""
-    import storage
     import proxy_core
+    import storage
 
     storage._cache = None
     storage._cache_ts = 0
@@ -149,8 +151,9 @@ def e2e_client(e2e_mock_server):
     storage._channels_lock = None
     storage._keys_lock = None
     proxy_core._model_channels_cache = None
-    from main import app
     from fastapi.testclient import TestClient
+
+    from main import app
 
     with TestClient(app) as c:
         yield c

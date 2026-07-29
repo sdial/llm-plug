@@ -1,6 +1,6 @@
 import contextlib
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -258,7 +258,7 @@ async def test_init_db_migrates_existing_stats_db_for_cache_token_columns(tmp_pa
 async def test_refresh_missing_daily_stats_uses_timestamp_index_for_date_cutoff(
     sqlite_stats_db, monkeypatch
 ):
-    old_ts = (datetime.now(timezone.utc) - timedelta(days=3)).replace(tzinfo=None)
+    old_ts = (datetime.now(UTC) - timedelta(days=3)).replace(tzinfo=None)
     conn = sqlite3.connect(str(sqlite_stats_db))
     conn.row_factory = sqlite3.Row
     conn.execute(

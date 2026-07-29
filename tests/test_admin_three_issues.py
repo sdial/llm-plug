@@ -18,7 +18,6 @@ import storage
 from main import app
 from routers import admin
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -254,8 +253,9 @@ class TestMutatorNoHTTPException:
 
         mutator 应返回 None 标记未找到，由外层 atomic_update_data 返回后抛异常。
         """
-        from routers.admin import update_channel, delete_channel, toggle_channel
         import re
+
+        from routers.admin import delete_channel, toggle_channel, update_channel
 
         for func in [update_channel, delete_channel, toggle_channel]:
             source = inspect.getsource(func)
@@ -285,16 +285,12 @@ class TestLoginRateLimitMemoryLeak:
         admin._LOGIN_RATE_LIMIT_WINDOW_SECONDS = 1
 
         try:
-            now = time.monotonic()
             # ip1: 已过期的条目
-            admin._login_attempts["192.168.1.1"] = [now - 10]
+            admin._login_attempts["192.168.1.1"] = [time.monotonic() - 10]
             # ip2: 未过期的条目
-            admin._login_attempts["192.168.1.2"] = [now]
+            admin._login_attempts["192.168.1.2"] = [time.monotonic()]
 
-            # 等待 ip1 的记录过期
-            time.sleep(1.1)
-
-            # 查询 ip2 应同时清理 ip2 的过期条目
+            # 查询 ip2 不应误删仍在窗口内的记录
             admin._check_login_allowed("192.168.1.2")
 
             # ip2 只有未过期的记录

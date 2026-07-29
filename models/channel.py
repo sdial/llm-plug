@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -34,63 +34,61 @@ class Channel(BaseModel):
     name: str
     api_type: APIType
     base_url: str
-    endpoint_url: Optional[str] = None
-    models_url: Optional[str] = None
+    endpoint_url: str | None = None
+    models_url: str | None = None
     api_key: str
     models: list[str] = Field(default_factory=list)
     enabled: bool = True
     weight: int = Field(default=1, ge=1)
     priority: int = Field(default=1, ge=1)
-    socks5_proxy: Optional[str] = None
-    capabilities: Optional[dict[str, Any]] = None
-    model_capabilities: Optional[dict[str, ModelCapabilities]] = None
-    anthropic_version: Optional[str] = None
+    socks5_proxy: str | None = None
+    capabilities: dict[str, Any] | None = None
+    model_capabilities: dict[str, ModelCapabilities] | None = None
+    anthropic_version: str | None = None
     anthropic_version_policy: AnthropicVersionPolicy = AnthropicVersionPolicy.CHANNEL
-    anthropic_beta: Optional[str] = None
+    anthropic_beta: str | None = None
     anthropic_beta_policy: AnthropicBetaPolicy = AnthropicBetaPolicy.CHANNEL
-    allow_format_conversion: Optional[bool] = None
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    allow_format_conversion: bool | None = None
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 class ChannelCreate(BaseModel):
     name: str
     api_type: APIType
     base_url: str
-    endpoint_url: Optional[str] = None
-    models_url: Optional[str] = None
+    endpoint_url: str | None = None
+    models_url: str | None = None
     api_key: str
     models: list[str] = Field(default_factory=list)
     enabled: bool = True
     weight: int = Field(default=1, ge=1)
     priority: int = Field(default=1, ge=1)
-    socks5_proxy: Optional[str] = None
-    capabilities: Optional[dict[str, Any]] = None
-    model_capabilities: Optional[dict[str, ModelCapabilities]] = None
-    anthropic_version: Optional[str] = None
+    socks5_proxy: str | None = None
+    capabilities: dict[str, Any] | None = None
+    model_capabilities: dict[str, ModelCapabilities] | None = None
+    anthropic_version: str | None = None
     anthropic_version_policy: AnthropicVersionPolicy = AnthropicVersionPolicy.CHANNEL
-    anthropic_beta: Optional[str] = None
+    anthropic_beta: str | None = None
     anthropic_beta_policy: AnthropicBetaPolicy = AnthropicBetaPolicy.CHANNEL
-    allow_format_conversion: Optional[bool] = None
+    allow_format_conversion: bool | None = None
 
 
 class ChannelUpdate(BaseModel):
-    name: Optional[str] = None
-    api_type: Optional[APIType] = None
-    base_url: Optional[str] = None
-    endpoint_url: Optional[str] = None
-    models_url: Optional[str] = None
-    api_key: Optional[str] = None
-    models: Optional[list[str]] = None
-    enabled: Optional[bool] = None
-    weight: Optional[int] = Field(default=None, ge=1)
-    priority: Optional[int] = Field(default=None, ge=1)
-    socks5_proxy: Optional[str] = None
-    capabilities: Optional[dict[str, Any]] = None
-    model_capabilities: Optional[dict[str, ModelCapabilities]] = None
-    anthropic_version: Optional[str] = None
-    anthropic_version_policy: Optional[AnthropicVersionPolicy] = None
-    anthropic_beta: Optional[str] = None
-    anthropic_beta_policy: Optional[AnthropicBetaPolicy] = None
-    allow_format_conversion: Optional[bool] = None
+    name: str | None = None
+    api_type: APIType | None = None
+    base_url: str | None = None
+    endpoint_url: str | None = None
+    models_url: str | None = None
+    api_key: str | None = None
+    models: list[str] | None = None
+    enabled: bool | None = None
+    weight: int | None = Field(default=None, ge=1)
+    priority: int | None = Field(default=None, ge=1)
+    socks5_proxy: str | None = None
+    capabilities: dict[str, Any] | None = None
+    model_capabilities: dict[str, ModelCapabilities] | None = None
+    anthropic_version: str | None = None
+    anthropic_version_policy: AnthropicVersionPolicy | None = None
+    anthropic_beta: str | None = None
+    anthropic_beta_policy: AnthropicBetaPolicy | None = None
+    allow_format_conversion: bool | None = None

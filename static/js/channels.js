@@ -14,6 +14,7 @@ let pendingTestChannelId = null;
 let pendingConfirmAction = null;
 let lastChannelsInitRoot = null;
 let lastChannelsApiTypeInput = null;
+let lastChannelListContainer = null;
 
 
 async function fetchModels() {
@@ -194,28 +195,31 @@ function renderChannels() {
         </div>
     `;
 
-    // 事件委托：避免内联 onclick 拼接字符串的 XSS 风险
-    container.addEventListener('click', (e) => {
-        const modelPill = e.target.closest('.model-cap-pill');
-        if (modelPill) {
-            openModelCapModal(modelPill.dataset.channelId, modelPill.dataset.model);
-            return;
-        }
-        const statusPill = e.target.closest('.toggle-status-pill');
-        if (statusPill) {
-            toggleStatusWithConfirm(statusPill.dataset.channelId, statusPill.dataset.enabled === 'true');
-            return;
-        }
-        const editBtn = e.target.closest('.edit-channel-btn');
-        if (editBtn) {
-            editChannel(editBtn.dataset.channelId);
-            return;
-        }
-        const testBtn = e.target.closest('.test-channel-btn');
-        if (testBtn) {
-            openTestModal(testBtn.dataset.channelId);
-        }
-    });
+    // 事件委托：避免内联 onclick 拼接字符串的 XSS 风险（仅绑定一次）
+    if (container !== lastChannelListContainer) {
+        lastChannelListContainer = container;
+        container.addEventListener('click', (e) => {
+            const modelPill = e.target.closest('.model-cap-pill');
+            if (modelPill) {
+                openModelCapModal(modelPill.dataset.channelId, modelPill.dataset.model);
+                return;
+            }
+            const statusPill = e.target.closest('.toggle-status-pill');
+            if (statusPill) {
+                toggleStatusWithConfirm(statusPill.dataset.channelId, statusPill.dataset.enabled === 'true');
+                return;
+            }
+            const editBtn = e.target.closest('.edit-channel-btn');
+            if (editBtn) {
+                editChannel(editBtn.dataset.channelId);
+                return;
+            }
+            const testBtn = e.target.closest('.test-channel-btn');
+            if (testBtn) {
+                openTestModal(testBtn.dataset.channelId);
+            }
+        });
+    }
 }
 
 function openTestModal(channelId) {

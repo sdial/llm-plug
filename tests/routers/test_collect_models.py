@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from routers.proxy_models import _collect_models
 import storage
+from routers.proxy_models import _collect_models
 
 
 @pytest.fixture(autouse=True)

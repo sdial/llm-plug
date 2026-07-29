@@ -90,11 +90,21 @@ async def close_all_clients():
         _retired_clients.clear()
 
 
+def _retired_client_close_delay_seconds() -> float:
+    """旧客户端延迟关闭时间，不短于当前请求超时。"""
+    return max(_RETIRED_CLIENT_CLOSE_DELAY_SECONDS, float(config.REQUEST_TIMEOUT))
+
+
+def _retire_clients_locked(clients: list[httpx.AsyncClient]) -> list[httpx.AsyncClient]:
+    retired = [client for client in clients if not client.is_closed]
+    _retired_clients.update(retired)
+    return retired
+
+
 async def invalidate_all_clients():
     """让后续请求使用新客户端，并延迟关闭旧客户端以避免中断在途请求。"""
     async with _lock:
-        retired = [client for client in _clients.values() if not client.is_closed]
-        _retired_clients.update(retired)
+        retired = _retire_clients_locked(list(_clients.values()))
         _clients.clear()
         _cache_ts.clear()
     if retired:
@@ -102,7 +112,7 @@ async def invalidate_all_clients():
 
 
 async def _close_retired_clients_later(clients: list[httpx.AsyncClient]) -> None:
-    await asyncio.sleep(_RETIRED_CLIENT_CLOSE_DELAY_SECONDS)
+    await asyncio.sleep(_retired_client_close_delay_seconds())
     async with _lock:
         for retired in clients:
             _retired_clients.discard(retired)
@@ -123,12 +133,16 @@ async def cleanup_stale_clients(max_age: float = 300.0):
 
 
 async def _evict_lru_clients_locked() -> None:
+    evicted: list[httpx.AsyncClient] = []
     while len(_clients) > _MAX_CACHED_CLIENTS:
         oldest_key = min(_cache_ts, key=_cache_ts.get)
         oldest_client = _clients.pop(oldest_key, None)
         _cache_ts.pop(oldest_key, None)
-        if oldest_client and not oldest_client.is_closed:
-            await oldest_client.aclose()
+        if oldest_client is not None:
+            evicted.append(oldest_client)
+    retired = _retire_clients_locked(evicted)
+    if retired:
+        asyncio.create_task(_close_retired_clients_later(retired))
 
 
 async def remove_channel_client(channel: Channel):
@@ -137,9 +151,10 @@ async def remove_channel_client(channel: Channel):
     async with _lock:
         client = _clients.pop(key, None)
         _cache_ts.pop(key, None)
-        if client and not client.is_closed:
-            await client.aclose()
-        return client
+        retired = _retire_clients_locked([client] if client is not None else [])
+    if retired:
+        asyncio.create_task(_close_retired_clients_later(retired))
+    return client
 
 
 def get_upstream_headers(channel: Channel, extra_headers: dict | None = None) -> dict:
@@ -179,9 +194,7 @@ def _apply_anthropic_headers(
     beta_policy = getattr(
         channel.anthropic_beta_policy, "value", channel.anthropic_beta_policy
     )
-    if beta_policy == "client":
-        beta_value = client_beta or channel.anthropic_beta
-    elif beta_policy == "channel_if_missing":
+    if beta_policy == "client" or beta_policy == "channel_if_missing":
         beta_value = client_beta or channel.anthropic_beta
     elif beta_policy == "merge":
         beta_value = _merge_anthropic_beta(channel.anthropic_beta, client_beta)

@@ -11,7 +11,6 @@ from converters.to_chat import ToChatCompletionsConverter
 from converters.usage import openai_chat_to_anthropic
 from models.api_types import APIType
 
-
 # ─────────────────────────── N2 ───────────────────────────
 
 

@@ -9,7 +9,6 @@ from balancer.load_balancer import load_balancer
 from models.channel import Channel
 from storage import register_save_callback
 
-
 _model_channels_cache: dict[str, list[Channel]] | None = None
 _model_channels_cache_version = 0
 _model_channels_lock = asyncio.Lock()
@@ -92,6 +91,7 @@ async def get_channels_for_model(model: str) -> list[Channel]:
 
             _model_channels_cache = next_cache
             return next_cache.get(model, [])
+
 
 _invalidate_model_channels_cache = invalidate_model_channels_cache
 _schedule_invalidate_model_channels_cache = schedule_invalidate_model_channels_cache

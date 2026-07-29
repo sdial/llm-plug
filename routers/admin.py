@@ -1,4 +1,3 @@
-from collections.abc import Callable
 import asyncio
 import contextlib
 import ipaddress
@@ -7,26 +6,28 @@ import secrets
 import socket
 import tempfile
 import time
-from datetime import date, datetime, timedelta, timezone
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
-from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.routing import APIRoute
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import admin_auth
+import config
 import request_logs
+import storage_stats
+import whitelist as _whitelist_mod
 from client import get_upstream_headers, remove_channel_client
 from models.api_key import ApiKey, ApiKeyCreate, ApiKeyUpdate
 from models.channel import Channel, ChannelCreate, ChannelUpdate
 from models.model_group import LBConfig, ModelGroup, ModelGroupCreate, ModelGroupUpdate
 from proxy_core import _get_upstream_url
-from url_builder import build_models_url
-import whitelist as _whitelist_mod
 from stats import (
     agg_now,
     aggregate_daily_stats,
@@ -35,10 +36,10 @@ from stats import (
     get_overall_stats,
     get_overall_stats_since,
     get_today_stats,
+    local_date_to_utc_iso,
     refresh_missing_daily_stats,
     refresh_stats,
 )
-from stats import local_date_to_utc_iso
 from stats import (
     list_requests as stats_list_requests,
 )
@@ -57,6 +58,7 @@ from storage import (
     save_lb_config,
     update_model_group,
 )
+from url_builder import build_models_url
 
 
 class FetchModelsRequest(BaseModel):
@@ -189,6 +191,8 @@ def _cleanup_expired_attempts(ip: str, now: float) -> list[float]:
 
 def _check_login_allowed(ip: str) -> tuple[bool, int]:
     """检查IP是否允许登录，返回 (是否允许, 重试等待秒数)"""
+    from config import get_setting
+
     now = time.monotonic()
     attempts = _cleanup_expired_attempts(ip, now)
     _login_attempts[ip] = attempts
@@ -197,6 +201,10 @@ def _check_login_allowed(ip: str) -> tuple[bool, int]:
         return True, 0
 
     failure_count = len(attempts)
+    max_attempts = get_setting("admin_max_attempts") or 10
+    if failure_count < max_attempts:
+        return True, 0
+
     lockout_seconds = _get_lockout_seconds(failure_count)
     last_attempt = max(attempts)
     unlock_time = last_attempt + lockout_seconds
@@ -483,6 +491,7 @@ async def admin_ui_fragment(section: str):
         "settings": "settings.html",
         "whitelist": "whitelist.html",
         "lb": "model-groups.html",
+        "storage": "storage.html",
     }
     filename = fragment_map.get(section)
     if not filename:
@@ -1003,7 +1012,7 @@ async def get_stats(
         "overall": overall,
         "daily": daily,
         "_debug": {
-            "server_now": datetime.now(timezone.utc).isoformat(),
+            "server_now": datetime.now(UTC).isoformat(),
             "query_days": n_days,
             "range": range_type,
             "raw_daily_count": len(raw_daily),
@@ -1020,7 +1029,7 @@ async def get_stats_today():
         "overall": data["overall"],
         "daily": data["daily"],
         "_debug": {
-            "server_now": datetime.now(timezone.utc).isoformat(),
+            "server_now": datetime.now(UTC).isoformat(),
             "mode": "today_realtime",
         },
     }
@@ -1239,7 +1248,7 @@ async def update_settings_endpoint(body: dict):
 
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="body 必须是对象")
-    unknown = [k for k in body.keys() if k not in _config._CONFIG_SCHEMA]
+    unknown = [k for k in body if k not in _config._CONFIG_SCHEMA]
     if unknown:
         raise HTTPException(
             status_code=400,
@@ -1261,23 +1270,6 @@ async def update_settings_endpoint(body: dict):
             },
         )
     return result
-
-
-@router.post("/restart")
-async def restart_server(body: dict):
-    """触发服务重启（Docker restart 策略自动拉起）"""
-    if not body.get("confirm"):
-        raise HTTPException(status_code=400, detail="需要 confirm=true 确认重启")
-    from loguru import logger as _logger
-    import asyncio
-
-    async def _shutdown_after_response() -> None:
-        await asyncio.sleep(0.1)
-        raise SystemExit(0)
-
-    _logger.info("配置变更触发重启")
-    asyncio.create_task(_shutdown_after_response())
-    return {"message": "服务正在重启"}
 
 
 # ============ IP 白名单 ============
@@ -1324,3 +1316,31 @@ async def update_whitelist(body: dict):
             os.unlink(tmp_path)
         raise
     return {"message": f"已保存 {len(rules)} 条规则", "rule_count": len(rules)}
+
+
+# ============ 存储管理 ============
+
+
+class StorageCleanupRequest(BaseModel):
+    action: Literal["delete_month"]
+    target: str = Field(..., pattern=r'^\d{6}$')
+
+
+@router.get("/storage/stats")
+async def get_storage_stats():
+    """获取存储空间统计（logs、request_raw_logs、其他数据）"""
+    return await storage_stats.get_storage_stats()
+
+
+@router.post("/storage/cleanup")
+async def cleanup_storage(body: StorageCleanupRequest):
+    """删除指定月份的 request_raw_logs 数据库（target=YYYYMM）。"""
+    raw_logs_dir = os.path.join(config.DATA_DIR, "request_raw_logs")
+    return await storage_stats.cleanup_month(raw_logs_dir, body.target)
+
+
+@router.post("/storage/cleanup/preview")
+async def preview_cleanup(body: StorageCleanupRequest):
+    """预览清理效果（不实际删除文件）"""
+    raw_logs_dir = os.path.join(config.DATA_DIR, "request_raw_logs")
+    return await storage_stats.preview_cleanup(raw_logs_dir, body.target)

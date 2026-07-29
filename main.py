@@ -1,7 +1,6 @@
 import asyncio
 import json
 import re
-import secrets
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -13,21 +12,25 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+import config
 import request_logs
 import whitelist as _whitelist
 from client import cleanup_stale_clients, close_all_clients
-import config
 from config import HOST, PORT, get_setting, init_settings
+from logging_config import configure_level_file_logging
 from response_state import get_responses_store, reload_responses_store
 from routers import admin, proxy_anthropic, proxy_chat, proxy_models, proxy_response
 from stats import close_pool as close_stats_pool
 from stats import init_db as init_stats_db
 from stats import start_stats_workers, stop_stats_workers
 from storage import load_api_keys, load_data, register_api_keys_save_callback
-from logging_config import configure_level_file_logging
 
 # 静态资源版本号 — 每次更新 JS/CSS 后修改此值即可强制浏览器刷新缓存
 STATIC_ASSET_VERSION = "3"
+
+# 应用版本号 — 发布新版本时改这一行即可，无需动 static/index.html
+APP_VERSION = "v1.0.74"
+APP_RELEASE_DATE = "2026-07-28"
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
@@ -50,17 +53,18 @@ async def _session_cleanup_loop():
 
 async def _request_log_cleanup_loop():
     """清理过期请求日志记录"""
-    await asyncio.sleep(10)
-    try:
-        await request_logs.cleanup_old_records()
-    except Exception as e:
-        logger.warning(f"request log cleanup error on startup: {e}")
-    while True:
-        await asyncio.sleep(86400)
+
+    async def _try_cleanup():
         try:
             await request_logs.cleanup_old_records()
         except Exception as e:
             logger.warning(f"request log cleanup error: {e}")
+
+    await asyncio.sleep(10)
+    await _try_cleanup()
+    while True:
+        await asyncio.sleep(86400)
+        await _try_cleanup()
 
 
 @asynccontextmanager
@@ -189,6 +193,17 @@ def _is_protected_proxy_path(method: str, path: str) -> bool:
     return False
 
 
+def _extract_cookie(scope: Scope, cookie_name: str) -> str | None:
+    """从 ASGI scope 中提取指定 cookie 的值。"""
+    for key, value in scope.get("headers", []):
+        if key.lower() == b"cookie":
+            for part in value.decode().split(";"):
+                name, _, val = part.strip().partition("=")
+                if name == cookie_name:
+                    return val
+    return None
+
+
 class CombinedMiddleware:
     """Pure ASGI middleware combining auth and logging - avoids BaseHTTPMiddleware streaming bug."""
 
@@ -217,47 +232,31 @@ class CombinedMiddleware:
             )
             return
 
-        if path in ("/admin", "/admin/"):
-            from admin_auth import get_session_cookie_name, validate_admin_session
+        if path.startswith("/admin"):
+            _ADMIN_EXEMPT = ("/admin/login", "/admin/login/")
+            _ADMIN_EXEMPT_PREFIXES = ("/admin/auth", "/admin/static/")
 
-            session_cookie = None
-            for key, value in scope.get("headers", []):
-                if key.lower() == b"cookie":
-                    cookie_text = value.decode()
-                    for part in cookie_text.split(";"):
-                        name, _, cookie_value = part.strip().partition("=")
-                        if name == get_session_cookie_name():
-                            session_cookie = cookie_value
-                            break
-            if not await validate_admin_session(session_cookie):
-                await self._send_redirect(send, "/admin/login")
-                return
-
-        if (
-            path.startswith("/admin")
-            and path not in ("/admin", "/admin/", "/admin/login", "/admin/login/")
-            and not path.startswith("/admin/auth")
-            and not path.startswith("/admin/static/")
-        ):
-            from admin_auth import get_session_cookie_name, validate_admin_session
-
-            session_cookie = None
-            for key, value in scope.get("headers", []):
-                if key.lower() == b"cookie":
-                    cookie_text = value.decode()
-                    for part in cookie_text.split(";"):
-                        name, _, cookie_value = part.strip().partition("=")
-                        if name == get_session_cookie_name():
-                            session_cookie = cookie_value
-                            break
-            if not await validate_admin_session(session_cookie):
-                await self._send_error(
-                    send,
-                    401,
-                    "Admin login required",
-                    "admin_login_required",
+            def _is_exempt(p: str) -> bool:
+                return (
+                    p in _ADMIN_EXEMPT
+                    or any(p.startswith(px) for px in _ADMIN_EXEMPT_PREFIXES)
                 )
-                return
+
+            if not _is_exempt(path):
+                from admin_auth import get_session_cookie_name, validate_admin_session
+
+                session_cookie = _extract_cookie(scope, get_session_cookie_name())
+                if not await validate_admin_session(session_cookie):
+                    if path in ("/admin", "/admin/"):
+                        await self._send_redirect(send, "/admin/login")
+                    else:
+                        await self._send_error(
+                            send,
+                            401,
+                            "Admin login required",
+                            "admin_login_required",
+                        )
+                    return
 
         # Only process proxy API requests
         if not _is_protected_proxy_path(method, path):
@@ -279,16 +278,8 @@ class CombinedMiddleware:
                         send, 413, "Request body too large", path=path
                     )
                     self._log_request(
-                        ts_start,
-                        method,
-                        path,
-                        original_path,
-                        query,
-                        "",
-                        False,
-                        "",
-                        413,
-                        start,
+                        ts_start, method, path, original_path,
+                        query, "", False, "", 413, start,
                     )
                     return
             except ValueError:
@@ -306,16 +297,8 @@ class CombinedMiddleware:
             if total_size > config.MAX_BODY_SIZE:
                 await self._send_error(send, 413, "Request body too large", path=path)
                 self._log_request(
-                    ts_start,
-                    method,
-                    path,
-                    original_path,
-                    query,
-                    "",
-                    False,
-                    "",
-                    413,
-                    start,
+                    ts_start, method, path, original_path,
+                    query, "", False, "", 413, start,
                 )
                 return
             more_body = message.get("more_body", False)
@@ -355,38 +338,18 @@ class CombinedMiddleware:
                     send, 401, "Missing or invalid Authorization header", path=path
                 )
                 self._log_request(
-                    ts_start,
-                    method,
-                    path,
-                    original_path,
-                    query,
-                    model,
-                    stream,
-                    "",
-                    401,
-                    start,
+                    ts_start, method, path, original_path,
+                    query, model, stream, "", 401, start,
                 )
                 return
 
             matched_key = api_key_index.get(token)
-            if matched_key is not None and not secrets.compare_digest(
-                matched_key.get("key") or "", token
-            ):
-                matched_key = None
 
             if matched_key is None:
                 await self._send_error(send, 401, "Invalid API key", path=path)
                 self._log_request(
-                    ts_start,
-                    method,
-                    path,
-                    original_path,
-                    query,
-                    model,
-                    stream,
-                    "",
-                    401,
-                    start,
+                    ts_start, method, path, original_path,
+                    query, model, stream, "", 401, start,
                 )
                 return
 
@@ -403,16 +366,8 @@ class CombinedMiddleware:
                     path=path,
                 )
                 self._log_request(
-                    ts_start,
-                    method,
-                    path,
-                    original_path,
-                    query,
-                    model,
-                    stream,
-                    "",
-                    403,
-                    start,
+                    ts_start, method, path, original_path,
+                    query, model, stream, "", 403, start,
                 )
                 return
 
@@ -441,8 +396,6 @@ class CombinedMiddleware:
         try:
             await self.app(scope, buffered_receive, tracking_send)
         except Exception:
-            if response_status is None:
-                response_status = 500
             raise
         finally:
             state = scope.get("state", {})
@@ -562,9 +515,11 @@ async def root_redirect():
 
 
 def _html_response(file_path: Path) -> HTMLResponse:
-    """返回 HTML 文件，同时替换静态资源版本占位符。"""
+    """返回 HTML 文件，同时替换静态资源版本占位符与应用版本占位符。"""
     content = file_path.read_text(encoding="utf-8")
     content = content.replace("__STATIC_ASSET_VERSION__", STATIC_ASSET_VERSION)
+    content = content.replace("__APP_VERSION__", APP_VERSION)
+    content = content.replace("__APP_RELEASE_DATE__", APP_RELEASE_DATE)
     return HTMLResponse(content)
 
 
