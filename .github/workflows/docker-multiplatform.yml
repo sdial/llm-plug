@@ -65,9 +65,9 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # 缓存优化
+          # 缓存优化（ignore-error 防止缓存损坏时构建失败）
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=max,ignore-error=true
           # 禁用provenance和sbom以减小镜像大小
           provenance: false
           sbom: false
