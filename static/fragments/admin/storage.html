@@ -152,7 +152,7 @@
                     const months = (data.request_raw_logs.months || []);
                     const monthsHtml = months.length
                         ? months.map(function(m) {
-                            const target = m.month.replace('-', '');
+                            const target = m.month.replace(/-/g, '');
                             return '<tr class="border-b border-surface-100">'
                                 + '<td class="py-2 pr-4 text-ink-900">' + escapeHtml(m.month) + '</td>'
                                 + '<td class="py-2 pr-4 text-ink-500">' + escapeHtml(m.file) + '</td>'
@@ -186,12 +186,12 @@
 
             // 显示 toast
             function showToast(message, type) {
-                if (typeof window.toast === 'function') {
-                    window.toast(message, type);
+                if (typeof window.showGlobalToast === 'function') {
+                    window.showGlobalToast(message, type);
                     return;
                 }
-                // Fallback：使用 alert
-                alert(message);
+                // Fallback：静默失败，避免阻塞 UI
+                console.warn('Toast not available:', message);
             }
 
             // 预览清理效果
@@ -271,17 +271,20 @@
             window.loadStorageStats = loadStorageStats;
         })();
 
-        // 事件委托处理 storage 操作按钮点击
-        document.addEventListener('click', function(e) {
-            var btn = e.target.closest('.storage-action-btn');
-            if (!btn) return;
-            var action = btn.dataset.action;
-            var target = btn.dataset.target;
-            if (action === 'preview') {
-                previewCleanup('delete_month', target);
-            } else if (action === 'delete') {
-                var month = btn.dataset.month;
-                confirmCleanup('delete_month', '确定要删除 ' + month + ' 月份的数据吗？', target, btn);
-            }
-        });
+        // 事件委托处理 storage 操作按钮点击（绑定在 storageTab 上，避免全局监听器累积）
+        var storageTab = document.getElementById('storageTab');
+        if (storageTab) {
+            storageTab.addEventListener('click', function(e) {
+                var btn = e.target.closest('.storage-action-btn');
+                if (!btn) return;
+                var action = btn.dataset.action;
+                var target = btn.dataset.target;
+                if (action === 'preview') {
+                    previewCleanup('delete_month', target);
+                } else if (action === 'delete') {
+                    var month = btn.dataset.month;
+                    confirmCleanup('delete_month', '确定要删除 ' + month + ' 月份的数据吗？', target, btn);
+                }
+            });
+        }
         </script>

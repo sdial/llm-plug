@@ -479,9 +479,19 @@
 
         function downloadJson() {
             if (originalData === null || originalData === undefined || !fieldTree) return;
-            var filtered = filterJsonData(originalData, fieldTree);
-            if (filtered === null) {
+            var filtered;
+            try {
+                filtered = filterJsonData(originalData, fieldTree);
+            } catch (e) {
+                alert('过滤数据失败: ' + e.message);
+                return;
+            }
+            if (filtered === null || filtered === undefined) {
                 alert('所有字段均已隐藏，无可下载数据');
+                return;
+            }
+            if (typeof filtered === 'string' && filtered.length === 0) {
+                alert('过滤后的数据为空字符串，无可下载内容');
                 return;
             }
 

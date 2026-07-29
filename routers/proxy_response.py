@@ -151,7 +151,7 @@ async def _forward_responses_request(
     headers = _forward_headers(channel, client_headers, body is not None)
     client = await create_client(channel)
     resp = await client.request(method, url, json=body, headers=headers)
-    if resp.status_code == 429 or resp.status_code >= 500:
+    if resp.status_code == 429 or resp.status_code >= 500 or resp.status_code in (401, 403, 404):
         await load_balancer.record_failure(channel.id)
     else:
         await load_balancer.record_success(channel.id)

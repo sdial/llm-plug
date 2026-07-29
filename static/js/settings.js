@@ -57,7 +57,7 @@ function _detectSettingsDirty() {
   const maxLogBodySizeKb = parseInt(document.getElementById('set_max_log_body_size_kb').value);
   if (!isNaN(maxLogBodySizeKb) && maxLogBodySizeKb !== (orig.max_log_body_size_kb ?? 64)) _settingsDirtySections.add('database');
   const maxStreamChunks = parseInt(document.getElementById('set_max_stream_chunks').value);
-  if (!isNaN(maxStreamChunks) && maxStreamChunks !== (orig.max_stream_chunks ?? 10000)) _settingsDirtySections.add('request');
+  if (!isNaN(maxStreamChunks) && maxStreamChunks !== (orig.max_stream_chunks ?? 50000)) _settingsDirtySections.add('request');
   const rawRetentionDays = parseInt(document.getElementById('set_request_log_raw_retention_days').value) || 0;
   if (rawRetentionDays !== (orig.request_log_raw_retention_days ?? 0)) _settingsDirtySections.add('database');
   const retentionDays = parseInt(document.getElementById('set_request_log_retention_days').value) || 0;
@@ -234,7 +234,7 @@ async function saveSettings() {
   const maxLogBodySizeKb = parseInt(document.getElementById('set_max_log_body_size_kb').value);
   if (!isNaN(maxLogBodySizeKb) && maxLogBodySizeKb !== (orig.max_log_body_size_kb ?? 64)) data.max_log_body_size = maxLogBodySizeKb * 1024;
   const maxStreamChunks = parseInt(document.getElementById('set_max_stream_chunks').value);
-  if (!isNaN(maxStreamChunks) && maxStreamChunks !== (orig.max_stream_chunks ?? 10000)) data.max_stream_chunks = maxStreamChunks;
+  if (!isNaN(maxStreamChunks) && maxStreamChunks !== (orig.max_stream_chunks ?? 50000)) data.max_stream_chunks = maxStreamChunks;
   const rawRetentionDays = parseInt(document.getElementById('set_request_log_raw_retention_days').value) || 0;
   if (rawRetentionDays !== (orig.request_log_raw_retention_days ?? 0)) data.request_log_raw_retention_days = rawRetentionDays;
   const retentionDays = parseInt(document.getElementById('set_request_log_retention_days').value) || 0;
