@@ -51,7 +51,13 @@ async def discover_month_dbs(raw_logs_dir: str) -> list[str]:
             parts = (
                 basename.replace("request_logs_", "").replace(".sqlite3", "").split("_")
             )
-            if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 2:
+            if (
+                len(parts) == 2
+                and len(parts[0]) == 4
+                and len(parts[1]) == 2
+                and parts[0].isdigit()
+                and parts[1].isdigit()
+            ):
                 months.append(parts[0] + parts[1])
         return sorted(months)
 
