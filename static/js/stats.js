@@ -31,7 +31,7 @@ async function refreshStats() {
   const btn = document.getElementById('refreshDailyBtn');
   const hint = document.getElementById('refreshHint');
   const origText = btn.textContent;
-  btn.textContent = '刷新中...';
+  btn.textContent = I18n.t('stats.refreshing');
   btn.disabled = true;
   hint.textContent = '';
   hint.classList.add('opacity-0');
@@ -40,7 +40,7 @@ async function refreshStats() {
     const resp = await fetch('/admin/stats/refresh', { method: 'POST' });
     if (!resp.ok) throw new Error('请求失败');
     await resp.json();
-    hint.textContent = '已刷新';
+    hint.textContent = I18n.t('stats.refreshed');
     hint.classList.remove('opacity-0');
     hint.classList.add('opacity-100');
     setTimeout(() => {
@@ -49,7 +49,7 @@ async function refreshStats() {
     }, 1500);
     loadStats();
   } catch (e) {
-    hint.textContent = '刷新失败';
+    hint.textContent = I18n.t('stats.refreshFailed');
     hint.classList.remove('opacity-0', 'text-emerald-600');
     hint.classList.add('opacity-100', 'text-rose-600');
     setTimeout(() => {
@@ -86,7 +86,7 @@ async function loadStats() {
     btn.classList.remove('pill-muted');
     btn.classList.add('pill-brand', 'opacity-60');
     icon.style.animation = 'spin 1s linear infinite';
-    text.textContent = '刷新中...';
+    text.textContent = I18n.t('stats.refreshing');
   }
 
   try {
@@ -113,16 +113,16 @@ const dt = new Date(serverNow);
 const timezone = getStatsAggregationTimezone();
 const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
 if (timezone) options.timeZone = timezone;
-const timeStr = dt.toLocaleString('zh-CN', options);
-const tzDisplay = timezone || '本地时区';
+const timeStr = dt.toLocaleString(I18n.getLocale(), options);
+const tzDisplay = timezone || I18n.t('stats.localTimezone');
 cutoffTimeValue.textContent = `${timeStr} (${tzDisplay})`;
       } else {
 const now = new Date();
 const timezone = getStatsAggregationTimezone();
 const options = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
 if (timezone) options.timeZone = timezone;
-const timeStr = now.toLocaleString('zh-CN', options);
-const tzDisplay = timezone || '本地时区';
+const timeStr = now.toLocaleString(I18n.getLocale(), options);
+const tzDisplay = timezone || I18n.t('stats.localTimezone');
 cutoffTimeValue.textContent = `${timeStr} (${tzDisplay})`;
       }
       cutoffTimeEl.classList.remove('hidden');
@@ -133,10 +133,10 @@ cutoffTimeValue.textContent = `${timeStr} (${tzDisplay})`;
       const params = new URLSearchParams();
       if (daysVal === 'this_week' || daysVal === 'this_month') {
         params.set('range', daysVal);
-        document.getElementById('statsDaysLabel').textContent = daysVal === 'this_week' ? '本周' : '本月';
+        document.getElementById('statsDaysLabel').textContent = daysVal === 'this_week' ? I18n.t('stats.rangeThisWeek') : I18n.t('stats.rangeThisMonth');
       } else if (daysVal === '0') {
 params.set('days', '99999');
-document.getElementById('statsDaysLabel').textContent = '全部';
+document.getElementById('statsDaysLabel').textContent = I18n.t('stats.rangeAll');
       } else {
 params.set('days', daysVal);
 document.getElementById('statsDaysLabel').textContent = daysVal;
@@ -155,7 +155,7 @@ document.getElementById('statsDaysLabel').textContent = daysVal;
       btn.classList.remove('pill-brand', 'opacity-60');
       btn.classList.add('pill-muted');
       icon.style.animation = '';
-      text.textContent = '刷新数据';
+      text.textContent = I18n.t('stats.refreshBtn');
     }
   }
 }
@@ -242,24 +242,24 @@ function renderStats(data) {
     // 日期格式为 "YYYY-MM-DD"，slice(5) 提取 "MM-DD" 部分
     const start = daily[0].date.slice(5);
     const end = daily[daily.length - 1].date.slice(5);
-    trendTitle.innerHTML = '每日趋势（<span id="statsDaysLabel">' + start + ' ~ ' + end + '</span>）';
+    trendTitle.innerHTML = I18n.t('stats.trendTitleRange', { start: `<span id="statsDaysLabel">${start}`, end: `${end}</span>` });
   } else {
-    trendTitle.innerHTML = '每日趋势（最近<span id="statsDaysLabel">' + daysLabel + '</span>天）';
+    trendTitle.innerHTML = I18n.t('stats.trendTitleDaily', { days: `<span id="statsDaysLabel">${daysLabel}</span>` });
   }
-  trendTimeHeader.textContent = '日期';
+  trendTimeHeader.textContent = I18n.t('stats.colDate');
   if (daily.length === 0) {
-    dailyTbody.innerHTML = '<tr><td colspan="8" class="py-4 text-center text-ink-400 text-sm">暂无数据</td></tr>';
+    dailyTbody.innerHTML = `<tr><td colspan="8" class="py-4 text-center text-ink-400 text-sm">${I18n.t('stats.noData')}</td></tr>`;
   } else {
     dailyTbody.innerHTML = daily.slice().reverse().map(d => `
     <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
-      <td data-label="日期" class="py-2.5 px-2 text-sm text-ink-900">${d.date}</td>
-      <td data-label="请求数" class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${d.total_requests}</td>
-      <td data-label="成功" class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${d.success_count}</td>
-      <td data-label="失败" class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
-      <td data-label="平均延迟" class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${d.avg_latency_ms || 0}ms</td>
-      <td data-label="输入Token" class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
-      <td data-label="缓存命中" class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${formatTokens(d.total_cache_read_input_tokens || 0)}</td>
-      <td data-label="输出Token" class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
+      <td data-label="${I18n.t('stats.colDate')}" class="py-2.5 px-2 text-sm text-ink-900">${d.date}</td>
+      <td data-label="${I18n.t('stats.colRequests')}" class="py-2.5 px-2 text-right text-sm text-ink-900 font-medium">${d.total_requests}</td>
+      <td data-label="${I18n.t('stats.colSuccess')}" class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${d.success_count}</td>
+      <td data-label="${I18n.t('stats.colFail')}" class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
+      <td data-label="${I18n.t('stats.colAvgLatency')}" class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${d.avg_latency_ms || 0}ms</td>
+      <td data-label="${I18n.t('stats.colInputToken')}" class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
+      <td data-label="${I18n.t('stats.colCacheHit')}" class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${formatTokens(d.total_cache_read_input_tokens || 0)}</td>
+      <td data-label="${I18n.t('stats.colOutputToken')}" class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
     </tr>
     `).join('');
   }
@@ -274,7 +274,7 @@ function renderDistribution(elementId, items, options) {
     if (!target) return;
     const visibleItems = (items || []).slice(0, options.limit || items.length || 0);
     if (visibleItems.length === 0) {
-        target.innerHTML = '<p class="text-ink-400 text-sm">暂无数据</p>';
+        target.innerHTML = `<p class="text-ink-400 text-sm">${I18n.t('stats.noData')}</p>`;
         return;
     }
     const rows = visibleItems
