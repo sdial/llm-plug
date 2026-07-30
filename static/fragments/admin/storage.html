@@ -3,10 +3,10 @@
             <!-- 顶部操作栏 -->
             <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center gap-3">
-                    <h2 class="text-lg font-semibold text-ink-900">存储管理</h2>
-                    <button onclick="loadStorageStats()" class="btn-secondary text-sm px-3 py-1.5 font-medium" title="刷新统计">
+                    <h2 class="text-lg font-semibold text-ink-900" data-i18n="storage.title">存储管理</h2>
+                    <button onclick="loadStorageStats()" class="btn-secondary text-sm px-3 py-1.5 font-medium" data-i18n-title="storage.refreshTitle" title="刷新统计">
                         <svg class="w-4 h-4 inline -mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                        <span>刷新</span>
+                        <span data-i18n="storage.refreshBtn">刷新</span>
                     </button>
                 </div>
             </div>
@@ -14,11 +14,11 @@
             <!-- 概览卡片 -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="storageOverview">
                 <div class="card p-4">
-                    <div class="text-xs text-ink-500 mb-1">总占用空间</div>
+                    <div class="text-xs text-ink-500 mb-1" data-i18n="storage.totalSize">总占用空间</div>
                     <div class="text-xl font-bold text-ink-900" id="storageTotalSize">-</div>
                 </div>
                 <div class="card p-4">
-                    <div class="text-xs text-ink-500 mb-1">Logs 目录</div>
+                    <div class="text-xs text-ink-500 mb-1" data-i18n="storage.logsDir">Logs 目录</div>
                     <div class="text-lg font-semibold text-ink-900" id="storageLogsSize">-</div>
                 </div>
                 <div class="card p-4">
@@ -26,7 +26,7 @@
                     <div class="text-lg font-semibold text-ink-900" id="storageRawLogsSize">-</div>
                 </div>
                 <div class="card p-4">
-                    <div class="text-xs text-ink-500 mb-1">其他数据</div>
+                    <div class="text-xs text-ink-500 mb-1" data-i18n="storage.otherData">其他数据</div>
                     <div class="text-lg font-semibold text-ink-900" id="storageOtherSize">-</div>
                 </div>
             </div>
@@ -34,20 +34,20 @@
             <!-- Logs 区域 -->
             <div class="card mb-6">
                 <div class="px-4 py-3 border-b border-surface-200">
-                    <h3 class="text-base font-medium text-ink-900">Logs 文件</h3>
-                    <p class="text-xs text-ink-500 mt-1">仅展示，不提供删除</p>
+                    <h3 class="text-base font-medium text-ink-900" data-i18n="storage.logsTitle">Logs 文件</h3>
+                    <p class="text-xs text-ink-500 mt-1" data-i18n="storage.logsDesc">仅展示，不提供删除</p>
                 </div>
                 <div class="p-4 overflow-x-auto">
                     <table class="w-full text-sm">
                         <thead class="text-left text-xs text-ink-500 border-b border-surface-200">
                             <tr>
-                                <th class="py-2 pr-4 font-medium">文件名</th>
-                                <th class="py-2 pr-4 font-medium">大小</th>
-                                <th class="py-2 font-medium">修改时间</th>
+                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colFileName">文件名</th>
+                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colSize">大小</th>
+                                <th class="py-2 font-medium" data-i18n="storage.colModified">修改时间</th>
                             </tr>
                         </thead>
                         <tbody id="logsFilesList">
-                            <tr><td colspan="3" class="py-4 text-center text-ink-400">加载中...</td></tr>
+                            <tr><td colspan="3" class="py-4 text-center text-ink-400" data-i18n="common.loading">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -56,22 +56,22 @@
             <!-- Request Raw Logs 区域 -->
             <div class="card mb-6">
                 <div class="px-4 py-3 border-b border-surface-200">
-                    <h3 class="text-base font-medium text-ink-900">Request Raw Logs（按月）</h3>
-                    <p class="text-xs text-ink-500 mt-1">仅支持单独删除某个月份数据</p>
+                    <h3 class="text-base font-medium text-ink-900" data-i18n="storage.rawLogsTitle">Request Raw Logs（按月）</h3>
+                    <p class="text-xs text-ink-500 mt-1" data-i18n="storage.rawLogsDesc">仅支持单独删除某个月份数据</p>
                 </div>
                 <div class="p-4 overflow-x-auto">
                     <table class="w-full text-sm">
                         <thead class="text-left text-xs text-ink-500 border-b border-surface-200">
                             <tr>
-                                <th class="py-2 pr-4 font-medium">月份</th>
-                                <th class="py-2 pr-4 font-medium">文件名</th>
-                                <th class="py-2 pr-4 font-medium">大小</th>
-                                <th class="py-2 pr-4 font-medium">记录数</th>
-                                <th class="py-2 font-medium">操作</th>
+                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colMonth">月份</th>
+                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colFileName">文件名</th>
+                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colSize">大小</th>
+                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colRecords">记录数</th>
+                                <th class="py-2 font-medium" data-i18n="common.actions">操作</th>
                             </tr>
                         </thead>
                         <tbody id="rawLogsMonthsList">
-                            <tr><td colspan="5" class="py-4 text-center text-ink-400">加载中...</td></tr>
+                            <tr><td colspan="5" class="py-4 text-center text-ink-400" data-i18n="common.loading">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -80,19 +80,19 @@
             <!-- 其他数据区域 -->
             <div class="card mb-6">
                 <div class="px-4 py-3 border-b border-surface-200">
-                    <h3 class="text-base font-medium text-ink-900">其他数据文件</h3>
-                    <p class="text-xs text-ink-500 mt-1">核心数据文件，仅展示，不提供删除</p>
+                    <h3 class="text-base font-medium text-ink-900" data-i18n="storage.otherTitle">其他数据文件</h3>
+                    <p class="text-xs text-ink-500 mt-1" data-i18n="storage.otherDesc">核心数据文件，仅展示，不提供删除</p>
                 </div>
                 <div class="p-4 overflow-x-auto">
                     <table class="w-full text-sm">
                         <thead class="text-left text-xs text-ink-500 border-b border-surface-200">
                             <tr>
-                                <th class="py-2 pr-4 font-medium">文件名</th>
-                                <th class="py-2 font-medium">大小</th>
+                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colFileName">文件名</th>
+                                <th class="py-2 font-medium" data-i18n="storage.colSize">大小</th>
                             </tr>
                         </thead>
                         <tbody id="otherFilesList">
-                            <tr><td colspan="2" class="py-4 text-center text-ink-400">加载中...</td></tr>
+                            <tr><td colspan="2" class="py-4 text-center text-ink-400" data-i18n="common.loading">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -114,7 +114,7 @@
             function escapeHtml(s) {
                 if (s == null) return '';
                 return String(s).replace(/[&<>"']/g, function(c) {
-                    return {'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'}[c];
+                    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
                 });
             }
 
@@ -142,10 +142,10 @@
                             return '<tr class="border-b border-surface-100">'
                                 + '<td class="py-2 pr-4 text-ink-900">' + escapeHtml(f.name) + '</td>'
                                 + '<td class="py-2 pr-4 text-ink-500">' + formatBytes(f.size) + '</td>'
-                                + '<td class="py-2 text-ink-500">' + (f.modified ? new Date(f.modified).toLocaleString() : '-') + '</td>'
+                                + '<td class="py-2 text-ink-500">' + (f.modified ? new Date(f.modified).toLocaleString(I18n.getLocale()) : '-') + '</td>'
                                 + '</tr>';
                         }).join('')
-                        : '<tr><td colspan="3" class="py-4 text-center text-ink-400">无文件</td></tr>';
+                        : '<tr><td colspan="3" class="py-4 text-center text-ink-400">' + I18n.t('storage.noFiles') + '</td></tr>';
                     document.getElementById('logsFilesList').innerHTML = logsHtml;
 
                     // 渲染 raw logs 月份列表
@@ -159,12 +159,12 @@
                                 + '<td class="py-2 pr-4 text-ink-500">' + formatBytes(m.size) + '</td>'
                                 + '<td class="py-2 pr-4 text-ink-500">' + (m.record_count || 0).toLocaleString() + '</td>'
                                 + '<td class="py-2 space-x-2">'
-                                + '<button data-action="preview" data-target="' + escapeHtml(target) + '" class="text-xs text-ink-600 hover:text-ink-900 storage-action-btn">预览</button>'
-                                + '<button data-action="delete" data-target="' + escapeHtml(target) + '" data-month="' + escapeHtml(m.month) + '" class="text-xs text-red-600 hover:text-red-800 storage-action-btn">删除</button>'
+                                + '<button data-action="preview" data-target="' + escapeHtml(target) + '" class="text-xs text-ink-600 hover:text-ink-900 storage-action-btn">' + I18n.t('storage.preview') + '</button>'
+                                + '<button data-action="delete" data-target="' + escapeHtml(target) + '" data-month="' + escapeHtml(m.month) + '" class="text-xs text-red-600 hover:text-red-800 storage-action-btn">' + I18n.t('common.delete') + '</button>'
                                 + '</td>'
                                 + '</tr>';
                         }).join('')
-                        : '<tr><td colspan="5" class="py-4 text-center text-ink-400">无数据</td></tr>';
+                        : '<tr><td colspan="5" class="py-4 text-center text-ink-400">' + I18n.t('storage.noData') + '</td></tr>';
                     document.getElementById('rawLogsMonthsList').innerHTML = monthsHtml;
 
                     // 渲染其他文件列表
@@ -176,11 +176,11 @@
                                 + '<td class="py-2 text-ink-500">' + formatBytes(f.size) + '</td>'
                                 + '</tr>';
                         }).join('')
-                        : '<tr><td colspan="2" class="py-4 text-center text-ink-400">无文件</td></tr>';
+                        : '<tr><td colspan="2" class="py-4 text-center text-ink-400">' + I18n.t('storage.noFiles') + '</td></tr>';
                     document.getElementById('otherFilesList').innerHTML = otherHtml;
                 } catch (err) {
                     console.error('loadStorageStats failed:', err);
-                    showToast('加载存储统计失败：' + err.message, 'error');
+                    showToast(I18n.t('storage.loadFailed') + err.message, 'error');
                 }
             }
 
@@ -217,20 +217,20 @@
 
                     const deleteCount = (data.will_delete || []).length;
                     const sizeStr = formatBytes(data.freed_bytes || 0);
-                    const targetLabel = data.target ? '目标：' + data.target + '\\n' : '';
-                    showToast(targetLabel + '将释放 ' + sizeStr + '（' + deleteCount + ' 个文件）', 'info');
+                    const targetLabel = data.target ? I18n.t('storage.targetPrefix') + data.target + '\n' : '';
+                    showToast(targetLabel + I18n.t('storage.previewResult', { size: sizeStr, count: deleteCount }), 'info');
                 } catch (err) {
                     console.error('previewCleanup failed:', err);
-                    showToast('预览失败：' + err.message, 'error');
+                    showToast(I18n.t('storage.previewFailed') + err.message, 'error');
                 }
             };
 
             // 确认并执行清理
             window.confirmCleanup = async function(action, message, target, confirmBtn) {
-                if (!confirm(message || '确定执行此操作吗？')) return;
+                if (!confirm(message || I18n.t('storage.confirmDefault'))) return;
                 if (confirmBtn) {
                     confirmBtn.disabled = true;
-                    confirmBtn.textContent = '处理中...';
+                    confirmBtn.textContent = I18n.t('storage.processing');
                 }
                 try {
                     const body = { action: action };
@@ -244,25 +244,25 @@
                         body: JSON.stringify(body),
                     });
                     if (!resp.ok) {
-                        throw new Error('操作失败 (HTTP ' + resp.status + ')');
+                        throw new Error(I18n.t('storage.opFailed') + ' (HTTP ' + resp.status + ')');
                     }
                     const data = await resp.json();
 
                     if (data.success === false) {
-                        showToast(data.message || '操作失败', 'error');
+                        showToast(data.message || I18n.t('storage.opFailed'), 'error');
                         return;
                     }
 
                     const sizeStr = formatBytes(data.freed_bytes || 0);
-                    showToast((data.message || '操作成功') + '，释放 ' + sizeStr, 'success');
+                    showToast((data.message || I18n.t('storage.opSuccess')) + I18n.t('storage.freedSuffix', { size: sizeStr }), 'success');
                     loadStorageStats();
                 } catch (err) {
                     console.error('confirmCleanup failed:', err);
-                    showToast('清理失败：' + err.message, 'error');
+                    showToast(I18n.t('storage.cleanupFailed') + err.message, 'error');
                 } finally {
                     if (confirmBtn) {
                         confirmBtn.disabled = false;
-                        confirmBtn.textContent = '删除';
+                        confirmBtn.textContent = I18n.t('common.delete');
                     }
                 }
             };
@@ -283,7 +283,7 @@
                     previewCleanup('delete_month', target);
                 } else if (action === 'delete') {
                     var month = btn.dataset.month;
-                    confirmCleanup('delete_month', '确定要删除 ' + month + ' 月份的数据吗？', target, btn);
+                    confirmCleanup('delete_month', I18n.t('storage.confirmDeleteMonth', { month: month }), target, btn);
                 }
             });
         }

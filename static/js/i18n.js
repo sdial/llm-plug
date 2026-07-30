@@ -66,6 +66,11 @@ function translateElement(el) {
     if (key) {
         el.textContent = t(key);
     }
+    // HTML 内容（字典值含标签）
+    const htmlKey = el.getAttribute('data-i18n-html');
+    if (htmlKey) {
+        el.innerHTML = t(htmlKey);
+    }
     // placeholder
     const phKey = el.getAttribute('data-i18n-placeholder');
     if (phKey) {
@@ -86,11 +91,11 @@ function translateElement(el) {
 function translateRoot(root) {
     if (!root) return;
     // 翻译 root 自身（如果是元素）
-    if (root.nodeType === 1 && root.hasAttribute && root.hasAttribute('data-i18n')) {
+    if (root.nodeType === 1 && root.hasAttribute && (root.hasAttribute('data-i18n') || root.hasAttribute('data-i18n-html'))) {
         translateElement(root);
     }
     // 翻译子树
-    const els = root.querySelectorAll('[data-i18n], [data-i18n-placeholder], [data-i18n-title], [data-i18n-aria]');
+    const els = root.querySelectorAll('[data-i18n], [data-i18n-html], [data-i18n-placeholder], [data-i18n-title], [data-i18n-aria]');
     for (let i = 0; i < els.length; i++) {
         translateElement(els[i]);
     }

@@ -8,7 +8,7 @@ async function loadWhitelist() {
       console.error('loadWhitelist failed:', res.status);
       const errEl = document.getElementById('whitelist_error');
       if (errEl) {
-        errEl.textContent = `加载失败（HTTP ${res.status}），请刷新重试`;
+        errEl.textContent = I18n.t('whitelist.loadFailed', { status: res.status });
         errEl.classList.remove('hidden');
       }
       return;
@@ -16,10 +16,10 @@ async function loadWhitelist() {
     const data = await res.json();
     document.getElementById('whitelist_content').value = data.content || '';
     const countEl = document.getElementById('whitelist_rule_count');
-    countEl.textContent = data.rule_count > 0 ? `${data.rule_count} 条有效规则` : '暂无规则';
+    countEl.textContent = data.rule_count > 0 ? I18n.t('whitelist.ruleCount', { count: data.rule_count }) : I18n.t('whitelist.noRules');
     const ipEl = document.getElementById('whitelist_client_ip');
     if (ipEl && data.client_ip) {
-      ipEl.textContent = `当前 IP：${data.client_ip}`;
+      ipEl.textContent = I18n.t('whitelist.currentIp', { ip: data.client_ip });
     }
   } catch (e) {
     console.error('loadWhitelist error', e);
@@ -43,7 +43,7 @@ async function saveWhitelist() {
     const parts = line.split(',');
     if (parts.length !== 4) {
       if (errorEl) {
-        errorEl.textContent = `第 ${i + 1} 行格式错误：需要 4 列，实际 ${parts.length} 列`;
+        errorEl.textContent = I18n.t('whitelist.formatError', { line: i + 1, actual: parts.length });
         errorEl.classList.remove('hidden');
       }
       return;
@@ -52,11 +52,9 @@ async function saveWhitelist() {
 
   // 检查是否可能把自己锁出去
   const ipEl = document.getElementById('whitelist_client_ip');
-  const myIp = ipEl ? ipEl.textContent.replace('当前 IP：', '').trim() : '';
+  const myIp = ipEl ? ipEl.textContent.replace(/^.*?(\d[\d.:]+)\s*$/, '$1').trim() : '';
   if (myIp && content.trim() && !content.trim().split('\n').every(l => l.trim().startsWith('#') || !l.trim())) {
-    // There are actual rules — check if any could cover our IP (rough check)
-    // We let the backend decide; just remind the user
-    const confirmed = confirm(`保存后，只有白名单内的 IP 才能访问管理界面。\n\n您当前 IP：${myIp}\n\n请确认已将此 IP 添加到规则中，否则您将无法访问管理界面。\n\n确认保存？`);
+    const confirmed = confirm(I18n.t('whitelist.lockoutWarning', { ip: myIp }));
     if (!confirmed) return;
   }
 
@@ -70,19 +68,19 @@ async function saveWhitelist() {
     const data = await res.json();
     if (!res.ok) {
       if (errorEl) {
-        errorEl.textContent = data.detail || '保存失败';
+        errorEl.textContent = data.detail || I18n.t('whitelist.saveFailed');
         errorEl.classList.remove('hidden');
       }
       return;
     }
     const countEl = document.getElementById('whitelist_rule_count');
-    countEl.textContent = data.rule_count > 0 ? `${data.rule_count} 条有效规则` : '暂无规则';
+    countEl.textContent = data.rule_count > 0 ? I18n.t('whitelist.ruleCount', { count: data.rule_count }) : I18n.t('whitelist.noRules');
     const original = btn.textContent;
-    btn.textContent = '已保存 ✓';
+    btn.textContent = I18n.t('whitelist.saved');
     setTimeout(() => { btn.textContent = original; }, 1500);
   } catch (e) {
     if (errorEl) {
-      errorEl.textContent = '网络错误，请重试';
+      errorEl.textContent = I18n.t('whitelist.networkError');
       errorEl.classList.remove('hidden');
     }
   } finally {
