@@ -29,18 +29,18 @@
         currentView = params.get('view') || 'overview';
 
         if (!requestId) {
-            showError('缺少请求 ID');
+            showError(I18n.t('analyzer.missingId'));
             return;
         }
 
         const requestJsonLink = document.getElementById('requestJsonViewerLink');
         if (requestJsonLink) {
-            requestJsonLink.href = `/admin/static/json-viewer.html?url=${encodeURIComponent('/admin/requests/' + requestId + '/request-body')}&title=请求 Body`;
+            requestJsonLink.href = `/admin/static/json-viewer.html?url=${encodeURIComponent('/admin/requests/' + requestId + '/request-body')}&title=${encodeURIComponent(I18n.t('analyzer.reqBodyTitle'))}`;
         }
 
         const outputJsonLink = document.getElementById('outputJsonViewerLink');
         if (outputJsonLink) {
-            outputJsonLink.href = `/admin/static/json-viewer.html?url=${encodeURIComponent('/admin/requests/' + requestId + '/response-body')}&title=返回 Body`;
+            outputJsonLink.href = `/admin/static/json-viewer.html?url=${encodeURIComponent('/admin/requests/' + requestId + '/response-body')}&title=${encodeURIComponent(I18n.t('analyzer.respBodyTitle'))}`;
         }
 
         bindTabEvents();
@@ -54,7 +54,7 @@
 
             const resp = await fetch(`/admin/requests/${requestId}/request-body`);
             if (!resp.ok) {
-                showError(resp.status === 404 ? '请求不存在' : '加载失败: ' + resp.status);
+                showError(resp.status === 404 ? I18n.t('analyzer.notFound') : I18n.t('analyzer.loadFailed') + resp.status);
                 return;
             }
 
@@ -72,7 +72,7 @@
             renderMetadata();
             renderCurrentView();
         } catch (e) {
-            showError('网络错误: ' + e.message);
+            showError(I18n.t('analyzer.networkError') + e.message);
         }
     }
 
@@ -83,7 +83,7 @@
                 return {
                     data: null,
                     available: false,
-                    error: resp.status === 404 ? '返回 Body 未保存或请求记录不存在。' : '返回 Body 加载失败: ' + resp.status
+                    error: resp.status === 404 ? I18n.t('analyzer.respBodyNotSaved') : I18n.t('analyzer.respBodyLoadFailed') + resp.status
                 };
             }
             const result = await resp.json();
@@ -91,10 +91,10 @@
             return {
                 data,
                 available: data !== null && data !== undefined,
-                error: data === null || data === undefined ? '返回 Body 未保存。' : null
+                error: data === null || data === undefined ? I18n.t('analyzer.respBodyNotSaved2') : null
             };
         } catch (e) {
-            return { data: null, available: false, error: '返回 Body 网络错误: ' + e.message };
+            return { data: null, available: false, error: I18n.t('analyzer.respBodyNetworkError') + e.message };
         }
     }
 
@@ -110,7 +110,7 @@
 
     function normalizeOutput(raw, reqApiType, state) {
         if (!state?.available) {
-            return emptyOutput(reqApiType, state?.error || '没有可分析的模型输出。');
+            return emptyOutput(reqApiType, state?.error || I18n.t('analyzer.noOutput'));
         }
         if (reqApiType === 'anthropic') {
             return normalizeAnthropicOutput(raw);
@@ -741,31 +741,31 @@
     function buildDiagnostics(context) {
         const issues = [];
         if (context.systemBlocks.length === 0) {
-            issues.push({ level: 'info', title: '没有 System 指令', detail: '本次请求没有显式 system/developer 内容。' });
+            issues.push({ level: 'info', title: I18n.t('analyzer.diagNoSystem'), detail: I18n.t('analyzer.diagNoSystemDetail') });
         }
         if (context.systemBlocks.length > 1) {
-            issues.push({ level: 'warn', title: '存在多段 System 指令', detail: '建议检查多段系统指令是否存在优先级冲突。' });
+            issues.push({ level: 'warn', title: I18n.t('analyzer.diagMultipleSystem'), detail: I18n.t('analyzer.diagMultipleSystemDetail') });
         }
         context.turns.forEach((turn, idx) => {
             const text = blocksToText(turn.blocks).trim();
             if ((turn.role === 'user' || turn.role === 'assistant') && !text && !turn.blocks.some(b => b.type === 'tool_use')) {
-                issues.push({ level: 'warn', title: `第 ${idx + 1} 条 ${turn.role} 内容为空`, detail: '空内容可能浪费上下文或触发上游格式校验问题。' });
+                issues.push({ level: 'warn', title: I18n.t('analyzer.diagEmptyContentTitle', { index: idx + 1, role: turn.role }), detail: I18n.t('analyzer.diagEmptyContentDetail') });
             }
             const prev = context.turns[idx - 1];
             if (prev && prev.role === turn.role && (turn.role === 'assistant' || turn.role === 'user')) {
-                issues.push({ level: 'info', title: `连续 ${turn.role} 消息`, detail: `第 ${idx} 和第 ${idx + 1} 条消息角色相同。` });
+                issues.push({ level: 'info', title: I18n.t('analyzer.diagConsecutiveRoleTitle', { role: turn.role }), detail: I18n.t('analyzer.diagConsecutiveRoleDetail', { prev: idx, curr: idx + 1 }) });
             }
         });
         context.toolEvents.forEach(event => {
             if (event.kind === 'call' && !event.matched) {
-                issues.push({ level: 'warn', title: `Tool 调用缺少结果: ${event.name}`, detail: event.id ? `未找到匹配的结果 ID: ${event.id}` : '调用缺少 ID，无法可靠关联结果。' });
+                issues.push({ level: 'warn', title: I18n.t('analyzer.diagToolCallMissing', { name: event.name }), detail: event.id ? I18n.t('analyzer.diagToolCallMissingDetailId', { id: event.id }) : I18n.t('analyzer.diagToolCallMissingDetailNoId') });
             }
             if (event.kind === 'result' && !event.matched) {
-                issues.push({ level: 'warn', title: 'Tool 结果没有匹配调用', detail: event.id ? `结果 ID: ${event.id}` : '结果缺少 ID。' });
+                issues.push({ level: 'warn', title: I18n.t('analyzer.diagToolResultNoMatch'), detail: event.id ? I18n.t('analyzer.diagToolResultNoMatchDetailId', { id: event.id }) : I18n.t('analyzer.diagToolResultNoMatchDetailNoId') });
             }
         });
         if (context.toolDefinitions.length > 0 && !context.toolEvents.some(e => e.kind === 'call')) {
-            issues.push({ level: 'info', title: '定义了 Tools 但未调用', detail: '如果期望模型使用工具，需要检查 tool_choice 和提示词约束。' });
+            issues.push({ level: 'info', title: I18n.t('analyzer.diagToolsNotUsed'), detail: I18n.t('analyzer.diagToolsNotUsedDetail') });
         }
         return issues;
     }
@@ -812,9 +812,9 @@
         const statusEl = document.getElementById('metaStatus');
         const success = params.get('success');
         if (success === 'true') {
-            statusEl.innerHTML = '<span class="pill pill-success">成功</span>';
+            statusEl.innerHTML = `<span class="pill pill-success">${I18n.t('analyzer.success')}</span>`;
         } else if (success === 'false') {
-            statusEl.innerHTML = '<span class="pill pill-danger">失败</span>';
+            statusEl.innerHTML = `<span class="pill pill-danger">${I18n.t('analyzer.failed')}</span>`;
         } else {
             statusEl.textContent = '-';
         }
@@ -880,21 +880,21 @@
 
         container.innerHTML = `
             <div class="overview-grid">
-                ${renderOverviewMetric('消息数', stats.messages)}
-                ${renderOverviewMetric('System 段', stats.systemBlocks)}
-                ${renderOverviewMetric('Tools', stats.toolDefinitions)}
-                ${renderOverviewMetric('Tool 调用', stats.toolCalls)}
-                ${renderOverviewMetric('Tool 结果', stats.toolResults)}
-                ${renderOverviewMetric('输出 Blocks', stats.outputBlocks ?? 0)}
-                ${renderOverviewMetric('结束原因', stats.finishReason || '-')}
+                ${renderOverviewMetric(I18n.t('analyzer.metricMessages'), stats.messages)}
+                ${renderOverviewMetric(I18n.t('analyzer.metricSystemBlocks'), stats.systemBlocks)}
+                ${renderOverviewMetric(I18n.t('analyzer.metricTools'), stats.toolDefinitions)}
+                ${renderOverviewMetric(I18n.t('analyzer.metricToolCalls'), stats.toolCalls)}
+                ${renderOverviewMetric(I18n.t('analyzer.metricToolResults'), stats.toolResults)}
+                ${renderOverviewMetric(I18n.t('analyzer.metricOutputBlocks'), stats.outputBlocks ?? 0)}
+                ${renderOverviewMetric(I18n.t('analyzer.metricFinishReason'), stats.finishReason || '-')}
             </div>
             <div class="analysis-section">
-                <h3>Content Blocks</h3>
-                <div class="context-chip-row">${blockRows || '<span class="text-sm text-ink-500">无结构化 blocks</span>'}</div>
+                <h3>${I18n.t('analyzer.contentBlocks')}</h3>
+                <div class="context-chip-row">${blockRows || `<span class="text-sm text-ink-500">${I18n.t('analyzer.noStructuredBlocks')}</span>`}</div>
             </div>
             ${renderRequestParamsSection(normalizedContext.requestParams)}
             <div class="analysis-section">
-                <h3>关键诊断</h3>
+                <h3>${I18n.t('analyzer.keyDiagnostics')}</h3>
                 ${renderDiagnosticsList(normalizedContext.diagnostics.slice(0, 4))}
             </div>
         `;
@@ -904,7 +904,7 @@
         if (!params || !params.length) return '';
         return `
             <div class="analysis-section">
-                <h3>请求参数</h3>
+                <h3>${I18n.t('analyzer.requestParams')}</h3>
                 <div class="usage-grid">
                     ${params.map(param => renderOverviewMetric(param.key, formatParamValue(param.value))).join('')}
                 </div>
@@ -913,12 +913,12 @@
     }
 
     function renderOutputView(container) {
-        const output = normalizedContext.output || normalizedOutput || emptyOutput(apiType, '没有可分析的模型输出。');
+        const output = normalizedContext.output || normalizedOutput || emptyOutput(apiType, I18n.t('analyzer.noOutput'));
         if (!output.available) {
             container.innerHTML = `
                 <div class="empty">
-                    <div class="text-sm font-semibold text-ink-900 mb-1">没有模型输出</div>
-                    <div class="text-sm text-ink-500">${escapeHtml(output.error || '返回 Body 未保存。')}</div>
+                    <div class="text-sm font-semibold text-ink-900 mb-1">${I18n.t('analyzer.noOutputTitle')}</div>
+                    <div class="text-sm text-ink-500">${escapeHtml(output.error || I18n.t('analyzer.respBodyNotSaved2'))}</div>
                 </div>
             `;
             return;
@@ -926,23 +926,23 @@
 
         container.innerHTML = `
             <div class="output-summary">
-                ${renderOverviewMetric('输出格式', output.apiType)}
-                ${renderOverviewMetric('内容 Blocks', output.blocks.length)}
-                ${renderOverviewMetric('输出 Tool 调用', output.toolCalls.length)}
-                ${renderOverviewMetric('结束原因', output.finishReason || '-')}
+                ${renderOverviewMetric(I18n.t('analyzer.outputFormat'), output.apiType)}
+                ${renderOverviewMetric(I18n.t('analyzer.contentBlocksCount'), output.blocks.length)}
+                ${renderOverviewMetric(I18n.t('analyzer.outputToolCalls'), output.toolCalls.length)}
+                ${renderOverviewMetric(I18n.t('analyzer.metricFinishReason'), output.finishReason || '-')}
             </div>
             <div class="analysis-section">
-                <h3>模型回复</h3>
+                <h3>${I18n.t('analyzer.modelReply')}</h3>
                 ${renderBlocks(output.blocks)}
             </div>
             ${renderOutputMetadata(output.metadata)}
             <div class="analysis-section">
-                <h3>输出 Tool 调用 (${output.toolCalls.length})</h3>
-                ${output.toolCalls.length ? output.toolCalls.map(renderOutputToolCall).join('') : '<div class="empty">没有输出 Tool 调用</div>'}
+                <h3>${I18n.t('analyzer.outputToolCalls')} (${output.toolCalls.length})</h3>
+                ${output.toolCalls.length ? output.toolCalls.map(renderOutputToolCall).join('') : `<div class="empty">${I18n.t('analyzer.noOutputToolCalls')}</div>`}
             </div>
             <div class="analysis-section">
-                <h3>Usage</h3>
-                ${output.usage ? renderUsageDetails(output.usage) : '<div class="empty">返回 Body 中没有 usage</div>'}
+                <h3>${I18n.t('analyzer.usage')}</h3>
+                ${output.usage ? renderUsageDetails(output.usage) : `<div class="empty">${I18n.t('analyzer.noUsage')}</div>`}
             </div>
         `;
     }
@@ -951,7 +951,7 @@
         if (!metadata || !metadata.length) return '';
         return `
             <div class="analysis-section">
-                <h3>响应元信息</h3>
+                <h3>${I18n.t('analyzer.responseMetadata')}</h3>
                 <div class="usage-grid">
                     ${metadata.map(item => renderOverviewMetric(item.key, item.value)).join('')}
                 </div>
@@ -999,7 +999,7 @@
     function renderMessagesView(container) {
         const turns = normalizedContext.turns;
         if (turns.length === 0) {
-            container.innerHTML = '<div class="empty">没有消息</div>';
+            container.innerHTML = `<div class="empty">${I18n.t('analyzer.noMessages')}</div>`;
             return;
         }
 
@@ -1014,7 +1014,7 @@
                             <span class="message-preview">${escapeHtml(preview)}</span>
                         </div>
                         <div class="message-header-actions">
-                            <button class="raw-json-btn" onclick="event.stopPropagation(); showRawJsonModal(${turn.index})" title="查看原始 JSON">
+                            <button class="raw-json-btn" onclick="event.stopPropagation(); showRawJsonModal(${turn.index})" title="${I18n.t('analyzer.viewRawJson')}">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
@@ -1042,12 +1042,12 @@
         container.innerHTML = `
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div class="tool-definitions">
-                    <h3 class="text-sm font-semibold text-ink-900 mb-3">可用 Tools (${tools.length})</h3>
-                    ${tools.length ? tools.map(renderToolDefinition).join('') : '<div class="empty">没有定义 Tools</div>'}
+                    <h3 class="text-sm font-semibold text-ink-900 mb-3">${I18n.t('analyzer.availableTools')} (${tools.length})</h3>
+                    ${tools.length ? tools.map(renderToolDefinition).join('') : `<div class="empty">${I18n.t('analyzer.noTools')}</div>`}
                 </div>
                 <div class="tool-calls">
-                    <h3 class="text-sm font-semibold text-ink-900 mb-3">调用历史 (${toolEvents.length})</h3>
-                    ${toolEvents.length ? toolEvents.map(renderToolEvent).join('') : '<div class="empty">没有 Tool 调用</div>'}
+                    <h3 class="text-sm font-semibold text-ink-900 mb-3">${I18n.t('analyzer.callHistory')} (${toolEvents.length})</h3>
+                    ${toolEvents.length ? toolEvents.map(renderToolEvent).join('') : `<div class="empty">${I18n.t('analyzer.noToolCalls')}</div>`}
                 </div>
             </div>
         `;
@@ -1059,7 +1059,7 @@
                 <div class="tool-definition-header">
                     <span class="pill pill-brand">${escapeHtml(tool.name)}</span>
                 </div>
-                <div class="tool-definition-desc">${escapeHtml(tool.description || '无描述')}</div>
+                <div class="tool-definition-desc">${escapeHtml(tool.description || I18n.t('analyzer.noDescription'))}</div>
                 ${tool.schema ? `<div class="tool-definition-params">${escapeHtml(safeJson(tool.schema))}</div>` : ''}
             </div>
         `;
@@ -1070,7 +1070,7 @@
             const formattedResult = tryFormatJson(event.result) || event.result || '';
             return `
                 <div class="tool-call-history tool-call-unmatched">
-                    <div class="tool-call-name">未匹配 Tool 结果</div>
+                    <div class="tool-call-name">${I18n.t('analyzer.unmatchedToolResult')}</div>
                     <div class="tool-call-meta">ID: ${escapeHtml(event.id || '-')}</div>
                     <div class="tool-call-args">${escapeHtml(formattedResult)}</div>
                 </div>
@@ -1082,7 +1082,7 @@
                 <div class="tool-call-name">${escapeHtml(event.name)}</div>
                 <div class="tool-call-meta">ID: ${escapeHtml(event.id || '-')} · message #${event.messageIndex + 1}</div>
                 <div class="tool-call-args">${escapeHtml(event.arguments)}</div>
-                ${formattedResult ? `<div class="tool-call-result"><div class="text-xs text-ink-400 mb-1">结果</div><div class="tool-call-args">${escapeHtml(formattedResult)}</div></div>` : '<div class="tool-call-missing">未找到匹配结果</div>'}
+                ${formattedResult ? `<div class="tool-call-result"><div class="text-xs text-ink-400 mb-1">${I18n.t('analyzer.result')}</div><div class="tool-call-args">${escapeHtml(formattedResult)}</div></div>` : `<div class="tool-call-missing">${I18n.t('analyzer.noMatchedResult')}</div>`}
             </div>
         `;
     }
@@ -1090,7 +1090,7 @@
     function renderSystemView(container) {
         const systemBlocks = normalizedContext.systemBlocks;
         if (systemBlocks.length === 0) {
-            container.innerHTML = '<div class="empty">没有 System 提示词</div>';
+            container.innerHTML = `<div class="empty">${I18n.t('analyzer.noSystemPrompt')}</div>`;
             return;
         }
 
@@ -1121,14 +1121,14 @@
     function renderDiagnosticsView(container) {
         container.innerHTML = `
             <div class="analysis-section">
-                <h3>诊断结果 (${normalizedContext.diagnostics.length})</h3>
+                <h3>${I18n.t('analyzer.diagnosticsResult')} (${normalizedContext.diagnostics.length})</h3>
                 ${renderDiagnosticsList(normalizedContext.diagnostics)}
             </div>
         `;
     }
 
     function renderDiagnosticsList(items) {
-        if (!items.length) return '<div class="empty">没有发现明显问题</div>';
+        if (!items.length) return `<div class="empty">${I18n.t('analyzer.noIssues')}</div>`;
         return items.map(item => `
             <div class="diagnostic diagnostic-${escapeAttr(item.level)}">
                 <div class="diagnostic-title">${escapeHtml(item.title)}</div>
@@ -1138,7 +1138,7 @@
     }
 
     function renderBlocks(blocks) {
-        if (!blocks.length) return '<div class="message-content text-ink-400">空内容</div>';
+        if (!blocks.length) return `<div class="message-content text-ink-400">${I18n.t('analyzer.emptyContent')}</div>`;
         return blocks.map(block => {
             if (block.type === 'text' || block.type === 'thinking') {
                 const rawText = (block.text || '').trim();
@@ -1296,7 +1296,7 @@
         modal.innerHTML = `
             <div class="raw-json-modal">
                 <div class="raw-json-modal-header">
-                    <span class="raw-json-modal-title">${escapeHtml(turn.role)} #${index + 1} 原始 JSON</span>
+                    <span class="raw-json-modal-title">${escapeHtml(turn.role)} #${index + 1} ${I18n.t('analyzer.rawJson')}</span>
                     <button class="raw-json-modal-close">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -1325,7 +1325,7 @@
         document.getElementById('contentArea').innerHTML = `
             <div class="loading">
                 <div class="loading-spinner"></div>
-                <span>加载中...</span>
+                <span>${I18n.t('analyzer.loading')}</span>
             </div>
         `;
     }
@@ -1333,9 +1333,9 @@
     function showError(message) {
         document.getElementById('contentArea').innerHTML = `
             <div class="error">
-                <div class="text-lg font-semibold mb-2">错误</div>
+                <div class="text-lg font-semibold mb-2">${I18n.t('analyzer.errorTitle')}</div>
                 <div>${escapeHtml(message)}</div>
-                <button onclick="location.reload()" class="btn-primary mt-4 px-4 py-2">重试</button>
+                <button onclick="location.reload()" class="btn-primary mt-4 px-4 py-2">${I18n.t('analyzer.retry')}</button>
             </div>
         `;
     }
@@ -1347,4 +1347,11 @@
     }
 
     init();
+
+    document.addEventListener('i18n:langchange', () => {
+        if (normalizedContext) {
+            renderMetadata();
+            renderCurrentView();
+        }
+    });
 })();

@@ -34,7 +34,7 @@ async function saveWhitelist() {
   const btn = document.getElementById('whitelist_save_btn');
   if (errorEl) errorEl.classList.add('hidden');
 
-  // 前端格式粗检：非注释非空行必须恰好 4 列
+    // Frontend format validation: non-comment/non-empty lines must have exactly 4 columns
   const rawLines = content.split('\n');
   for (let i = 0; i < rawLines.length; i++) {
     const line = rawLines[i];
@@ -50,7 +50,7 @@ async function saveWhitelist() {
     }
   }
 
-  // 检查是否可能把自己锁出去
+    // Check if might lock self out
   const ipEl = document.getElementById('whitelist_client_ip');
   const myIp = ipEl ? ipEl.textContent.replace(/^.*?(\d[\d.:]+)\s*$/, '$1').trim() : '';
   if (myIp && content.trim() && !content.trim().split('\n').every(l => l.trim().startsWith('#') || !l.trim())) {

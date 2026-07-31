@@ -140,7 +140,7 @@ function _bindChangePasswordForm() {
     });
 }
 
-// 加载安全配置
+// Load security config
 async function loadSecurityConfig() {
     try {
         const resp = await fetch('/admin/auth/security-config');
@@ -213,7 +213,7 @@ async function loadSettings() {
     await loadSecurityConfig();
     _bindChangePasswordForm();
   } catch (e) {
-    console.error('加载设置失败:', e);
+    console.error('Failed to load settings:', e);
   }
 }
 
@@ -381,8 +381,8 @@ async function loadFormatConversionPanel() {
       fetch('/admin/settings'),
       fetch('/admin/channels'),
     ]);
-    if (!settingsResp.ok) throw new Error('加载设置失败 HTTP ' + settingsResp.status);
-    if (!channelsResp.ok) throw new Error('加载渠道失败 HTTP ' + channelsResp.status);
+    if (!settingsResp.ok) throw new Error(`HTTP ${settingsResp.status}`);
+    if (!channelsResp.ok) throw new Error(`HTTP ${channelsResp.status}`);
     const settings = await settingsResp.json();
     const channels = await channelsResp.json();
     _fcGlobalAllowed = settings.allow_format_conversion ?? true;
@@ -390,7 +390,7 @@ async function loadFormatConversionPanel() {
     _fcRenderPanel();
     _fcBindGlobalToggle();
   } catch (e) {
-    panel.innerHTML = '<div class="text-sm text-rose-600 py-10 text-center">加载失败：' + esc(e.message) + '</div>';
+    panel.innerHTML = `<div class="text-sm text-rose-600 py-10 text-center">${I18n.t('settings.fcSaveFailedToast')}: ${esc(e.message)}</div>`;
   } finally {
     _fcLoading = false;
   }

@@ -1,5 +1,5 @@
 class TagInput {
-    constructor(containerId, hiddenInputId, placeholder = '输入模型名称') {
+    constructor(containerId, hiddenInputId, placeholder = '') {
 this.container = document.getElementById(containerId);
 this.hiddenInput = document.getElementById(hiddenInputId);
 this.tags = [];

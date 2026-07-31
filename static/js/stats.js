@@ -38,7 +38,7 @@ async function refreshStats() {
   hint.classList.remove('opacity-100');
   try {
     const resp = await fetch('/admin/stats/refresh', { method: 'POST' });
-    if (!resp.ok) throw new Error('请求失败');
+    if (!resp.ok) throw new Error(I18n.t('stats.refreshFailed'));
     await resp.json();
     hint.textContent = I18n.t('stats.refreshed');
     hint.classList.remove('opacity-0');
@@ -148,7 +148,7 @@ document.getElementById('statsDaysLabel').textContent = daysVal;
     lastStatsData = data;
     renderStats(data);
   } catch (e) {
-    console.error('加载统计失败:', e);
+    console.error('Failed to load stats:', e);
   } finally {
     if (btn && isManualRefresh) {
       btn.disabled = false;

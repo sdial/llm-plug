@@ -95,7 +95,7 @@ async function loadRequests() {
         renderRequests();
         renderRequestPagination();
     } catch (e) {
-        console.error('加载请求记录失败:', e);
+        console.error('Failed to load request records:', e);
         document.getElementById('requestsTbody').innerHTML = `<tr><td colspan="12" class="py-4 text-center text-ink-400 text-sm">${I18n.t('requests.loadFailed')}</td></tr>`;
     }
 }
