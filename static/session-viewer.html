@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LLM-API Agent 交互流程可视化</title>
+    <title data-i18n="sessionViewer.title">LLM-API Agent 交互流程可视化</title>
+    <script src="/admin/static/js/i18n.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/i18n-zh.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/i18n-en.js?v=__STATIC_ASSET_VERSION__"></script>
     <style>
         :root {
             --bg-primary: #0f0f0f;
@@ -44,6 +47,7 @@
             padding: 30px 0;
             border-bottom: 1px solid var(--border);
             margin-bottom: 30px;
+            position: relative;
         }
 
         header h1 {
@@ -52,6 +56,23 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+        }
+
+        .lang-toggle {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--accent-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 4px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: inherit;
+        }
+        .lang-toggle:hover {
+            border-color: var(--accent-primary);
         }
 
         .stats-bar {
@@ -538,39 +559,39 @@
 <body>
     <div class="container">
         <header>
-            <h1>LLM-API Agent 交互流程可视化</h1>
+            <button class="lang-toggle" onclick="I18n.toggle()" data-i18n="common.langLabel">中/EN</button>
+            <h1 data-i18n="sessionViewer.title">LLM-API Agent 交互流程可视化</h1>
             <div style="margin: 15px 0;">
                 <select id="log-file" style="padding: 8px 15px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); min-width: 250px;">
-                    <option value="">选择日志文件...</option>
+                    <option value="" data-i18n="sessionViewer.selectLogFile">选择日志文件...</option>
                 </select>
             </div>
             <div class="stats-bar">
                 <div class="stat">
                     <div class="stat-value" id="total-turns">0</div>
-                    <div class="stat-label">总交互轮次</div>
+                    <div class="stat-label" data-i18n="sessionViewer.totalTurns">总交互轮次</div>
                 </div>
                 <div class="stat">
                     <div class="stat-value" id="total-messages">0</div>
-                    <div class="stat-label">消息总数</div>
+                    <div class="stat-label" data-i18n="sessionViewer.totalMessages">消息总数</div>
                 </div>
                 <div class="stat">
                     <div class="stat-value" id="total-tools">0</div>
-                    <div class="stat-label">工具调用</div>
+                    <div class="stat-label" data-i18n="sessionViewer.totalTools">工具调用</div>
                 </div>
                 <div class="stat">
                     <div class="stat-value" id="total-tokens">-</div>
-                    <div class="stat-label">Token估算</div>
+                    <div class="stat-label" data-i18n="sessionViewer.tokenEstimate">Token估算</div>
                 </div>
             </div>
         </header>
 
         <div class="search-box">
             <span class="search-icon">🔍</span>
-            <input type="text" id="search" placeholder="搜索内容...">
+            <input type="text" id="search" data-i18n-placeholder="sessionViewer.search" placeholder="搜索内容...">
         </div>
 
         <div class="timeline" id="timeline">
-            <!-- 动态生成 -->
         </div>
     </div>
 
@@ -578,7 +599,7 @@
     <div class="modal-overlay" id="modal">
         <div class="modal">
             <div class="modal-header">
-                <span class="modal-title" id="modal-title">详情</span>
+                <span class="modal-title" id="modal-title" data-i18n="sessionViewer.detail">详情</span>
                 <button class="modal-close" onclick="closeModal()">×</button>
             </div>
             <div class="modal-body" id="modal-body">
@@ -591,13 +612,12 @@
         let totalToolCalls = 0;
         let currentLogFile = 'debug_2026-04-25.jsonl';
 
-        // 加载可用的日志文件列表
         async function loadLogFileList() {
             try {
                 const response = await fetch('/admin/logs');
                 const files = await response.json();
                 const select = document.getElementById('log-file');
-                select.innerHTML = '<option value="">选择日志文件...</option>';
+                select.innerHTML = `<option value="">${I18n.t('sessionViewer.selectLogFile')}</option>`;
                 files.forEach(file => {
                     const option = document.createElement('option');
                     option.value = file.name;
@@ -612,14 +632,12 @@
             }
         }
 
-        // 格式化字节
         function formatBytes(bytes) {
             if (bytes < 1024) return bytes + ' B';
             if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
             return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
         }
 
-        // 加载数据
         async function loadData(filename) {
             if (!filename) filename = currentLogFile;
             currentLogFile = filename;
@@ -646,11 +664,10 @@
             } catch (error) {
                 console.error('Error loading data:', error);
                 document.getElementById('timeline').innerHTML =
-                    '<p style="text-align:center;color:var(--error);">无法加载数据文件。请确保服务器正在运行。</p>';
+                    `<p style="text-align:center;color:var(--error);">${I18n.t('sessionViewer.loadFailed')}</p>`;
             }
         }
 
-        // 更新统计
         function updateStats() {
             document.getElementById('total-turns').textContent = sessionData.length;
 
@@ -664,7 +681,6 @@
             document.getElementById('total-tools').textContent = totalToolCalls;
         }
 
-        // 渲染时间线
         function renderTimeline() {
             const timeline = document.getElementById('timeline');
             timeline.innerHTML = '';
@@ -676,7 +692,6 @@
                 timeline.appendChild(turnEl);
             });
 
-            // 绑定事件
             document.querySelectorAll('.turn-header').forEach(header => {
                 header.addEventListener('click', () => {
                     header.closest('.turn').classList.toggle('expanded');
@@ -706,19 +721,17 @@
                     e.stopPropagation();
                     const content = e.target.previousElementSibling;
                     content.classList.toggle('expanded');
-                    e.target.textContent = content.classList.contains('expanded') ? '收起' : '展开全部';
+                    e.target.textContent = content.classList.contains('expanded') ? I18n.t('sessionViewer.collapse') : I18n.t('sessionViewer.expandAll');
                 });
             });
         }
 
-        // 创建轮次HTML
         function createTurnHTML(turn, index) {
             const req = turn.request?.body || {};
             const resp = turn.response || {};
             const channel = turn.channel || {};
-            const timestamp = new Date(turn.timestamp).toLocaleString('zh-CN');
+            const timestamp = new Date(turn.timestamp).toLocaleString(I18n.getLocale());
 
-            // 统计工具调用
             let toolCallsInTurn = 0;
             const streamContent = resp.stream_content || [];
 
@@ -745,10 +758,10 @@
                 </div>
                 <div class="turn-content">
                     <div class="tabs">
-                        <button class="tab active" data-target="tab-request-${index}">请求</button>
-                        <button class="tab" data-target="tab-response-${index}">响应</button>
-                        <button class="tab" data-target="tab-prompt-${index}">提示词分析</button>
-                        <button class="tab" data-target="tab-raw-${index}">原始JSON</button>
+                        <button class="tab active" data-target="tab-request-${index}">${I18n.t('sessionViewer.tabRequest')}</button>
+                        <button class="tab" data-target="tab-response-${index}">${I18n.t('sessionViewer.tabResponse')}</button>
+                        <button class="tab" data-target="tab-prompt-${index}">${I18n.t('sessionViewer.tabPrompt')}</button>
+                        <button class="tab" data-target="tab-raw-${index}">${I18n.t('sessionViewer.tabRawJson')}</button>
                     </div>
 
                     <div id="tab-request-${index}" class="tab-content active">
@@ -765,7 +778,7 @@
 
                     <div id="tab-raw-${index}" class="tab-content">
                         <div class="json-viewer">
-                            <button class="json-toggle" onclick="copyJson(${index})">复制</button>
+                            <button class="json-toggle" onclick="copyJson(${index})">${I18n.t('sessionViewer.copy')}</button>
                             <pre id="json-raw-${index}"></pre>
                         </div>
                     </div>
@@ -773,7 +786,6 @@
             `;
         }
 
-        // 创建请求标签页
         function createRequestTab(req, channel, requestInfo) {
             const messages = req.messages || [];
             const tools = req.tools || [];
@@ -782,7 +794,7 @@
                 <div class="card expanded">
                     <div class="card-header">
                         <span class="card-title">
-                            请求信息
+                            ${I18n.t('sessionViewer.requestInfo')}
                             <span class="card-badge">${channel.api_type || 'API'}</span>
                         </span>
                         <span class="card-toggle">▼</span>
@@ -791,15 +803,15 @@
                         <p><strong>URL:</strong> ${requestInfo?.url || 'N/A'}</p>
                         <p><strong>Model:</strong> ${req.model || 'N/A'}</p>
                         <p><strong>Max Tokens:</strong> ${req.max_tokens || 'N/A'}</p>
-                        <p><strong>Stream:</strong> ${req.stream ? '是' : '否'}</p>
+                        <p><strong>Stream:</strong> ${req.stream ? I18n.t('sessionViewer.yes') : I18n.t('sessionViewer.no')}</p>
                     </div>
                 </div>
 
                 <div class="card expanded">
                     <div class="card-header">
                         <span class="card-title">
-                            消息列表
-                            <span class="card-badge">${messages.length} 条</span>
+                            ${I18n.t('sessionViewer.messageList')}
+                            <span class="card-badge">${messages.length} ${I18n.t('sessionViewer.messagesUnit')}</span>
                         </span>
                         <span class="card-toggle">▼</span>
                     </div>
@@ -811,8 +823,8 @@
                 <div class="card">
                     <div class="card-header">
                         <span class="card-title">
-                            工具定义
-                            <span class="card-badge">${tools.length} 个</span>
+                            ${I18n.t('sessionViewer.toolDefinitions')}
+                            <span class="card-badge">${tools.length} ${I18n.t('sessionViewer.toolsUnit')}</span>
                         </span>
                         <span class="card-toggle">▼</span>
                     </div>
@@ -820,7 +832,7 @@
                         ${tools.map(tool => `
                             <div class="tool-item">
                                 <div class="tool-name">${tool.function?.name || 'unknown'}</div>
-                                <div class="tool-desc">${tool.function?.description || '无描述'}</div>
+                                <div class="tool-desc">${tool.function?.description || I18n.t('sessionViewer.noDescription')}</div>
                             </div>
                         `).join('')}
                     </div>
@@ -828,7 +840,6 @@
             `;
         }
 
-        // 创建消息HTML
         function createMessageHTML(msg, index) {
             const role = msg.role || 'unknown';
             const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2);
@@ -840,18 +851,17 @@
                     <div class="message-content ${truncated ? '' : 'expanded'}">
                         ${escapeHtml(truncated ? content.substring(0, 500) + '...' : content)}
                     </div>
-                    ${truncated ? `<span class="expand-btn" onclick="showFullMessage(${index}, this)">展开全部</span>` : ''}
+                    ${truncated ? `<span class="expand-btn" onclick="showFullMessage(${index}, this)">${I18n.t('sessionViewer.expandAll')}</span>` : ''}
                     ${msg.tool_calls ? `
                         <div style="margin-top:10px;color:var(--warning);">
-                            <strong>Tool Calls:</strong> ${msg.tool_calls.length} 个
-                            <button onclick="showToolCalls(${index})" style="margin-left:10px;background:var(--accent-secondary);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;">查看详情</button>
+                            <strong>Tool Calls:</strong> ${msg.tool_calls.length} ${I18n.t('sessionViewer.toolCallsCount')}
+                            <button onclick="showToolCalls(${index})" style="margin-left:10px;background:var(--accent-secondary);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;">${I18n.t('sessionViewer.viewDetail')}</button>
                         </div>
                     ` : ''}
                 </div>
             `;
         }
 
-        // 创建响应标签页
         function createResponseTab(resp) {
             const chunks = resp.stream_content || [];
 
@@ -859,14 +869,14 @@
                 <div class="card expanded">
                     <div class="card-header">
                         <span class="card-title">
-                            响应信息
+                            ${I18n.t('sessionViewer.responseInfo')}
                             <span class="card-badge">${resp.status_code || 'N/A'}</span>
                         </span>
                         <span class="card-toggle">▼</span>
                     </div>
                     <div class="card-body">
                         <p><strong>Status Code:</strong> ${resp.status_code || 'N/A'}</p>
-                        <p><strong>Stream:</strong> ${resp.is_stream ? '是' : '否'}</p>
+                        <p><strong>Stream:</strong> ${resp.is_stream ? I18n.t('sessionViewer.yes') : I18n.t('sessionViewer.no')}</p>
                         <p><strong>Chunks:</strong> ${chunks.length}</p>
                     </div>
                 </div>
@@ -874,8 +884,8 @@
                 <div class="card expanded">
                     <div class="card-header">
                         <span class="card-title">
-                            流式响应块
-                            <span class="card-badge">${chunks.length} 块</span>
+                            ${I18n.t('sessionViewer.streamChunks')}
+                            <span class="card-badge">${chunks.length} ${I18n.t('sessionViewer.chunksUnit')}</span>
                         </span>
                         <span class="card-toggle">▼</span>
                     </div>
@@ -888,7 +898,6 @@
             `;
         }
 
-        // 创建chunk HTML
         function createChunkHTML(chunk, index) {
             let chunkType = 'delta';
             let content = '';
@@ -920,23 +929,20 @@
             `;
         }
 
-        // 创建提示词分析标签页
         function createPromptAnalysisTab(req) {
             const messages = req.messages || [];
 
-            // 分析system prompt
             const systemMsg = messages.find(m => m.role === 'system');
             const systemContent = systemMsg?.content || '';
 
-            // 尝试解析提示词结构
             const sections = parsePromptSections(systemContent);
 
             return `
                 <div class="card expanded">
                     <div class="card-header">
                         <span class="card-title">
-                            System Prompt 结构分析
-                            <span class="card-badge">${systemContent.length} 字符</span>
+                            ${I18n.t('sessionViewer.systemPromptAnalysis')}
+                            <span class="card-badge">${systemContent.length} ${I18n.t('sessionViewer.charsUnit')}</span>
                         </span>
                         <span class="card-toggle">▼</span>
                     </div>
@@ -945,10 +951,10 @@
                             <div class="prompt-section">
                                 <div class="prompt-section-header" onclick="this.parentElement.classList.toggle('expanded')">
                                     <span class="prompt-section-title">${section.name}</span>
-                                    <span class="prompt-section-size">${section.content.length} 字符</span>
+                                    <span class="prompt-section-size">${section.content.length} ${I18n.t('sessionViewer.charsUnit')}</span>
                                 </div>
                                 <div class="prompt-section-content">
-                                    <pre style="white-space:pre-wrap;word-break:break-word;margin:0;font-size:0.85rem;">${escapeHtml(section.content.substring(0, 2000))}${section.content.length > 2000 ? '\n...(已截断)' : ''}</pre>
+                                    <pre style="white-space:pre-wrap;word-break:break-word;margin:0;font-size:0.85rem;">${escapeHtml(section.content.substring(0, 2000))}${section.content.length > 2000 ? I18n.t('sessionViewer.truncated') : ''}</pre>
                                 </div>
                             </div>
                         `).join('')}
@@ -957,15 +963,15 @@
 
                 <div class="card">
                     <div class="card-header">
-                        <span class="card-title">消息统计</span>
+                        <span class="card-title">${I18n.t('sessionViewer.messageStats')}</span>
                         <span class="card-toggle">▼</span>
                     </div>
                     <div class="card-body">
                         <table style="width:100%;border-collapse:collapse;">
                             <tr style="border-bottom:1px solid var(--border);">
-                                <th style="text-align:left;padding:8px;">角色</th>
-                                <th style="text-align:right;padding:8px;">数量</th>
-                                <th style="text-align:right;padding:8px;">总字符</th>
+                                <th style="text-align:left;padding:8px;">${I18n.t('sessionViewer.role')}</th>
+                                <th style="text-align:right;padding:8px;">${I18n.t('sessionViewer.count')}</th>
+                                <th style="text-align:right;padding:8px;">${I18n.t('sessionViewer.totalChars')}</th>
                             </tr>
                             ${['system', 'user', 'assistant', 'tool'].map(role => {
                                 const roleMsgs = messages.filter(m => m.role === role);
@@ -974,7 +980,7 @@
                                     <tr style="border-bottom:1px solid var(--border);">
                                         <td style="padding:8px;color:${getRoleColor(role)}">${role}</td>
                                         <td style="text-align:right;padding:8px;">${roleMsgs.length}</td>
-                                        <td style="text-align:right;padding:8px;">${totalChars.toLocaleString()}</td>
+                                        <td style="text-align:right;padding:8px;">${totalChars.toLocaleString(I18n.getLocale())}</td>
                                     </tr>
                                 `;
                             }).join('')}
@@ -984,7 +990,6 @@
             `;
         }
 
-        // 解析提示词结构
         function parsePromptSections(content) {
             const sections = [];
             const patterns = [
@@ -1007,7 +1012,6 @@
             return sections;
         }
 
-        // 工具函数
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
@@ -1024,27 +1028,23 @@
             return colors[role] || 'var(--text-primary)';
         }
 
-        // 显示完整消息
         function showFullMessage(index, btn) {
             const content = btn.previousElementSibling;
             content.classList.toggle('expanded');
-            btn.textContent = content.classList.contains('expanded') ? '收起' : '展开全部';
+            btn.textContent = content.classList.contains('expanded') ? I18n.t('sessionViewer.collapse') : I18n.t('sessionViewer.expandAll');
         }
 
-        // 显示工具调用详情
         function showToolCalls(msgIndex) {
-            openModal('Tool Calls 详情', '<pre style="white-space:pre-wrap;">工具调用详情...</pre>');
+            openModal(I18n.t('sessionViewer.toolCallsDetail'), '<pre style="white-space:pre-wrap;">' + I18n.t('sessionViewer.toolCallsDetail') + '...</pre>');
         }
 
-        // 显示chunk详情
         function showChunkDetail(chunkIndex, evt) {
-            // 找到对应的chunk
             const turnEl = evt.target.closest('.turn');
             const turnIndex = Array.from(document.querySelectorAll('.turn')).indexOf(turnEl);
             const chunk = sessionData[turnIndex]?.response?.stream_content?.[chunkIndex];
 
             if (chunk) {
-                openModal(`Chunk ${chunkIndex + 1} 详情`, `
+                openModal(`Chunk ${chunkIndex + 1} ${I18n.t('sessionViewer.chunkDetail')}`, `
                     <div class="json-viewer">
                         <pre>${syntaxHighlight(JSON.stringify(chunk, null, 2))}</pre>
                     </div>
@@ -1052,7 +1052,6 @@
             }
         }
 
-        // JSON语法高亮
         function syntaxHighlight(json) {
             json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
@@ -1072,7 +1071,6 @@
             });
         }
 
-        // 复制JSON
         function copyJson(index) {
             const json = JSON.stringify(sessionData[index], null, 2);
             try {
@@ -1088,13 +1086,12 @@
                     document.execCommand('copy');
                     document.body.removeChild(textarea);
                 }
-                alert('已复制到剪贴板');
+                alert(I18n.t('sessionViewer.copiedToClipboard'));
             } catch (e) {
-                alert('复制失败: ' + e.message);
+                alert(I18n.t('sessionViewer.copyFailed') + e.message);
             }
         }
 
-        // Modal操作
         function openModal(title, content) {
             document.getElementById('modal-title').textContent = title;
             document.getElementById('modal-body').innerHTML = content;
@@ -1105,14 +1102,12 @@
             document.getElementById('modal').classList.remove('active');
         }
 
-        // 点击overlay关闭modal
         document.getElementById('modal').addEventListener('click', (e) => {
             if (e.target === document.getElementById('modal')) {
                 closeModal();
             }
         });
 
-        // 搜索功能
         document.getElementById('search').addEventListener('input', (e) => {
             const query = e.target.value.toLowerCase();
             document.querySelectorAll('.turn').forEach(turn => {
@@ -1121,14 +1116,12 @@
             });
         });
 
-        // 文件选择
         document.getElementById('log-file').addEventListener('change', (e) => {
             if (e.target.value) {
                 loadData(e.target.value);
             }
         });
 
-        // 初始化原始JSON显示
         function initRawJson() {
             sessionData.forEach((data, index) => {
                 const el = document.getElementById(`json-raw-${index}`);
@@ -1138,7 +1131,14 @@
             });
         }
 
-        // 初始化
+        document.addEventListener('i18n:langchange', () => {
+            if (sessionData.length > 0) {
+                renderTimeline();
+                updateStats();
+                initRawJson();
+            }
+        });
+
         loadLogFileList();
         loadData();
     </script>

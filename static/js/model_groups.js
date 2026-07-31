@@ -12,9 +12,9 @@ async function loadModelGroups() {
         modelGroups = await resp.json();
         renderModelGroups();
     } catch (e) {
-        console.error('加载模型组失败:', e);
+        console.error('loadModelGroups failed:', e);
         const el = document.getElementById('modelGroupList');
-        if (el) el.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">加载失败</p>';
+        if (el) el.innerHTML = `<p class="text-ink-400 text-center py-8 text-sm">${I18n.t('modelGroups.loadFailed')}</p>`;
     }
 }
 
@@ -22,7 +22,7 @@ function renderModelGroups() {
     const container = document.getElementById('modelGroupList');
     if (!container) return;
     if (!modelGroups.length) {
-        container.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">暂无模型组，点击上方按钮添加</p>';
+        container.innerHTML = `<p class="text-ink-400 text-center py-8 text-sm">${I18n.t('modelGroups.empty')}</p>`;
         return;
     }
 
@@ -31,7 +31,7 @@ function renderModelGroups() {
             <div class="min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                     <span class="font-medium text-ink-900">${esc(g.name)}</span>
-                    <span class="pill ${g.enabled ? 'pill-success' : 'pill-muted'}">${g.enabled ? '启用' : '禁用'}</span>
+                    <span class="pill ${g.enabled ? 'pill-success' : 'pill-muted'}">${g.enabled ? I18n.t('common.enabled') : I18n.t('common.disabled')}</span>
                 </div>
                 <div class="text-sm text-ink-600 mt-1 break-words">
                     ${g.models.map((m, i) => {
@@ -42,9 +42,9 @@ function renderModelGroups() {
                 </div>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <button onclick="toggleModelGroup('${g.id}')" class="btn-secondary text-xs px-3 py-1.5 font-medium">${g.enabled ? '禁用' : '启用'}</button>
-                <button onclick="editModelGroup('${g.id}')" class="btn-secondary text-xs px-3 py-1.5 font-medium">编辑</button>
-                <button onclick="deleteModelGroupConfirm('${g.id}')" class="text-rose-600 hover:text-rose-700 text-xs px-3 py-1.5 font-medium">删除</button>
+                <button onclick="toggleModelGroup('${g.id}')" class="btn-secondary text-xs px-3 py-1.5 font-medium">${g.enabled ? I18n.t('common.disable') : I18n.t('common.enable')}</button>
+                <button onclick="editModelGroup('${g.id}')" class="btn-secondary text-xs px-3 py-1.5 font-medium">${I18n.t('common.edit')}</button>
+                <button onclick="deleteModelGroupConfirm('${g.id}')" class="text-rose-600 hover:text-rose-700 text-xs px-3 py-1.5 font-medium">${I18n.t('common.delete')}</button>
             </div>
         </div>
     `).join('');
@@ -53,7 +53,7 @@ function renderModelGroups() {
 function openModelGroupModal(group = null) {
     if (!document.getElementById('modelGroupModal')) return;
     editingModelGroupId = group ? group.id : null;
-    document.getElementById('modelGroupModalTitle').textContent = group ? '编辑模型组' : '添加模型组';
+    document.getElementById('modelGroupModalTitle').textContent = group ? I18n.t('modals.mgEdit') : I18n.t('modals.mgAdd');
     document.getElementById('modelGroupId').value = group ? group.id : '';
     document.getElementById('modelGroupName').value = group ? group.name : '';
     document.getElementById('modelGroupEnabled').checked = group ? group.enabled : true;
@@ -84,15 +84,15 @@ function addModelInput(value = '', schedules = []) {
     div.innerHTML = `
         <div class="flex items-center gap-2">
             <span class="model-idx text-ink-400 text-sm w-6"></span>
-            <input type="text" value="${esc(value)}" placeholder="模型名称" class="model-input flex-1 text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
-            <button type="button" onclick="toggleModelSchedule(this)" title="定时屏蔽" class="model-schedule-toggle hover:text-brand-600 text-sm w-5 ${hasSchedule ? 'text-brand-600' : 'text-ink-400'}">🕐</button>
-            <button type="button" onclick="moveModelInput(this, -1)" title="上移" class="model-up text-ink-400 hover:text-brand-600 text-sm w-5">↑</button>
-            <button type="button" onclick="moveModelInput(this, 1)" title="下移" class="model-down text-ink-400 hover:text-brand-600 text-sm w-5">↓</button>
+            <input type="text" value="${esc(value)}" placeholder="${I18n.t('modelGroups.modelNamePh')}" class="model-input flex-1 text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+            <button type="button" onclick="toggleModelSchedule(this)" title="${I18n.t('modelGroups.scheduleTitle')}" class="model-schedule-toggle hover:text-brand-600 text-sm w-5 ${hasSchedule ? 'text-brand-600' : 'text-ink-400'}">🕐</button>
+            <button type="button" onclick="moveModelInput(this, -1)" title="${I18n.t('modelGroups.moveUp')}" class="model-up text-ink-400 hover:text-brand-600 text-sm w-5">↑</button>
+            <button type="button" onclick="moveModelInput(this, 1)" title="${I18n.t('modelGroups.moveDown')}" class="model-down text-ink-400 hover:text-brand-600 text-sm w-5">↓</button>
             <button type="button" onclick="removeModelInput(this)" class="model-del text-ink-400 hover:text-rose-600 text-sm w-5">×</button>
         </div>
         <div class="model-schedule-panel ml-8 mt-1 ${hasSchedule ? '' : 'hidden'}">
             <div class="schedule-rows space-y-1"></div>
-            <button type="button" onclick="addScheduleRow(this)" class="mt-1 text-xs text-brand-600 hover:text-brand-700 font-medium">+ 添加时段</button>
+            <button type="button" onclick="addScheduleRow(this)" class="mt-1 text-xs text-brand-600 hover:text-brand-700 font-medium">${I18n.t('modelGroups.addSchedule')}</button>
         </div>
     `;
     container.appendChild(div);
@@ -114,12 +114,12 @@ function addScheduleRow(btn, rowsContainer, schedule) {
     const checked = schedule ? schedule.enabled : true;
     row.innerHTML = `
         <input type="time" class="schedule-start border border-surface-200 rounded px-2 py-1 text-xs" value="${schedule ? esc(schedule.start) : DEFAULT_SCHEDULE_START}">
-        <span class="text-ink-400">至</span>
+        <span class="text-ink-400">${I18n.t('modelGroups.scheduleTo')}</span>
         <input type="time" class="schedule-end border border-surface-200 rounded px-2 py-1 text-xs" value="${schedule ? esc(schedule.end) : DEFAULT_SCHEDULE_END}">
         <label class="flex items-center gap-1 text-ink-400">
-            <input type="checkbox" class="schedule-enabled w-3 h-3" ${checked ? 'checked' : ''}> 启用
+            <input type="checkbox" class="schedule-enabled w-3 h-3" ${checked ? 'checked' : ''}> ${I18n.t('common.enabled')}
         </label>
-        <button type="button" onclick="removeScheduleRow(this)" class="text-ink-400 hover:text-rose-600 text-xs" title="删除时段">×</button>
+        <button type="button" onclick="removeScheduleRow(this)" class="text-ink-400 hover:text-rose-600 text-xs" title="${I18n.t('modelGroups.deleteSchedule')}">×</button>
     `;
     container.appendChild(row);
 }
@@ -205,11 +205,11 @@ async function saveModelGroup(e) {
     });
 
     if (!name) {
-        showGlobalToast('请输入组名', 'error');
+        showGlobalToast(I18n.t('modelGroups.nameRequired'), 'error');
         return;
     }
     if (models.length === 0) {
-        showGlobalToast('请至少添加一个模型', 'error');
+        showGlobalToast(I18n.t('modelGroups.modelRequired'), 'error');
         return;
     }
 
@@ -236,10 +236,10 @@ async function saveModelGroup(e) {
             loadModelGroups();
         } else {
             const err = await resp.json().catch(() => ({}));
-            showGlobalToast('保存失败: ' + (err.detail || 'HTTP ' + resp.status));
+            showGlobalToast(I18n.t('modelGroups.saveFailed') + ': ' + (err.detail || 'HTTP ' + resp.status));
         }
     } catch (e) {
-        showGlobalToast('保存失败: ' + e.message);
+        showGlobalToast(I18n.t('modelGroups.saveFailed') + ': ' + e.message);
     }
 }
 
@@ -257,25 +257,25 @@ async function toggleModelGroup(id) {
             loadModelGroups();
         } else {
             const err = await resp.json().catch(() => ({}));
-            showGlobalToast('操作失败: ' + (err.detail || 'HTTP ' + resp.status));
+            showGlobalToast(I18n.t('modelGroups.opFailed') + ': ' + (err.detail || 'HTTP ' + resp.status));
         }
     } catch (e) {
-        showGlobalToast('操作失败: ' + e.message);
+        showGlobalToast(I18n.t('modelGroups.opFailed') + ': ' + e.message);
     }
 }
 
 async function deleteModelGroupConfirm(id) {
-    showConfirmModal('确认删除', '确定要删除该模型组吗？此操作不可恢复。', async () => {
+    showConfirmModal(I18n.t('modelGroups.confirmDelete'), I18n.t('modelGroups.confirmDeleteMsg'), async () => {
         try {
             const resp = await fetch(`/admin/model-groups/${id}`, { method: 'DELETE' });
             if (resp.ok) {
                 loadModelGroups();
             } else {
                 const err = await resp.json().catch(() => ({}));
-                showGlobalToast('删除失败: ' + (err.detail || 'HTTP ' + resp.status));
+                showGlobalToast(I18n.t('modelGroups.deleteFailed') + ': ' + (err.detail || 'HTTP ' + resp.status));
             }
         } catch (e) {
-            showGlobalToast('删除失败: ' + e.message);
+            showGlobalToast(I18n.t('modelGroups.deleteFailed') + ': ' + e.message);
         }
     });
 }

@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JSON 查看器</title>
+    <title data-i18n="jsonViewer.title">JSON 查看器</title>
+    <script src="/admin/static/js/i18n.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/i18n-zh.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/i18n-en.js?v=__STATIC_ASSET_VERSION__"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -68,6 +71,20 @@
         .download-btn:disabled {
             color: #555;
             cursor: not-allowed;
+        }
+        .lang-toggle-btn {
+            background: #2a2d2e;
+            border: 1px solid #444;
+            color: #a9b7c6;
+            cursor: pointer;
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-family: inherit;
+        }
+        .lang-toggle-btn:hover {
+            background: #313435;
+            border-color: #4a9eff;
         }
 
         /* Main layout */
@@ -243,27 +260,27 @@
 </head>
 <body>
     <div class="header">
-        <span class="header-title">JSON 查看器</span>
+        <span class="header-title" data-i18n="jsonViewer.title">JSON 查看器</span>
         <div class="header-actions">
-            <button class="download-btn" id="downloadBtn" title="下载当前 JSON" disabled>&#11015; 下载</button>
-            <button class="toggle-sidebar-btn" id="toggleSidebar" title="收起/展开侧栏">&#9776;</button>
+            <button class="download-btn" id="downloadBtn" data-i18n-title="jsonViewer.downloadTitle" title="下载当前 JSON" disabled>&#11015; <span data-i18n="jsonViewer.download">下载</span></button>
+            <button class="toggle-sidebar-btn" id="toggleSidebar" data-i18n-title="jsonViewer.toggleSidebar" title="收起/展开侧栏">&#9776;</button>
+            <button class="lang-toggle-btn" onclick="I18n.toggle()" data-i18n="common.langLabel">中/EN</button>
         </div>
     </div>
     <div class="main-layout">
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <button class="sidebar-btn" id="selectAll">全选</button>
-                <button class="sidebar-btn" id="invertAll">反选</button>
+                <button class="sidebar-btn" id="selectAll" data-i18n="jsonViewer.selectAll">全选</button>
+                <button class="sidebar-btn" id="invertAll" data-i18n="jsonViewer.invertAll">反选</button>
             </div>
             <div class="tree-container" id="treeContainer"></div>
-            <div class="sidebar-footer" id="statusBar">加载中...</div>
+            <div class="sidebar-footer" id="statusBar" data-i18n="jsonViewer.loading">加载中...</div>
         </div>
         <div class="json-main" id="jsonMain">
-            <span class="loading">加载中...</span>
+            <span class="loading" data-i18n="jsonViewer.loading">加载中...</span>
         </div>
     </div>
     <script>
-        // ===== Data Model =====
         var originalData = null;
         var fieldTree = null;
 
@@ -321,8 +338,6 @@
             return count;
         }
 
-        // ===== Tree Rendering =====
-
         function setDefaultExpansion(node, depth) {
             if (!node.children) return;
             node.expanded = depth < 2;
@@ -379,10 +394,8 @@
         function updateStatusBar() {
             var total = countLeafNodes(fieldTree);
             var checked = countCheckedLeaves(fieldTree);
-            document.getElementById('statusBar').textContent = '已选 ' + checked + '/' + total + ' 个字段';
+            document.getElementById('statusBar').textContent = I18n.t('jsonViewer.selectedFields', { checked: checked, total: total });
         }
-
-        // ===== Checkbox Cascade Logic =====
 
         function setCheckedRecursive(node, checked) {
             node.checked = checked;
@@ -475,30 +488,28 @@
             renderFilteredJson();
         }
 
-        // ===== Download =====
-
         function downloadJson() {
             if (originalData === null || originalData === undefined || !fieldTree) return;
             var filtered;
             try {
                 filtered = filterJsonData(originalData, fieldTree);
             } catch (e) {
-                alert('过滤数据失败: ' + e.message);
+                alert(I18n.t('jsonViewer.filterFailed') + e.message);
                 return;
             }
             if (filtered === null || filtered === undefined) {
-                alert('所有字段均已隐藏，无可下载数据');
+                alert(I18n.t('jsonViewer.noDownloadData'));
                 return;
             }
             if (typeof filtered === 'string' && filtered.length === 0) {
-                alert('过滤后的数据为空字符串，无可下载内容');
+                alert(I18n.t('jsonViewer.emptyFiltered'));
                 return;
             }
 
             try {
                 var jsonStr = JSON.stringify(filtered, null, 2);
             } catch (e) {
-                alert('序列化 JSON 失败: ' + e.message);
+                alert(I18n.t('jsonViewer.serializeFailed') + e.message);
                 return;
             }
 
@@ -544,8 +555,6 @@
 
             document.getElementById('downloadBtn').addEventListener('click', downloadJson);
         }
-
-        // ===== JSON Filtering & Rendering =====
 
         function filterJsonData(data, node) {
             if (!node.children) {
@@ -631,13 +640,13 @@
         function renderFilteredJson() {
             var main = document.getElementById('jsonMain');
             if (!originalData || !fieldTree) {
-                main.innerHTML = '<span class="loading">无数据</span>';
+                main.innerHTML = '<span class="loading">' + I18n.t('jsonViewer.noData') + '</span>';
                 return;
             }
 
             var filtered = filterJsonData(originalData, fieldTree);
             if (filtered === null) {
-                main.innerHTML = '<span class="null">所有字段均已隐藏</span>';
+                main.innerHTML = '<span class="null">' + I18n.t('jsonViewer.allFieldsHidden') + '</span>';
                 return;
             }
 
@@ -671,8 +680,6 @@
             }
         }
 
-        // ===== Sidebar Resize =====
-
         function initResize() {
             var sidebar = document.getElementById('sidebar');
             var handle = document.createElement('div');
@@ -702,8 +709,6 @@
             }
         }
 
-        // ===== Initialization =====
-
         function applyFieldsFilter(fieldsPaths) {
             setCheckedRecursive(fieldTree, false);
 
@@ -720,22 +725,22 @@
         async function init() {
             var params = new URLSearchParams(window.location.search);
             var url = params.get('url');
-            var title = params.get('title') || 'JSON 查看器';
+            var title = params.get('title') || I18n.t('jsonViewer.title');
             var fieldsParam = params.get('fields');
             document.title = title;
             document.querySelector('.header-title').textContent = title;
 
             if (!url) {
-                document.getElementById('jsonMain').innerHTML = '<div class="error">缺少 url 参数</div>';
-                document.getElementById('statusBar').textContent = '无数据';
+                document.getElementById('jsonMain').innerHTML = '<div class="error">' + I18n.t('jsonViewer.missingUrl') + '</div>';
+                document.getElementById('statusBar').textContent = I18n.t('jsonViewer.noData');
                 return;
             }
 
             try {
                 var resp = await fetch(url);
                 if (!resp.ok) {
-                    document.getElementById('jsonMain').innerHTML = '<div class="error">请求失败: ' + resp.status + ' ' + escapeHtml(await resp.text()) + '</div>';
-                    document.getElementById('statusBar').textContent = '加载失败';
+                    document.getElementById('jsonMain').innerHTML = '<div class="error">' + I18n.t('jsonViewer.requestFailed') + resp.status + ' ' + escapeHtml(await resp.text()) + '</div>';
+                    document.getElementById('statusBar').textContent = I18n.t('jsonViewer.loadFailed');
                     return;
                 }
                 var result = await resp.json();
@@ -759,10 +764,17 @@
                 document.getElementById('downloadBtn').disabled = false;
 
             } catch (e) {
-                document.getElementById('jsonMain').innerHTML = '<div class="error">加载失败: ' + escapeHtml(e.message) + '</div>';
-                document.getElementById('statusBar').textContent = '加载失败';
+                document.getElementById('jsonMain').innerHTML = '<div class="error">' + I18n.t('jsonViewer.loadFailed') + ': ' + escapeHtml(e.message) + '</div>';
+                document.getElementById('statusBar').textContent = I18n.t('jsonViewer.loadFailed');
             }
         }
+
+        document.addEventListener('i18n:langchange', () => {
+            if (fieldTree) {
+                updateStatusBar();
+                renderFilteredJson();
+            }
+        });
 
         init();
     </script>

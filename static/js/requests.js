@@ -17,7 +17,7 @@ function asInt(value) {
 }
 
 function renderMissingCacheReadToken(label) {
-    return `<span class="request-cache-missing" title="cache_read_input_tokens 字段为 ${label}">${label}</span>`;
+    return `<span class="request-cache-missing" title="${I18n.t('requests.cacheMissingTitle', { label })}">${label}</span>`;
 }
 
 function renderTokenUsage(tokens, cachedTokens = null) {
@@ -25,7 +25,7 @@ function renderTokenUsage(tokens, cachedTokens = null) {
     if (cachedTokens === null) return renderMissingCacheReadToken('null');
     if (cachedTokens === undefined) return renderMissingCacheReadToken('undefined');
     const cached = asInt(cachedTokens);
-    const cachedTag = `<span class="request-cache-tag" title="命中缓存 Token">${cached}</span>`;
+    const cachedTag = `<span class="request-cache-tag" title="${I18n.t('requests.cacheTokenTitle')}">${cached}</span>`;
     return `<span class="request-token-cell"><span class="request-token-main">${total}</span>${cachedTag}</span>`;
 }
 
@@ -81,7 +81,7 @@ async function loadRequests() {
                 requestsData = [];
                 requestTotal = 0;
                 renderRequestPagination();
-                document.getElementById('requestsTbody').innerHTML = `<tr><td colspan="12" class="py-6 text-center text-sm text-ink-600">请求记录库不可用:${esc(err.detail || '未知错误')} <button onclick="loadStatsRequestLogs()" class="pill pill-brand ml-2 cursor-pointer">查看轻量请求记录</button></td></tr>`;
+                document.getElementById('requestsTbody').innerHTML = `<tr><td colspan="12" class="py-6 text-center text-sm text-ink-600">${I18n.t('requests.dbUnavailable', { detail: esc(err.detail || '') })} <button onclick="loadStatsRequestLogs()" class="pill pill-brand ml-2 cursor-pointer">${I18n.t('requests.viewLightLogs')}</button></td></tr>`;
                 return;
             }
             throw new Error('HTTP ' + resp.status);
@@ -95,8 +95,8 @@ async function loadRequests() {
         renderRequests();
         renderRequestPagination();
     } catch (e) {
-        console.error('加载请求记录失败:', e);
-        document.getElementById('requestsTbody').innerHTML = '<tr><td colspan="12" class="py-4 text-center text-ink-400 text-sm">加载失败</td></tr>';
+        console.error('Failed to load request records:', e);
+        document.getElementById('requestsTbody').innerHTML = `<tr><td colspan="12" class="py-4 text-center text-ink-400 text-sm">${I18n.t('requests.loadFailed')}</td></tr>`;
     }
 }
 
@@ -113,7 +113,7 @@ function populateRequestChannelFilter() {
     const options = Array.from(window.adminChannels.getChannels())
         .map(ch => `<option value="${esc(ch.name)}">${esc(ch.name)}</option>`)
         .join('');
-    select.innerHTML = `<option value="">全部渠道</option>${options}`;
+    select.innerHTML = `<option value="">${I18n.t('requests.filterAllChannels')}</option>${options}`;
     select.value = currentVal;
 }
 
@@ -136,7 +136,7 @@ function populateRequestApiKeyFilter() {
     const select = document.getElementById('reqFilterApiKeyId');
     if (!select) return;
     const currentVal = select.value;
-    select.innerHTML = '<option value="">全部 API Key</option>';
+    select.innerHTML = `<option value="">${I18n.t('requests.filterAllApiKeys')}</option>`;
     requestApiKeys.forEach(key => {
         const label = key.name || key.id;
         select.innerHTML += `<option value="${esc(key.id)}">${esc(label)}</option>`;
@@ -175,7 +175,7 @@ function renderRequests() {
     const tbody = document.getElementById('requestsTbody');
     if (!tbody) return;
     if (!requestsData.length) {
-        tbody.innerHTML = '<tr><td colspan="12" class="py-4 text-center text-ink-400 text-sm">暂无请求记录</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="12" class="py-4 text-center text-ink-400 text-sm">${I18n.t('requests.noRecords')}</td></tr>`;
         return;
     }
     tbody.innerHTML = requestsData.map(req => {
@@ -190,19 +190,19 @@ function renderRequests() {
         }
         return `
         <tr class="transition-colors duration-150 cursor-pointer" onclick="openRequestDetail('${req.id}')">
-            <td data-label="时间" class="py-3 px-3 text-sm text-ink-900 whitespace-nowrap">${formatTimestamp(req.timestamp)}</td>
-            <td data-label="渠道" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.channel_name)}"><span class="pill pill-muted">${esc(req.channel_name)}</span></td>
-            <td data-label="客户端 IP" class="py-3 px-2 text-sm text-ink-500 truncate font-mono" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
-            <td data-label="API Key" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.api_key_name || req.api_key_id || '-')}">${esc(req.api_key_name || req.api_key_id || '-')}</td>
-            <td data-label="模型" class="py-3 px-2 text-sm text-ink-900 truncate" title="${esc(req.model)}">${esc(req.model)}</td>
-            <td data-label="输入 Tok" class="py-3 px-2 text-right text-sm">${renderTokenUsage(inputTokens, req.cache_read_input_tokens)}</td>
-            <td data-label="输出 Tok" class="py-3 px-2 text-right text-sm"><span class="request-token-cell"><span class="request-token-main">${outTokens}</span></span></td>
-            <td data-label="总耗时 (ms)" class="py-3 px-2 text-right text-sm">${renderMetric(latency)}</td>
-            <td data-label="首 Token (ms)" class="py-3 px-2 text-right text-sm">${renderMetric(lag)}</td>
-            <td data-label="速率 (t/s)" class="py-3 px-2 text-right text-sm"><span class="${speedClass(speed)}">${speed}</span></td>
-            <td data-label="结束原因" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.finish_reason || '-')}">${esc(req.finish_reason || '-')}</td>
-            <td data-label="状态" class="py-3 px-2 text-center">
-                <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? '成功' : '失败'}</span>
+            <td data-label="${I18n.t('requests.colTime')}" class="py-3 px-3 text-sm text-ink-900 whitespace-nowrap">${formatTimestamp(req.timestamp)}</td>
+            <td data-label="${I18n.t('requests.colChannel')}" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.channel_name)}"><span class="pill pill-muted">${esc(req.channel_name)}</span></td>
+            <td data-label="${I18n.t('requests.colClientIp')}" class="py-3 px-2 text-sm text-ink-500 truncate font-mono" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
+            <td data-label="${I18n.t('requests.colApiKey')}" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.api_key_name || req.api_key_id || '-')}">${esc(req.api_key_name || req.api_key_id || '-')}</td>
+            <td data-label="${I18n.t('requests.colModel')}" class="py-3 px-2 text-sm text-ink-900 truncate" title="${esc(req.model)}">${esc(req.model)}</td>
+            <td data-label="${I18n.t('requests.colInputTok')}" class="py-3 px-2 text-right text-sm">${renderTokenUsage(inputTokens, req.cache_read_input_tokens)}</td>
+            <td data-label="${I18n.t('requests.colOutputTok')}" class="py-3 px-2 text-right text-sm"><span class="request-token-cell"><span class="request-token-main">${outTokens}</span></span></td>
+            <td data-label="${I18n.t('requests.colLatency')}" class="py-3 px-2 text-right text-sm">${renderMetric(latency)}</td>
+            <td data-label="${I18n.t('requests.colFirstTok')}" class="py-3 px-2 text-right text-sm">${renderMetric(lag)}</td>
+            <td data-label="${I18n.t('requests.colSpeed')}" class="py-3 px-2 text-right text-sm"><span class="${speedClass(speed)}">${speed}</span></td>
+            <td data-label="${I18n.t('requests.colFinishReason')}" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.finish_reason || '-')}">${esc(req.finish_reason || '-')}</td>
+            <td data-label="${I18n.t('requests.colStatus')}" class="py-3 px-2 text-center">
+                <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? I18n.t('requests.statusSuccess') : I18n.t('requests.statusFail')}</span>
             </td>
         </tr>
     `}).join('');
@@ -210,7 +210,7 @@ function renderRequests() {
 
 function formatTimestamp(ts) {
     const d = new Date(ts);
-    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\//g, '-');
+    return d.toLocaleString(I18n.getLocale(), { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\//g, '-');
 }
 
 function renderRequestPagination() {
@@ -345,12 +345,12 @@ function openRequestDetail(id) {
 
     const content = document.getElementById('requestDetailContent');
     const rawLinks = requestLogSource === 'stats'
-        ? '<div class="text-sm text-ink-500">轻量记录模式：数据来自统计库，不包含请求/返回 Header 和 Body。</div>'
+        ? `<div class="text-sm text-ink-500">${I18n.t('requests.detailLightMode')}</div>`
         : `
-                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'request-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">请求 Header</a>
-                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'request-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">请求 Body</a>
-                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'response-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">返回 Header</a>
-                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'response-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">返回 Body</a>
+                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'request-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">${I18n.t('requests.detailReqHeaders')}</a>
+                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'request-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">${I18n.t('requests.detailReqBody')}</a>
+                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'response-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">${I18n.t('requests.detailRespHeaders')}</a>
+                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'response-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">${I18n.t('requests.detailRespBody')}</a>
           `; 
     const inputTokens = asInt(req.input_tokens);
     const outputTokens = asInt(req.output_tokens);
@@ -358,41 +358,41 @@ function openRequestDetail(id) {
     const cacheCreationTokens = asInt(req.cache_creation_input_tokens);
     content.innerHTML = `
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div><span class="text-ink-400">ID:</span> <span class="text-ink-900 font-mono">${req.id}</span></div>
-            <div><span class="text-ink-400">时间:</span> <span class="text-ink-900">${formatTimestamp(req.timestamp)}</span></div>
-            <div><span class="text-ink-400">模型:</span> <span class="text-ink-900">${esc(req.model)}</span></div>
-            <div><span class="text-ink-400">渠道:</span> <span class="text-ink-900">${esc(req.channel_name)}</span></div>
-            <div><span class="text-ink-400">渠道ID:</span> <span class="text-ink-900 font-mono">${esc(req.channel_id)}</span></div>
-            <div><span class="text-ink-400">API Key:</span> <span class="text-ink-900">${esc(req.api_key_name || req.api_key_id || '-')}</span></div>
-            <div><span class="text-ink-400">API Key ID:</span> <span class="text-ink-900 font-mono">${esc(req.api_key_id || '-')}</span></div>
-            <div><span class="text-ink-400">流式:</span> <span class="text-ink-900">${req.is_stream ? '是' : '否'}</span></div>
-            <div><span class="text-ink-400">状态:</span> <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? '成功' : '失败'}</span></div>
-            <div><span class="text-ink-400">延迟:</span> <span class="text-ink-900">${req.latency_ms != null ? req.latency_ms + 'ms' : '-'}</span></div>
-            <div><span class="text-ink-400">Lag:</span> <span class="text-ink-900">${req.lag_ms != null ? req.lag_ms + 'ms' : '-'}</span></div>
-            <div><span class="text-ink-400">Cost:</span> <span class="text-ink-900">${req.cost != null ? req.cost : '-'}</span></div>
-            <div><span class="text-ink-400">Finish Reason:</span> <span class="text-ink-900">${esc(req.finish_reason || '-')}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailId')}:</span> <span class="text-ink-900 font-mono">${req.id}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailTime')}:</span> <span class="text-ink-900">${formatTimestamp(req.timestamp)}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailModel')}:</span> <span class="text-ink-900">${esc(req.model)}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailChannel')}:</span> <span class="text-ink-900">${esc(req.channel_name)}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailChannelId')}:</span> <span class="text-ink-900 font-mono">${esc(req.channel_id)}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailApiKey')}:</span> <span class="text-ink-900">${esc(req.api_key_name || req.api_key_id || '-')}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailApiKeyId')}:</span> <span class="text-ink-900 font-mono">${esc(req.api_key_id || '-')}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailStream')}:</span> <span class="text-ink-900">${req.is_stream ? I18n.t('requests.detailStreamYes') : I18n.t('requests.detailStreamNo')}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailStatus')}:</span> <span class="pill ${req.success ? 'pill-success' : 'pill-danger'}">${req.success ? I18n.t('requests.statusSuccess') : I18n.t('requests.statusFail')}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailLatency')}:</span> <span class="text-ink-900">${req.latency_ms != null ? req.latency_ms + 'ms' : '-'}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailLag')}:</span> <span class="text-ink-900">${req.lag_ms != null ? req.lag_ms + 'ms' : '-'}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailCost')}:</span> <span class="text-ink-900">${req.cost != null ? req.cost : '-'}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailFinishReason')}:</span> <span class="text-ink-900">${esc(req.finish_reason || '-')}</span></div>
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-            ${renderDetailMetric('输入 Token', inputTokens)}
-            ${renderDetailMetric('输出 Token', outputTokens)}
-            ${renderDetailMetric('缓存命中 Token', cacheReadTokens, 'cache-hit')}
-            ${renderDetailMetric('缓存写入 Token', cacheCreationTokens, 'cache-write')}
+            ${renderDetailMetric(I18n.t('requests.detailInputToken'), inputTokens)}
+            ${renderDetailMetric(I18n.t('requests.detailOutputToken'), outputTokens)}
+            ${renderDetailMetric(I18n.t('requests.detailCacheRead'), cacheReadTokens, 'cache-hit')}
+            ${renderDetailMetric(I18n.t('requests.detailCacheWrite'), cacheCreationTokens, 'cache-write')}
         </div>
         <div class="mt-3">
-            <div class="text-ink-400 mb-2">请求/返回数据:</div>
+            <div class="text-ink-400 mb-2">${I18n.t('requests.detailRawData')}</div>
             <div class="flex flex-wrap gap-2">
                 ${rawLinks}
             </div>
         </div>
         ${req.error_msg ? `
         <div class="mt-3">
-            <div class="text-ink-400 mb-1">错误信息:</div>
+            <div class="text-ink-400 mb-1">${I18n.t('requests.detailErrorMsg')}</div>
             <div class="bg-rose-50 border border-rose-100 rounded-xl p-3 text-sm text-rose-700">${esc(req.error_msg)}</div>
         </div>
         ` : ''}
         ${requestLogSource !== 'stats' ? `
         <div class="mt-4 flex justify-end">
-            <a href="/admin/request-analyzer?id=${req.id}&api_type=${encodeURIComponent(getRequestAnalyzerApiType(req))}&channel=${encodeURIComponent(req.channel_name)}&success=${req.success}&latency=${req.latency_ms || ''}&input_tokens=${inputTokens}&output_tokens=${outputTokens}" target="_blank" class="btn-primary text-sm px-3 py-1.5 font-medium">深度分析</a>
+            <a href="/admin/request-analyzer?id=${req.id}&api_type=${encodeURIComponent(getRequestAnalyzerApiType(req))}&channel=${encodeURIComponent(req.channel_name)}&success=${req.success}&latency=${req.latency_ms || ''}&input_tokens=${inputTokens}&output_tokens=${outputTokens}" target="_blank" class="btn-primary text-sm px-3 py-1.5 font-medium">${I18n.t('requests.detailAnalyze')}</a>
         </div>
         ` : ''}
     `;

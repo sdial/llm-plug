@@ -77,9 +77,9 @@ function syncLbStrategyMode() {
   const strategy = strategyEl.value || 'round_robin';
   stickyOptions.classList.toggle('hidden', strategy !== 'sticky');
   const descriptions = {
-    round_robin: '同优先级内按权重轮询分发流量，低优先级渠道作为备份。',
-    backup: '按优先级和权重排序，始终使用最靠前的健康渠道，失败后才切换。',
-    sticky: '同一会话优先路由到同一渠道，用于复用上游缓存；会话标识会先脱敏再参与路由。',
+    round_robin: I18n.t('settings.lbStrategyHelpRR'),
+    backup: I18n.t('settings.lbStrategyHelpBackup'),
+    sticky: I18n.t('settings.lbStrategyHelpSticky'),
   };
   help.textContent = descriptions[strategy] || descriptions.round_robin;
 }
@@ -101,7 +101,7 @@ function _bindChangePasswordForm() {
         const confirm_password = document.getElementById('cp_confirm_password').value;
 
         if (new_password !== confirm_password) {
-            msg.textContent = '两次输入的新密码不一致';
+            msg.textContent = I18n.t('settings.secPwdMismatch');
             msg.classList.add('text-rose-600');
             msg.classList.remove('hidden');
             return;
@@ -120,10 +120,10 @@ function _bindChangePasswordForm() {
 
             if (!resp.ok) {
                 const data = await resp.json().catch(() => ({}));
-                throw new Error(data.detail || '修改失败');
+                throw new Error(data.detail || I18n.t('settings.secPwdFailed'));
             }
 
-            msg.textContent = '密码修改成功，请重新登录';
+            msg.textContent = I18n.t('settings.secPwdSuccess');
             msg.classList.add('text-green-600');
             msg.classList.remove('hidden');
             document.getElementById('changePasswordForm').reset();
@@ -140,7 +140,7 @@ function _bindChangePasswordForm() {
     });
 }
 
-// 加载安全配置
+// Load security config
 async function loadSecurityConfig() {
     try {
         const resp = await fetch('/admin/auth/security-config');
@@ -157,7 +157,7 @@ async function loadSecurityConfig() {
         tbody.innerHTML = '';
         for (const tier of data.lockout_tiers) {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td class="py-1">${tier.range} 次</td><td>${tier.display}</td>`;
+            tr.innerHTML = `<td class="py-1">${tier.range}${I18n.t('settings.secTierUnit')}</td><td>${tier.display}</td>`;
             tbody.appendChild(tr);
         }
     } catch (err) {
@@ -213,7 +213,7 @@ async function loadSettings() {
     await loadSecurityConfig();
     _bindChangePasswordForm();
   } catch (e) {
-    console.error('加载设置失败:', e);
+    console.error('Failed to load settings:', e);
   }
 }
 
@@ -255,7 +255,7 @@ async function saveSettings() {
   if (adminLockoutBaseSeconds !== (orig.admin_lockout_base_seconds ?? 60)) data.admin_lockout_base_seconds = adminLockoutBaseSeconds;
 
   if (Object.keys(data).length === 0) {
-    showGlobalToast('没有修改', 'info');
+    showGlobalToast(I18n.t('settings.noChanges'), 'info');
     return;
   }
 
@@ -267,14 +267,14 @@ async function saveSettings() {
     });
     if (resp.ok) {
       const result = await resp.json();
-      showGlobalToast('保存成功', 'success');
+      showGlobalToast(I18n.t('settings.saveSuccess'), 'success');
       loadSettings();
     } else {
       const err = await resp.json().catch(() => ({}));
-      showGlobalToast('保存失败: ' + (err.detail || 'HTTP ' + resp.status), 'error');
+      showGlobalToast(I18n.t('settings.saveFailed') + ': ' + (err.detail || 'HTTP ' + resp.status), 'error');
     }
   } catch (e) {
-    showGlobalToast('保存失败: ' + e.message, 'error');
+    showGlobalToast(I18n.t('settings.saveFailed') + ': ' + e.message, 'error');
   }
 }
 
@@ -296,9 +296,9 @@ function _fcEffectiveAllowed(ch, globalAllowed) {
 
 function _fcOverrideMeta(ch) {
   const v = ch.allow_format_conversion;
-  if (v === null || v === undefined) return { value: '', label: '跟随全局', cls: 'bg-surface-100 text-ink-500' };
-  if (v === true) return { value: 'true', label: '强制允许', cls: 'bg-emerald-50 text-emerald-700' };
-  return { value: 'false', label: '强制禁止', cls: 'bg-rose-50 text-rose-700' };
+  if (v === null || v === undefined) return { value: '', label: I18n.t('settings.fcFollowGlobal'), cls: 'bg-surface-100 text-ink-500' };
+  if (v === true) return { value: 'true', label: I18n.t('settings.fcForceAllow'), cls: 'bg-emerald-50 text-emerald-700' };
+  return { value: 'false', label: I18n.t('settings.fcForceBlock'), cls: 'bg-rose-50 text-rose-700' };
 }
 
 function _fcRenderChannelRow(ch) {
@@ -310,13 +310,13 @@ function _fcRenderChannelRow(ch) {
       <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold ${apiInfo.color}" title="${esc(apiInfo.title)}">${apiInfo.short}</span>
       <div class="min-w-0 flex-1 flex items-center gap-2">
         <span class="text-sm font-medium text-ink-900 truncate" title="${esc(ch.name)}">${esc(ch.name)}</span>
-        ${disabled ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-200 text-ink-500 flex-shrink-0">已禁用</span>' : ''}
+        ${disabled ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-200 text-ink-500 flex-shrink-0">${I18n.t('settings.fcDisabledTag')}</span>` : ''}
         <span class="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${override.cls}">${override.label}</span>
       </div>
       <select data-fc-channel-id="${esc(ch.id)}" class="fc-channel-select text-xs border border-surface-200 rounded-md px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500">
-        <option value=""${override.value === '' ? ' selected' : ''}>跟随全局</option>
-        <option value="true"${override.value === 'true' ? ' selected' : ''}>强制允许</option>
-        <option value="false"${override.value === 'false' ? ' selected' : ''}>强制禁止</option>
+        <option value=""${override.value === '' ? ' selected' : ''}>${I18n.t('settings.fcFollowGlobal')}</option>
+        <option value="true"${override.value === 'true' ? ' selected' : ''}>${I18n.t('settings.fcForceAllow')}</option>
+        <option value="false"${override.value === 'false' ? ' selected' : ''}>${I18n.t('settings.fcForceBlock')}</option>
       </select>
     </div>
   `;
@@ -329,9 +329,9 @@ function _fcRenderPanel() {
   if (!panel || !toggle || !status) return;
 
   toggle.checked = _fcGlobalAllowed;
-  status.innerHTML = _fcGlobalAllowed
-    ? '当前：<span class="text-emerald-700 font-medium">已开启</span> — 跨格式渠道会自动调用转换器。'
-    : '当前：<span class="text-rose-700 font-medium">已关闭</span> — 跨格式渠道会被静默跳过，仅尝试同格式渠道。';
+  status.textContent = _fcGlobalAllowed
+    ? I18n.t('settings.fcStatusOn')
+    : I18n.t('settings.fcStatusOff');
 
   const allowed = [];
   const blocked = [];
@@ -339,31 +339,31 @@ function _fcRenderPanel() {
     if (_fcEffectiveAllowed(ch, _fcGlobalAllowed)) allowed.push(ch);
     else blocked.push(ch);
   }
-  const sortFn = (a, b) => (a.priority - b.priority) || a.name.localeCompare(b.name, 'zh-CN');
+  const sortFn = (a, b) => (a.priority - b.priority) || a.name.localeCompare(b.name, I18n.getLocale());
   allowed.sort(sortFn);
   blocked.sort(sortFn);
 
-  const emptyRow = '<div class="px-4 py-6 text-sm text-ink-400 text-center">无渠道</div>';
+  const emptyRow = `<div class="px-4 py-6 text-sm text-ink-400 text-center">${I18n.t('settings.fcNoChannels')}</div>`;
+  const countUnit = I18n.t('settings.fcCountUnit');
   panel.innerHTML = `
     <div class="card overflow-hidden">
       <div class="flex items-center gap-2 px-4 py-3 bg-emerald-50/60 border-b border-emerald-100">
         <svg class="w-4 h-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        <span class="text-sm font-semibold text-emerald-800">允许跨格式</span>
-        <span class="text-xs text-emerald-700">${allowed.length} 个</span>
-        <span class="text-xs text-ink-500 ml-auto">收到跨格式请求时会调用转换器</span>
+        <span class="text-sm font-semibold text-emerald-800">${I18n.t('settings.fcAllowedGroup')}</span>
+        <span class="text-xs text-emerald-700">${allowed.length} ${countUnit}</span>
+        <span class="text-xs text-ink-500 ml-auto">${I18n.t('settings.fcAllowedHint')}</span>
       </div>
       ${allowed.length ? allowed.map(_fcRenderChannelRow).join('') : emptyRow}
     </div>
     <div class="card overflow-hidden">
       <div class="flex items-center gap-2 px-4 py-3 bg-rose-50/60 border-b border-rose-100">
         <svg class="w-4 h-4 text-rose-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-        <span class="text-sm font-semibold text-rose-800">仅同格式透传</span>
-        <span class="text-xs text-rose-700">${blocked.length} 个</span>
-        <span class="text-xs text-ink-500 ml-auto">跨格式请求到这些渠道会被跳过</span>
+        <span class="text-sm font-semibold text-rose-800">${I18n.t('settings.fcBlockedGroup')}</span>
+        <span class="text-xs text-rose-700">${blocked.length} ${countUnit}</span>
+        <span class="text-xs text-ink-500 ml-auto">${I18n.t('settings.fcBlockedHint')}</span>
       </div>
       ${blocked.length ? blocked.map(_fcRenderChannelRow).join('') : emptyRow}
     </div>
-    <p class="text-xs text-ink-400 px-1">提示：本页所有修改即改即生效，无需点击「保存设置」。「跟随全局」状态的渠道会随上方全局开关在两组间自动迁移。</p>
   `;
 
   panel.querySelectorAll('.fc-channel-select').forEach(sel => {
@@ -381,8 +381,8 @@ async function loadFormatConversionPanel() {
       fetch('/admin/settings'),
       fetch('/admin/channels'),
     ]);
-    if (!settingsResp.ok) throw new Error('加载设置失败 HTTP ' + settingsResp.status);
-    if (!channelsResp.ok) throw new Error('加载渠道失败 HTTP ' + channelsResp.status);
+    if (!settingsResp.ok) throw new Error(`HTTP ${settingsResp.status}`);
+    if (!channelsResp.ok) throw new Error(`HTTP ${channelsResp.status}`);
     const settings = await settingsResp.json();
     const channels = await channelsResp.json();
     _fcGlobalAllowed = settings.allow_format_conversion ?? true;
@@ -390,7 +390,7 @@ async function loadFormatConversionPanel() {
     _fcRenderPanel();
     _fcBindGlobalToggle();
   } catch (e) {
-    panel.innerHTML = '<div class="text-sm text-rose-600 py-10 text-center">加载失败：' + esc(e.message) + '</div>';
+    panel.innerHTML = `<div class="text-sm text-rose-600 py-10 text-center">${I18n.t('settings.fcSaveFailedToast')}: ${esc(e.message)}</div>`;
   } finally {
     _fcLoading = false;
   }
@@ -425,11 +425,11 @@ async function _fcOnGlobalToggle(e) {
       _settingsOriginal.allow_format_conversion = desired;
     }
     _fcRenderPanel();
-    showGlobalToast(desired ? '已开启全局跨格式转换' : '已关闭全局跨格式转换', 'success');
+    showGlobalToast(I18n.t('settings.fcSavedToast'), 'success');
   } catch (err) {
     toggle.checked = prev;
     _fcGlobalAllowed = prev;
-    showGlobalToast('保存失败：' + err.message, 'error');
+    showGlobalToast(I18n.t('settings.fcSaveFailedToast') + '：' + err.message, 'error');
   } finally {
     toggle.disabled = false;
   }
@@ -456,12 +456,12 @@ async function _fcOnChannelChange(sel) {
     const updated = await resp.json();
     ch.allow_format_conversion = updated.allow_format_conversion ?? null;
     _fcRenderPanel();
-    const label = payloadValue === null ? '跟随全局' : (payloadValue ? '强制允许' : '强制禁止');
+    const label = payloadValue === null ? I18n.t('settings.fcFollowGlobal') : (payloadValue ? I18n.t('settings.fcForceAllow') : I18n.t('settings.fcForceBlock'));
     showGlobalToast(`${ch.name}：${label}`, 'success');
   } catch (err) {
     ch.allow_format_conversion = prev;
     _fcRenderPanel();
-    showGlobalToast('保存失败：' + err.message, 'error');
+    showGlobalToast(I18n.t('settings.fcSaveFailedToast') + '：' + err.message, 'error');
   }
 }
 

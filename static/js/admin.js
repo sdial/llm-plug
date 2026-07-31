@@ -109,7 +109,7 @@ window.fetch = async function adminFetch(input, init = {}) {
     } catch (e) {
         // 网络错误（断网、DNS 失败等）
         if (isAdmin) {
-            _showGlobalToast('网络错误：' + (e.message || '无法连接服务器'));
+            _showGlobalToast(I18n.t('admin.networkError') + (e.message || I18n.t('admin.cannotConnect')));
         }
         throw e;
     }
@@ -121,7 +121,7 @@ window.fetch = async function adminFetch(input, init = {}) {
 
     // 401 → 会话过期，跳登录
     if (resp.status === 401) {
-        _showGlobalToast('登录已过期，请重新登录');
+        _showGlobalToast(I18n.t('admin.sessionExpired'));
         setTimeout(_redirectToLogin, 800);
         return resp;
     }
@@ -136,21 +136,21 @@ window.fetch = async function adminFetch(input, init = {}) {
         try {
             retryResp = await originalFetch(retryUrl, { ...retryInit, headers: retryHeaders });
         } catch (e) {
-            _showGlobalToast('网络错误：' + (e.message || '无法连接服务器'));
+            _showGlobalToast(I18n.t('admin.networkError') + (e.message || I18n.t('admin.cannotConnect')));
             throw e;
         }
         if (retryResp.ok) return retryResp;
         // 重试仍 403 → 非 CSRF 问题（权限不足等），走通用错误
         if (retryResp.status !== 403) return retryResp;
         const errMsg = await _extractErrorMessage(retryResp.clone());
-        _showGlobalToast('权限不足：' + errMsg);
+        _showGlobalToast(I18n.t('admin.permissionDenied') + errMsg);
         return retryResp;
     }
 
     // 5xx → 服务器错误提示
     if (resp.status >= 500) {
         const errMsg = await _extractErrorMessage(resp.clone());
-        _showGlobalToast('服务器错误：' + errMsg);
+        _showGlobalToast(I18n.t('admin.serverError') + errMsg);
         return resp;
     }
 
@@ -308,6 +308,7 @@ window.addEventListener('DOMContentLoaded', bootstrapAdmin);
 window.addEventListener('htmx:afterSettle', (event) => {
     const target = event?.target;
     if (target && target.id === 'admin-content') {
+        if (window.I18n) I18n.translateRoot(target);
         _bootstrapCurrentTab();
     }
 });

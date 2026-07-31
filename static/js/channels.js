@@ -24,7 +24,7 @@ async function fetchModels() {
     const apiType = document.getElementById('f_api_type').value;
 
     if (!baseUrl && !modelsUrl) {
-        showGlobalToast('请先填写 Base URL 或模型列表 URL', 'error');
+        showGlobalToast(I18n.t('channels.fillUrlFirst'), 'error');
         return;
     }
 
@@ -54,7 +54,7 @@ async function fetchModels() {
         fetchedModelsCache = data.models || [];
         showModelSelectPanel();
     } catch (e) {
-        showGlobalToast('请求失败: ' + e.message, 'error');
+        showGlobalToast(I18n.t('channels.requestFailed') + ': ' + e.message, 'error');
     } finally {
         btn.disabled = false;
         spinner.classList.add('hidden');
@@ -70,7 +70,7 @@ function showModelSelectPanel() {
     list.innerHTML = '';
 
     if (!fetchedModelsCache.length) {
-        list.innerHTML = '<div class="text-sm text-ink-400 py-2 text-center">无可用模型</div>';
+        list.innerHTML = `<div class="text-sm text-ink-400 py-2 text-center">${I18n.t('modals.noModels')}</div>`;
     }
 
     fetchedModelsCache.forEach(model => {
@@ -137,7 +137,7 @@ function renderChannels() {
     }
 
     if (!filtered.length) {
-        container.innerHTML = '<p class="text-ink-400 text-center py-8 text-sm">暂无符合条件的渠道</p>';
+        container.innerHTML = `<p class="text-ink-400 text-center py-8 text-sm">${I18n.t('channels.noMatch')}</p>`;
         return;
     }
     container.innerHTML = `
@@ -153,12 +153,12 @@ function renderChannels() {
                 </colgroup>
                 <thead>
                     <tr class="border-b border-surface-200">
-                        <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">名称</th>
-                        <th class="text-center py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">状态</th>
-                        <th class="text-center py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">类型</th>
-                        <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">模型</th>
+                        <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">${I18n.t('common.name')}</th>
+                        <th class="text-center py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">${I18n.t('common.status')}</th>
+                        <th class="text-center py-3 px-2 text-xs text-ink-600 font-semibold uppercase tracking-wider">${I18n.t('common.type')}</th>
+                        <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">${I18n.t('channels.colModels')}</th>
                         <th class="text-left py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">Base URL</th>
-                        <th class="text-right py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">操作</th>
+                        <th class="text-right py-3 px-4 text-xs text-ink-600 font-semibold uppercase tracking-wider">${I18n.t('common.actions')}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -166,25 +166,25 @@ function renderChannels() {
                         const typeInfo = getApiTypeInfo(ch.api_type);
                         return `
                         <tr class="border-b border-surface-200 last:border-0 hover:bg-surface-50 transition-colors duration-150">
-                            <td data-label="名称" class="row-title py-3 px-4 font-medium text-ink-900">${esc(ch.name)}</td>
-                            <td data-label="状态" class="py-3 px-2 text-center">
-                                <span class="status-badge ${ch.enabled ? 'status-enabled' : 'status-disabled'} toggle-status-pill" data-channel-id="${esc(ch.id)}" data-enabled="${ch.enabled}" title="点击切换状态">
+                            <td data-label="${I18n.t('common.name')}" class="row-title py-3 px-4 font-medium text-ink-900">${esc(ch.name)}</td>
+                            <td data-label="${I18n.t('common.status')}" class="py-3 px-2 text-center">
+                                <span class="status-badge ${ch.enabled ? 'status-enabled' : 'status-disabled'} toggle-status-pill" data-channel-id="${esc(ch.id)}" data-enabled="${ch.enabled}" title="${I18n.t('channels.toggleStatusTitle')}">
                                     ${ch.enabled ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>' : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'}
-                                    ${ch.enabled ? '启用' : '禁用'}
+                                    ${ch.enabled ? I18n.t('common.enabled') : I18n.t('common.disabled')}
                                 </span>
                             </td>
-                            <td data-label="类型" class="py-3 px-2 text-center">
+                            <td data-label="${I18n.t('common.type')}" class="py-3 px-2 text-center">
                                 <span class="type-badge ${typeInfo.color}" title="${typeInfo.title}">${typeInfo.short}</span>
                             </td>
-                            <td data-label="模型" class="py-3 px-2 text-ink-600">${ch.models.map(m => {
+                            <td data-label="${I18n.t('channels.colModels')}" class="py-3 px-2 text-ink-600">${ch.models.map(m => {
                                 const hasCap = ch.model_capabilities && ch.model_capabilities[m];
-                                return `<span class="pill ${hasCap ? 'pill-cap' : 'pill-muted'} mr-1 cursor-pointer model-cap-pill" data-channel-id="${esc(ch.id)}" data-model="${esc(m)}" title="点击设置模型能力">${esc(m)}</span>`;
+                                return `<span class="pill ${hasCap ? 'pill-cap' : 'pill-muted'} mr-1 cursor-pointer model-cap-pill" data-channel-id="${esc(ch.id)}" data-model="${esc(m)}" title="${I18n.t('channels.modelCapTitle')}">${esc(m)}</span>`;
                             }).join('')}</td>
                             <td data-label="Base URL" class="py-3 px-4 text-ink-400 text-xs truncate" title="${esc(ch.endpoint_url || ch.base_url)}">${esc(ch.endpoint_url || ch.base_url)}</td>
-                            <td data-label="操作" class="py-3 px-4 text-right">
+                            <td data-label="${I18n.t('common.actions')}" class="py-3 px-4 text-right">
                                 <div class="flex items-center justify-end gap-2">
-                                    <button class="pill pill-muted hover:bg-surface-200 transition cursor-pointer edit-channel-btn" data-channel-id="${esc(ch.id)}">编辑</button>
-                                    <button class="pill pill-brand hover:opacity-80 transition cursor-pointer test-channel-btn" data-channel-id="${esc(ch.id)}">测试</button>
+                                    <button class="pill pill-muted hover:bg-surface-200 transition cursor-pointer edit-channel-btn" data-channel-id="${esc(ch.id)}">${I18n.t('common.edit')}</button>
+                                    <button class="pill pill-brand hover:opacity-80 transition cursor-pointer test-channel-btn" data-channel-id="${esc(ch.id)}">${I18n.t('common.test')}</button>
                                 </div>
                             </td>
                         </tr>
@@ -225,7 +225,7 @@ function renderChannels() {
 function openTestModal(channelId) {
     const ch = channels.find(c => c.id === channelId);
     if (!ch || !ch.models.length) {
-        showGlobalToast('该渠道没有配置模型', 'error');
+        showGlobalToast(I18n.t('channels.noModelsConfigured'), 'error');
         return;
     }
     pendingTestChannelId = channelId;
@@ -233,7 +233,7 @@ function openTestModal(channelId) {
     select.innerHTML = ch.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
     document.getElementById('testResult').classList.add('hidden');
     document.getElementById('executeTestBtn').disabled = false;
-    document.getElementById('executeTestBtn').textContent = '开始测试';
+    document.getElementById('executeTestBtn').textContent = I18n.t('modals.testStart');
     document.getElementById('testModal').classList.remove('hidden');
 }
 
@@ -249,7 +249,7 @@ async function executeTestFromModal() {
     const resultDiv = document.getElementById('testResult');
     const resultContent = document.getElementById('testResultContent');
 
-    btn.textContent = '测试中...';
+    btn.textContent = I18n.t('modals.testing');
     btn.disabled = true;
 
     try {
@@ -262,31 +262,31 @@ async function executeTestFromModal() {
         resultDiv.classList.remove('hidden');
         if (result.success) {
             resultContent.innerHTML = `
-                <div class="text-emerald-600 font-medium mb-2">✅ 测试通过</div>
-                <div class="text-ink-600">模型: ${esc(result.model)}</div>
-                <div class="text-ink-600">延迟: ${result.latency_ms}ms</div>
-                <div class="text-ink-600 mt-2">回复: ${esc(result.reply || '(空)')}</div>
+                <div class="text-emerald-600 font-medium mb-2">${I18n.t('modals.testPassed')}</div>
+                <div class="text-ink-600">${I18n.t('modals.testModel')}: ${esc(result.model)}</div>
+                <div class="text-ink-600">${I18n.t('modals.testLatency')}: ${result.latency_ms}ms</div>
+                <div class="text-ink-600 mt-2">${I18n.t('modals.testReply')}: ${esc(result.reply || I18n.t('modals.testEmpty'))}</div>
             `;
         } else {
             resultContent.innerHTML = `
-                <div class="text-rose-600 font-medium mb-2">❌ 测试失败</div>
+                <div class="text-rose-600 font-medium mb-2">${I18n.t('modals.testFailed')}</div>
                 <div class="text-ink-600">${esc(result.message)}</div>
-                ${result.latency_ms ? `<div class="text-ink-600">延迟: ${result.latency_ms}ms</div>` : ''}
+                ${result.latency_ms ? `<div class="text-ink-600">${I18n.t('modals.testLatency')}: ${result.latency_ms}ms</div>` : ''}
             `;
         }
     } catch (e) {
         resultDiv.classList.remove('hidden');
-        resultContent.innerHTML = `<div class="text-rose-600 font-medium">❌ 请求异常: ${esc(e.message)}</div>`;
+        resultContent.innerHTML = `<div class="text-rose-600 font-medium">${I18n.t('modals.testError')}: ${esc(e.message)}</div>`;
     } finally {
-        btn.textContent = '开始测试';
+        btn.textContent = I18n.t('modals.testStart');
         btn.disabled = false;
     }
 }
 
 function toggleStatusWithConfirm(channelId, currentEnabled) {
-    const action = currentEnabled ? '禁用' : '启用';
-    document.getElementById('confirmTitle').textContent = '确认' + action;
-    document.getElementById('confirmMessage').textContent = `确定要${action}该渠道吗？`;
+    const action = currentEnabled ? I18n.t('common.disabled') : I18n.t('common.enabled');
+    document.getElementById('confirmTitle').textContent = currentEnabled ? I18n.t('channels.confirmDisable') : I18n.t('channels.confirmEnable');
+    document.getElementById('confirmMessage').textContent = currentEnabled ? I18n.t('channels.confirmDisableMsg') : I18n.t('channels.confirmEnableMsg');
     pendingConfirmAction = async () => {
         try {
             const resp = await fetch(`${API}/${channelId}/toggle`, { method: 'PATCH' });
@@ -295,7 +295,7 @@ function toggleStatusWithConfirm(channelId, currentEnabled) {
                 throw new Error(err.detail || ('HTTP ' + resp.status));
             }
         } catch (e) {
-            showGlobalToast('操作失败: ' + e.message);
+            showGlobalToast(I18n.t('channels.opFailed') + ': ' + e.message);
         }
         loadChannels();
     };
@@ -366,7 +366,7 @@ async function saveModelCap() {
             throw new Error(err.detail || ('HTTP ' + resp.status));
         }
     } catch (e) {
-        showGlobalToast('保存失败: ' + e.message);
+        showGlobalToast(I18n.t('channels.saveFailed') + ': ' + e.message);
         return;
     }
     closeModelCapModal();
@@ -391,7 +391,7 @@ async function resetModelCap() {
             throw new Error(err.detail || ('HTTP ' + resp.status));
         }
     } catch (e) {
-        showGlobalToast('重置失败: ' + e.message);
+        showGlobalToast(I18n.t('channels.resetFailed') + ': ' + e.message);
         return;
     }
     closeModelCapModal();
@@ -420,7 +420,7 @@ function resetApiKeyVisibility() {
 }
 
 function openModal(channel = null) {
-    document.getElementById('modalTitle').textContent = channel ? '编辑渠道' : '添加渠道';
+    document.getElementById('modalTitle').textContent = channel ? I18n.t('modals.channelEdit') : I18n.t('modals.channelAdd');
     document.getElementById('editId').value = channel ? channel.id : '';
     document.getElementById('f_name').value = channel ? channel.name : '';
     document.getElementById('f_api_type').value = channel ? channel.api_type : 'openai-chat-completions';
@@ -429,7 +429,7 @@ function openModal(channel = null) {
     document.getElementById('f_models_url').value = channel ? (channel.models_url || '') : '';
     document.getElementById('advancedUrlDetails').open = !!(channel && (channel.endpoint_url || channel.models_url));
     document.getElementById('f_api_key').value = '';
-    document.getElementById('f_api_key').placeholder = channel ? '已设置，留空则不修改' : '上游服务的 API Key';
+    document.getElementById('f_api_key').placeholder = channel ? I18n.t('modals.apiKeySetPh') : I18n.t('modals.apiKeyPh');
     resetApiKeyVisibility();
     tagInputChannel.setTags(channel ? channel.models : []);
     document.getElementById('f_weight').value = channel ? channel.weight : 1;
@@ -453,8 +453,8 @@ function closeModal() {
 async function deleteChannelFromModal() {
     const id = document.getElementById('editId').value;
     if (!id) return;
-    document.getElementById('confirmTitle').textContent = '确认删除';
-    document.getElementById('confirmMessage').textContent = '确定要删除该渠道吗？此操作不可恢复。';
+    document.getElementById('confirmTitle').textContent = I18n.t('channels.confirmDelete');
+    document.getElementById('confirmMessage').textContent = I18n.t('channels.confirmDeleteMsg');
     pendingConfirmAction = async () => {
         try {
             const resp = await fetch(`${API}/${id}`, { method: 'DELETE' });
@@ -463,7 +463,7 @@ async function deleteChannelFromModal() {
                 throw new Error(err.detail || ('HTTP ' + resp.status));
             }
         } catch (e) {
-            showGlobalToast('删除失败: ' + e.message);
+            showGlobalToast(I18n.t('channels.deleteFailed') + ': ' + e.message);
         }
         closeModal();
         loadChannels();
@@ -510,7 +510,7 @@ async function saveChannel(e) {
     }
 
     if (!id && !apiKey) {
-        showGlobalToast('API Key 不能为空', 'error');
+        showGlobalToast(I18n.t('channels.apiKeyRequired'), 'error');
         return;
     }
 
@@ -529,13 +529,13 @@ async function saveChannel(e) {
             }
         }
     } catch (e) {
-        showGlobalToast('保存失败: ' + e.message);
+        showGlobalToast(I18n.t('channels.saveFailed') + ': ' + e.message);
         return;
     }
     closeModal();
     loadChannels();
     if (!id) {
-        showGlobalToast('模型默认仅开放文本能力，如需设置更多能力请点击模型标签');
+        showGlobalToast(I18n.t('channels.modelCapHint'));
     }
 }
 
@@ -544,7 +544,7 @@ function initChannels() {
     if (!root) return;
     if (root !== lastChannelsInitRoot) {
         lastChannelsInitRoot = root;
-        tagInputChannel = new window.TagInput('f_models_container', 'f_models', '输入模型名称');
+        tagInputChannel = new window.TagInput('f_models_container', 'f_models', I18n.t('channels.inputModelPh'));
     }
 
     const apiTypeInput = document.getElementById('f_api_type');
