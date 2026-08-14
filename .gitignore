@@ -41,6 +41,15 @@ Thumbs.db
 
 # .omc
 .omc/
+.ohmyagent/
+.claude/
+.opencode/
+.trae/
+.codebuddy/
+
 
 
 REVIEW.md
+
+# test
+tests/
