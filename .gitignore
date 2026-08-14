@@ -30,6 +30,7 @@ ENV/
 
 # Data
 data/
+docs/
 
 # Debug logs
 logs/
@@ -50,6 +51,8 @@ Thumbs.db
 
 
 REVIEW.md
+PLAN.md
+
 
 # test
 tests/
