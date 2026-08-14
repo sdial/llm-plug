@@ -68,6 +68,23 @@ class TestChannelHealth:
         h.last_fail_time = time.time() - 100
         assert h.is_healthy(max_fail_count=5, cooldown_seconds=60) is True
 
+    def test_cooldown_recovery_resets_fail_count(self):
+        """冷却期结束恢复时失败计数应清零，按完整 max_fail_count 重新计数"""
+        h = ChannelHealth()
+        for _ in range(5):
+            h.record_failure()
+        assert h.fail_count == 5
+        assert h.is_healthy(max_fail_count=5, cooldown_seconds=60) is False
+        # 模拟冷却期已过
+        h.last_fail_time = time.time() - 100
+        assert h.is_healthy(max_fail_count=5, cooldown_seconds=60) is True
+        assert h.fail_count == 0
+        assert h.last_fail_time == 0
+        # 恢复后失败一次仍是健康状态，不会立刻重新进入整段冷却
+        h.record_failure()
+        assert h.fail_count == 1
+        assert h.is_healthy(max_fail_count=5, cooldown_seconds=60) is True
+
     def test_record_success_resets_fail_count(self):
         h = ChannelHealth()
         for _ in range(5):

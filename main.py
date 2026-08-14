@@ -2,7 +2,7 @@ import asyncio
 import json
 import re
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +17,7 @@ import request_logs
 import whitelist as _whitelist
 from client import cleanup_stale_clients, close_all_clients
 from config import HOST, PORT, get_setting, init_settings
+from context_optimizer import configure_ctx_opt_logging
 from logging_config import configure_level_file_logging
 from response_state import get_responses_store, reload_responses_store
 from routers import admin, proxy_anthropic, proxy_chat, proxy_models, proxy_response
@@ -25,16 +26,16 @@ from stats import init_db as init_stats_db
 from stats import start_stats_workers, stop_stats_workers
 from storage import load_api_keys, load_data, register_api_keys_save_callback
 
-# 静态资源版本号 — 每次更新 JS/CSS 后修改此值即可强制浏览器刷新缓存
-STATIC_ASSET_VERSION = "3"
-
 # 应用版本号 — 发布新版本时改这一行即可，无需动 static/index.html
-APP_VERSION = "v1.0.75"
-APP_RELEASE_DATE = "2026-07-29"
+APP_VERSION = "v1.1.8"
+APP_RELEASE_DATE = "2026-08-10"
+# 静态资源版本号 — 每次更新 JS/CSS 后修改此值即可强制浏览器刷新缓存
+STATIC_ASSET_VERSION = "14"
 
 # 配置日志级别文件输出
 _log_dir = Path(__file__).parent / "logs"
 configure_level_file_logging(_log_dir)
+configure_ctx_opt_logging(config.DATA_DIR)
 
 
 _responses_store = get_responses_store()
@@ -42,8 +43,8 @@ _responses_store = get_responses_store()
 
 async def _session_cleanup_loop():
     """定期清理过期会话文件"""
-    interval = get_setting("response_state_cleanup_interval_minutes") or 30
     while True:
+        interval = get_setting("response_state_cleanup_interval_minutes") or 30
         await asyncio.sleep(interval * 60)
         try:
             await _responses_store._cleanup_if_needed()
@@ -105,18 +106,12 @@ async def lifespan(app):
         cleanup_task.cancel()
         session_cleanup_task.cancel()
         request_log_cleanup_task.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await cleanup_task
-        except asyncio.CancelledError:
-            pass
-        try:
+        with suppress(asyncio.CancelledError):
             await session_cleanup_task
-        except asyncio.CancelledError:
-            pass
-        try:
+        with suppress(asyncio.CancelledError):
             await request_log_cleanup_task
-        except asyncio.CancelledError:
-            pass
         await stop_stats_workers()
         await close_stats_pool()
         await request_logs.close_backend()
@@ -265,9 +260,10 @@ class CombinedMiddleware:
 
         start = time.time()
         ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        query = scope.get("query_string", b"").decode()
+        query = scope.get("query_string", b"").decode("utf-8", errors="replace")
         headers_dict = {
-            k.decode().lower(): v.decode() for k, v in scope.get("headers", [])
+            k.decode("latin-1").lower(): v.decode("latin-1")
+            for k, v in scope.get("headers", [])
         }
 
         content_length = headers_dict.get("content-length")

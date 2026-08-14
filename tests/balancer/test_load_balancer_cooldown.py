@@ -96,6 +96,32 @@ class TestCooldownTiming:
         assert await lb.select_channel([ch]) is None
 
     @pytest.mark.asyncio
+    async def test_recovery_resets_fail_count_for_full_threshold(self):
+        """冷却恢复后 fail_count 应清零，重新按完整 max_fail_count 计失败，
+        而非残留计数导致再失败一次就重新进入整段冷却"""
+        lb = LoadBalancer()
+        await lb.update_config(max_fail_count=3, cooldown_seconds=0.05)
+        ch = _make_channel(id="ch_cd")
+
+        # 触发熔断
+        for _ in range(3):
+            await lb.record_failure("ch_cd")
+        assert await lb.select_channel([ch]) is None
+
+        # cooldown 过期后恢复，fail_count 应清零
+        await asyncio.sleep(0.08)
+        assert (await lb.select_channel([ch])) is not None
+
+        # 恢复后再失败一次：fail_count=1 < 3，渠道应保持可用
+        await lb.record_failure("ch_cd")
+        assert await lb.select_channel([ch]) is not None
+
+        # 累计失败到 max_fail_count 才重新进入冷却
+        await lb.record_failure("ch_cd")
+        await lb.record_failure("ch_cd")
+        assert await lb.select_channel([ch]) is None
+
+    @pytest.mark.asyncio
     async def test_record_success_resets_fail_count_immediately(self):
         """record_success 应立即重置失败计数，渠道恢复可用"""
         lb = LoadBalancer()

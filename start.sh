@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR"
 MODE="${1:-run}"
 
 HOST="0.0.0.0"
-PORT="55555"
+PORT="55554"
 WORKERS="1"
 LOG_LEVEL="info"
 

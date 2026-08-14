@@ -205,6 +205,27 @@ def test_validate_line_number_with_preceding_comments():
     assert "第 4 行" in err  # actual line 4 in the file
 
 
+def test_validate_quoted_newline_in_description():
+    """引号内换行的字段应解析为单条记录，且不破坏后续记录的行号"""
+    text = '/admin/a,*,10.0.0.0/8,"第一行\n第二行"\n'
+    ok, err, rules = wl.validate_rules_text(text)
+    assert ok is True, err
+    assert len(rules) == 1
+    assert rules[0].description == "第一行\n第二行"
+
+
+def test_validate_line_number_after_quoted_newline():
+    """引号内换行会消耗多行，后续记录报错的行号不应错位"""
+    text = (
+        '/admin/a,*,10.0.0.0/8,"line1\nline2"\n'
+        "/admin/b,*,bad-ip,test\n"
+    )
+    ok, err, _ = wl.validate_rules_text(text)
+    assert ok is False
+    assert "bad-ip" in err
+    assert "第 3 行" in err  # 记录 b 的物理行号，而非 zip 错位后的 2
+
+
 # ─── WhitelistCache ───
 
 

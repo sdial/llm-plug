@@ -83,8 +83,8 @@ class TestM1StopReasonMappings:
         self.to_anthropic = ToAnthropicConverter()
         self.to_chat = ToChatCompletionsConverter()
 
-    def test_chat_function_call_finish_reason_falls_back_to_end_turn(self):
-        """Bug M1: OpenAI 旧 'function_call' finish_reason 不在映射表，回落到 end_turn。"""
+    def test_chat_function_call_finish_reason_maps_to_tool_use(self):
+        """OpenAI 旧 'function_call' finish_reason 应映射为 Anthropic tool_use。"""
         response = {
             "id": "chatcmpl-1",
             "model": "gpt-4o",
@@ -97,8 +97,7 @@ class TestM1StopReasonMappings:
             "usage": {"prompt_tokens": 1, "completion_tokens": 1},
         }
         result = self.to_anthropic.convert_response(response, APIType.OPENAI_CHAT)
-        # 当前 bug: function_call 应该映射到 tool_use 但实际落入默认 end_turn
-        assert result["stop_reason"] == "end_turn"
+        assert result["stop_reason"] == "tool_use"
 
     def test_chat_content_filter_finish_reason_maps_to_refusal(self):
         """Bug M1: OpenAI content_filter finish_reason 应映射为 Anthropic refusal。"""

@@ -41,7 +41,14 @@ class ChannelHealth:
         """
         if self.fail_count < max_fail_count:
             return True
-        return (time.time() - self.last_fail_time) > cooldown_seconds
+        if (time.time() - self.last_fail_time) <= cooldown_seconds:
+            return False
+        # 冷却期结束视为恢复：清零失败计数，让渠道按完整的 max_fail_count
+        # 重新计数，否则 fail_count 残留会导致再失败一次就重新进入整段冷却
+        # （实际生效阈值变成 1 而非 max_fail_count）
+        self.fail_count = 0
+        self.last_fail_time = 0
+        return True
 
 
 class LoadBalancer:
@@ -69,7 +76,8 @@ class LoadBalancer:
         normalized_strategy = str(strategy).lower()
         if normalized_strategy not in VALID_STRATEGIES:
             raise ValueError(
-                f"lb_strategy must be one of {sorted(VALID_STRATEGIES)}, got {strategy!r}"
+                "lb_strategy must be one of "
+                f"{sorted(VALID_STRATEGIES)}, got {strategy!r}"
             )
         async with self._lock:
             clear_sticky_cache = (

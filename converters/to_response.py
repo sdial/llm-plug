@@ -106,10 +106,7 @@ class ToResponseConverter(BaseConverter):
     def _make_function_call_id(self, call_id: str) -> str:
         if call_id.startswith("fc_"):
             return call_id
-        if call_id.startswith("call_"):
-            suffix = call_id.removeprefix("call_")
-        else:
-            suffix = call_id or secrets.token_hex(8)
+        suffix = call_id.removeprefix("call_") if call_id.startswith("call_") else call_id or secrets.token_hex(8)
         return f"fc_{suffix}"
 
     def _chat_usage_to_response_usage(self, usage: dict[str, Any]) -> dict[str, Any]:
@@ -203,7 +200,7 @@ class ToResponseConverter(BaseConverter):
             result["tools"] = self._chat_tools_to_response(data["tools"])
         if data.get("tool_choice"):
             tc = data["tool_choice"]
-            if isinstance(tc, str) or isinstance(tc, dict):
+            if isinstance(tc, (str, dict)):
                 result["tool_choice"] = tc
         if data.get("reasoning_effort") is not None:
             result["reasoning"] = {"effort": data["reasoning_effort"]}
@@ -885,7 +882,8 @@ class ToResponseConverter(BaseConverter):
         # 处理结束原因
         if finish_reason is not None:
             logger.debug(
-                f"[CHUNK] finish_reason={finish_reason} response_created_sent={self._stream_state['response_created_sent']}"
+                f"[CHUNK] finish_reason={finish_reason} "
+                f"response_created_sent={self._stream_state['response_created_sent']}"
             )
             need_created = _ensure_created()
             done_events = self._queue_final_events_for_finish(finish_reason)
@@ -976,7 +974,27 @@ class ToResponseConverter(BaseConverter):
                         "item_id": item_id,
                     }
                 )
-                return None
+                # 严格协议：text delta 之前必须先发 output_item.added + content_part.added
+                added_event = self._make_response_event(
+                    "response.output_item.added",
+                    output_index=idx,
+                    item={
+                        "type": "message",
+                        "id": item_id,
+                        "status": "in_progress",
+                        "role": "assistant",
+                        "content": [],
+                    },
+                )
+                content_added_event = self._make_response_event(
+                    "response.content_part.added",
+                    item_id=item_id,
+                    output_index=idx,
+                    content_index=0,
+                    part={"type": "output_text", "text": ""},
+                )
+                self._pending_extra_events = [content_added_event]
+                return added_event
             if content_block.get("type") == "tool_use":
                 idx = self._stream_state["output_index"]
                 self._stream_state["output_index"] = idx + 1
@@ -1031,15 +1049,26 @@ class ToResponseConverter(BaseConverter):
                         "id": reasoning_id,
                     }
                 )
-                return {
-                    "type": "response.output_item.added",
-                    "output_index": idx,
-                    "item": {
+                added_event = self._make_response_event(
+                    "response.output_item.added",
+                    output_index=idx,
+                    item={
                         "type": "reasoning",
                         "id": reasoning_id,
                         "summary": [],
+                        "content": [],
                     },
-                }
+                )
+                # 严格协议：reasoning_text.delta 之前必须先发 content_part.added
+                content_added_event = self._make_response_event(
+                    "response.content_part.added",
+                    item_id=reasoning_id,
+                    output_index=idx,
+                    content_index=0,
+                    part={"type": "reasoning_text", "text": ""},
+                )
+                self._pending_extra_events = [content_added_event]
+                return added_event
             return None
 
         elif event_type == "content_block_delta":
@@ -1096,8 +1125,17 @@ class ToResponseConverter(BaseConverter):
                             "type": "reasoning",
                             "id": self._stream_state["reasoning_id"],
                             "summary": [],
+                            "content": [],
                         },
                     }
+                    # 严格协议：reasoning_text.delta 之前必须先发 content_part.added
+                    content_added_event = self._make_response_event(
+                        "response.content_part.added",
+                        item_id=block["item_id"],
+                        output_index=block["output_index"],
+                        content_index=block["content_index"],
+                        part={"type": "reasoning_text", "text": ""},
+                    )
                     delta_event = {
                         "type": "response.reasoning_text.delta",
                         "item_id": block["item_id"],
@@ -1105,7 +1143,7 @@ class ToResponseConverter(BaseConverter):
                         "content_index": block["content_index"],
                         "delta": thinking,
                     }
-                    self._pending_extra_events = [delta_event]
+                    self._pending_extra_events = [content_added_event, delta_event]
                     return result
                 return {
                     "type": "response.reasoning_text.delta",
@@ -1229,7 +1267,8 @@ class ToResponseConverter(BaseConverter):
                 self._stream_state["message_id"],
             )
         logger.debug(
-            f"[FINALIZE] accumulated_text={repr(self._stream_state['accumulated_text'][:100])} response_created_sent={self._stream_state['response_created_sent']}"
+            f"[FINALIZE] accumulated_text={repr(self._stream_state['accumulated_text'][:100])} "
+            f"response_created_sent={self._stream_state['response_created_sent']}"
         )
         return self._build_final_events(finish_reason="stop")
 

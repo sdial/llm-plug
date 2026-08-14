@@ -44,27 +44,28 @@ async function getCsrfToken() {
     return csrfTokenPromise;
 }
 
-function _showGlobalToast(msg, type = 'error') {
-    const colors = {
-        error: 'bg-rose-600 text-white',
-        success: 'bg-emerald-600 text-white',
-        info: 'bg-sky-600 text-white',
+function _showGlobalToast(message, type) {
+    type = type || 'error';
+    const styles = {
+        error: 'toast-error',
+        success: 'toast-success',
+        info: 'toast-info'
     };
-    let container = document.getElementById('_globalToast');
+    let container = document.getElementById('_toastContainer');
     if (!container) {
         container = document.createElement('div');
-        container.id = '_globalToast';
-        container.style.cssText = 'position:fixed;top:1.5rem;right:1.5rem;z-index:9999;display:flex;flex-direction:column;gap:0.5rem;pointer-events:none;';
+        container.id = '_toastContainer';
+        container.className = 'toast-container';
         document.body.appendChild(container);
     }
     const el = document.createElement('div');
-    el.className = `px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 pointer-events-auto ${colors[type] || colors.error}`;
-    el.style.animation = 'toast-in 0.3s ease-out';
-    el.textContent = msg;
+    el.className = `toast ${styles[type] || styles.error}`;
+    el.textContent = message;
     container.appendChild(el);
-    setTimeout(() => {
-        el.style.animation = 'toast-out 0.3s ease-in forwards';
-        setTimeout(() => el.remove(), 300);
+    setTimeout(function() {
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(-8px)';
+        setTimeout(function() { el.remove(); }, 300);
     }, 4000);
 }
 window.showGlobalToast = _showGlobalToast;
@@ -74,6 +75,85 @@ function _redirectToLogin() {
         window.location.href = '/admin/login';
     }
 }
+
+function _setButtonLoading(btn, loading, loadingText) {
+    if (!btn) return;
+    if (loading) {
+        btn.dataset.originalText = btn.innerHTML;
+        btn.dataset.originalDisabled = btn.disabled;
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner" style="width:1em;height:1em;border-width:1.5px"></span>${loadingText || ''}`;
+    } else {
+        btn.innerHTML = btn.dataset.originalText || btn.textContent;
+        btn.disabled = btn.dataset.originalDisabled === 'true';
+        delete btn.dataset.originalText;
+        delete btn.dataset.originalDisabled;
+    }
+}
+
+function _getFocusableElements(container) {
+    return container.querySelectorAll('input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+}
+
+function _setupFocusTrap(modal) {
+    if (modal._focusTrapHandler) return;
+    modal._focusTrapHandler = (e) => {
+        if (e.key !== 'Tab') return;
+        const focusables = Array.from(_getFocusableElements(modal)).filter(el => el.offsetParent !== null);
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey) {
+            if (document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            }
+        } else {
+            if (document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        }
+    };
+    modal.addEventListener('keydown', modal._focusTrapHandler);
+}
+
+function _removeFocusTrap(modal) {
+    if (modal._focusTrapHandler) {
+        modal.removeEventListener('keydown', modal._focusTrapHandler);
+        delete modal._focusTrapHandler;
+    }
+}
+
+function _clearFormErrors(form) {
+    form.querySelectorAll('.field-error').forEach(el => el.remove());
+    form.querySelectorAll('[aria-invalid="true"]').forEach(el => {
+        el.setAttribute('aria-invalid', 'false');
+        el.classList.remove('border-rose-500', 'focus:ring-rose-500/20', 'focus:border-rose-500');
+    });
+}
+
+function _showFieldError(inputEl, message) {
+    const targetId = inputEl.id;
+    const existing = document.getElementById(targetId + '_error');
+    if (existing) existing.remove();
+    inputEl.setAttribute('aria-invalid', 'true');
+    inputEl.classList.add('border-rose-500', 'focus:ring-rose-500/20', 'focus:border-rose-500');
+    const errorEl = document.createElement('div');
+    errorEl.id = targetId + '_error';
+    errorEl.className = 'field-error text-rose-600 text-xs mt-1 animate-fade-in';
+    errorEl.setAttribute('role', 'alert');
+    errorEl.textContent = message;
+    const wrapper = inputEl.closest('details') || inputEl.parentElement;
+    wrapper.appendChild(errorEl);
+}
+
+window.setButtonLoading = _setButtonLoading;
+window.setupFocusTrap = _setupFocusTrap;
+window.removeFocusTrap = _removeFocusTrap;
+window.clearFormErrors = _clearFormErrors;
+window.showFieldError = _showFieldError;
+window.getFocusableElements = _getFocusableElements;
 
 async function _extractErrorMessage(resp) {
     try {
@@ -176,9 +256,8 @@ function updateTabActiveState(tab) {
 }
 
 function updateAdminLayoutWidth(tab) {
-    const layout = document.getElementById('admin-layout');
-    if (!layout) return;
-    layout.classList.toggle('admin-wide-layout', tab === 'requests');
+    // 请求页与其它 Tab 使用相同的 max-w-6xl 容器宽度，保持布局一致。
+    void tab;
 }
 
 function switchTab(tab, updateHash = true) {
@@ -209,7 +288,7 @@ function switchTab(tab, updateHash = true) {
 function initTabFromHash() {
     const hash = window.location.hash.slice(1);
     const [tab, queryString] = hash.split('?');
-    const validTabs = ['channels', 'apikeys', 'lb', 'stats', 'requests', 'settings', 'whitelist', 'storage'];
+    const validTabs = ['channels', 'apikeys', 'lb', 'stats', 'requests', 'settings', 'whitelist', 'storage', 'context-optimization'];
     if (tab && validTabs.includes(tab)) {
         if (tab === 'requests' && queryString) {
             pendingRequestHashQuery = queryString;
@@ -227,6 +306,7 @@ function _isAdminContentReady() {
     if (currentTab === 'settings') return Boolean(document.getElementById('set_host') || document.getElementById('settings_server'));
     if (currentTab === 'whitelist') return Boolean(document.getElementById('whitelist_content') || document.getElementById('whitelist_save_btn'));
     if (currentTab === 'storage') return Boolean(document.getElementById('storageTab'));
+    if (currentTab === 'context-optimization') return Boolean(document.getElementById('contextOptimizationTab'));
     return false;
 }
 
@@ -250,11 +330,14 @@ function _applyPendingRequestHash() {
     endEl.value = utcIsoToLocalInput(params.get('end'));
     successEl.value = params.get('success') || '';
     apiKeyEl.value = params.get('api_key_id') || '';
-    if (!params.get('start') && !params.get('end')) setDefaultRequestTimeRange();
+    // 带时间参数 = 固定区间快照（返回 true，bootstrap 不自动进实时模式）；
+    // 不带时间参数 = 实时尾巴（返回 false，与首次进入一致，自动开启实时刷新）。
+    const hasTimeRange = !!(params.get('start') || params.get('end'));
+    if (!hasTimeRange) setDefaultRequestTimeRange();
     window.adminRequests.setPage(params.get('page'));
     window.adminRequests.setPageSize(params.get('page_size'));
     pendingRequestHashQuery = '';
-    return true;
+    return hasTimeRange;
 }
 
 function _bootstrapCurrentTab() {
@@ -275,9 +358,15 @@ function _bootstrapCurrentTab() {
         const restoredFromHash = _applyPendingRequestHash();
         if (!restoredFromHash) {
             setDefaultRequestTimeRange();
+            // 首次进入请求页（无历史 query）默认进入实时尾巴并自动刷新；
+            // 带历史 query 的深链 URL（快照）不自动开启，避免历史结果被实时滚动破坏。
+            if (window.adminRequests?.startAutoRefresh) window.adminRequests.startAutoRefresh();
         }
         loadRequests();
-    } else if (currentTab === 'settings') {
+    } else {
+        if (window.adminRequests?.stopAutoRefresh) window.adminRequests.stopAutoRefresh();
+    }
+    if (currentTab === 'settings') {
         initSettings();
         switchSettingsSection('server');
         loadSettings();
@@ -286,6 +375,10 @@ function _bootstrapCurrentTab() {
     } else if (currentTab === 'storage') {
         if (typeof window.loadStorageStats === 'function') {
             window.loadStorageStats();
+        }
+    } else if (currentTab === 'context-optimization') {
+        if (typeof window.loadContextOptimization === 'function') {
+            window.loadContextOptimization();
         }
     }
 }
@@ -297,6 +390,8 @@ function bootstrapAdmin() {
     adminBootstrapped = true;
     initTabFromHash();
     _bootstrapCurrentTab();
+    // 预加载 settings，使统计页等无需先进入设置 Tab 即可拿到聚合时区等配置
+    if (window.adminSettings?.preload) window.adminSettings.preload();
 }
 
 async function logoutAdmin() {
@@ -304,7 +399,53 @@ async function logoutAdmin() {
     window.location.href = '/admin/login';
 }
 
-window.addEventListener('DOMContentLoaded', bootstrapAdmin);
+function updateHeaderHeight() {
+    const header = document.querySelector('header');
+    if (header) {
+        const height = header.offsetHeight;
+        document.documentElement.style.setProperty('--header-height', height + 'px');
+    }
+}
+
+function _getOpenModals() {
+    return document.querySelectorAll('.modal-backdrop:not(.hidden):not(.closing)');
+}
+
+function _closeTopModal() {
+    const openModals = _getOpenModals();
+    if (openModals.length === 0) return false;
+    const topModal = openModals[openModals.length - 1];
+    const modalId = topModal.id;
+    if (typeof window.closeModal === 'function' && modalId === 'channelModal') {
+        window.closeModal();
+    } else if (typeof window.closeKeyModal === 'function' && modalId === 'keyModal') {
+        window.closeKeyModal();
+    } else if (typeof window.closeConfirmModal === 'function' && modalId === 'confirmModal') {
+        window.closeConfirmModal();
+    } else if (typeof window.closeModelGroupModal === 'function' && modalId === 'modelGroupModal') {
+        window.closeModelGroupModal();
+    } else {
+        topModal.classList.add('hidden');
+    }
+    return true;
+}
+
+function _initModalBackdropCloser() {
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (_closeTopModal()) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }
+    });
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    updateHeaderHeight();
+    bootstrapAdmin();
+});
+window.addEventListener('resize', updateHeaderHeight);
 window.addEventListener('htmx:afterSettle', (event) => {
     const target = event?.target;
     if (target && target.id === 'admin-content') {
@@ -321,5 +462,7 @@ window.switchTab = switchTab;
 window.initTabFromHash = initTabFromHash;
 window.logoutAdmin = logoutAdmin;
 window.getCsrfToken = getCsrfToken;
+
+_initModalBackdropCloser();
 
 })();

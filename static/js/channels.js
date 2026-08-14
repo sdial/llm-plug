@@ -133,7 +133,7 @@ function renderChannels() {
         filtered = filtered.filter(ch => ch.api_type === apiType);
     }
     if (model) {
-        filtered = filtered.filter(ch => ch.models.some(m => m.toLowerCase().includes(model)));
+        filtered = filtered.filter(ch => (ch.models || []).some(m => m.toLowerCase().includes(model)));
     }
 
     if (!filtered.length) {
@@ -176,7 +176,7 @@ function renderChannels() {
                             <td data-label="${I18n.t('common.type')}" class="py-3 px-2 text-center">
                                 <span class="type-badge ${typeInfo.color}" title="${typeInfo.title}">${typeInfo.short}</span>
                             </td>
-                            <td data-label="${I18n.t('channels.colModels')}" class="py-3 px-2 text-ink-600">${ch.models.map(m => {
+                            <td data-label="${I18n.t('channels.colModels')}" class="py-3 px-2 text-ink-600">${(ch.models || []).map(m => {
                                 const hasCap = ch.model_capabilities && ch.model_capabilities[m];
                                 return `<span class="pill ${hasCap ? 'pill-cap' : 'pill-muted'} mr-1 cursor-pointer model-cap-pill" data-channel-id="${esc(ch.id)}" data-model="${esc(m)}" title="${I18n.t('channels.modelCapTitle')}">${esc(m)}</span>`;
                             }).join('')}</td>
@@ -303,22 +303,57 @@ function toggleStatusWithConfirm(channelId, currentEnabled) {
 }
 
 function closeConfirmModal() {
-    document.getElementById('confirmModal').classList.add('hidden');
-    pendingConfirmAction = null;
+    const modal = document.getElementById('confirmModal');
+    // 无论成功/失败关闭，都复位确认按钮的 loading 状态，避免残留 spinner
+    setButtonLoading(document.getElementById('confirmBtn'), false);
+    removeFocusTrap(modal);
+    modal.classList.add('closing');
+    if (modal._onEnd) modal.removeEventListener('animationend', modal._onEnd);
+    const onEnd = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('closing');
+        modal.removeEventListener('animationend', onEnd);
+        modal._onEnd = null;
+        pendingConfirmAction = null;
+        if (modal._triggerElement) {
+            modal._triggerElement.focus();
+            delete modal._triggerElement;
+        }
+    };
+    modal._onEnd = onEnd;
+    modal.addEventListener('animationend', onEnd);
+    setTimeout(() => {
+        if (modal.classList.contains('closing')) {
+            onEnd();
+        }
+    }, 200);
 }
 
 function showConfirmModal(title, message, action) {
+    const modal = document.getElementById('confirmModal');
     document.getElementById('confirmTitle').textContent = title;
     document.getElementById('confirmMessage').textContent = message;
     pendingConfirmAction = action;
-    document.getElementById('confirmModal').classList.remove('hidden');
+    modal.classList.remove('hidden');
+    modal.classList.remove('closing');
+    modal._triggerElement = document.activeElement;
+    setupFocusTrap(modal);
+    const confirmBtn = document.getElementById('confirmBtn');
+    setTimeout(() => confirmBtn.focus(), 50);
 }
 
 async function confirmAction() {
-    if (pendingConfirmAction) {
-        await pendingConfirmAction();
+    const btn = document.getElementById('confirmBtn');
+    setButtonLoading(btn, true);
+    try {
+        if (pendingConfirmAction) {
+            await pendingConfirmAction();
+        }
+        closeConfirmModal();
+    } catch (e) {
+        setButtonLoading(btn, false);
+        showGlobalToast(e.message);
     }
-    closeConfirmModal();
 }
 
 // ===== 模型能力弹窗 =====
@@ -420,6 +455,10 @@ function resetApiKeyVisibility() {
 }
 
 function openModal(channel = null) {
+    const modal = document.getElementById('channelModal');
+    const form = document.getElementById('channelForm');
+    clearFormErrors(form);
+    form.reset();
     document.getElementById('modalTitle').textContent = channel ? I18n.t('modals.channelEdit') : I18n.t('modals.channelAdd');
     document.getElementById('editId').value = channel ? channel.id : '';
     document.getElementById('f_name').value = channel ? channel.name : '';
@@ -441,13 +480,37 @@ function openModal(channel = null) {
     document.getElementById('f_anthropic_beta_policy').value = channel ? (channel.anthropic_beta_policy || 'channel') : 'channel';
     document.getElementById('f_enabled').checked = channel ? channel.enabled : true;
     updateAnthropicConfigVisibility();
-    // 编辑模式显示删除按钮，添加模式隐藏
     document.getElementById('deleteChannelBtn').classList.toggle('hidden', !channel);
-    document.getElementById('channelModal').classList.remove('hidden');
+    modal.classList.remove('hidden');
+    modal.classList.remove('closing');
+    modal._triggerElement = document.activeElement;
+    setupFocusTrap(modal);
+    const firstFocusable = modal.querySelector('input:not([type="hidden"]), select, textarea, button:not([type="button"])');
+    firstFocusable?.focus();
 }
 
 function closeModal() {
-    document.getElementById('channelModal').classList.add('hidden');
+    const modal = document.getElementById('channelModal');
+    removeFocusTrap(modal);
+    modal.classList.add('closing');
+    if (modal._onEnd) modal.removeEventListener('animationend', modal._onEnd);
+    const onEnd = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('closing');
+        modal.removeEventListener('animationend', onEnd);
+        modal._onEnd = null;
+        if (modal._triggerElement) {
+            modal._triggerElement.focus();
+            delete modal._triggerElement;
+        }
+    };
+    modal._onEnd = onEnd;
+    modal.addEventListener('animationend', onEnd);
+    setTimeout(() => {
+        if (modal.classList.contains('closing')) {
+            onEnd();
+        }
+    }, 200);
 }
 
 async function deleteChannelFromModal() {
@@ -483,12 +546,38 @@ function updateAnthropicConfigVisibility() {
 
 async function saveChannel(e) {
     e.preventDefault();
+    const form = e.target;
     const id = document.getElementById('editId').value;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    
+    clearFormErrors(form);
+    const name = document.getElementById('f_name').value.trim();
+    const baseUrl = document.getElementById('f_base_url').value.trim();
+    const apiKey = document.getElementById('f_api_key').value.trim();
+    
+    let hasError = false;
+    if (!name) {
+        showFieldError(document.getElementById('f_name'), I18n ? I18n.t('validation.required') : '此项为必填项');
+        hasError = true;
+    }
+    if (!baseUrl) {
+        showFieldError(document.getElementById('f_base_url'), I18n ? I18n.t('validation.required') : '此项为必填项');
+        hasError = true;
+    } else if (!/^https?:\/\/.+/.test(baseUrl)) {
+        showFieldError(document.getElementById('f_base_url'), I18n ? I18n.t('validation.urlInvalid') : '请输入有效的 URL（http:// 或 https://）');
+        hasError = true;
+    }
+    if (!id && !apiKey) {
+        showFieldError(document.getElementById('f_api_key'), I18n ? I18n.t('channels.apiKeyRequired') : '请输入 API Key');
+        hasError = true;
+    }
+    if (hasError) return;
+
     const modelsStr = document.getElementById('f_models').value;
     const data = {
-        name: document.getElementById('f_name').value,
+        name: name,
         api_type: document.getElementById('f_api_type').value,
-        base_url: document.getElementById('f_base_url').value.trim(),
+        base_url: baseUrl,
         endpoint_url: document.getElementById('f_endpoint_url').value.trim() || null,
         models_url: document.getElementById('f_models_url').value.trim() || null,
         models: modelsStr ? modelsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
@@ -504,16 +593,11 @@ async function saveChannel(e) {
         data.anthropic_beta = document.getElementById('f_anthropic_beta').value.trim() || null;
         data.anthropic_beta_policy = document.getElementById('f_anthropic_beta_policy').value;
     }
-    const apiKey = document.getElementById('f_api_key').value.trim();
     if (apiKey) {
         data.api_key = apiKey;
     }
 
-    if (!id && !apiKey) {
-        showGlobalToast(I18n.t('channels.apiKeyRequired'), 'error');
-        return;
-    }
-
+    setButtonLoading(submitBtn, true, I18n.t('common.saving'));
     try {
         if (id) {
             const resp = await fetch(`${API}/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
@@ -529,9 +613,11 @@ async function saveChannel(e) {
             }
         }
     } catch (e) {
+        setButtonLoading(submitBtn, false);
         showGlobalToast(I18n.t('channels.saveFailed') + ': ' + e.message);
         return;
     }
+    setButtonLoading(submitBtn, false);
     closeModal();
     loadChannels();
     if (!id) {

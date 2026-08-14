@@ -94,7 +94,7 @@ async function loadStats() {
     let data;
     if (daysVal === 'today') {
       _startStatsAutoRefresh();
-      document.getElementById('statsDaysLabel').textContent = '7';
+      document.getElementById('statsDaysLabel') && (document.getElementById('statsDaysLabel').textContent = '7');
       const [todayResp, weekResp] = await Promise.all([
 fetch('/admin/stats/today'),
 fetch('/admin/stats?days=7'),
@@ -133,13 +133,13 @@ cutoffTimeValue.textContent = `${timeStr} (${tzDisplay})`;
       const params = new URLSearchParams();
       if (daysVal === 'this_week' || daysVal === 'this_month') {
         params.set('range', daysVal);
-        document.getElementById('statsDaysLabel').textContent = daysVal === 'this_week' ? I18n.t('stats.rangeThisWeek') : I18n.t('stats.rangeThisMonth');
+        document.getElementById('statsDaysLabel') && (document.getElementById('statsDaysLabel').textContent = daysVal === 'this_week' ? I18n.t('stats.rangeThisWeek') : I18n.t('stats.rangeThisMonth'));
       } else if (daysVal === '0') {
 params.set('days', '99999');
-document.getElementById('statsDaysLabel').textContent = I18n.t('stats.rangeAll');
+document.getElementById('statsDaysLabel') && (document.getElementById('statsDaysLabel').textContent = I18n.t('stats.rangeAll'));
       } else {
 params.set('days', daysVal);
-document.getElementById('statsDaysLabel').textContent = daysVal;
+document.getElementById('statsDaysLabel') && (document.getElementById('statsDaysLabel').textContent = daysVal);
       }
       const resp = await fetch('/admin/stats?' + params.toString());
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -182,7 +182,11 @@ function renderStats(data) {
   document.getElementById('stat_total').textContent = total.toLocaleString();
   document.getElementById('stat_success_rate').textContent = successRate + '%';
   document.getElementById('stat_avg_latency').textContent = avgLatency + 'ms';
+  const cacheReadTokens = overall.total_cache_read_input_tokens || 0;
+  const cacheHitRate = inputTokens > 0 ? ((cacheReadTokens / inputTokens) * 100).toFixed(1) : 0;
   document.getElementById('stat_input_tokens').textContent = formatTokens(inputTokens);
+  document.getElementById('stat_cache_hit').textContent = formatTokens(cacheReadTokens);
+  document.getElementById('stat_cache_hit_rate').textContent = cacheHitRate + '%';
   document.getElementById('stat_output_tokens').textContent = formatTokens(outputTokens);
   document.getElementById('stat_total_tokens').textContent = formatTokens(inputTokens + outputTokens);
 
@@ -237,14 +241,14 @@ function renderStats(data) {
   const trendTimeHeader = document.getElementById('trendTimeHeader');
   const dailyTbody = document.getElementById('daily_tbody');
 
-  const daysLabel = document.getElementById('statsDaysLabel').textContent;
+  const daysLabel = document.getElementById('statsDaysLabel')?.textContent || '7';
   if ((daysVal === 'this_week' || daysVal === 'this_month') && daily.length > 0) {
     // 日期格式为 "YYYY-MM-DD"，slice(5) 提取 "MM-DD" 部分
     const start = daily[0].date.slice(5);
     const end = daily[daily.length - 1].date.slice(5);
-    trendTitle.innerHTML = I18n.t('stats.trendTitleRange', { start: `<span id="statsDaysLabel">${start}`, end: `${end}</span>` });
+    trendTitle.innerHTML = I18n.t('stats.trendTitleRange', { start: `<span id="statsDaysLabel">${esc(start)}</span>`, end: `<span id="statsDaysLabel2">${esc(end)}</span>` });
   } else {
-    trendTitle.innerHTML = I18n.t('stats.trendTitleDaily', { days: `<span id="statsDaysLabel">${daysLabel}</span>` });
+    trendTitle.innerHTML = I18n.t('stats.trendTitleDaily', { days: `<span id="statsDaysLabel">${esc(daysLabel)}</span>` });
   }
   trendTimeHeader.textContent = I18n.t('stats.colDate');
   if (daily.length === 0) {
@@ -258,11 +262,17 @@ function renderStats(data) {
       <td data-label="${I18n.t('stats.colFail')}" class="py-2.5 px-2 text-right text-sm text-rose-600 font-medium">${d.fail_count}</td>
       <td data-label="${I18n.t('stats.colAvgLatency')}" class="py-2.5 px-2 text-right text-sm text-amber-600 font-medium">${d.avg_latency_ms || 0}ms</td>
       <td data-label="${I18n.t('stats.colInputToken')}" class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_input_tokens)}</td>
-      <td data-label="${I18n.t('stats.colCacheHit')}" class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${formatTokens(d.total_cache_read_input_tokens || 0)}</td>
+      <td data-label="${I18n.t('stats.colCacheHit')}" class="py-2.5 px-2 text-right text-sm text-emerald-600 font-medium">${formatTokens(d.total_cache_read_input_tokens || 0)}${cacheHitRateSuffix(d)}</td>
       <td data-label="${I18n.t('stats.colOutputToken')}" class="py-2.5 px-2 text-right text-sm text-ink-600">${formatTokens(d.total_output_tokens)}</td>
     </tr>
     `).join('');
   }
+}
+
+function cacheHitRateSuffix(d) {
+  const cache = d.total_cache_read_input_tokens || 0;
+  const total = d.total_input_tokens || 0;
+  return total > 0 ? ` (${((cache / total) * 100).toFixed(1)}%)` : '';
 }
 
 function totalTokensForItem(item) {

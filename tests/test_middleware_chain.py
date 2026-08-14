@@ -348,6 +348,19 @@ class TestApiKeyAuth:
         )
         assert resp.status_code == 200
 
+    def test_non_utf8_header_bytes_do_not_crash(self, middleware_app):
+        """含非 UTF-8 字节的请求头不应使中间件 500（header 按 latin-1 解码）"""
+        resp = middleware_app.post(
+            "/v1/chat/completions",
+            json={"model": "gpt-4o"},
+            headers={
+                "Authorization": "Bearer sk-middleware-test",
+                "X-Custom": b"caf\xe9",  # 0xE9 单字节，非法 UTF-8
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["auth_checked"] is True
+
     def test_empty_bearer_prefix_returns_401(self, middleware_app):
         """Authorization 头不以 Bearer 开头且无 x-api-key 应返回 401"""
         resp = middleware_app.post(

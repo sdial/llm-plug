@@ -53,10 +53,11 @@ def append_api_path(base_url: str, path: str) -> str:
     if _has_endpoint_suffix(existing_path, target_path):
         return urlunsplit(parsed)
 
-    if existing_path.endswith("/v1"):
-        new_path = f"{existing_path}{target_path}"
-    else:
-        new_path = f"{existing_path}/v1{target_path}"
+    new_path = (
+        f"{existing_path}{target_path}"
+        if existing_path.endswith("/v1")
+        else f"{existing_path}/v1{target_path}"
+    )
 
     return urlunsplit(parsed._replace(path=new_path))
 

@@ -9,7 +9,6 @@ import request_logs
 import stats
 import storage
 from main import app
-from routers import admin
 from tests.admin_auth_utils import login_admin
 
 pytestmark = pytest.mark.asyncio
@@ -424,11 +423,6 @@ async def test_cleanup_request_logs_endpoint_returns_zero_when_nothing_old(clien
 
 async def test_fetch_models_uses_advanced_models_url(client, monkeypatch):
     captured = {}
-    monkeypatch.setattr(
-        admin.socket,
-        "getaddrinfo",
-        lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 443))],
-    )
 
     class FakeResponse:
         status_code = 200
@@ -473,11 +467,6 @@ async def test_fetch_models_falls_back_to_base_url_when_advanced_models_url_miss
     client, monkeypatch
 ):
     captured = {}
-    monkeypatch.setattr(
-        admin.socket,
-        "getaddrinfo",
-        lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 443))],
-    )
 
     class FakeResponse:
         status_code = 200
@@ -517,57 +506,41 @@ async def test_fetch_models_falls_back_to_base_url_when_advanced_models_url_miss
     assert captured["url"] == "https://api.example.com/v1/models"
 
 
-async def test_fetch_models_rejects_private_upstream_url(client, monkeypatch):
-    class FakeClient:
-        def __init__(self, *args, **kwargs):
-            raise AssertionError(
-                "SSRF validation should reject before httpx is created"
-            )
-
-    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
-
+async def test_create_channel_accepts_public_base_url(client):
     resp = await client.post(
-        "/admin/channels/fetch-models",
+        "/admin/channels",
         json={
-            "base_url": "http://127.0.0.1:8000",
-            "models_url": "",
-            "api_key": "sk-test",
+            "name": "public",
             "api_type": "openai-chat-completions",
+            "base_url": "https://8.8.8.8",
+            "api_key": "sk-test",
+            "models": ["gpt-4o"],
         },
     )
 
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "不允许访问内网或本机地址"
+    assert resp.status_code == 200
+    created = resp.json()
+    assert created["base_url"] == "https://8.8.8.8"
+    assert len((await storage.load_data()).get("channels", [])) == 1
 
 
-async def test_fetch_models_rejects_hostname_resolving_to_non_public_ip(
-    client, monkeypatch
-):
-    class FakeClient:
-        def __init__(self, *args, **kwargs):
-            raise AssertionError(
-                "SSRF validation should reject before httpx is created"
-            )
-
-    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
-
-    def fake_getaddrinfo(*args, **kwargs):
-        return [(None, None, None, "", ("100.64.0.1", 443))]
-
-    monkeypatch.setattr(admin.socket, "getaddrinfo", fake_getaddrinfo)
-
+async def test_create_channel_accepts_private_base_url(client):
+    """LAN 内网 base_url 允许创建渠道（已取消 SSRF 限制，LAN->LAN 合法）"""
     resp = await client.post(
-        "/admin/channels/fetch-models",
+        "/admin/channels",
         json={
-            "base_url": "https://api.example.com",
-            "models_url": "",
-            "api_key": "sk-test",
+            "name": "lan",
             "api_type": "openai-chat-completions",
+            "base_url": "http://192.168.1.100:8000",
+            "api_key": "sk-test",
+            "models": ["gpt-4o"],
         },
     )
 
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "不允许访问内网或本机地址"
+    assert resp.status_code == 200
+    created = resp.json()
+    assert created["base_url"] == "http://192.168.1.100:8000"
+    assert len((await storage.load_data()).get("channels", [])) == 1
 
 
 async def test_get_log_rejects_non_jsonl_filename(client):

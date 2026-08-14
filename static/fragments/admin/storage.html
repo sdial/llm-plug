@@ -1,290 +1,262 @@
 <!-- 存储管理 Tab -->
-        <div id="storageTab">
-            <!-- 顶部操作栏 -->
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-3">
-                    <h2 class="text-lg font-semibold text-ink-900" data-i18n="storage.title">存储管理</h2>
-                    <button onclick="loadStorageStats()" class="btn-secondary text-sm px-3 py-1.5 font-medium" data-i18n-title="storage.refreshTitle" title="刷新统计">
-                        <svg class="w-4 h-4 inline -mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                        <span data-i18n="storage.refreshBtn">刷新</span>
-                    </button>
-                </div>
-            </div>
+<div id="storageTab">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-5">
+        <h2 class="text-sm font-semibold text-ink-900" data-i18n="storage.title">存储管理</h2>
+        <button type="button" onclick="loadStorageStats()" class="btn-secondary text-sm px-3 py-1.5 font-medium flex items-center gap-1.5" data-i18n-aria="storage.refreshTitle" aria-label="刷新统计">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <span data-i18n="storage.refreshBtn">刷新</span>
+        </button>
+    </div>
 
-            <!-- 概览卡片 -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="storageOverview">
-                <div class="card p-4">
-                    <div class="text-xs text-ink-500 mb-1" data-i18n="storage.totalSize">总占用空间</div>
-                    <div class="text-xl font-bold text-ink-900" id="storageTotalSize">-</div>
-                </div>
-                <div class="card p-4">
-                    <div class="text-xs text-ink-500 mb-1" data-i18n="storage.logsDir">Logs 目录</div>
-                    <div class="text-lg font-semibold text-ink-900" id="storageLogsSize">-</div>
-                </div>
-                <div class="card p-4">
-                    <div class="text-xs text-ink-500 mb-1">Request Raw Logs</div>
-                    <div class="text-lg font-semibold text-ink-900" id="storageRawLogsSize">-</div>
-                </div>
-                <div class="card p-4">
-                    <div class="text-xs text-ink-500 mb-1" data-i18n="storage.otherData">其他数据</div>
-                    <div class="text-lg font-semibold text-ink-900" id="storageOtherSize">-</div>
-                </div>
-            </div>
-
-            <!-- Logs 区域 -->
-            <div class="card mb-6">
-                <div class="px-4 py-3 border-b border-surface-200">
-                    <h3 class="text-base font-medium text-ink-900" data-i18n="storage.logsTitle">Logs 文件</h3>
-                    <p class="text-xs text-ink-500 mt-1" data-i18n="storage.logsDesc">仅展示，不提供删除</p>
-                </div>
-                <div class="p-4 overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead class="text-left text-xs text-ink-500 border-b border-surface-200">
-                            <tr>
-                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colFileName">文件名</th>
-                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colSize">大小</th>
-                                <th class="py-2 font-medium" data-i18n="storage.colModified">修改时间</th>
-                            </tr>
-                        </thead>
-                        <tbody id="logsFilesList">
-                            <tr><td colspan="3" class="py-4 text-center text-ink-400" data-i18n="common.loading">加载中...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Request Raw Logs 区域 -->
-            <div class="card mb-6">
-                <div class="px-4 py-3 border-b border-surface-200">
-                    <h3 class="text-base font-medium text-ink-900" data-i18n="storage.rawLogsTitle">Request Raw Logs（按月）</h3>
-                    <p class="text-xs text-ink-500 mt-1" data-i18n="storage.rawLogsDesc">仅支持单独删除某个月份数据</p>
-                </div>
-                <div class="p-4 overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead class="text-left text-xs text-ink-500 border-b border-surface-200">
-                            <tr>
-                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colMonth">月份</th>
-                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colFileName">文件名</th>
-                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colSize">大小</th>
-                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colRecords">记录数</th>
-                                <th class="py-2 font-medium" data-i18n="common.actions">操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="rawLogsMonthsList">
-                            <tr><td colspan="5" class="py-4 text-center text-ink-400" data-i18n="common.loading">加载中...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- 其他数据区域 -->
-            <div class="card mb-6">
-                <div class="px-4 py-3 border-b border-surface-200">
-                    <h3 class="text-base font-medium text-ink-900" data-i18n="storage.otherTitle">其他数据文件</h3>
-                    <p class="text-xs text-ink-500 mt-1" data-i18n="storage.otherDesc">核心数据文件，仅展示，不提供删除</p>
-                </div>
-                <div class="p-4 overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead class="text-left text-xs text-ink-500 border-b border-surface-200">
-                            <tr>
-                                <th class="py-2 pr-4 font-medium" data-i18n="storage.colFileName">文件名</th>
-                                <th class="py-2 font-medium" data-i18n="storage.colSize">大小</th>
-                            </tr>
-                        </thead>
-                        <tbody id="otherFilesList">
-                            <tr><td colspan="2" class="py-4 text-center text-ink-400" data-i18n="common.loading">加载中...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+    <!-- Overview Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div class="card p-4">
+            <div class="text-xs text-ink-500 mb-1" data-i18n="storage.totalSize">总占用空间</div>
+            <div class="text-xl font-bold text-ink-900" id="storageTotalSize">-</div>
         </div>
+        <div class="card p-4">
+            <div class="text-xs text-ink-500 mb-1" data-i18n="storage.logsDir">Logs 目录</div>
+            <div class="text-lg font-semibold text-ink-900" id="storageLogsSize">-</div>
+        </div>
+        <div class="card p-4">
+            <div class="text-xs text-ink-500 mb-1" data-i18n="storage.rawLogsTitle">Request Raw Logs</div>
+            <div class="text-lg font-semibold text-ink-900" id="storageRawLogsSize">-</div>
+        </div>
+        <div class="card p-4">
+            <div class="text-xs text-ink-500 mb-1" data-i18n="storage.otherData">其他数据</div>
+            <div class="text-lg font-semibold text-ink-900" id="storageOtherSize">-</div>
+        </div>
+    </div>
 
-        <script>
-        (function() {
-            // 工具函数：字节数格式化
-            function formatBytes(bytes) {
-                if (!bytes || bytes === 0) return '0 B';
-                const k = 1024;
-                const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-                const i = Math.floor(Math.log(bytes) / Math.log(k));
-                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + units[i];
-            }
+    <!-- Logs Section -->
+    <div class="card mb-5">
+        <div class="px-4 py-3 border-b border-surface-200">
+            <h3 class="text-sm font-medium text-ink-900" data-i18n="storage.logsTitle">Logs 文件</h3>
+            <p class="text-xs text-ink-500 mt-0.5" data-i18n="storage.logsDesc">仅展示，不提供删除</p>
+        </div>
+        <div class="p-4 overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="text-left text-xs text-ink-500 border-b border-surface-200">
+                    <tr>
+                        <th class="py-2 pr-4 font-medium" data-i18n="storage.colFileName">文件名</th>
+                        <th class="py-2 pr-4 font-medium" data-i18n="storage.colSize">大小</th>
+                        <th class="py-2 font-medium" data-i18n="storage.colModified">修改时间</th>
+                    </tr>
+                </thead>
+                <tbody id="logsFilesList">
+                    <tr><td colspan="3" class="py-4 text-center text-ink-400" data-i18n="common.loading">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 
-            // 工具函数：转义 HTML
-            function escapeHtml(s) {
-                if (s == null) return '';
-                return String(s).replace(/[&<>"']/g, function(c) {
-                    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
-                });
-            }
+    <!-- Raw Logs Section -->
+    <div class="card mb-5">
+        <div class="px-4 py-3 border-b border-surface-200">
+            <h3 class="text-sm font-medium text-ink-900" data-i18n="storage.rawLogsTitle">Request Raw Logs（按月）</h3>
+            <p class="text-xs text-ink-500 mt-0.5" data-i18n="storage.rawLogsDesc">仅支持单独删除某个月份数据</p>
+        </div>
+        <div class="p-4 overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="text-left text-xs text-ink-500 border-b border-surface-200">
+                    <tr>
+                        <th class="py-2 pr-4 font-medium" data-i18n="storage.colMonth">月份</th>
+                        <th class="py-2 pr-4 font-medium" data-i18n="storage.colFileName">文件名</th>
+                        <th class="py-2 pr-4 font-medium" data-i18n="storage.colSize">大小</th>
+                        <th class="py-2 pr-4 font-medium" data-i18n="storage.colRecords">记录数</th>
+                        <th class="py-2 font-medium" data-i18n="common.actions">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="rawLogsMonthsList">
+                    <tr><td colspan="5" class="py-4 text-center text-ink-400" data-i18n="common.loading">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 
-            // 工具函数：CSRF token
-            function getCsrfToken() {
-                return document.querySelector('meta[name="csrf-token"]')?.content || '';
-            }
+    <!-- Other Files Section -->
+    <div class="card">
+        <div class="px-4 py-3 border-b border-surface-200">
+            <h3 class="text-sm font-medium text-ink-900" data-i18n="storage.otherTitle">其他数据文件</h3>
+            <p class="text-xs text-ink-500 mt-0.5" data-i18n="storage.otherDesc">核心数据文件，仅展示，不提供删除</p>
+        </div>
+        <div class="p-4 overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="text-left text-xs text-ink-500 border-b border-surface-200">
+                    <tr>
+                        <th class="py-2 pr-4 font-medium" data-i18n="storage.colFileName">文件名</th>
+                        <th class="py-2 font-medium" data-i18n="storage.colSize">大小</th>
+                    </tr>
+                </thead>
+                <tbody id="otherFilesList">
+                    <tr><td colspan="2" class="py-4 text-center text-ink-400" data-i18n="common.loading">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
 
-            // 加载存储统计
-            async function loadStorageStats() {
-                try {
-                    const resp = await fetch('/admin/storage/stats');
-                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                    const data = await resp.json();
+<script>
+(function() {
+    // esc() and formatBytes() already defined globally in utils.js — do not redeclare here.
 
-                    document.getElementById('storageTotalSize').textContent = formatBytes(data.total_size);
-                    document.getElementById('storageLogsSize').textContent = formatBytes(data.logs.size);
-                    document.getElementById('storageRawLogsSize').textContent = formatBytes(data.request_raw_logs.size);
-                    document.getElementById('storageOtherSize').textContent = formatBytes(data.other_data.size);
+    async function loadStorageStats() {
+        try {
+            const resp = await fetch('/admin/storage/stats');
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json();
 
-                    // 渲染 logs 文件列表
-                    const logsFiles = (data.logs.files || []);
-                    const logsHtml = logsFiles.length
-                        ? logsFiles.map(function(f) {
-                            return '<tr class="border-b border-surface-100">'
-                                + '<td class="py-2 pr-4 text-ink-900">' + escapeHtml(f.name) + '</td>'
-                                + '<td class="py-2 pr-4 text-ink-500">' + formatBytes(f.size) + '</td>'
-                                + '<td class="py-2 text-ink-500">' + (f.modified ? new Date(f.modified).toLocaleString(I18n.getLocale()) : '-') + '</td>'
-                                + '</tr>';
-                        }).join('')
-                        : '<tr><td colspan="3" class="py-4 text-center text-ink-400">' + I18n.t('storage.noFiles') + '</td></tr>';
-                    document.getElementById('logsFilesList').innerHTML = logsHtml;
+            document.getElementById('storageTotalSize').textContent = formatBytes(data.total_size);
+            document.getElementById('storageLogsSize').textContent = formatBytes(data.logs.size);
+            document.getElementById('storageRawLogsSize').textContent = formatBytes(data.request_raw_logs.size);
+            document.getElementById('storageOtherSize').textContent = formatBytes(data.other_data.size);
 
-                    // 渲染 raw logs 月份列表
-                    const months = (data.request_raw_logs.months || []);
-                    const monthsHtml = months.length
-                        ? months.map(function(m) {
-                            const target = m.month.replace(/-/g, '');
-                            return '<tr class="border-b border-surface-100">'
-                                + '<td class="py-2 pr-4 text-ink-900">' + escapeHtml(m.month) + '</td>'
-                                + '<td class="py-2 pr-4 text-ink-500">' + escapeHtml(m.file) + '</td>'
-                                + '<td class="py-2 pr-4 text-ink-500">' + formatBytes(m.size) + '</td>'
-                                + '<td class="py-2 pr-4 text-ink-500">' + (m.record_count || 0).toLocaleString() + '</td>'
-                                + '<td class="py-2 space-x-2">'
-                                + '<button data-action="preview" data-target="' + escapeHtml(target) + '" class="text-xs text-ink-600 hover:text-ink-900 storage-action-btn">' + I18n.t('storage.preview') + '</button>'
-                                + '<button data-action="delete" data-target="' + escapeHtml(target) + '" data-month="' + escapeHtml(m.month) + '" class="text-xs text-red-600 hover:text-red-800 storage-action-btn">' + I18n.t('common.delete') + '</button>'
-                                + '</td>'
-                                + '</tr>';
-                        }).join('')
-                        : '<tr><td colspan="5" class="py-4 text-center text-ink-400">' + I18n.t('storage.noData') + '</td></tr>';
-                    document.getElementById('rawLogsMonthsList').innerHTML = monthsHtml;
+            // Render logs files
+            const logsFiles = (data.logs.files || []);
+            const noFilesText = I18n ? I18n.t('storage.noFiles') : '无文件';
+            const logsHtml = logsFiles.length
+                ? logsFiles.map(f => '<tr class="border-b border-surface-100 hover:bg-surface-50 transition">'
+                    + '<td class="py-2.5 pr-4 text-ink-900 font-mono text-xs">' + esc(f.name) + '</td>'
+                    + '<td class="py-2.5 pr-4 text-ink-500">' + formatBytes(f.size) + '</td>'
+                    + '<td class="py-2.5 text-ink-500">' + (f.modified ? new Date(f.modified).toLocaleString(I18n ? I18n.getLocale() : undefined) : '-') + '</td>'
+                    + '</tr>').join('')
+                : '<tr><td colspan="3" class="py-4 text-center text-ink-400">' + noFilesText + '</td></tr>';
+            document.getElementById('logsFilesList').innerHTML = logsHtml;
 
-                    // 渲染其他文件列表
-                    const otherFiles = (data.other_data.files || []);
-                    const otherHtml = otherFiles.length
-                        ? otherFiles.map(function(f) {
-                            return '<tr class="border-b border-surface-100">'
-                                + '<td class="py-2 pr-4 text-ink-900">' + escapeHtml(f.name) + '</td>'
-                                + '<td class="py-2 text-ink-500">' + formatBytes(f.size) + '</td>'
-                                + '</tr>';
-                        }).join('')
-                        : '<tr><td colspan="2" class="py-4 text-center text-ink-400">' + I18n.t('storage.noFiles') + '</td></tr>';
-                    document.getElementById('otherFilesList').innerHTML = otherHtml;
-                } catch (err) {
-                    console.error('loadStorageStats failed:', err);
-                    showToast(I18n.t('storage.loadFailed') + err.message, 'error');
-                }
-            }
+            // Render raw logs months
+            const months = (data.request_raw_logs.months || []);
+            const noDataText = I18n ? I18n.t('storage.noData') : '无数据';
+            const monthsHtml = months.length
+                ? months.map(m => {
+                    const target = m.month.replace(/-/g, '');
+                    const previewLabel = I18n ? I18n.t('storage.preview') : '预览';
+                    const deleteLabel = I18n ? I18n.t('common.delete') : '删除';
+                    return '<tr class="border-b border-surface-100 hover:bg-surface-50 transition">'
+                        + '<td class="py-2.5 pr-4 text-ink-900">' + esc(m.month) + '</td>'
+                        + '<td class="py-2.5 pr-4 text-ink-500 font-mono text-xs">' + esc(m.file) + '</td>'
+                        + '<td class="py-2.5 pr-4 text-ink-500">' + formatBytes(m.size) + '</td>'
+                        + '<td class="py-2.5 pr-4 text-ink-500">' + (m.record_count || 0).toLocaleString() + '</td>'
+                        + '<td class="py-2.5">'
+                        + '<button type="button" data-action="preview" data-target="' + esc(target) + '" class="text-xs text-ink-600 hover:text-ink-900 mr-3 transition" aria-label="' + esc(previewLabel) + '">' + esc(previewLabel) + '</button>'
+                        + '<button type="button" data-action="delete" data-target="' + esc(target) + '" data-month="' + esc(m.month) + '" class="text-xs text-brand-600 hover:text-brand-700 transition" aria-label="' + esc(deleteLabel) + '">' + esc(deleteLabel) + '</button>'
+                        + '</td>'
+                        + '</tr>';
+                }).join('')
+                : '<tr><td colspan="5" class="py-4 text-center text-ink-400">' + noDataText + '</td></tr>';
+            document.getElementById('rawLogsMonthsList').innerHTML = monthsHtml;
 
-            // 显示 toast
-            function showToast(message, type) {
-                if (typeof window.showGlobalToast === 'function') {
-                    window.showGlobalToast(message, type);
-                    return;
-                }
-                // Fallback：静默失败，避免阻塞 UI
-                console.warn('Toast not available:', message);
-            }
-
-            // 预览清理效果
-            window.previewCleanup = async function(action, target) {
-                try {
-                    const body = { action: action };
-                    if (target) body.target = target;
-                    const resp = await fetch('/admin/storage/cleanup/preview', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-Token': getCsrfToken(),
-                        },
-                        body: JSON.stringify(body),
-                    });
-                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                    const data = await resp.json();
-
-                    if (data.error) {
-                        showToast(data.error, 'error');
-                        return;
-                    }
-
-                    const deleteCount = (data.will_delete || []).length;
-                    const sizeStr = formatBytes(data.freed_bytes || 0);
-                    const targetLabel = data.target ? I18n.t('storage.targetPrefix') + data.target + '\n' : '';
-                    showToast(targetLabel + I18n.t('storage.previewResult', { size: sizeStr, count: deleteCount }), 'info');
-                } catch (err) {
-                    console.error('previewCleanup failed:', err);
-                    showToast(I18n.t('storage.previewFailed') + err.message, 'error');
-                }
-            };
-
-            // 确认并执行清理
-            window.confirmCleanup = async function(action, message, target, confirmBtn) {
-                if (!confirm(message || I18n.t('storage.confirmDefault'))) return;
-                if (confirmBtn) {
-                    confirmBtn.disabled = true;
-                    confirmBtn.textContent = I18n.t('storage.processing');
-                }
-                try {
-                    const body = { action: action };
-                    if (target) body.target = target;
-                    const resp = await fetch('/admin/storage/cleanup', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-Token': getCsrfToken(),
-                        },
-                        body: JSON.stringify(body),
-                    });
-                    if (!resp.ok) {
-                        throw new Error(I18n.t('storage.opFailed') + ' (HTTP ' + resp.status + ')');
-                    }
-                    const data = await resp.json();
-
-                    if (data.success === false) {
-                        showToast(data.message || I18n.t('storage.opFailed'), 'error');
-                        return;
-                    }
-
-                    const sizeStr = formatBytes(data.freed_bytes || 0);
-                    showToast((data.message || I18n.t('storage.opSuccess')) + I18n.t('storage.freedSuffix', { size: sizeStr }), 'success');
-                    loadStorageStats();
-                } catch (err) {
-                    console.error('confirmCleanup failed:', err);
-                    showToast(I18n.t('storage.cleanupFailed') + err.message, 'error');
-                } finally {
-                    if (confirmBtn) {
-                        confirmBtn.disabled = false;
-                        confirmBtn.textContent = I18n.t('common.delete');
-                    }
-                }
-            };
-
-            // 暴露 loadStorageStats 给外部（用于刷新按钮和外部导航切换）
-            window.loadStorageStats = loadStorageStats;
-        })();
-
-        // 事件委托处理 storage 操作按钮点击（绑定在 storageTab 上，避免全局监听器累积）
-        var storageTab = document.getElementById('storageTab');
-        if (storageTab) {
-            storageTab.addEventListener('click', function(e) {
-                var btn = e.target.closest('.storage-action-btn');
-                if (!btn) return;
-                var action = btn.dataset.action;
-                var target = btn.dataset.target;
-                if (action === 'preview') {
-                    previewCleanup('delete_month', target);
-                } else if (action === 'delete') {
-                    var month = btn.dataset.month;
-                    confirmCleanup('delete_month', I18n.t('storage.confirmDeleteMonth', { month: month }), target, btn);
-                }
-            });
+            // Render other files
+            const otherFiles = (data.other_data.files || []);
+            const otherHtml = otherFiles.length
+                ? otherFiles.map(f => '<tr class="border-b border-surface-100 hover:bg-surface-50 transition">'
+                    + '<td class="py-2.5 pr-4 text-ink-900 font-mono text-xs">' + esc(f.name) + '</td>'
+                    + '<td class="py-2.5 text-ink-500">' + formatBytes(f.size) + '</td>'
+                    + '</tr>').join('')
+                : '<tr><td colspan="2" class="py-4 text-center text-ink-400">' + noFilesText + '</td></tr>';
+            document.getElementById('otherFilesList').innerHTML = otherHtml;
+        } catch (err) {
+            console.error('loadStorageStats failed:', err);
+            const prefix = I18n ? I18n.t('storage.loadFailed') : '加载存储统计失败：';
+            if (typeof showGlobalToast === 'function') showGlobalToast(prefix + err.message, 'error');
         }
-        </script>
+    }
+
+    window.loadStorageStats = loadStorageStats;
+
+    // Preview what will be deleted for a given target
+    async function previewCleanup(target) {
+        try {
+            const resp = await fetch('/admin/storage/cleanup/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': await getCsrfToken() },
+                body: JSON.stringify({ action: 'delete_month', target: target })
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json();
+            if (data.success === false) {
+                const prefix = I18n ? I18n.t('storage.previewFailed') : '预览失败：';
+                const errMsg = data.error || data.message || '未知错误';
+                if (typeof showGlobalToast === 'function') showGlobalToast(prefix + errMsg, 'error');
+                return;
+            }
+            const count = (data.will_delete || []).length;
+            const freed = formatBytes(data.freed_bytes || 0);
+            const tmpl = I18n ? I18n.t('storage.previewResult') : '将释放 {size}（{count} 个文件）';
+            let msg = tmpl.replace('{size}', freed).replace('{count}', String(count));
+            const files = (data.will_delete || []);
+            if (files.length) {
+                const maxShow = 20;
+                const shown = files.slice(0, maxShow).join('\n');
+                const moreTpl = I18n ? I18n.t('storage.moreFiles') : '...等共 {count} 个文件';
+                const more = files.length > maxShow ? moreTpl.replace('{count}', String(files.length)) : '';
+                const sep = I18n ? I18n.t('storage.fileListSep') : ':\n';
+                msg += sep + shown + (more ? '\n' + more : '');
+            }
+            if (typeof showGlobalToast === 'function') showGlobalToast(msg, 'info');
+        } catch (err) {
+            console.error('previewCleanup failed:', err);
+            const prefix = I18n ? I18n.t('storage.previewFailed') : '预览失败：';
+            if (typeof showGlobalToast === 'function') showGlobalToast(prefix + err.message, 'error');
+        }
+    }
+
+    // Perform the actual cleanup
+    async function confirmCleanup(target, btn) {
+        let originalText = null;
+        if (btn) {
+            btn.disabled = true;
+            originalText = btn.textContent;
+            btn.textContent = I18n ? I18n.t('storage.processing') : '处理中...';
+        }
+        try {
+            const resp = await fetch('/admin/storage/cleanup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': await getCsrfToken() },
+                body: JSON.stringify({ action: 'delete_month', target: target })
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json();
+            if (data.success === false) {
+                const prefix = I18n ? I18n.t('storage.cleanupFailed') : '清理失败：';
+                const errMsg = data.error || data.message || '未知错误';
+                if (typeof showGlobalToast === 'function') showGlobalToast(prefix + errMsg, 'error');
+                return;
+            }
+            const prefix = I18n ? I18n.t('storage.freedSuffix') : '，释放 {size}';
+            const freedStr = prefix.replace('{size}', formatBytes(data.freed_bytes || 0));
+            const okMsg = (data.message || I18n.t('storage.opSuccess')) + freedStr;
+            if (typeof showGlobalToast === 'function') showGlobalToast(okMsg, 'success');
+            loadStorageStats();
+        } catch (err) {
+            console.error('confirmCleanup failed:', err);
+            const prefix = I18n ? I18n.t('storage.cleanupFailed') : '清理失败：';
+            if (typeof showGlobalToast === 'function') showGlobalToast(prefix + err.message, 'error');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = originalText || btn.textContent;
+            }
+        }
+    }
+
+    // Event delegation for action buttons
+    const storageTab = document.getElementById('storageTab');
+    if (storageTab) storageTab.addEventListener('click', function(e) {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        const target = btn.dataset.target;
+        if (action === 'preview') {
+            if (typeof previewCleanup === 'function') previewCleanup(target);
+        } else if (action === 'delete') {
+            const month = btn.dataset.month;
+            const confirmTmpl = I18n ? I18n.t('storage.confirmDeleteMonth') : '确定要删除 {month} 月份的数据吗？';
+            const confirmMsg = confirmTmpl.replace('{month}', month);
+            if (confirm(confirmMsg)) {
+                if (typeof confirmCleanup === 'function') confirmCleanup(target, btn);
+            }
+        }
+    });
+})();
+</script>

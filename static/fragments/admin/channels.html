@@ -1,19 +1,25 @@
 <!-- 渠道管理 Tab -->
-        <div id="channelsTab">
-            <div class="flex items-center justify-between mb-5 gap-3 flex-wrap">
-                <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
-                    <h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider w-full sm:w-auto" data-i18n="channels.listTitle">渠道列表</h2>
-                    <select id="filterApiType" onchange="applyFilters()" class="text-xs border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white flex-1 sm:flex-initial min-w-[8rem]">
-                        <option value="" data-i18n="channels.allFormats">全部格式</option>
-                        <option value="openai-chat-completions">Chat Completions</option>
-                        <option value="openai-response">Response</option>
-                        <option value="anthropic">Anthropic</option>
-                    </select>
-                    <input type="text" id="filterModel" oninput="applyFilters()" data-i18n-placeholder="channels.modelNamePh" placeholder="模型名称" data-i18n-aria="channels.modelNameAria" aria-label="按模型名称筛选" class="text-xs border border-surface-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white flex-1 sm:flex-initial sm:w-28">
-                </div>
-                <button onclick="openModal()" class="btn-primary text-sm px-4 py-2 font-medium whitespace-nowrap" data-i18n="channels.addBtn">+ 添加渠道</button>
-            </div>
-            <div id="channelList" class="space-y-3">
-                <p class="text-ink-400 text-center py-8 text-sm" data-i18n="common.loading">加载中...</p>
-            </div>
+<div id="channelsTab">
+    <div class="flex items-center justify-between mb-5 gap-3 flex-wrap">
+        <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-sm font-semibold text-ink-900" data-i18n="channels.listTitle">渠道列表</h2>
+            <select id="filterApiType" onchange="applyFilters()" class="text-xs border border-surface-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                <option value="" data-i18n="channels.allFormats">全部格式</option>
+                <option value="openai-chat-completions">Chat Completions</option>
+                <option value="openai-response">Response</option>
+                <option value="anthropic">Anthropic</option>
+            </select>
+            <input type="text" id="filterModel" oninput="applyFilters()" data-i18n-placeholder="channels.modelNamePh" data-i18n-aria="channels.modelNameAria" placeholder="模型名称" aria-label="按模型名称筛选" class="text-xs border border-surface-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-32">
         </div>
+        <button type="button" onclick="openModal()" class="btn-primary text-sm px-4 py-2 font-medium whitespace-nowrap flex items-center gap-1.5" aria-label="添加渠道">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            <span data-i18n="channels.addBtn">添加渠道</span>
+        </button>
+    </div>
+    <div id="channelList" class="space-y-3 animate-fade-in">
+        <div class="loading-text flex items-center justify-center gap-2">
+            <span class="spinner"></span>
+            <span data-i18n="common.loading">加载中...</span>
+        </div>
+    </div>
+</div>

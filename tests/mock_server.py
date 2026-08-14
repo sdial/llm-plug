@@ -23,17 +23,43 @@ def reset_last_chat_request():
 
 
 ANTHROPIC_STREAM_DATA = [
-    b'event: message_start\ndata: {"type": "message_start", "message": {"id": "msg_001", "type": "message", "role": "assistant"}}\n\n',
-    b'event: content_block_start\ndata: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}\n\n',
-    b'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hello"}}\n\n',
-    b'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " world"}}\n\n',
+    (
+        b'event: message_start\n'
+        b'data: {"type": "message_start", "message": {"id": "msg_001", "type": "message", '
+        b'"role": "assistant", "usage": {"input_tokens": 10, "output_tokens": 0, '
+        b'"cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}}\n\n'
+    ),
+    (
+        b'event: content_block_start\n'
+        b'data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}\n\n'
+    ),
+    (
+        b'event: content_block_delta\n'
+        b'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hello"}}\n\n'
+    ),
+    (
+        b'event: content_block_delta\n'
+        b'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " world"}}\n\n'
+    ),
     b'event: content_block_stop\ndata: {"type": "content_block_stop", "index": 0}\n\n',
+    # 真实 Anthropic Messages 流在 message_stop 前必有 message_delta（含 stop_reason 与 output_tokens）
+    (
+        b'event: message_delta\n'
+        b'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, '
+        b'"usage": {"output_tokens": 5}}\n\n'
+    ),
     b'event: message_stop\ndata: {"type": "message_stop"}\n\n',
 ]
 
 OPENAI_STREAM_DATA = [
-    b'data: {"id": "chatcmpl-001", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"content": "Hello"}, "finish_reason": null}]}\n\n',
-    b'data: {"id": "chatcmpl-001", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"content": " world"}, "finish_reason": null}]}\n\n',
+    (
+        b'data: {"id": "chatcmpl-001", "object": "chat.completion.chunk", '
+        b'"choices": [{"index": 0, "delta": {"content": "Hello"}, "finish_reason": null}]}\n\n'
+    ),
+    (
+        b'data: {"id": "chatcmpl-001", "object": "chat.completion.chunk", '
+        b'"choices": [{"index": 0, "delta": {"content": " world"}, "finish_reason": null}]}\n\n'
+    ),
     b"data: [DONE]\n\n",
 ]
 

@@ -2,6 +2,37 @@
 
 let modelGroups = [];
 let editingModelGroupId = null;
+let availableModels = [];
+let availableModelSet = new Set();
+
+
+async function loadAvailableModels() {
+    try {
+        const resp = await fetch('/admin/models');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        availableModels = data.models || [];
+        availableModelSet = new Set(availableModels);
+    } catch (e) {
+        console.error('loadAvailableModels failed:', e);
+        availableModels = [];
+        availableModelSet = new Set();
+    }
+}
+
+function updateNameCollisionWarning() {
+    const input = document.getElementById('modelGroupName');
+    const warn = document.getElementById('modelGroupNameCollision');
+    if (!input || !warn) return;
+    const name = input.value.trim();
+    if (name && availableModelSet.has(name)) {
+        warn.textContent = I18n.t('modelGroups.nameCollision', { name });
+        warn.classList.remove('hidden');
+    } else {
+        warn.textContent = '';
+        warn.classList.add('hidden');
+    }
+}
 
 
 async function loadModelGroups() {
@@ -42,9 +73,9 @@ function renderModelGroups() {
                 </div>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <button onclick="toggleModelGroup('${g.id}')" class="btn-secondary text-xs px-3 py-1.5 font-medium">${g.enabled ? I18n.t('common.disable') : I18n.t('common.enable')}</button>
-                <button onclick="editModelGroup('${g.id}')" class="btn-secondary text-xs px-3 py-1.5 font-medium">${I18n.t('common.edit')}</button>
-                <button onclick="deleteModelGroupConfirm('${g.id}')" class="text-rose-600 hover:text-rose-700 text-xs px-3 py-1.5 font-medium">${I18n.t('common.delete')}</button>
+                <button type="button" onclick="toggleModelGroup('${g.id}')" class="btn-secondary text-xs px-3 py-1.5 font-medium">${g.enabled ? I18n.t('common.disable') : I18n.t('common.enable')}</button>
+                <button type="button" onclick="editModelGroup('${g.id}')" class="btn-secondary text-xs px-3 py-1.5 font-medium">${I18n.t('common.edit')}</button>
+                <button type="button" onclick="deleteModelGroupConfirm('${g.id}')" class="text-rose-600 hover:text-rose-700 text-xs px-3 py-1.5 font-medium">${I18n.t('common.delete')}</button>
             </div>
         </div>
     `).join('');
@@ -52,27 +83,97 @@ function renderModelGroups() {
 
 function openModelGroupModal(group = null) {
     if (!document.getElementById('modelGroupModal')) return;
+    const modal = document.getElementById('modelGroupModal');
+    const form = document.getElementById('modelGroupForm');
+    clearFormErrors(form);
     editingModelGroupId = group ? group.id : null;
     document.getElementById('modelGroupModalTitle').textContent = group ? I18n.t('modals.mgEdit') : I18n.t('modals.mgAdd');
     document.getElementById('modelGroupId').value = group ? group.id : '';
     document.getElementById('modelGroupName').value = group ? group.name : '';
     document.getElementById('modelGroupEnabled').checked = group ? group.enabled : true;
 
-    // 初始化模型输入
+    const nameInput = document.getElementById('modelGroupName');
+    nameInput.oninput = updateNameCollisionWarning;
+    updateNameCollisionWarning();
+
+    renderModelRows(group).then(() => updateNameCollisionWarning());
+
+    modal.classList.remove('hidden');
+    modal.classList.remove('closing');
+    modal._triggerElement = document.activeElement;
+    setupFocusTrap(modal);
+    setTimeout(() => document.getElementById('modelGroupName').focus(), 50);
+}
+
+async function renderModelRows(group) {
     const container = document.getElementById('modelGroupModelsContainer');
     container.innerHTML = '';
+    await loadAvailableModels();
     const models = group ? group.models : [''];
     models.forEach(m => {
         const schedules = group && group.model_schedules && group.model_schedules[m] ? group.model_schedules[m] : [];
         addModelInput(m, schedules);
     });
-
-    document.getElementById('modelGroupModal').classList.remove('hidden');
 }
 
 function closeModelGroupModal() {
-    document.getElementById('modelGroupModal').classList.add('hidden');
-    editingModelGroupId = null;
+    const modal = document.getElementById('modelGroupModal');
+    removeFocusTrap(modal);
+    modal.classList.add('closing');
+    if (modal._onEnd) modal.removeEventListener('animationend', modal._onEnd);
+    const onEnd = () => {
+        if (modal._onEndTimer) {
+            clearTimeout(modal._onEndTimer);
+            modal._onEndTimer = null;
+        }
+        modal.classList.add('hidden');
+        modal.classList.remove('closing');
+        modal.removeEventListener('animationend', onEnd);
+        modal._onEnd = null;
+        editingModelGroupId = null;
+        const nameInput = document.getElementById('modelGroupName');
+        if (nameInput) nameInput.oninput = null;
+        const warn = document.getElementById('modelGroupNameCollision');
+        if (warn) {
+            warn.textContent = '';
+            warn.classList.add('hidden');
+        }
+        if (modal._triggerElement) {
+            modal._triggerElement.focus();
+            delete modal._triggerElement;
+        }
+    };
+    modal._onEnd = onEnd;
+    modal.addEventListener('animationend', onEnd);
+    modal._onEndTimer = setTimeout(() => {
+        if (modal.classList.contains('closing')) {
+            onEnd();
+        }
+    }, 200);
+}
+
+const MODEL_INPUT_CLASS = 'model-input flex-1 text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white';
+
+// 构建模型下拉框：列出所有可用模型，并提供「自定义」入口兼容不在列表中的模型名
+function buildModelSelect(value) {
+    const opts = [`<option value="" ${value ? '' : 'selected'} disabled>${I18n.t('modelGroups.selectModelPh')}</option>`];
+    availableModels.forEach(m => {
+        opts.push(`<option value="${esc(m)}" ${m === value ? 'selected' : ''}>${esc(m)}</option>`);
+    });
+    opts.push(`<option value="__custom__">${I18n.t('modelGroups.customModel')}</option>`);
+    return `<select class="${MODEL_INPUT_CLASS}" onchange="onModelSelectChange(this)">${opts.join('')}</select>`;
+}
+
+// 选择「自定义」时切换回文本框
+function onModelSelectChange(select) {
+    if (select.value !== '__custom__') return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = MODEL_INPUT_CLASS;
+    input.placeholder = I18n.t('modelGroups.modelNamePh');
+    input.value = '';
+    select.replaceWith(input);
+    input.focus();
 }
 
 function addModelInput(value = '', schedules = []) {
@@ -81,10 +182,15 @@ function addModelInput(value = '', schedules = []) {
     const div = document.createElement('div');
     div.className = 'model-row';
     const hasSchedule = schedules.length > 0;
+    // 值不在可用列表（如自定义名或渠道已删除的模型）时保留文本框，避免丢失既有配置
+    const isCustom = value && !availableModels.includes(value);
+    const inputHtml = isCustom
+        ? `<input type="text" value="${esc(value)}" placeholder="${I18n.t('modelGroups.modelNamePh')}" class="${MODEL_INPUT_CLASS}">`
+        : buildModelSelect(value);
     div.innerHTML = `
         <div class="flex items-center gap-2">
             <span class="model-idx text-ink-400 text-sm w-6"></span>
-            <input type="text" value="${esc(value)}" placeholder="${I18n.t('modelGroups.modelNamePh')}" class="model-input flex-1 text-sm border border-surface-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 bg-white">
+            ${inputHtml}
             <button type="button" onclick="toggleModelSchedule(this)" title="${I18n.t('modelGroups.scheduleTitle')}" class="model-schedule-toggle hover:text-brand-600 text-sm w-5 ${hasSchedule ? 'text-brand-600' : 'text-ink-400'}">🕐</button>
             <button type="button" onclick="moveModelInput(this, -1)" title="${I18n.t('modelGroups.moveUp')}" class="model-up text-ink-400 hover:text-brand-600 text-sm w-5">↑</button>
             <button type="button" onclick="moveModelInput(this, 1)" title="${I18n.t('modelGroups.moveDown')}" class="model-down text-ink-400 hover:text-brand-600 text-sm w-5">↓</button>
@@ -180,13 +286,24 @@ function refreshModelInputs() {
 
 async function saveModelGroup(e) {
     e.preventDefault();
-
+    const form = e.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    
+    clearFormErrors(form);
     const name = document.getElementById('modelGroupName').value.trim();
     const enabled = document.getElementById('modelGroupEnabled').checked;
     const models = [];
     const model_schedules = {};
+    
+    let hasError = false;
+    if (!name) {
+        showFieldError(document.getElementById('modelGroupName'), I18n ? I18n.t('validation.required') : '此项为必填项');
+        hasError = true;
+    }
+    
     document.querySelectorAll('.model-row').forEach(row => {
-        const modelName = row.querySelector('.model-input').value.trim();
+        const modelNameInput = row.querySelector('.model-input');
+        const modelName = modelNameInput.value.trim();
         if (!modelName) return;
         models.push(modelName);
         const scheduleRows = row.querySelectorAll('.schedule-row');
@@ -203,18 +320,17 @@ async function saveModelGroup(e) {
             model_schedules[modelName] = schedules;
         }
     });
-
-    if (!name) {
-        showGlobalToast(I18n.t('modelGroups.nameRequired'), 'error');
-        return;
-    }
+    
     if (models.length === 0) {
         showGlobalToast(I18n.t('modelGroups.modelRequired'), 'error');
         return;
     }
 
+    if (hasError) return;
+
     const data = { name, models, model_schedules, enabled };
 
+    setButtonLoading(submitBtn, true, I18n.t('common.saving'));
     try {
         let resp;
         if (editingModelGroupId) {
@@ -232,13 +348,15 @@ async function saveModelGroup(e) {
         }
 
         if (resp.ok) {
+            setButtonLoading(submitBtn, false);
             closeModelGroupModal();
             loadModelGroups();
         } else {
             const err = await resp.json().catch(() => ({}));
-            showGlobalToast(I18n.t('modelGroups.saveFailed') + ': ' + (err.detail || 'HTTP ' + resp.status));
+            throw new Error(err.detail || 'HTTP ' + resp.status);
         }
     } catch (e) {
+        setButtonLoading(submitBtn, false);
         showGlobalToast(I18n.t('modelGroups.saveFailed') + ': ' + e.message);
     }
 }
@@ -282,15 +400,18 @@ async function deleteModelGroupConfirm(id) {
 
 Object.assign(window, {
     loadModelGroups,
+    loadAvailableModels,
     openModelGroupModal,
     closeModelGroupModal,
     addModelInput,
+    onModelSelectChange,
     addScheduleRow,
     removeScheduleRow,
     toggleModelSchedule,
     removeModelInput,
     moveModelInput,
     refreshModelInputs,
+    updateNameCollisionWarning,
     saveModelGroup,
     editModelGroup,
     toggleModelGroup,

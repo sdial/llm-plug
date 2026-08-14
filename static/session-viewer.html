@@ -559,7 +559,7 @@
 <body>
     <div class="container">
         <header>
-            <button class="lang-toggle" onclick="I18n.toggle()" data-i18n="common.langLabel">中/EN</button>
+            <button type="button" class="lang-toggle" onclick="I18n.toggle()" data-i18n="common.langLabel">中/EN</button>
             <h1 data-i18n="sessionViewer.title">LLM-API Agent 交互流程可视化</h1>
             <div style="margin: 15px 0;">
                 <select id="log-file" style="padding: 8px 15px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); min-width: 250px;">
@@ -600,7 +600,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span class="modal-title" id="modal-title" data-i18n="sessionViewer.detail">详情</span>
-                <button class="modal-close" onclick="closeModal()">×</button>
+                <button type="button" class="modal-close" onclick="closeModal()">×</button>
             </div>
             <div class="modal-body" id="modal-body">
             </div>
@@ -750,10 +750,10 @@
                 <div class="turn-node"></div>
                 <div class="turn-header">
                     <span class="turn-number">Turn ${index + 1}</span>
-                    <span class="turn-model">${req.model || 'unknown'}</span>
-                    <span class="turn-time">${timestamp}</span>
+                    <span class="turn-model">${escapeHtml(req.model || 'unknown')}</span>
+                    <span class="turn-time">${escapeHtml(timestamp)}</span>
                     <span class="turn-status ${resp.status_code === 200 ? 'success' : 'error'}">
-                        ${resp.status_code || 'N/A'}
+                        ${escapeHtml(resp.status_code || 'N/A')}
                     </span>
                 </div>
                 <div class="turn-content">
@@ -795,14 +795,14 @@
                     <div class="card-header">
                         <span class="card-title">
                             ${I18n.t('sessionViewer.requestInfo')}
-                            <span class="card-badge">${channel.api_type || 'API'}</span>
+                            <span class="card-badge">${escapeHtml(channel.api_type || 'API')}</span>
                         </span>
                         <span class="card-toggle">▼</span>
                     </div>
                     <div class="card-body">
-                        <p><strong>URL:</strong> ${requestInfo?.url || 'N/A'}</p>
-                        <p><strong>Model:</strong> ${req.model || 'N/A'}</p>
-                        <p><strong>Max Tokens:</strong> ${req.max_tokens || 'N/A'}</p>
+                        <p><strong>URL:</strong> ${escapeHtml(requestInfo?.url || 'N/A')}</p>
+                        <p><strong>Model:</strong> ${escapeHtml(req.model || 'N/A')}</p>
+                        <p><strong>Max Tokens:</strong> ${escapeHtml(req.max_tokens || 'N/A')}</p>
                         <p><strong>Stream:</strong> ${req.stream ? I18n.t('sessionViewer.yes') : I18n.t('sessionViewer.no')}</p>
                     </div>
                 </div>
@@ -831,8 +831,8 @@
                     <div class="card-body">
                         ${tools.map(tool => `
                             <div class="tool-item">
-                                <div class="tool-name">${tool.function?.name || 'unknown'}</div>
-                                <div class="tool-desc">${tool.function?.description || I18n.t('sessionViewer.noDescription')}</div>
+                                <div class="tool-name">${escapeHtml(tool.function?.name || 'unknown')}</div>
+                                <div class="tool-desc">${escapeHtml(tool.function?.description || I18n.t('sessionViewer.noDescription'))}</div>
                             </div>
                         `).join('')}
                     </div>
@@ -847,7 +847,7 @@
 
             return `
                 <div class="message ${role}">
-                    <div class="message-role">${role}</div>
+                    <div class="message-role">${escapeHtml(role)}</div>
                     <div class="message-content ${truncated ? '' : 'expanded'}">
                         ${escapeHtml(truncated ? content.substring(0, 500) + '...' : content)}
                     </div>
@@ -855,7 +855,7 @@
                     ${msg.tool_calls ? `
                         <div style="margin-top:10px;color:var(--warning);">
                             <strong>Tool Calls:</strong> ${msg.tool_calls.length} ${I18n.t('sessionViewer.toolCallsCount')}
-                            <button onclick="showToolCalls(${index})" style="margin-left:10px;background:var(--accent-secondary);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;">${I18n.t('sessionViewer.viewDetail')}</button>
+                            <button type="button" onclick="showToolCalls(${index})" style="margin-left:10px;background:var(--accent-secondary);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;">${I18n.t('sessionViewer.viewDetail')}</button>
                         </div>
                     ` : ''}
                 </div>
@@ -870,12 +870,12 @@
                     <div class="card-header">
                         <span class="card-title">
                             ${I18n.t('sessionViewer.responseInfo')}
-                            <span class="card-badge">${resp.status_code || 'N/A'}</span>
+                            <span class="card-badge">${escapeHtml(resp.status_code || 'N/A')}</span>
                         </span>
                         <span class="card-toggle">▼</span>
                     </div>
                     <div class="card-body">
-                        <p><strong>Status Code:</strong> ${resp.status_code || 'N/A'}</p>
+                        <p><strong>Status Code:</strong> ${escapeHtml(resp.status_code || 'N/A')}</p>
                         <p><strong>Stream:</strong> ${resp.is_stream ? I18n.t('sessionViewer.yes') : I18n.t('sessionViewer.no')}</p>
                         <p><strong>Chunks:</strong> ${chunks.length}</p>
                     </div>

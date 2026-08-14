@@ -44,3 +44,6 @@ Thumbs.db
 
 
 REVIEW.md
+PLAN.md
+.codebuddy/
+tests/

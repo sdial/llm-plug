@@ -99,7 +99,7 @@ class TestStatsWorkersShutdown:
         stats.start_stats_workers()
 
         # 写入一批记录
-        for i in range(50):
+        for _ in range(50):
             stats.record_request(
                 channel_id="ch_shutdown",
                 channel_name="ch_shutdown",
@@ -153,11 +153,12 @@ class TestRequestLogWorkersShutdown:
         request_logs._backend = None
         request_logs._backend_error = ""
 
-        await request_logs.init_backend()
+        # 显式指定 sqlite 路径，避免读取真实 data/settings.json 里的 request_log_sqlite_path
+        await request_logs.init_backend({"request_log_sqlite_path": str(tmp_path / "request_logs.db")})
         request_logs.start_request_log_workers()
 
         # 写入一批记录
-        for i in range(30):
+        for _ in range(30):
             request_logs.record_request(
                 channel_id="ch_rl",
                 channel_name="ch_rl",
@@ -306,7 +307,7 @@ class TestQueueOverflowDuringShutdown:
         # 不启动 workers，让队列堆积
 
         # 写入超过队列大小的记录
-        for i in range(20):
+        for _ in range(20):
             stats.record_request(
                 channel_id="ch_overflow",
                 channel_name="ch_overflow",
@@ -331,15 +332,11 @@ class TestQueueOverflowDuringShutdown:
         import sqlite3
 
         with sqlite3.connect(db_path) as conn:
-            db_count = conn.execute(
-                "SELECT COUNT(*) FROM request_stats_raw"
-            ).fetchone()[0]
+            db_count = conn.execute("SELECT COUNT(*) FROM request_stats_raw").fetchone()[0]
 
         overflow_count = 0
         if overflow_file.exists():
             overflow_count = len(overflow_file.read_text().strip().split("\n"))
 
         total = db_count + overflow_count
-        assert total == 20, (
-            f"Expected 20 total records (db={db_count}, overflow={overflow_count})"
-        )
+        assert total == 20, f"Expected 20 total records (db={db_count}, overflow={overflow_count})"

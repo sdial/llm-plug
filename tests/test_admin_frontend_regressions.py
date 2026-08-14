@@ -62,7 +62,7 @@ def test_requests_tab_has_api_key_name_column_and_filter():
 
     assert 'id="reqFilterApiKeyId"' in requests_html
     assert ">API Key<" in requests_html
-    assert 'data-label="API Key"' in requests_js
+    assert "data-label=\"${I18n.t('requests.colApiKey')}\"" in requests_js
     assert "req.api_key_name || req.api_key_id || '-'" in requests_js
     assert "loadRequestApiKeys" in requests_js
 
@@ -92,7 +92,8 @@ def test_requests_table_shows_zero_cache_read_tokens_when_field_exists():
     )
     assert "renderTokenUsage(inputTokens, req.cache_read_input_tokens)" in requests_js
     assert "request-cache-missing" in admin_css
-    assert 'content: "cache";' in admin_css
+    assert ".request-cache-tag" in admin_css
+    assert ".request-cache-tag-label" in admin_css
 
 
 def test_request_analyzer_link_passes_api_type_from_channel_metadata():

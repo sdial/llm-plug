@@ -185,7 +185,7 @@ class TestCreateStreamClient:
     def test_sets_read_timeout(self, sample_channel):
         c = client.create_stream_client(sample_channel)
         # 流式客户端的 read 超时使用 REQUEST_TIMEOUT
-        assert c.timeout.read == 300.0
+        assert c.timeout.read == float(client.config.REQUEST_TIMEOUT)
 
     def test_uses_proxy_when_configured(self, proxy_channel):
         c = client.create_stream_client(proxy_channel)

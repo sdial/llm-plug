@@ -1884,6 +1884,90 @@ class TestAnthropicToResponseStreamIndexes:
         assert "response.reasoning_summary_text.delta" not in event_types
 
 
+class TestAnthropicToResponseAddedEvents:
+    """Anthropic→Response 流式必须按 OpenAI Responses 协议先发 added 事件
+    （output_item.added / content_part.added），再发对应 delta。"""
+
+    @staticmethod
+    def _feed(events):
+        converter = ToResponseConverter()
+        outputs = []
+        for event in events:
+            out = converter.convert_stream_chunk(event, "anthropic")
+            if out is not None:
+                outputs.append(out)
+                outputs.extend(converter.get_extra_events(out))
+        return outputs
+
+    def test_text_block_emits_output_item_added_before_text_delta(self):
+        """文本 content_block_start 必须先发 output_item.added + content_part.added，
+        再发 output_text.delta。"""
+        outputs = self._feed(
+            [
+                {
+                    "type": "message_start",
+                    "message": {"id": "msg_txt", "model": "claude-opus-4-7"},
+                },
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "text", "text": ""},
+                },
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "hello"},
+                },
+            ]
+        )
+        event_types = [o.get("type") for o in outputs]
+        assert "response.output_item.added" in event_types
+        assert "response.content_part.added" in event_types
+        delta_idx = event_types.index("response.output_text.delta")
+        item_added_idx = event_types.index("response.output_item.added")
+        part_added_idx = event_types.index("response.content_part.added")
+        assert item_added_idx < part_added_idx < delta_idx
+
+        added = next(
+            o for o in outputs if o.get("type") == "response.output_item.added"
+        )
+        assert added["item"]["type"] == "message"
+        assert added["item"]["id"] == "msg_txt"
+
+    def test_thinking_block_emits_content_part_added_before_reasoning_delta(self):
+        """thinking content_block_start 必须发 content_part.added 再发 reasoning_text.delta。"""
+        outputs = self._feed(
+            [
+                {
+                    "type": "message_start",
+                    "message": {"id": "msg_thk", "model": "claude-opus-4-7"},
+                },
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "thinking", "thinking": ""},
+                },
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "thinking_delta", "thinking": "plan"},
+                },
+            ]
+        )
+        event_types = [o.get("type") for o in outputs]
+        assert "response.output_item.added" in event_types
+        assert "response.content_part.added" in event_types
+        delta_idx = event_types.index("response.reasoning_text.delta")
+        part_added_idx = event_types.index("response.content_part.added")
+        assert part_added_idx < delta_idx
+
+        added = next(
+            o for o in outputs if o.get("type") == "response.output_item.added"
+        )
+        assert added["item"]["type"] == "reasoning"
+        assert added["item"]["id"] == "rs_msg_thk"
+
+
 class TestReviewBugFixes:
     """REVIEW1.md C12-C16 五个流式转换 bug 的回归测试。"""
 

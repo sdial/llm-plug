@@ -10,6 +10,8 @@ let pendingChannelRestore = '';
 let requestApiKeys = [];
 let requestApiKeysLoaded = false;
 let pendingApiKeyRestore = '';
+let _requestsAutoTimer = null;
+const _REQUESTS_AUTO_REFRESH_MS = 5000;
 
 function asInt(value) {
     const n = Number(value || 0);
@@ -25,7 +27,8 @@ function renderTokenUsage(tokens, cachedTokens = null) {
     if (cachedTokens === null) return renderMissingCacheReadToken('null');
     if (cachedTokens === undefined) return renderMissingCacheReadToken('undefined');
     const cached = asInt(cachedTokens);
-    const cachedTag = `<span class="request-cache-tag" title="${I18n.t('requests.cacheTokenTitle')}">${cached}</span>`;
+    const cacheLabel = I18n ? I18n.t('requests.cacheLabel') : 'cache';
+    const cachedTag = `<span class="request-cache-tag" title="${I18n.t('requests.cacheTokenTitle')}"><span class="request-cache-tag-label">${esc(cacheLabel)}</span>${cached}</span>`;
     return `<span class="request-token-cell"><span class="request-token-main">${total}</span>${cachedTag}</span>`;
 }
 
@@ -54,9 +57,73 @@ function renderDetailMetric(label, value, extraClass = '') {
 }
 
 
+// 把 Date 格式化为 datetime-local 控件值（不含秒）。日/时分跟随配置时区，未配置则用浏览器本地。
+function formatLocalDateTime(d) {
+    return TZ.formatLocalDateTime(d, TZ.get());
+}
+
+function _updateAutoRefreshUI(active) {
+    const btn = document.getElementById('reqAutoRefreshBtn');
+    const label = document.getElementById('reqAutoRefreshLabel');
+    if (!btn || !label) return;
+    if (active) {
+        label.textContent = I18n ? I18n.t('requests.autoRefreshActive') : '实时刷新中';
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-primary', 'req-refresh-active');
+    } else {
+        label.textContent = I18n ? I18n.t('requests.autoRefresh') : '实时刷新';
+        btn.classList.remove('btn-primary', 'req-refresh-active');
+        btn.classList.add('btn-secondary');
+    }
+}
+
+function toggleRequestsAutoRefresh() {
+    if (_requestsAutoTimer) {
+        _stopRequestsAutoRefresh();
+        // 关闭实时刷新 = 冻结为固定区间快照，把当前时间范围写入 URL（带时间参数），
+        // 与快照语义一致：刷新后保持快照、不会重新进入实时模式。
+        syncRequestHash();
+    } else {
+        // 启用实时刷新时回到实时模式（结束时间滚到当前），并立即拉一次
+        setDefaultRequestTimeRange();
+        _startRequestsAutoRefresh();
+        loadRequests();
+        syncRequestHash();
+    }
+}
+
+function _startRequestsAutoRefresh() {
+    _stopRequestsAutoRefresh();
+    _requestsAutoTimer = setInterval(_autoRefreshTick, _REQUESTS_AUTO_REFRESH_MS);
+    _updateAutoRefreshUI(true);
+}
+
+function _stopRequestsAutoRefresh() {
+    if (_requestsAutoTimer) {
+        clearInterval(_requestsAutoTimer);
+        _requestsAutoTimer = null;
+    }
+    _updateAutoRefreshUI(false);
+}
+
+// 自动刷新的一次 tick：先把结束时间滚动到当前时刻，再拉取最新请求，并同步 URL 哈希。
+// 否则 end 固定在过去的时刻，新产生的请求会被过滤掉，永远看不到最新记录。
+function _autoRefreshTick() {
+    const endEl = document.getElementById('reqFilterEnd');
+    if (endEl && endEl.value) {
+        endEl.value = formatLocalDateTime(new Date());
+    }
+    loadRequests();
+    syncRequestHash();
+}
+
 async function loadRequests() {
     try {
-        if (!document.getElementById('requestsTbody')) return;
+        updateRequestTzHint();
+        if (!document.getElementById('requestsTbody')) {
+            // 临时缺少表体（如切换 Tab / 重渲染）：跳过本轮，让定时器继续运行，下轮重试
+            return;
+        }
         if (window.adminChannels.getChannels().length === 0) {
             await window.adminChannels.loadChannels();
         }
@@ -81,7 +148,7 @@ async function loadRequests() {
                 requestsData = [];
                 requestTotal = 0;
                 renderRequestPagination();
-                document.getElementById('requestsTbody').innerHTML = `<tr><td colspan="12" class="py-6 text-center text-sm text-ink-600">${I18n.t('requests.dbUnavailable', { detail: esc(err.detail || '') })} <button onclick="loadStatsRequestLogs()" class="pill pill-brand ml-2 cursor-pointer">${I18n.t('requests.viewLightLogs')}</button></td></tr>`;
+                document.getElementById('requestsTbody').innerHTML = `<tr><td colspan="12" class="py-6 text-center text-sm text-ink-600">${I18n.t('requests.dbUnavailable', { detail: esc(err.detail || '') })} <button type="button" onclick="loadStatsRequestLogs()" class="pill pill-brand ml-2 cursor-pointer">${I18n.t('requests.viewLightLogs')}</button></td></tr>`;
                 return;
             }
             throw new Error('HTTP ' + resp.status);
@@ -189,12 +256,12 @@ function renderRequests() {
             speed = elapsed > 0 ? (outTokens / elapsed).toFixed(1) : '-';
         }
         return `
-        <tr class="transition-colors duration-150 cursor-pointer" onclick="openRequestDetail('${req.id}')">
+        <tr class="transition-colors duration-150 cursor-pointer" onclick="openRequestDetail('${esc(req.id)}')">
             <td data-label="${I18n.t('requests.colTime')}" class="py-3 px-3 text-sm text-ink-900 whitespace-nowrap">${formatTimestamp(req.timestamp)}</td>
             <td data-label="${I18n.t('requests.colChannel')}" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.channel_name)}"><span class="pill pill-muted">${esc(req.channel_name)}</span></td>
             <td data-label="${I18n.t('requests.colClientIp')}" class="py-3 px-2 text-sm text-ink-500 truncate font-mono" title="${esc(req.client_ip || '-')}">${esc(req.client_ip || '-')}</td>
             <td data-label="${I18n.t('requests.colApiKey')}" class="py-3 px-2 text-sm text-ink-600 truncate" title="${esc(req.api_key_name || req.api_key_id || '-')}">${esc(req.api_key_name || req.api_key_id || '-')}</td>
-            <td data-label="${I18n.t('requests.colModel')}" class="py-3 px-2 text-sm text-ink-900 truncate" title="${esc(req.model)}">${esc(req.model)}</td>
+            <td data-label="${I18n.t('requests.colModel')}" class="py-3 px-2 text-sm text-ink-900 truncate" title="${req.requested_model ? esc(req.requested_model + ' → ' + req.model) : esc(req.model)}">${req.requested_model ? esc(req.requested_model) : esc(req.model)}</td>
             <td data-label="${I18n.t('requests.colInputTok')}" class="py-3 px-2 text-right text-sm">${renderTokenUsage(inputTokens, req.cache_read_input_tokens)}</td>
             <td data-label="${I18n.t('requests.colOutputTok')}" class="py-3 px-2 text-right text-sm"><span class="request-token-cell"><span class="request-token-main">${outTokens}</span></span></td>
             <td data-label="${I18n.t('requests.colLatency')}" class="py-3 px-2 text-right text-sm">${renderMetric(latency)}</td>
@@ -209,8 +276,22 @@ function renderRequests() {
 }
 
 function formatTimestamp(ts) {
-    const d = new Date(ts);
-    return d.toLocaleString(I18n.getLocale(), { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\//g, '-');
+    return TZ.formatTimestamp(ts, TZ.get());
+}
+
+// 在时间范围过滤标签旁提示当前生效时区，让一致性可见。
+// 配置了 aggregation_timezone 时显示时区名，否则显示"本地时区"。
+function updateRequestTzHint() {
+    const el = document.getElementById('reqFilterTzHint');
+    if (!el) return;
+    const tz = TZ.get();
+    if (tz) {
+        el.textContent = tz;
+        el.title = I18n.t('requests.filterTzConfigured', { tz });
+    } else {
+        el.textContent = I18n.t('stats.localTimezone');
+        el.title = I18n.t('requests.filterTzBrowser');
+    }
 }
 
 function renderRequestPagination() {
@@ -252,36 +333,28 @@ function setDefaultRequestTimeRange() {
  const startEl = document.getElementById('reqFilterStart');
  const endEl = document.getElementById('reqFilterEnd');
  if (!startEl || !endEl) return;
- const fmt = d => {
- const pad = n => String(n).padStart(2, '0');
- return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
- };
  const now = new Date();
  const ago = new Date(now.getTime() - 12 * 3600 * 1000);
- startEl.value = fmt(ago);
- endEl.value = fmt(now);
+ startEl.value = formatLocalDateTime(ago);
+ endEl.value = formatLocalDateTime(now);
 }
 
-// 把 datetime-local 控件值（浏览器本地时间）转成 UTC ISO 字符串，用于 URL 参数和后端查询。
+// 把 datetime-local 控件值（按配置时区墙体时间解释）转成 UTC ISO 字符串，用于 URL 参数和后端查询。
+// 未配置时区时按浏览器本地解释，保持既有行为。
 function localInputToUtcIso(v) {
- if (!v) return '';
- const d = new Date(v);
- if (isNaN(d.getTime())) return '';
- return d.toISOString();
+ return TZ.localInputToUtcIso(v, TZ.get());
 }
 
-// 把 URL 中的 UTC ISO 字符串还原成 datetime-local 控件需要的浏览器本地格式。
+// 把 URL 中的 UTC ISO 字符串还原成 datetime-local 控件值（按配置时区墙体时间）。
 function utcIsoToLocalInput(v) {
- if (!v) return '';
- const d = new Date(v);
- if (isNaN(d.getTime())) return '';
- const pad = n => String(n).padStart(2, '0');
- return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+ return TZ.utcIsoToLocalInput(v, TZ.get());
 }
 
 function searchRequests() {
     requestPage = 1;
     requestLogSource = 'request_logs';
+    // 搜索 = 固定区间快照，与实时刷新互斥，搜索时停掉自动刷新
+    _stopRequestsAutoRefresh();
     loadRequests();
     syncRequestHash();
 }
@@ -294,6 +367,8 @@ function resetRequestFilters() {
  document.getElementById('reqFilterApiKeyId').value = '';
  requestPage = 1;
  requestLogSource = 'request_logs';
+ // 重置 = 回到实时尾巴，开启实时刷新；先启动再同步 URL，实时模式 URL 不带时间参数
+ _startRequestsAutoRefresh();
  loadRequests();
  syncRequestHash();
 }
@@ -312,10 +387,14 @@ function syncRequestHash() {
     if (model) params.set('model', model);
     const channel = channelEl.value;
     if (channel) params.set('channel', channel);
-    const start = localInputToUtcIso(startEl.value);
-    if (start) params.set('start', start);
-    const end = localInputToUtcIso(endEl.value);
-    if (end) params.set('end', end);
+    // 实时模式下 URL 不携带 start/end：URL 带时间参数会被当作固定区间快照深链，
+    // 刷新后不再自动进入实时模式。实时模式以“无时间参数”表示，与快照语义一致。
+    if (!_requestsAutoTimer) {
+        const start = localInputToUtcIso(startEl.value);
+        if (start) params.set('start', start);
+        const end = localInputToUtcIso(endEl.value);
+        if (end) params.set('end', end);
+    }
     const success = successEl.value;
     if (success) params.set('success', success);
     const apiKeyId = apiKeyEl.value.trim();
@@ -360,7 +439,9 @@ function openRequestDetail(id) {
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div><span class="text-ink-400">${I18n.t('requests.detailId')}:</span> <span class="text-ink-900 font-mono">${req.id}</span></div>
             <div><span class="text-ink-400">${I18n.t('requests.detailTime')}:</span> <span class="text-ink-900">${formatTimestamp(req.timestamp)}</span></div>
-            <div><span class="text-ink-400">${I18n.t('requests.detailModel')}:</span> <span class="text-ink-900">${esc(req.model)}</span></div>
+            <div><span class="text-ink-400">${I18n.t('requests.detailModel')}:</span> <span class="text-ink-900">${esc(req.requested_model || req.model)}</span></div>
+            ${req.requested_model ? `<div><span class="text-ink-400">${I18n.t('requests.detailRequestedModel')}:</span> <span class="text-ink-900">${esc(req.requested_model)}</span></div>` : ''}
+            ${req.requested_model ? `<div><span class="text-ink-400">${I18n.t('requests.detailActualModel')}:</span> <span class="text-ink-900">${esc(req.model)}</span></div>` : ''}
             <div><span class="text-ink-400">${I18n.t('requests.detailChannel')}:</span> <span class="text-ink-900">${esc(req.channel_name)}</span></div>
             <div><span class="text-ink-400">${I18n.t('requests.detailChannelId')}:</span> <span class="text-ink-900 font-mono">${esc(req.channel_id)}</span></div>
             <div><span class="text-ink-400">${I18n.t('requests.detailApiKey')}:</span> <span class="text-ink-900">${esc(req.api_key_name || req.api_key_id || '-')}</span></div>
@@ -435,6 +516,7 @@ Object.assign(window, {
     setDefaultRequestTimeRange,
     localInputToUtcIso,
     utcIsoToLocalInput,
+    updateRequestTzHint,
     searchRequests,
     resetRequestFilters,
     syncRequestHash,
@@ -442,6 +524,16 @@ Object.assign(window, {
     openRequestDetail,
     closeRequestDetailModal,
     invalidateRequestApiKeys,
+    toggleRequestsAutoRefresh,
+    _startRequestsAutoRefresh,
+    _stopRequestsAutoRefresh,
 });
-window.adminRequests = { setPendingChannelRestore, setPendingApiKeyRestore, setPageSize, setPage };
+window.adminRequests = {
+    setPendingChannelRestore,
+    setPendingApiKeyRestore,
+    setPageSize,
+    setPage,
+    startAutoRefresh: _startRequestsAutoRefresh,
+    stopAutoRefresh: _stopRequestsAutoRefresh,
+};
 })();

@@ -117,6 +117,18 @@ async def test_update_channel_accepts_anthropic_header_policy_fields(channels_fi
 
 
 @pytest.mark.anyio
+async def test_list_available_models_aggregates_channels(channels_file):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await login_admin(client)
+        response = await client.get("/admin/models")
+
+    assert response.status_code == 200
+    assert response.json() == {"models": ["gpt-4o"]}
+
+
+@pytest.mark.anyio
 async def test_create_model_group_uses_storage_helper(channels_file, monkeypatch):
     import routers.admin
 

@@ -1094,7 +1094,8 @@ class TestResponseStreamToChat:
         assert result["choices"][0]["finish_reason"] == "length"
 
     def test_response_completed_emits_usage_chunk_when_include_usage(self):
-        """include_usage=True 时 response.completed 应额外发 Chat usage chunk。"""
+        """include_usage=True 时 response.completed 应先发 finish_reason chunk，再通过
+        get_extra_events 发出 usage chunk（与 OpenAI 官方流式结尾一致）。"""
         self.converter.set_stream_include_usage(True)
         self.converter.convert_stream_chunk(
             {
@@ -1121,10 +1122,104 @@ class TestResponseStreamToChat:
             APIType.OPENAI_RESPONSE,
         )
 
-        assert result["choices"] == []
-        assert result["usage"]["prompt_tokens"] == 11
-        assert result["usage"]["completion_tokens"] == 7
-        assert result["usage"]["total_tokens"] == 18
+        # 主事件仍是 finish_reason chunk，不能丢失
+        assert result["choices"] == [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+        assert "usage" not in result
+
+        # usage chunk 作为额外事件发出
+        extra = self.converter.get_extra_events(result)
+        assert len(extra) == 1
+        assert extra[0]["choices"] == []
+        assert extra[0]["usage"]["prompt_tokens"] == 11
+        assert extra[0]["usage"]["completion_tokens"] == 7
+        assert extra[0]["usage"]["total_tokens"] == 18
+
+    def test_response_completed_include_usage_keeps_tool_calls_finish_reason(self):
+        """include_usage=True 时 finish_reason=tool_calls 仍应保留在首个 chunk。"""
+        self.converter.set_stream_include_usage(True)
+        self.converter._reset_stream_state()
+        self.converter._stream_state["msg_id"] = "chatcmpl-test"
+        self.converter._stream_state["model"] = "gpt-4o"
+
+        result = self.converter.convert_stream_chunk(
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_abc123",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "call_id": "call_xyz",
+                            "name": "search",
+                            "arguments": "{}",
+                        },
+                    ],
+                    "usage": {
+                        "input_tokens": 11,
+                        "output_tokens": 7,
+                        "total_tokens": 18,
+                    },
+                },
+            },
+            APIType.OPENAI_RESPONSE,
+        )
+
+        assert result["choices"][0]["finish_reason"] == "tool_calls"
+        extra = self.converter.get_extra_events(result)
+        assert len(extra) == 1
+        assert extra[0]["choices"] == []
+
+    def test_response_completed_include_usage_keeps_length_finish_reason(self):
+        """include_usage=True 时 finish_reason=length 仍应保留在首个 chunk。"""
+        self.converter.set_stream_include_usage(True)
+        self.converter._reset_stream_state()
+        self.converter._stream_state["msg_id"] = "chatcmpl-test"
+        self.converter._stream_state["model"] = "gpt-4o"
+
+        result = self.converter.convert_stream_chunk(
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_abc123",
+                    "status": "incomplete",
+                    "usage": {
+                        "input_tokens": 11,
+                        "output_tokens": 7,
+                        "total_tokens": 18,
+                    },
+                },
+            },
+            APIType.OPENAI_RESPONSE,
+        )
+
+        assert result["choices"][0]["finish_reason"] == "length"
+        extra = self.converter.get_extra_events(result)
+        assert len(extra) == 1
+        assert extra[0]["choices"] == []
+
+    def test_response_completed_without_include_usage_no_extra_events(self):
+        """include_usage=False（默认）时 response.completed 不产生额外 usage chunk。"""
+        self.converter._reset_stream_state()
+        self.converter._stream_state["msg_id"] = "chatcmpl-test"
+        self.converter._stream_state["model"] = "gpt-4o"
+
+        result = self.converter.convert_stream_chunk(
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_abc123",
+                    "status": "completed",
+                    "output": [],
+                    "usage": {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+                },
+            },
+            APIType.OPENAI_RESPONSE,
+        )
+
+        assert result["choices"][0]["finish_reason"] == "stop"
+        assert "usage" not in result
+        assert self.converter.get_extra_events(result) == []
 
     def test_unknown_content_type_gracefully_degrades(self):
         """未知 Responses content 类型应降级为文本，而非抛异常。"""
@@ -1176,3 +1271,57 @@ class TestResponseStreamToChat:
         }
         result3 = self.converter.convert_stream_chunk(chunk3, APIType.OPENAI_RESPONSE)
         assert result3["choices"][0]["delta"]["tool_calls"][0]["index"] == 1
+
+    def test_arguments_delta_without_output_item_added_falls_back_to_last_tc(self):
+        """缺少前置 output_item.added 时，参数 delta 不应静默串到 index 0"""
+        self.converter._reset_stream_state()
+        self.converter._stream_state["msg_id"] = "chatcmpl-test"
+        self.converter._stream_state["model"] = "gpt-4o"
+        self.converter._stream_state["tool_call_index"] = 2  # 已分配 2 个 tool_call
+
+        chunk = {
+            "type": "response.function_call_arguments.delta",
+            "output_index": 5,
+            "delta": '{"query"',
+        }
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)
+
+        tc = result["choices"][0]["delta"]["tool_calls"][0]
+        assert tc["index"] == 1  # 回退到最近分配的 tc_idx，而非 0
+        assert tc["function"]["arguments"] == '{"query"'
+
+    def test_arguments_delta_uses_item_id_when_output_index_drifts(self):
+        """output_index 漂移时，item_id 应精确回退到对应 tool_call"""
+        self.converter._reset_stream_state()
+        self.converter._stream_state["msg_id"] = "chatcmpl-test"
+        self.converter._stream_state["model"] = "gpt-4o"
+
+        for item_id, call_id, name, output_index in [
+            ("fc_alpha", "call_alpha", "func_a", 0),
+            ("fc_beta", "call_beta", "func_b", 1),
+        ]:
+            self.converter.convert_stream_chunk(
+                {
+                    "type": "response.output_item.added",
+                    "output_index": output_index,
+                    "item_id": item_id,
+                    "item": {
+                        "type": "function_call",
+                        "call_id": call_id,
+                        "name": name,
+                        "arguments": "",
+                    },
+                },
+                APIType.OPENAI_RESPONSE,
+            )
+
+        chunk = {
+            "type": "response.function_call_arguments.delta",
+            "output_index": 9,  # 漂移的 output_index
+            "item_id": "fc_alpha",
+            "delta": '{"x": 1',
+        }
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)
+
+        tc = result["choices"][0]["delta"]["tool_calls"][0]
+        assert tc["index"] == 0

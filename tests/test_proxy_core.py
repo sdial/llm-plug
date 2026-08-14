@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+import config
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
@@ -762,7 +763,7 @@ class TestBuildAnthropicStreamResponse:
 
 class TestConverterMap:
     def test_all_entries_are_valid(self):
-        for (source, target), (req_cls, resp_cls) in CONVERTER_MAP.items():
+        for (_, _), (req_cls, resp_cls) in CONVERTER_MAP.items():
             assert issubclass(req_cls, object)
             assert issubclass(resp_cls, object)
             # 验证可以实例化
@@ -849,9 +850,15 @@ class TestDoRequest:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"💭hidden💭 "}}]}'
+                yield (
+                    'data: {"id":"c","object":"chat.completion.chunk",'
+                    '"choices":[{"index":0,"delta":{"content":"💭hidden💭 "}}]}'
+                )
                 yield ""
-                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"visible"}}]}'
+                yield (
+                    'data: {"id":"c","object":"chat.completion.chunk",'
+                    '"choices":[{"index":0,"delta":{"content":"visible"}}]}'
+                )
                 yield ""
                 yield "data: [DONE]"
 
@@ -1129,6 +1136,7 @@ class TestDoRequest:
                     "Connection": "keep-alive",
                     "Keep-Alive": "timeout=5",
                     "Transfer-Encoding": "chunked",
+                    "Accept-Encoding": "gzip, br, zstd",
                     "X-Request-Id": "req_123",
                 },
             )
@@ -1137,6 +1145,8 @@ class TestDoRequest:
         assert "connection" not in lowered
         assert "keep-alive" not in lowered
         assert "transfer-encoding" not in lowered
+        # accept-encoding 被跳过，由 httpx 自动管理压缩
+        assert "accept-encoding" not in lowered
         assert lowered["x-request-id"] == "req_123"
         assert lowered["authorization"] == "Bearer sk-test"
 
@@ -1197,10 +1207,17 @@ class TestDoRequest:
 
         stats_record.assert_called_once()
         request_log_record.assert_called_once()
-        assert request_log_record.call_args.kwargs == stats_record.call_args.kwargs
+        # requested_model 仅写请求日志（记录客户端请求的模型），stats 不关心
+        assert request_log_record.call_args.kwargs["requested_model"] is None
         assert request_log_record.call_args.kwargs["response_body"] == upstream_response
         assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 1
         assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 0
+        # 除 requested_model 外，request_log 与 stats 收到的其余参数一致
+        stats_kwargs = dict(stats_record.call_args.kwargs)
+        assert stats_kwargs == {
+            k: v for k, v in request_log_record.call_args.kwargs.items()
+            if k != "requested_model"
+        }
 
     @pytest.mark.anyio
     async def test_non_stream_response_usage_records_cache_token_details(self):
@@ -1263,7 +1280,10 @@ class TestDoRequest:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}'
+                yield (
+                    'data: {"id":"c","object":"chat.completion.chunk",'
+                    '"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}'
+                )
                 yield ""
                 yield (
                     'data: {"id":"c","object":"chat.completion.chunk",'
@@ -1335,7 +1355,11 @@ class TestDoRequest:
 
             async def aiter_lines(self):
                 yield "event: message_start"
-                yield 'data: {"type":"message_start","message":{"id":"msg_001","type":"message","role":"assistant","usage":{"input_tokens":0,"cache_read_input_tokens":500,"cache_creation_input_tokens":0,"output_tokens":0}}}'
+                yield (
+                    'data: {"type":"message_start","message":{"id":"msg_001","type":"message",'
+                    '"role":"assistant","usage":{"input_tokens":0,"cache_read_input_tokens":500,'
+                    '"cache_creation_input_tokens":0,"output_tokens":0}}}'
+                )
                 yield ""
                 yield "event: content_block_start"
                 yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
@@ -1347,7 +1371,10 @@ class TestDoRequest:
                 yield 'data: {"type":"content_block_stop","index":0}'
                 yield ""
                 yield "event: message_delta"
-                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":154,"input_tokens":2095}}'
+                yield (
+                    'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},'
+                    '"usage":{"output_tokens":154,"input_tokens":2095}}'
+                )
                 yield ""
                 yield "event: message_stop"
                 yield 'data: {"type":"message_stop"}'
@@ -1411,7 +1438,10 @@ class TestDoRequest:
 
             async def aiter_lines(self):
                 yield "event: message_start"
-                yield 'data: {"type":"message_start","message":{"id":"msg_002","type":"message","role":"assistant","usage":{"prompt_tokens":3000,"output_tokens":0}}}'
+                yield (
+                    'data: {"type":"message_start","message":{"id":"msg_002","type":"message",'
+                    '"role":"assistant","usage":{"prompt_tokens":3000,"output_tokens":0}}}'
+                )
                 yield ""
                 yield "event: content_block_start"
                 yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
@@ -1486,7 +1516,11 @@ class TestDoRequest:
 
             async def aiter_lines(self):
                 yield "event: message_start"
-                yield 'data: {"type":"message_start","message":{"id":"msg_cache","type":"message","role":"assistant","usage":{"input_tokens":50,"cache_creation_input_tokens":300,"cache_read_input_tokens":8000,"output_tokens":0}}}'
+                yield (
+                    'data: {"type":"message_start","message":{"id":"msg_cache","type":"message","role":"assistant",'
+                    '"usage":{"input_tokens":50,"cache_creation_input_tokens":300,'
+                    '"cache_read_input_tokens":8000,"output_tokens":0}}}'
+                )
                 yield ""
                 yield "event: content_block_start"
                 yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
@@ -1547,6 +1581,89 @@ class TestDoRequest:
         assert request_log_record.call_args.kwargs["output_tokens"] == 42
         assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 8000
         assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 300
+
+    @pytest.mark.anyio
+    async def test_anthropic_stream_full_cache_hit_input_tokens_from_cache(
+        self,
+    ):
+        """Anthropic 全缓存命中：message_start 的 input_tokens=0 且仅含 cache_read，
+        message_delta 也没有 input_tokens 时，input_tokens 应为缓存 token 之和
+        （与非流式路径语义一致，避免记录 0 造成计费统计失真）。"""
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield "event: message_start"
+                yield (
+                    'data: {"type":"message_start","message":{"id":"msg_cache_hit","type":"message",'
+                    '"role":"assistant","usage":{"input_tokens":0,"cache_read_input_tokens":100,'
+                    '"cache_creation_input_tokens":0,"output_tokens":0}}}'
+                )
+                yield ""
+                yield "event: content_block_start"
+                yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
+                yield ""
+                yield "event: content_block_delta"
+                yield 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}'
+                yield ""
+                yield "event: content_block_stop"
+                yield 'data: {"type":"content_block_stop","index":0}'
+                yield ""
+                yield "event: message_delta"
+                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}'
+                yield ""
+                yield "event: message_stop"
+                yield 'data: {"type":"message_stop"}'
+                yield ""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_anth_cache_hit",
+            name="AnthropicCacheHit",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3-5-sonnet-20241022"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.request_logs.record_request") as request_log_record,
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "claude-3-5-sonnet-20241022", "stream": True},
+                response_converter=None,
+                source_type="anthropic",
+                target_api_type=APIType.ANTHROPIC,
+            )
+            _ = [chunk async for chunk in stream]
+
+        assert request_log_record.call_args.kwargs["input_tokens"] == 100
+        assert request_log_record.call_args.kwargs["output_tokens"] == 5
+        assert request_log_record.call_args.kwargs["cache_read_input_tokens"] == 100
+        assert request_log_record.call_args.kwargs["cache_creation_input_tokens"] == 0
 
     @pytest.mark.anyio
     async def test_client_disconnect_before_first_chunk_records_clear_stream_error(
@@ -1628,7 +1745,10 @@ class TestDoRequest:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}'
+                yield (
+                    'data: {"id":"c","object":"chat.completion.chunk",'
+                    '"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}'
+                )
                 yield ""
                 first_chunk_sent.set()
                 await asyncio.sleep(3600)
@@ -1868,19 +1988,18 @@ class TestDoRequest:
                 new_callable=AsyncMock,
                 return_value=BadRequestClient(),
             ),
-            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.stats.record_request"),pytest.raises(httpx.HTTPStatusError) as exc_info
         ):
-            with pytest.raises(httpx.HTTPStatusError) as exc_info:
-                await _proxy_single_model_request(
-                    model="gpt-4o",
-                    request_data={"model": "gpt-4o", "messages": []},
-                    target_api_type=APIType.OPENAI_CHAT,
-                    is_stream=False,
-                    query_string=None,
-                    client_headers=None,
-                    api_key_id=None,
-                    client_ip=None,
-                )
+            await _proxy_single_model_request(
+                model="gpt-4o",
+                request_data={"model": "gpt-4o", "messages": []},
+                target_api_type=APIType.OPENAI_CHAT,
+                is_stream=False,
+                query_string=None,
+                client_headers=None,
+                api_key_id=None,
+                client_ip=None,
+            )
 
         assert exc_info.value.response.status_code == 400
         assert calls == ["https://primary.example/v1/chat/completions"]
@@ -2068,9 +2187,15 @@ class TestDoStreamRequest:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"}}],"usage":null}'
+                yield (
+                    'data: {"id":"c","object":"chat.completion.chunk",'
+                    '"choices":[{"index":0,"delta":{"content":"Hello"}}],"usage":null}'
+                )
                 yield ""
-                yield 'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}'
+                yield (
+                    'data: {"id":"c","object":"chat.completion.chunk",'
+                    '"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}'
+                )
                 yield ""
                 yield "data: [DONE]"
 
@@ -2251,7 +2376,10 @@ class TestDoStreamRequest:
 
             async def aiter_lines(self):
                 yield "event: message_start"
-                yield 'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-3","usage":{"input_tokens":1,"output_tokens":0}}}'
+                yield (
+                    'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant",'
+                    '"content":[],"model":"claude-3","usage":{"input_tokens":1,"output_tokens":0}}}'
+                )
                 yield ""
                 yield "event: content_block_start"
                 yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
@@ -2306,6 +2434,98 @@ class TestDoStreamRequest:
         assert "event: message_stop" in joined
 
     @pytest.mark.anyio
+    async def test_stream_error_after_done_does_not_record_success(self):
+        """[DONE] 之后 finalize_stream 抛异常时，record_failure 不应被
+        finally 中的 record_success 抵消（渠道不能既记失败又记成功）。"""
+
+        class FailingFinalizeConverter:
+            def convert_stream_chunk(self, chunk, source_type):
+                return {
+                    "id": "chatcmpl_stream",
+                    "object": "chat.completion.chunk",
+                    "created": 0,
+                    "model": "gpt-4o",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "hello"},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+
+            def get_extra_events(self, chunk):
+                return []
+
+            def get_stream_event_type(self, chunk, source_type):
+                return None
+
+            def finalize_stream(self, source_type):
+                raise RuntimeError("finalize boom")
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield (
+                    'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o",'
+                    '"choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}'
+                )
+                yield ""
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_1",
+            name="OpenAI",
+            api_type=APIType.OPENAI_CHAT,
+            base_url="https://api.openai.com",
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+            patch(
+                "proxy_core.load_balancer.record_failure", new_callable=AsyncMock
+            ) as record_failure,
+            patch(
+                "proxy_core.load_balancer.record_success", new_callable=AsyncMock
+            ) as record_success,
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.openai.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "gpt-4o", "stream": True},
+                response_converter=FailingFinalizeConverter(),
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_CHAT,
+            )
+            _ = [chunk async for chunk in stream]
+
+        record_failure.assert_awaited_once()
+        record_success.assert_not_awaited()
+
+    @pytest.mark.anyio
     async def test_same_type_openai_stream_does_not_inject_stream_options(self):
         captured = {}
 
@@ -2318,7 +2538,10 @@ class TestDoStreamRequest:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o","choices":[]}'
+                yield (
+                    'data: {"id":"chatcmpl_2","object":"chat.completion.chunk","model":"gpt-4o",'
+                    '"choices":[{"index":0,"delta":{"content":"fallback"},"finish_reason":null}]}'
+                )
                 yield "data: [DONE]"
 
             async def __aenter__(self):
@@ -2373,13 +2596,19 @@ class TestDoStreamRequest:
 
             async def aiter_lines(self):
                 yield "event: response.created"
-                yield 'data: {"type":"response.created","response":{"id":"resp_1","object":"response","status":"in_progress"}}'
+                yield (
+                    'data: {"type":"response.created","response":{"id":"resp_1",'
+                    '"object":"response","status":"in_progress"}}'
+                )
                 yield ""
                 yield "event: response.output_text.delta"
                 yield 'data: {"type":"response.output_text.delta","delta":"Hello"}'
                 yield ""
                 yield "event: response.completed"
-                yield 'data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed"}}'
+                yield (
+                    'data: {"type":"response.completed","response":{"id":"resp_1",'
+                    '"object":"response","status":"completed"}}'
+                )
                 yield ""
 
             async def __aenter__(self):
@@ -2455,7 +2684,7 @@ class TestDoStreamRequest:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"chatcmpl_2","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"fallback"},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_2","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"fallback"},"finish_reason":null}]}'  # noqa: E501
                 yield "data: [DONE]"
 
             async def __aenter__(self):
@@ -2533,16 +2762,16 @@ class TestDoStreamRequest:
 
             async def aiter_lines(self):
                 # 1. 首个 chunk（产生 response.created）
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}'  # noqa: E501
                 yield ""
                 # 2. 第二个正常 chunk（触发前一个 chunk 的 text delta 输出）
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}'  # noqa: E501
                 yield ""
                 # 3. 上游错误 chunk（应终止流，不应进入 converter）
                 yield 'data: {"error":{"message":"upstream server error","type":"server_error"}}'
                 yield ""
                 # 4. 后续正常 chunk（不应被处理）
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"should not appear"},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"should not appear"},"finish_reason":null}]}'  # noqa: E501
                 yield ""
 
             async def __aenter__(self):
@@ -2591,6 +2820,153 @@ class TestDoStreamRequest:
         assert "upstream server error" in joined
 
 
+class TestStreamHeartbeatIdleTimeout:
+    """SSE 心跳/keep-alive 行不应重置空闲超时时钟，也不应被误判为实际数据。"""
+
+    @pytest.mark.anyio
+    async def test_heartbeat_only_stream_hits_idle_timeout(self, monkeypatch):
+        """上游只发心跳 keep-alive 不产数据时，超过 request_timeout 应中断并返回错误。"""
+
+        monkeypatch.setattr(config, "REQUEST_TIMEOUT", 0.15)
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                while True:
+                    yield ": keep-alive"
+                    yield ""
+                    await asyncio.sleep(0.02)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_hb",
+            name="Heartbeat",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "claude-3", "stream": True},
+                response_converter=None,
+                source_type="anthropic",
+                target_api_type=APIType.ANTHROPIC,
+            )
+            outputs = []
+
+            async def _collect():
+                async for chunk in stream:
+                    outputs.append(chunk)
+
+            # 若无空闲超时兜底，心跳-only 流永不结束，这里会因 wait_for 超时失败
+            await asyncio.wait_for(_collect(), timeout=3.0)
+
+        joined = "".join(outputs)
+        # 心跳被透传给客户端
+        assert ": keep-alive" in joined
+        # 空闲超时触发后返回错误与终止事件
+        assert "event: error" in joined
+        assert "event: message_stop" in joined
+
+    @pytest.mark.anyio
+    async def test_heartbeat_then_real_data_completes_normally(self, monkeypatch):
+        """心跳后正常输出数据，请求应正常完成（不被误判为空闲超时）。"""
+
+        monkeypatch.setattr(config, "REQUEST_TIMEOUT", 5.0)
+
+        class FakeStreamResponse:
+            status_code = 200
+            is_error = False
+            headers = {"content-type": "text/event-stream"}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_lines(self):
+                yield ": keep-alive"
+                yield ""
+                yield "event: message_start"
+                yield 'data: {"type":"message_start","message":{"id":"msg_hb"}}'
+                yield "event: content_block_start"
+                yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
+                yield "event: content_block_delta"
+                yield 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}'
+                yield "event: content_block_stop"
+                yield 'data: {"type":"content_block_stop","index":0}'
+                yield "event: message_delta"
+                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}'
+                yield "event: message_stop"
+                yield 'data: {"type":"message_stop"}'
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_hb2",
+            name="Heartbeat",
+            api_type=APIType.ANTHROPIC,
+            base_url="https://api.anthropic.com",
+            api_key="ak-test",
+            models=["claude-3"],
+        )
+
+        with (
+            patch("proxy_core.create_stream_client", return_value=FakeClient()),
+            patch("proxy_core.stats.record_request"),
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "claude-3", "stream": True},
+                response_converter=None,
+                source_type="anthropic",
+                target_api_type=APIType.ANTHROPIC,
+            )
+            outputs = [chunk async for chunk in stream]
+
+        joined = "".join(outputs)
+        assert "event: message_start" in joined
+        assert "event: message_stop" in joined
+        assert '"error"' not in joined
+
+
 class TestAnthropicNonSseJsonFallbackEarly:
     """Anthropic 同类型流式请求收到非 SSE JSON 时，应输出完整的 Anthropic SSE 事件序列。"""
 
@@ -2613,7 +2989,7 @@ class TestAnthropicNonSseJsonFallbackEarly:
                     return
                 self._consumed = True
                 # 上游直接返回 JSON，没有 data: / event: 前缀
-                yield '{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hello"}],"model":"claude-3","stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":1}}'
+                yield '{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hello"}],"model":"claude-3","stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":1}}'  # noqa: E501
 
             async def __aenter__(self):
                 return self
@@ -2889,7 +3265,7 @@ class TestAnthropicSameTypeFailoverEarly:
 
             async def aiter_lines(self):
                 yield "event: message_start"
-                yield 'data: {"type":"message_start","message":{"id":"msg_fb","type":"message","role":"assistant","content":[],"model":"claude-3","usage":{"input_tokens":1,"output_tokens":0}}}'
+                yield 'data: {"type":"message_start","message":{"id":"msg_fb","type":"message","role":"assistant","content":[],"model":"claude-3","usage":{"input_tokens":1,"output_tokens":0}}}'  # noqa: E501
                 yield ""
                 yield "event: content_block_start"
                 yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
@@ -2901,7 +3277,7 @@ class TestAnthropicSameTypeFailoverEarly:
                 yield 'data: {"type":"content_block_stop","index":0}'
                 yield ""
                 yield "event: message_delta"
-                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}'
+                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}'  # noqa: E501
                 yield ""
                 yield "event: message_stop"
                 yield 'data: {"type":"message_stop"}'
@@ -3117,9 +3493,9 @@ class TestAnthropicHeaderPriority:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"glm-5","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"glm-5","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}'  # noqa: E501
                 yield ""
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"glm-5","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"glm-5","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}'  # noqa: E501
                 yield ""
                 yield "data: [DONE]"
 
@@ -3248,9 +3624,9 @@ class TestAnthropicHeaderPriority:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"mimo-v2.5-pro","choices":[{"index":0,"delta":{"role":"assistant","content":"","tool_calls":null},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"mimo-v2.5-pro","choices":[{"index":0,"delta":{"role":"assistant","content":"","tool_calls":null},"finish_reason":null}]}'  # noqa: E501
                 yield ""
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"mimo-v2.5-pro","choices":[{"index":0,"delta":{"content":"Hello","tool_calls":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"mimo-v2.5-pro","choices":[{"index":0,"delta":{"content":"Hello","tool_calls":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}'  # noqa: E501
                 yield ""
                 yield "data: [DONE]"
 
@@ -3320,8 +3696,8 @@ class TestAnthropicHeaderPriority:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"test-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}'
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"test-model","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"test-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}'  # noqa: E501
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"test-model","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}'  # noqa: E501
                 # 不发 "data: [DONE]"，模拟上游直接 EOF
 
             async def __aenter__(self):
@@ -3688,19 +4064,18 @@ class TestFailoverOn401:
                 new_callable=AsyncMock,
                 return_value=UnauthorizedClient(),
             ),
-            patch("proxy_core.stats.record_request"),
+            patch("proxy_core.stats.record_request"),pytest.raises(httpx.HTTPStatusError) as exc_info
         ):
-            with pytest.raises(httpx.HTTPStatusError) as exc_info:
-                await _proxy_single_model_request(
-                    model="gpt-4o",
-                    request_data={"model": "gpt-4o", "messages": []},
-                    target_api_type=APIType.OPENAI_CHAT,
-                    is_stream=False,
-                    query_string=None,
-                    client_headers=None,
-                    api_key_id=None,
-                    client_ip=None,
-                )
+            await _proxy_single_model_request(
+                model="gpt-4o",
+                request_data={"model": "gpt-4o", "messages": []},
+                target_api_type=APIType.OPENAI_CHAT,
+                is_stream=False,
+                query_string=None,
+                client_headers=None,
+                api_key_id=None,
+                client_ip=None,
+            )
 
         assert exc_info.value.response.status_code == 401
 
@@ -4075,7 +4450,7 @@ class TestEmptyStreamFailover:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"chatcmpl_2","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"fallback"},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_2","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"fallback"},"finish_reason":null}]}'  # noqa: E501
                 yield "data: [DONE]"
 
             async def __aenter__(self):
@@ -4167,7 +4542,7 @@ class TestAnthropicNonSseJsonFallback:
                     return
                 self._consumed = True
                 # 上游直接返回 JSON，没有 data: / event: 前缀
-                yield '{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hello"}],"model":"claude-3","stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":1}}'
+                yield '{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hello"}],"model":"claude-3","stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":1}}'  # noqa: E501
 
             async def __aenter__(self):
                 return self
@@ -4534,7 +4909,7 @@ class TestAnthropicSameTypeFailover:
 
             async def aiter_lines(self):
                 yield "event: message_start"
-                yield 'data: {"type":"message_start","message":{"id":"msg_fb","type":"message","role":"assistant","content":[],"model":"claude-3","usage":{"input_tokens":1,"output_tokens":0}}}'
+                yield 'data: {"type":"message_start","message":{"id":"msg_fb","type":"message","role":"assistant","content":[],"model":"claude-3","usage":{"input_tokens":1,"output_tokens":0}}}'  # noqa: E501
                 yield ""
                 yield "event: content_block_start"
                 yield 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
@@ -4546,7 +4921,7 @@ class TestAnthropicSameTypeFailover:
                 yield 'data: {"type":"content_block_stop","index":0}'
                 yield ""
                 yield "event: message_delta"
-                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}'
+                yield 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}'  # noqa: E501
                 yield ""
                 yield "event: message_stop"
                 yield 'data: {"type":"message_stop"}'
@@ -4997,7 +5372,7 @@ class TestDoRequestSetsIncludeUsage:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"claude-3","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"claude-3","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}'  # noqa: E501
                 yield ""
 
             async def __aenter__(self):
@@ -5065,7 +5440,7 @@ class TestDoRequestSetsIncludeUsage:
                 return None
 
             async def aiter_lines(self):
-                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"claude-3","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}'
+                yield 'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"claude-3","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}'  # noqa: E501
                 yield ""
 
             async def __aenter__(self):

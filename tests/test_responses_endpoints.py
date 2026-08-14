@@ -333,7 +333,11 @@ async def test_openai_response_stream_passthrough_preserves_raw_sse_blocks(monke
             yield 'data: {"type":"response.output_text.delta","delta":"hi"}'
             yield ""
             yield "event: response.completed"
-            yield 'data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","model":"gpt-4o","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}'
+            yield (
+                'data: {"type":"response.completed","response":{"id":"resp_1","object":"response",'
+                '"status":"completed","model":"gpt-4o","output":[],'
+                '"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}'
+            )
             yield ""
 
         async def __aenter__(self):

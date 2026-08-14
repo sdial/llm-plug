@@ -79,7 +79,7 @@ def create_stream_client(channel: Channel) -> httpx.AsyncClient:
 
 async def close_all_clients():
     async with _lock:
-        for key, client in list(_clients.items()):
+        for _key, client in list(_clients.items()):
             if not client.is_closed:
                 await client.aclose()
         for retired in list(_retired_clients):

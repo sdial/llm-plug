@@ -12,8 +12,6 @@ from config import _CONFIG_CONSTRAINTS, _CONFIG_SCHEMA
 from main import app
 from tests.admin_auth_utils import login_admin
 
-pytestmark = pytest.mark.asyncio
-
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_test_db(tmp_path, monkeypatch):
@@ -42,9 +40,7 @@ async def setup_test_db(tmp_path, monkeypatch):
 
 @pytest_asyncio.fixture
 async def client():
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
         yield c
 
 
@@ -181,9 +177,7 @@ async def test_change_password_mismatch(tmp_path, monkeypatch):
     await setup_admin_password("old_password")
 
     with pytest.raises(ValueError, match="两次输入的新密码不一致"):
-        await change_admin_password(
-            "old_password", "new_password", "different_password"
-        )
+        await change_admin_password("old_password", "new_password", "different_password")
 
 
 @pytest.mark.asyncio

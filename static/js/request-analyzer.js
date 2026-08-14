@@ -22,11 +22,17 @@
     let requestId = null;
     let apiType = 'openai-chat-completions';
 
+    const VALID_VIEWS = ['overview', 'messages', 'output', 'tools', 'system', 'diagnostics'];
+
+    function normalizeView(view) {
+        return VALID_VIEWS.indexOf(view) !== -1 ? view : 'overview';
+    }
+
     async function init() {
         const params = new URLSearchParams(window.location.search);
         requestId = params.get('id');
         apiType = params.get('api_type') || 'openai-chat-completions';
-        currentView = params.get('view') || 'overview';
+        currentView = normalizeView(params.get('view') || 'overview');
 
         if (!requestId) {
             showError(I18n.t('analyzer.missingId'));
@@ -824,50 +830,104 @@
         document.getElementById('metaOutputTokens').textContent = params.get('output_tokens') || '-';
     }
 
+    function switchToView(newView) {
+        if (newView === currentView) return;
+        currentView = newView;
+        activateCurrentTab();
+        renderCurrentView();
+        updateUrl();
+    }
+
     function bindTabEvents() {
-        document.querySelectorAll('.tab').forEach(tab => {
+        const tablist = document.querySelector('[role="tablist"]');
+        const tabs = document.querySelectorAll('.analyzer-tab');
+
+        tabs.forEach(tab => {
             tab.addEventListener('click', () => {
-                currentView = tab.dataset.view;
-                activateCurrentTab();
-                renderCurrentView();
-                updateUrl();
+                switchToView(tab.dataset.view);
             });
         });
+
+        // ARIA tabs keyboard navigation (Arrow keys + Home/End)
+        if (tablist) {
+            tablist.addEventListener('keydown', (e) => {
+                const key = e.key;
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
+
+                const tabElements = Array.from(tabs);
+                if (!tabElements.length) return;
+
+                let currentIndex = tabElements.findIndex(t => t.dataset.view === currentView);
+                if (currentIndex === -1) return;
+
+                let newIndex = currentIndex;
+
+                if (key === 'ArrowRight') {
+                    newIndex = (currentIndex + 1) % tabElements.length;
+                } else if (key === 'ArrowLeft') {
+                    newIndex = (currentIndex - 1 + tabElements.length) % tabElements.length;
+                } else if (key === 'Home') {
+                    newIndex = 0;
+                } else if (key === 'End') {
+                    newIndex = tabElements.length - 1;
+                }
+
+                e.preventDefault();
+                if (newIndex !== currentIndex) {
+                    const newTab = tabElements[newIndex];
+                    switchToView(newTab.dataset.view);
+                }
+                tabElements[newIndex].focus();
+            });
+        }
     }
 
     function activateCurrentTab() {
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.classList.toggle('active', tab.dataset.view === currentView);
+        document.querySelectorAll('.analyzer-tab').forEach(tab => {
+            const isActive = tab.dataset.view === currentView;
+            tab.classList.toggle('active', isActive);
+            tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            tab.setAttribute('tabindex', isActive ? '0' : '-1');
         });
     }
 
     function renderCurrentView() {
         if (!normalizedContext) return;
+        currentView = normalizeView(currentView);
         const contentArea = document.getElementById('contentArea');
+        const panelId = 'panel-' + currentView;
+        const tabId = 'tab-' + currentView;
+
+        let panel = document.getElementById(panelId);
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = panelId;
+            panel.setAttribute('role', 'tabpanel');
+            panel.setAttribute('aria-labelledby', tabId);
+            panel.setAttribute('tabindex', '0');
+        }
+        contentArea.innerHTML = '';
+        contentArea.appendChild(panel);
 
         switch (currentView) {
             case 'overview':
-                renderOverviewView(contentArea);
+                renderOverviewView(panel);
                 break;
             case 'messages':
-                renderMessagesView(contentArea);
+                renderMessagesView(panel);
                 break;
             case 'output':
-                renderOutputView(contentArea);
+                renderOutputView(panel);
                 break;
             case 'tools':
-                renderToolsView(contentArea);
+                renderToolsView(panel);
                 break;
             case 'system':
-                renderSystemView(contentArea);
+                renderSystemView(panel);
                 break;
             case 'diagnostics':
-                renderDiagnosticsView(contentArea);
+                renderDiagnosticsView(panel);
                 break;
-            default:
-                currentView = 'overview';
-                activateCurrentTab();
-                renderOverviewView(contentArea);
         }
     }
 
@@ -1323,8 +1383,8 @@
 
     function showLoading() {
         document.getElementById('contentArea').innerHTML = `
-            <div class="loading">
-                <div class="loading-spinner"></div>
+            <div class="analyzer-loading">
+                <span class="spinner" aria-hidden="true"></span>
                 <span>${I18n.t('analyzer.loading')}</span>
             </div>
         `;
@@ -1335,7 +1395,7 @@
             <div class="error">
                 <div class="text-lg font-semibold mb-2">${I18n.t('analyzer.errorTitle')}</div>
                 <div>${escapeHtml(message)}</div>
-                <button onclick="location.reload()" class="btn-primary mt-4 px-4 py-2">${I18n.t('analyzer.retry')}</button>
+                <button type="button" onclick="location.reload()" class="btn-primary mt-4 px-4 py-2">${I18n.t('analyzer.retry')}</button>
             </div>
         `;
     }

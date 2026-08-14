@@ -133,6 +133,7 @@ def _base_item_from_mapping(row: dict[str, Any]) -> dict[str, Any]:
         "id": row["id"],
         "timestamp": row["timestamp"],
         "model": row["model"],
+        "requested_model": row.get("requested_model"),
         "channel_id": row["channel_id"],
         "channel_name": row["channel_name"],
         "api_key_id": row.get("api_key_id"),
@@ -250,6 +251,7 @@ class SQLiteRequestLogBackend:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         model TEXT NOT NULL,
+                        requested_model TEXT,
                         channel_id TEXT NOT NULL,
                         channel_name TEXT NOT NULL,
                         api_key_id TEXT,
@@ -309,15 +311,16 @@ class SQLiteRequestLogBackend:
             conn.execute(
                 """
                 INSERT INTO request_logs
-                (timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
-                 input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+                (timestamp, model, requested_model, channel_id, channel_name, api_key_id, client_ip,
+                 is_stream, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
                  latency_ms, lag_ms, finish_reason, success, error_msg,
                  request_headers, response_headers, request_body, response_body)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts_str,
                     record["model"],
+                    record.get("requested_model"),
                     record["channel_id"],
                     record["channel_name"],
                     record.get("api_key_id"),
@@ -411,7 +414,7 @@ class SQLiteRequestLogBackend:
             else:
                 rows = conn.execute(
                     f"""
-                    SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
+                    SELECT id, timestamp, model, requested_model, channel_id, channel_name, api_key_id,
                            client_ip, is_stream, input_tokens, output_tokens,
                            cache_read_input_tokens, cache_creation_input_tokens,
                            latency_ms, lag_ms, finish_reason, success, error_msg
@@ -626,10 +629,8 @@ async def _create_initialized_backend(
         return backend, {"available": True}
     except Exception as exc:
         if backend is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await backend.close()
-            except Exception:
-                pass
         logger.warning(f"Request log backend init failed: {exc}")
         return None, {"available": False, "error": str(exc)}
 
@@ -820,6 +821,7 @@ def record_request(
     response_body: dict | None = None,
     lag_ms: int | None = None,
     finish_reason: str | None = None,
+    requested_model: str | None = None,
 ) -> None:
     if _backend is None:
         logger.warning(
@@ -835,6 +837,7 @@ def record_request(
         "channel_id": channel_id,
         "channel_name": channel_name,
         "model": model,
+        "requested_model": requested_model,
         "is_stream": is_stream,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,

@@ -16,6 +16,7 @@ class ToAnthropicConverter(BaseConverter):
     def __init__(self):
         self._stream_state: dict[str, Any] | None = None
         self._last_event_type: str | None = None
+        self._pending_extra_events: list[tuple[str, dict[str, Any]]] = []
 
     def _reset_stream_state(self):
         self._stream_state = {
@@ -30,6 +31,7 @@ class ToAnthropicConverter(BaseConverter):
             "message_stop_sent": False,
             "pending_finish_reason": None,
         }
+        self._pending_extra_events = []
 
     # --- Chat Completions → Anthropic ---
 
@@ -110,7 +112,10 @@ class ToAnthropicConverter(BaseConverter):
                             result.append(
                                 {
                                     "type": "text",
-                                    "text": f"[Unsupported image_url format: {url[:100]}]",
+                                    "text": (
+                                        "[Unsupported image_url format: "
+                                        f"{url[:100]}]"
+                                    ),
                                 }
                             )
 
@@ -159,7 +164,10 @@ class ToAnthropicConverter(BaseConverter):
                             result.append(
                                 {
                                     "type": "text",
-                                    "text": f"[File input not supported: {filename or 'unknown'}]",
+                                    "text": (
+                                        "[File input not supported: "
+                                        f"{filename or 'unknown'}]"
+                                    ),
                                 }
                             )
 
@@ -313,15 +321,18 @@ class ToAnthropicConverter(BaseConverter):
                     if name:
                         result["tool_choice"] = {"type": "tool", "name": name}
                     else:
-                        # name 为空时构造 {"type":"tool","name":""} 会被 Anthropic 拒绝；
-                        # 退化为不指定 tool_choice（让上游用默认 auto 行为）
+                        # name 为空时构造 {"type":"tool","name":""} 会被
+                        # Anthropic 拒绝；退化为不指定 tool_choice
+                        # （让上游用默认 auto 行为）
                         logger.warning(
-                            "tool_choice.type=function missing function name, dropped (Anthropic would reject empty name)"
+                            "tool_choice.type=function missing function name, dropped "
+                            "(Anthropic would reject empty name)"
                         )
                 # disable_parallel_tool_use OpenAI 无对应
                 if tc.get("disable_parallel_tool_use"):
                     logger.debug(
-                        "OpenAI tool_choice.disable_parallel_tool_use not supported, ignored"
+                        "OpenAI tool_choice.disable_parallel_tool_use not "
+                        "supported, ignored"
                     )
             elif tc == "auto":
                 result["tool_choice"] = {"type": "auto"}
@@ -399,7 +410,8 @@ class ToAnthropicConverter(BaseConverter):
         choices = data.get("choices", [])
         if len(choices) > 1:
             logger.warning(
-                "Multiple choices (%d) received, only the first will be converted (Anthropic does not support n>1)",
+                "Multiple choices (%d) received, only the first will be converted "
+                "(Anthropic does not support n>1)",
                 len(choices),
             )
         text = ""
@@ -519,7 +531,8 @@ class ToAnthropicConverter(BaseConverter):
         """Convert a single OpenAI chat chunk to a list of (event_type, data) tuples.
 
         Returns a list because one OpenAI chunk may need to produce
-        multiple Anthropic SSE events (e.g. content_block_stop + message_delta + message_stop).
+        multiple Anthropic SSE events (e.g. content_block_stop + message_delta
+        + message_stop).
         """
         if self._stream_state is None:
             self._reset_stream_state()
@@ -532,7 +545,8 @@ class ToAnthropicConverter(BaseConverter):
             if not (usage and self._stream_state["started"]):
                 return events
             if self._stream_state["message_stop_sent"]:
-                # 已经结束流，避免重复 message_stop（DeepSeek/Qwen 等会在 finish 后再发 usage chunk）
+                # 已经结束流，避免重复 message_stop
+                # （DeepSeek/Qwen 等会在 finish 后再发 usage chunk）
                 return events
             if self._stream_state["pending_finish_reason"] is not None:
                 # 有 pending finish_reason，现在带着 usage 收尾
@@ -804,7 +818,8 @@ class ToAnthropicConverter(BaseConverter):
                 )
             else:
                 # 无 usage：暂存 finish_reason，等待后续 usage chunk 或 finalize_stream
-                # （避免 DeepSeek/Qwen 等在 finish 后单独发 usage chunk 时重复 message_stop）
+                # （避免 DeepSeek/Qwen 等在 finish 后单独发 usage
+                # chunk 时重复 message_stop）
                 self._stream_state["pending_finish_reason"] = finish_reason
 
         return events
@@ -889,7 +904,8 @@ class ToAnthropicConverter(BaseConverter):
                         result["tool_choice"] = {"type": "tool", "name": name}
                     else:
                         logger.warning(
-                            "Response API tool_choice.type=function missing name, dropped (Anthropic would reject empty name)"
+                            "Response API tool_choice.type=function missing name, "
+                            "dropped (Anthropic would reject empty name)"
                         )
                 elif tc.get("type") == "auto":
                     result["tool_choice"] = {"type": "auto"}
@@ -1014,7 +1030,8 @@ class ToAnthropicConverter(BaseConverter):
                     )
                 )
             elif item.get("type") == "reasoning":
-                # OpenAI Response 的 reasoning output_item 对应 Anthropic 的 thinking 内容块。
+                # OpenAI Response 的 reasoning output_item 对应
+                # Anthropic 的 thinking 内容块。
                 # 注意：Anthropic 客户端通常需要 signature 才能完整渲染 thinking；
                 # 这里因为上游不提供 signature，emit 不带 signature 的 thinking 块，
                 # 保证 thinking 文本至少能到达客户端（否则会被静默丢弃）。
@@ -1249,8 +1266,9 @@ class ToAnthropicConverter(BaseConverter):
     ) -> list[tuple[str, dict[str, Any]]]:
         """流末（[DONE]）补出 pending finish_reason 对应的 message_stop。
 
-        finish_reason chunk 不一定带 usage（DeepSeek/Qwen 等会在之后单独发 usage chunk），
-        因此 _chat_stream_chunk_to_anthropic 在没拿到 usage 时不会立即 emit message_stop；
+        finish_reason chunk 不一定带 usage（DeepSeek/Qwen 等会在
+        之后单独发 usage chunk），因此 _chat_stream_chunk_to_anthropic
+        在没拿到 usage 时不会立即 emit message_stop；
         如果上游就此结束（仅发 [DONE]），由 finalize_stream 在末尾补出。
         """
         if self._stream_state is None:

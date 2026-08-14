@@ -1,9 +1,6 @@
-import asyncio
 import contextlib
-import ipaddress
 import os
 import secrets
-import socket
 import tempfile
 import time
 from collections.abc import Callable
@@ -53,8 +50,6 @@ from storage import (
     load_api_keys,
     load_data,
     load_model_groups,
-    save_api_keys,
-    save_data,
     save_lb_config,
     update_model_group,
 )
@@ -108,50 +103,21 @@ WHITELIST_PATH = DATA_DIR / "whitelist.csv"
 _ALLOWED_LOG_SUFFIX = ".jsonl"
 
 
-def _is_public_address(address: str) -> bool:
-    return ipaddress.ip_address(address).is_global
-
-
-async def _validate_outbound_url(url: str) -> None:
+def _validate_outbound_url(url: str) -> None:
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise HTTPException(status_code=400, detail="上游地址必须是 http 或 https URL")
     if parsed.username or parsed.password:
         raise HTTPException(status_code=400, detail="上游地址不允许包含认证信息")
 
-    host = parsed.hostname.rstrip(".").lower()
-    try:
-        if not _is_public_address(host):
-            raise HTTPException(status_code=400, detail="不允许访问内网或本机地址")
-        addresses = {host}
-    except ValueError:
-        try:
-            addrinfo = await asyncio.to_thread(
-                socket.getaddrinfo,
-                host,
-                parsed.port,
-                type=socket.SOCK_STREAM,
-            )
-        except socket.gaierror as exc:
-            raise HTTPException(status_code=400, detail="上游地址无法解析") from exc
-        addresses = {item[4][0] for item in addrinfo}
 
-    if any(not _is_public_address(address) for address in addresses):
-        raise HTTPException(status_code=400, detail="不允许访问内网或本机地址")
-
-
-class _PublicAddressOnlyTransport(httpx.AsyncBaseTransport):
-    """Re-check destination DNS at request time to reduce DNS rebinding risk."""
-
-    def __init__(self, wrapped: httpx.AsyncBaseTransport | None = None) -> None:
-        self._wrapped = wrapped or httpx.AsyncHTTPTransport()
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        await _validate_outbound_url(str(request.url))
-        return await self._wrapped.handle_async_request(request)
-
-    async def aclose(self) -> None:
-        await self._wrapped.aclose()
+async def _validate_channel_outbound_urls(
+    base_url: str, endpoint_url: str | None = None, models_url: str | None = None
+) -> None:
+    """校验渠道潜在出站 URL（base_url / endpoint_url / models_url）的格式。"""
+    for url in (base_url, endpoint_url, models_url):
+        if url and url.strip():
+            _validate_outbound_url(url)
 
 
 def _validate_log_filename(filename: str) -> None:
@@ -210,7 +176,7 @@ def _check_login_allowed(ip: str) -> tuple[bool, int]:
     unlock_time = last_attempt + lockout_seconds
 
     if now < unlock_time:
-        remaining = int(unlock_time - now) + 1
+        remaining = min(int(unlock_time - now) + 1, lockout_seconds)
         return False, remaining
 
     return True, 0
@@ -460,10 +426,15 @@ async def _get_channels() -> list[Channel]:
     return [Channel(**ch) for ch in data.get("channels", [])]
 
 
-async def _save_channels(channels: list[Channel]):
-    data = await load_data()
-    data["channels"] = [ch.model_dump() for ch in channels]
-    await save_data(data)
+@router.get("/models")
+async def list_available_models():
+    """所有渠道中可用的模型列表（去重、排序），供模型组编辑时下拉选择"""
+    channels = await _get_channels()
+    seen: set[str] = set()
+    for ch in channels:
+        for m in ch.models or []:
+            seen.add(m)
+    return {"models": sorted(seen)}
 
 
 @router.get("/channels")
@@ -492,6 +463,7 @@ async def admin_ui_fragment(section: str):
         "whitelist": "whitelist.html",
         "lb": "model-groups.html",
         "storage": "storage.html",
+        "context-optimization": "context-optimization.html",
     }
     filename = fragment_map.get(section)
     if not filename:
@@ -505,6 +477,9 @@ async def admin_ui_fragment(section: str):
 @router.post("/channels", response_model=Channel)
 async def create_channel(body: ChannelCreate):
     """添加渠道"""
+    await _validate_channel_outbound_urls(
+        body.base_url, body.endpoint_url, body.models_url
+    )
     channel = Channel(**body.model_dump())
 
     def _mutate(data: dict):
@@ -519,6 +494,9 @@ async def create_channel(body: ChannelCreate):
 async def update_channel(channel_id: str, body: ChannelUpdate):
     """更新渠道"""
     update_data = body.model_dump(exclude_unset=True)
+    for field in ("base_url", "endpoint_url", "models_url"):
+        if update_data.get(field):
+            _validate_outbound_url(update_data[field])
     state: dict = {}
 
     def _mutate(data: dict):
@@ -593,10 +571,6 @@ async def toggle_channel(channel_id: str):
 async def _get_api_keys() -> list[ApiKey]:
     data = await load_api_keys()
     return [ApiKey(**k) for k in data.get("api_keys", [])]
-
-
-async def _save_api_keys(keys: list[ApiKey]):
-    await save_api_keys({"api_keys": [k.model_dump() for k in keys]})
 
 
 async def _attach_api_key_names(result: dict) -> dict:
@@ -880,13 +854,10 @@ async def fetch_models(body: FetchModelsRequest):
             headers["Authorization"] = f"Bearer {body.api_key}"
 
     models_url = build_models_url(body.base_url, body.models_url)
-    await _validate_outbound_url(models_url)
+    _validate_outbound_url(models_url)
 
     try:
-        async with httpx.AsyncClient(
-            timeout=10.0,
-            transport=_PublicAddressOnlyTransport(),
-        ) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(models_url, headers=headers, follow_redirects=False)
             if resp.status_code != 200:
                 return {"error": f"上游返回 {resp.status_code}: {resp.text[:200]}"}
@@ -1284,6 +1255,32 @@ async def get_whitelist(request: Request):
     content = WHITELIST_PATH.read_text(encoding="utf-8")
     rules = _whitelist_mod.load_rules(str(WHITELIST_PATH))
     return {"content": content, "rule_count": len(rules), "client_ip": client_ip}
+
+
+class WhitelistPreviewRequest(BaseModel):
+    content: str
+
+
+@router.post("/whitelist/preview")
+async def preview_whitelist(body: WhitelistPreviewRequest, request: Request):
+    """校验白名单文本并返回保存后当前客户端是否会被锁定（不落盘）。
+
+    复用 check_request 的权威匹配逻辑，避免前端自行解析 CIDR 产生偏差。
+    """
+    content = body.content
+    if not isinstance(content, str):
+        raise HTTPException(status_code=400, detail="content 必须是字符串")
+    valid, error, rules = _whitelist_mod.validate_rules_text(content)
+    if not valid:
+        return {"valid": False, "error": error, "rule_count": 0, "admin_lockout": False}
+    client_ip = request.client.host if request.client else ""
+    admin_lockout = False
+    # 管理界面访问以 GET /admin/ 为最小门槛：若新规则下当前 IP 连读取都失败，
+    # 用户保存后将无法再进入管理界面，视为锁定。
+    if client_ip and rules:
+        _allow, _ = _whitelist_mod.check_request(rules, "/admin/", "GET", client_ip)
+        admin_lockout = not _allow
+    return {"valid": True, "error": "", "rule_count": len(rules), "admin_lockout": admin_lockout}
 
 
 @router.put("/whitelist")

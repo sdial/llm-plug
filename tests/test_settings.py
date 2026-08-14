@@ -114,13 +114,8 @@ def test_config_defaults():
     assert _CONFIG_SCHEMA["max_body_size"]["default"] == 20971520
     assert "log_level" not in _CONFIG_SCHEMA  # 已移除，改用 --log-level CLI 参数
     assert "database_url" not in _CONFIG_SCHEMA
-    assert (
-        os.path.basename(_CONFIG_SCHEMA["stats_sqlite_path"]["default"]) == "stats.db"
-    )
-    assert (
-        os.path.basename(_CONFIG_SCHEMA["request_log_sqlite_path"]["default"])
-        == "request_logs.db"
-    )
+    assert os.path.basename(_CONFIG_SCHEMA["stats_sqlite_path"]["default"]) == "stats.db"
+    assert os.path.basename(_CONFIG_SCHEMA["request_log_sqlite_path"]["default"]) == "request_logs.db"
     assert "request_log_db_type" not in _CONFIG_SCHEMA
     assert "request_log_database_url" not in _CONFIG_SCHEMA
     assert _CONFIG_SCHEMA["save_request_headers"]["default"] is False
@@ -129,6 +124,12 @@ def test_config_defaults():
     assert _CONFIG_SCHEMA["save_response_body"]["default"] is False
     assert _CONFIG_SCHEMA["max_fail_count"]["default"] == 5
     assert _CONFIG_SCHEMA["cooldown_seconds"]["default"] == 60
+    assert _CONFIG_SCHEMA["ctx_optimize_enabled"]["default"] is False
+    assert _CONFIG_SCHEMA["ctx_optimize_strip_ansi"]["default"] is True
+    assert _CONFIG_SCHEMA["ctx_optimize_trim_ws"]["default"] is True
+    assert _CONFIG_SCHEMA["ctx_optimize_collapse_blank_lines"]["default"] is True
+    assert _CONFIG_SCHEMA["ctx_optimize_dedupe_consecutive_lines"]["default"] is True
+    assert _CONFIG_SCHEMA["ctx_optimize_strip_cc_telemetry"]["default"] is False
     assert all("env" not in schema for schema in _CONFIG_SCHEMA.values())
 
 
@@ -151,6 +152,12 @@ def test_config_requires_restart():
     assert "save_response_headers" not in restart_keys
     assert "save_request_body" not in restart_keys
     assert "save_response_body" not in restart_keys
+    assert "ctx_optimize_enabled" not in restart_keys
+    assert "ctx_optimize_strip_ansi" not in restart_keys
+    assert "ctx_optimize_trim_ws" not in restart_keys
+    assert "ctx_optimize_collapse_blank_lines" not in restart_keys
+    assert "ctx_optimize_dedupe_consecutive_lines" not in restart_keys
+    assert "ctx_optimize_strip_cc_telemetry" not in restart_keys
 
 
 def test_config_readonly():
@@ -279,3 +286,24 @@ async def test_init_settings_persists_migrated_lb_config(tmp_path, monkeypatch):
     assert persisted["cooldown_seconds"] == 120
     migrated = json.loads(channels_file.read_text(encoding="utf-8"))
     assert "lb_config" not in migrated
+
+
+@pytest.mark.anyio
+async def test_ctx_optimize_settings_hot_update(monkeypatch, tmp_path):
+    """ctx_optimize_* 设置项保存后立即生效，无需重启。"""
+    from unittest.mock import AsyncMock
+
+    import config
+
+    monkeypatch.setattr(config, "_SETTINGS_FILE", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(config, "_settings", {})
+    monkeypatch.setattr(config, "_save_settings_to_disk", AsyncMock())
+    monkeypatch.setattr(config, "_apply_lb_settings", AsyncMock())
+
+    result = await config.update_settings({"ctx_optimize_enabled": True, "ctx_optimize_strip_ansi": False})
+    assert result["updated"] == ["ctx_optimize_enabled", "ctx_optimize_strip_ansi"]
+    assert result["needs_restart"] is False
+    assert config.get_setting("ctx_optimize_enabled") is True
+    assert config.get_setting("ctx_optimize_strip_ansi") is False
+    # 未设置的规则项回落到 schema 默认值 True
+    assert config.get_setting("ctx_optimize_trim_ws") is True

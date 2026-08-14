@@ -29,6 +29,7 @@ from capability_manager import (
 )
 from client import create_client, create_stream_client, get_upstream_headers
 from config import get_setting
+from context_optimizer import run_context_optimization
 from converters.to_chat import ToChatCompletionsConverter
 from converters.usage import cache_token_details
 from models.api_types import APIType
@@ -43,8 +44,10 @@ _responses_store = get_responses_store()
 
 def _record_request(**kwargs) -> None:
     """Write lightweight stats and optional debug request log without blocking responses."""
+    # requested_model 仅写请求日志；stats 聚合不关心客户端请求的模型，避免多余字段
+    requested_model = kwargs.pop("requested_model", None)
     stats.record_request(**kwargs)
-    request_logs.record_request(**kwargs)
+    request_logs.record_request(requested_model=requested_model, **kwargs)
 
 
 def _filter_think_in_response(response_data: dict[str, Any]) -> dict[str, Any]:
@@ -157,22 +160,22 @@ from proxy import conversion as _conversion  # noqa: E402
 from proxy.channel_registry import (  # noqa: E402
     cleanup_removed_channels_after_save as _cleanup_removed_channels_after_save,  # noqa: F401
 )
-from proxy.channel_registry import (
+from proxy.channel_registry import (  # noqa: E402
     get_channels_for_model as _registry_get_channels_for_model,
 )
-from proxy.channel_registry import (
+from proxy.channel_registry import (  # noqa: E402
     invalidate_model_channels_cache as _invalidate_model_channels_cache,  # noqa: F401
 )
-from proxy.channel_registry import (
+from proxy.channel_registry import (  # noqa: E402
     schedule_invalidate_model_channels_cache as _registry_schedule_invalidate_model_channels_cache,
 )
 from proxy.stream_reconstruct import (  # noqa: E402
     build_anthropic_stream_response as _build_anthropic_stream_response,  # noqa: F401
 )
-from proxy.stream_reconstruct import (
+from proxy.stream_reconstruct import (  # noqa: E402
     build_openai_stream_response as _build_openai_stream_response,  # noqa: F401
 )
-from proxy.stream_reconstruct import (
+from proxy.stream_reconstruct import (  # noqa: E402
     build_stream_response_body as _build_stream_response_body,
 )
 
@@ -640,6 +643,7 @@ async def _proxy_model_group_request(
                     client_headers=client_headers,
                     api_key_id=api_key_id,
                     client_ip=client_ip,
+                    requested_model=group.name,
                 )
                 if is_stream:
                     result = await _prime_stream(result)
@@ -845,6 +849,7 @@ async def _do_request(
     client_headers: dict[str, str] | None = None,
     api_key_id: str | None = None,
     client_ip: str | None = None,
+    requested_model: str | None = None,
 ):
     upstream_data = request_data  # 兜底：若后续转换步骤抛异常，except 仍可安全引用
     request_converter, response_converter, source_type = (
@@ -919,6 +924,19 @@ async def _do_request(
         caps.filter_think_content and not strict_response_passthrough
     )
 
+    # === 上下文优化（阶段一：tool 输出压缩）===
+    # 在 capability 过滤与 MiniMax system 合并之后、离发送最近的位置执行。
+    # 流式与非流式共用同一个 upstream_data dict（流式分支把该 dict 传给
+    # _do_stream_request），此处只动请求体、不涉及流式响应。
+    # 只覆盖 Chat Completions 与 Anthropic 目标格式；Responses 由
+    # run_context_optimization 内部门控跳过（决策三）。
+    run_context_optimization(
+        upstream_data,
+        target_api_type=target_api_type,
+        upstream_api_type=source_type,
+        settings=config.get_settings(),
+    )
+
     url = _get_upstream_url(channel)
     if query_string and source_type == target_api_type.value:
         url = append_query(url, query_string)
@@ -939,6 +957,7 @@ async def _do_request(
             api_key_id=api_key_id,
             client_ip=client_ip,
             need_think_filter=need_think_filter,
+            requested_model=requested_model,
         )
         return _raise_preflight_stream_errors(stream)
 
@@ -1008,6 +1027,7 @@ async def _do_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
+            requested_model=requested_model,
             is_stream=False,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -1118,6 +1138,7 @@ async def _do_request(
             channel_id=channel.id,
             channel_name=channel.name,
             model=model,
+            requested_model=requested_model,
             is_stream=False,
             input_tokens=0,
             output_tokens=0,
@@ -1150,28 +1171,28 @@ async def _do_request(
 from proxy.stream_sse import (  # noqa: E402
     build_chat_stream_chunks_from_object as _build_chat_stream_chunks_from_object,
 )
-from proxy.stream_sse import (
+from proxy.stream_sse import (  # noqa: E402
     build_responses_stream_events_from_object as _build_responses_stream_events_from_object,  # noqa: F401
 )
-from proxy.stream_sse import (
+from proxy.stream_sse import (  # noqa: E402
     convert_anthropic_response_to_events as _convert_anthropic_response_to_events,
 )
-from proxy.stream_sse import (
+from proxy.stream_sse import (  # noqa: E402
     convert_non_stream_to_stream_events as _convert_non_stream_to_stream_events,
 )
-from proxy.stream_sse import (
+from proxy.stream_sse import (  # noqa: E402
     format_passthrough_sse_block as _format_passthrough_sse_block,
 )
-from proxy.stream_sse import (
+from proxy.stream_sse import (  # noqa: E402
     format_raw_sse as _format_raw_sse,
 )
-from proxy.stream_sse import (
+from proxy.stream_sse import (  # noqa: E402
     format_sse_for_list as _format_sse_for_list,  # noqa: F401
 )
-from proxy.stream_sse import (
+from proxy.stream_sse import (  # noqa: E402
     iter_sse_blocks as _iter_sse_blocks,
 )
-from proxy.stream_sse import (
+from proxy.stream_sse import (  # noqa: E402
     yield_anthropic_event as _yield_anthropic_event,
 )
 
@@ -1187,6 +1208,7 @@ async def _do_stream_request(
     api_key_id: str | None = None,
     client_ip: str | None = None,
     need_think_filter: bool = False,
+    requested_model: str | None = None,
 ):
     """流式请求，yield SSE 数据行。
 
@@ -1233,7 +1255,10 @@ async def _do_stream_request(
                     # 关键字段摘要
                     if d.get("type") == "content_block_start":
                         cb = d.get("content_block", {})
-                        data_summary = f"cb_start({cb.get('type', '')}{',' + cb.get('name', '') if cb.get('name') else ''})"
+                        data_summary = (
+                            f"cb_start({cb.get('type', '')}"
+                            f"{',' + cb.get('name', '') if cb.get('name') else ''})"
+                        )
                     elif d.get("type") == "content_block_delta":
                         delta = d.get("delta", {})
                         dtype = delta.get("type", "")
@@ -1316,6 +1341,12 @@ async def _do_stream_request(
             logger.debug(
                 f"[STREAM CONNECTED] status={resp_status_code} headers={resp_headers}"
             )
+
+            # 空闲超时（从最后一次收到实际数据开始计时）。SSE 心跳行不算数据，
+            # 否则上游只发 keep-alive 心跳时，httpx 的 read 超时每次读到字节都会
+            # 重置，流永远不会超时。这里在应用层独立计时兜底。
+            _idle_timeout = float(config.REQUEST_TIMEOUT)
+            _last_payload_time = time.monotonic()
 
             upstream_event_type = None
 
@@ -1430,6 +1461,23 @@ async def _do_stream_request(
                     + len(passthrough_lines)
                     + (1 if upstream_event_type else 0)
                 )
+                # SSE 心跳行（: 开头的注释/keep-alive）不视为有效数据：
+                # 空闲超时只从最后一次收到实际数据块开始计算，避免上游只发心跳
+                # keep-alive 时请求永不超时。
+                is_heartbeat_only = (
+                    not data_lines
+                    and upstream_event_type is None
+                    and bool(passthrough_lines)
+                    and all(
+                        line.strip().startswith(":") for line in passthrough_lines
+                    )
+                )
+                if not is_heartbeat_only:
+                    _last_payload_time = time.monotonic()
+                elif time.monotonic() - _last_payload_time >= _idle_timeout:
+                    raise httpx.ReadTimeout(
+                        f"上游仅发送 SSE 心跳/keep-alive，已连续 {_idle_timeout:g}s 无实际数据"
+                    )
                 if data_lines:
                     _first_line_checked = True
                     data_str = "\n".join(data_lines)
@@ -1543,28 +1591,26 @@ async def _do_stream_request(
                 _record_chunk(chunk)
                 _mark_first_token()
 
-                if not isinstance(chunk, dict):
-                    if response_converter:
-                        continue
+                if not isinstance(chunk, dict) and response_converter:
+                    continue
 
                 upstream_error_detected = False
-                if isinstance(chunk, dict):
-                    if (
-                        is_upstream_anthropic
-                        and (
-                            upstream_event_type == "error"
-                            or chunk.get("type") == "error"
-                        )
-                        or source_type == "openai-response"
-                        and (
-                            upstream_event_type == "error"
-                            or chunk.get("type") == "error"
-                            or chunk.get("type") == "response.failed"
-                        )
-                        or source_type == "openai-chat-completions"
-                        and isinstance(chunk.get("error"), dict)
-                    ):
-                        upstream_error_detected = True
+                if isinstance(chunk, dict) and (
+                    is_upstream_anthropic
+                    and (
+                        upstream_event_type == "error"
+                        or chunk.get("type") == "error"
+                    )
+                    or source_type == "openai-response"
+                    and (
+                        upstream_event_type == "error"
+                        or chunk.get("type") == "error"
+                        or chunk.get("type") == "response.failed"
+                    )
+                    or source_type == "openai-chat-completions"
+                    and isinstance(chunk.get("error"), dict)
+                ):
+                    upstream_error_detected = True
 
                 if upstream_error_detected:
                     upstream_error = _UpstreamStreamErrorEvent(chunk)
@@ -1639,6 +1685,14 @@ async def _do_stream_request(
                                 input_tokens = delta_usage.get("input_tokens", 0)
                                 if input_tokens == 0:
                                     input_tokens = delta_usage.get("prompt_tokens", 0)
+                                if input_tokens == 0:
+                                    # Anthropic 全缓存命中：message_start 与 message_delta
+                                    # 的 input_tokens 均为 0，总输入 = 缓存 token 之和，
+                                    # 与非流式路径（usage 归一同）保持一致。
+                                    input_tokens = (
+                                        cache_read_input_tokens
+                                        + cache_creation_input_tokens
+                                    )
                                 else:
                                     input_tokens += (
                                         cache_read_input_tokens
@@ -1731,7 +1785,8 @@ async def _do_stream_request(
                             f"流式 chunk 转换失败: {conv_err}"
                         ) from conv_err
                     logger.debug(
-                        f"[CONVERT_CHUNK] converted={converted is not None} type={converted.get('type') if converted else None}"
+                        f"[CONVERT_CHUNK] converted={converted is not None} "
+                        f"type={converted.get('type') if converted else None}"
                     )
                     if converted is not None:
                         if think_filter and isinstance(converted, dict):
@@ -1810,62 +1865,66 @@ async def _do_stream_request(
             stream_success = True
         # 上游关闭连接但未发送 [DONE] 时，补发终止事件避免客户端挂起。
         # 正常流结束路径：仅在非错误、非非SSE-body 场景下执行。
-        if stream_error is None and not _done_received and non_sse_stream_body is None:
-            if emitted_output:
-                logger.warning(
-                    f"[STREAM EOF WITHOUT DONE] model={model} "
-                    f"chunks={len(stream_chunks)} target={target_api_type.value}"
+        if (
+            stream_error is None
+            and not _done_received
+            and non_sse_stream_body is None
+            and emitted_output
+        ):
+            logger.warning(
+                f"[STREAM EOF WITHOUT DONE] model={model} "
+                f"chunks={len(stream_chunks)} target={target_api_type.value}"
+            )
+            # 1. 刷新 ThinkFilter 残余内容
+            if think_filter:
+                remaining = think_filter.flush()
+                if remaining:
+                    if output_responses_sse:
+                        remaining_evt = {
+                            "type": "response.output_text.delta",
+                            "delta": remaining,
+                        }
+                        sse = _format_sse(remaining_evt)
+                        _log_stream_event(sse)
+                        _mark_output()
+                        yield sse
+                    else:
+                        remaining_chunk = {
+                            "id": "chatcmpl-stream",
+                            "object": "chat.completion.chunk",
+                            "created": 0,
+                            "model": model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": remaining},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        sse = _format_sse(remaining_chunk)
+                        _log_stream_event(sse)
+                        _mark_output()
+                        yield sse
+            # 2. 调用 converter finalize 补发协议终止事件
+            if response_converter:
+                final_events = response_converter.finalize_stream(source_type)
+                logger.debug(
+                    f"[STREAM EOF FINALIZE] model={model} events={len(final_events)}"
                 )
-                # 1. 刷新 ThinkFilter 残余内容
-                if think_filter:
-                    remaining = think_filter.flush()
-                    if remaining:
-                        if output_responses_sse:
-                            remaining_evt = {
-                                "type": "response.output_text.delta",
-                                "delta": remaining,
-                            }
-                            sse = _format_sse(remaining_evt)
-                            _log_stream_event(sse)
-                            _mark_output()
-                            yield sse
-                        else:
-                            remaining_chunk = {
-                                "id": "chatcmpl-stream",
-                                "object": "chat.completion.chunk",
-                                "created": 0,
-                                "model": model,
-                                "choices": [
-                                    {
-                                        "index": 0,
-                                        "delta": {"content": remaining},
-                                        "finish_reason": None,
-                                    }
-                                ],
-                            }
-                            sse = _format_sse(remaining_chunk)
-                            _log_stream_event(sse)
-                            _mark_output()
-                            yield sse
-                # 2. 调用 converter finalize 补发协议终止事件
-                if response_converter:
-                    final_events = response_converter.finalize_stream(source_type)
-                    logger.debug(
-                        f"[STREAM EOF FINALIZE] model={model} events={len(final_events)}"
-                    )
-                    for final_event in _format_extra_events(final_events):
-                        _mark_output()
-                        yield final_event
-                    extra_events = _yield_extra_events({})
-                    for extra_sse in extra_events:
-                        _mark_output()
-                        yield extra_sse
-                # 3. 直通路径补发协议终止事件（converter 路径由 step 2 finalize_stream 处理）
-                if response_converter is None:
-                    for terminal_sse in _terminal_events_for_error():
-                        _log_stream_event(terminal_sse)
-                        _mark_output()
-                        yield terminal_sse
+                for final_event in _format_extra_events(final_events):
+                    _mark_output()
+                    yield final_event
+                extra_events = _yield_extra_events({})
+                for extra_sse in extra_events:
+                    _mark_output()
+                    yield extra_sse
+            # 3. 直通路径补发协议终止事件（converter 路径由 step 2 finalize_stream 处理）
+            if response_converter is None:
+                for terminal_sse in _terminal_events_for_error():
+                    _log_stream_event(terminal_sse)
+                    _mark_output()
+                    yield terminal_sse
         if non_sse_stream_body is not None:
             logger.debug(
                 f"[STREAM NON-SSE] model={model} body_length={len(non_sse_stream_body)}"
@@ -1877,7 +1936,8 @@ async def _do_stream_request(
                 logger.warning(f"[STREAM NON-SSE JSON ERROR] model={model}")
             if isinstance(full_response, dict):
                 logger.warning(
-                    f"[STREAM NON-SSE] upstream returned non-SSE JSON for streaming request (object={full_response.get('object')}), converting to stream events"
+                    f"[STREAM NON-SSE] upstream returned non-SSE JSON for streaming request "
+                    f"(object={full_response.get('object')}), converting to stream events"
                 )
                 _record_chunk(full_response)
                 _mark_first_token()
@@ -2021,17 +2081,23 @@ async def _do_stream_request(
                         },
                     )
                 else:
-                    yield f"data: {json.dumps({'error': {'message': 'Upstream returned unparseable response', 'type': 'api_error'}}, ensure_ascii=False)}\n\n"
+                    error_payload = json.dumps(
+                        {"error": {"message": "Upstream returned unparseable response", "type": "api_error"}},
+                        ensure_ascii=False,
+                    )
+                    yield f"data: {error_payload}\n\n"
                 if not output_sse_events:
                     yield "data: [DONE]\n\n"
 
         if stream_error is None:
             stream_success = True
         logger.debug(
-            f"[STREAM FINISH] model={model} done_received={_done_received} non_sse_body={'yes' if non_sse_stream_body else 'no'} chunks={len(stream_chunks)}"
+            f"[STREAM FINISH] model={model} done_received={_done_received} "
+            f"non_sse_body={'yes' if non_sse_stream_body else 'no'} chunks={len(stream_chunks)}"
         )
         logger.debug(
-            f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} output_tokens={output_tokens} finish_reason={finish_reason}"
+            f"[STREAM COMPLETE] model={model} chunks={len(stream_chunks)} input_tokens={input_tokens} "
+            f"output_tokens={output_tokens} finish_reason={finish_reason}"
         )
     except asyncio.CancelledError:
         cancelled = True
@@ -2084,6 +2150,10 @@ async def _do_stream_request(
             raise
         await load_balancer.record_failure(channel.id)
         failure_recorded = True
+        # 失败已显式记录，必须清除 stream_success，否则 finally 中的
+        # record_success 会抵消这里的 record_failure（例如 [DONE] 之后
+        # finalize_stream / 额外事件抛异常时 stream_success 已被置为 True）。
+        stream_success = False
         if output_anthropic_sse:
             emitted_output = True
             yield _yield_anthropic_event(
@@ -2143,12 +2213,15 @@ async def _do_stream_request(
         # 2. 记录请求日志
         try:
             logger.debug(
-                f"[STREAM STATS] model={model} success={stream_success} error={stream_error} latency={latency_ms}ms lag={lag_ms}ms chunks={len(stream_chunks)} input={input_tokens} output={output_tokens} finish={finish_reason}"
+                f"[STREAM STATS] model={model} success={stream_success} error={stream_error} "
+                f"latency={latency_ms}ms lag={lag_ms}ms chunks={len(stream_chunks)} "
+                f"input={input_tokens} output={output_tokens} finish={finish_reason}"
             )
             _record_request(
                 channel_id=channel.id,
                 channel_name=channel.name,
                 model=model,
+                requested_model=requested_model,
                 is_stream=True,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,

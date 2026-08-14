@@ -1,10 +1,16 @@
 <!-- API Key Tab -->
-        <div id="apikeysTab">
-            <div class="flex justify-between items-center mb-5 gap-3 flex-wrap">
-                <h2 class="text-xs font-semibold text-ink-600 uppercase tracking-wider" data-i18n="apikeys.listTitle">API Key 列表</h2>
-                <button onclick="openKeyModal()" class="btn-primary text-sm px-4 py-2 font-medium whitespace-nowrap" data-i18n="apikeys.createBtn">+ 创建 Key</button>
-            </div>
-            <div id="apiKeyList" class="space-y-3">
-                <p class="text-ink-400 text-center py-8 text-sm" data-i18n="common.loading">加载中...</p>
-            </div>
+<div id="apikeysTab">
+    <div class="flex justify-between items-center mb-5 gap-3 flex-wrap">
+        <h2 class="text-sm font-semibold text-ink-900" data-i18n="apikeys.listTitle">API Key 列表</h2>
+        <button type="button" onclick="openKeyModal()" class="btn-primary text-sm px-4 py-2 font-medium whitespace-nowrap flex items-center gap-1.5" aria-label="创建 API Key">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            <span data-i18n="apikeys.createBtn">创建 Key</span>
+        </button>
+    </div>
+    <div id="apiKeyList" class="space-y-3 animate-fade-in">
+        <div class="loading-text flex items-center justify-center gap-2">
+            <span class="spinner"></span>
+            <span data-i18n="common.loading">加载中...</span>
         </div>
+    </div>
+</div>

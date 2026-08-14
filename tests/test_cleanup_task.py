@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, patch
 
 
@@ -16,10 +17,8 @@ def test_cleanup_loop_calls_cleanup():
             task = asyncio.create_task(_session_cleanup_loop())
             await asyncio.sleep(0.1)
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
         asyncio.run(run_cleanup())
         mock_store._cleanup_if_needed.assert_called()

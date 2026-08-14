@@ -134,12 +134,11 @@ def apply_capability_filter(
     result = copy.deepcopy(request_data)
 
     # 过滤 parallel_tool_calls
-    if not caps.supports_parallel_tool_calls:
-        if "parallel_tool_calls" in result:
-            del result["parallel_tool_calls"]
-            logger.warning(
-                "[CAPABILITY] 降级: parallel_tool_calls 被移除（渠道不支持）"
-            )
+    if not caps.supports_parallel_tool_calls and "parallel_tool_calls" in result:
+        del result["parallel_tool_calls"]
+        logger.warning(
+            "[CAPABILITY] 降级: parallel_tool_calls 被移除（渠道不支持）"
+        )
 
     # 过滤 tool_choice=auto
     # 注意：不能把 auto 改成 none —— 这是语义反转（auto=允许调用工具，none=禁止）。
@@ -149,7 +148,8 @@ def apply_capability_filter(
         if tc == "auto":
             del result["tool_choice"]
             logger.warning(
-                "[CAPABILITY] 降级: tool_choice auto 被移除，回退上游默认（渠道不支持显式 auto）"
+                "[CAPABILITY] 降级: tool_choice auto 被移除，"
+                "回退上游默认（渠道不支持显式 auto）"
             )
 
     # 过滤 tool_choice=required
@@ -162,16 +162,14 @@ def apply_capability_filter(
             )
 
     # 过滤 response_format
-    if not caps.supports_response_format:
-        if "response_format" in result:
-            del result["response_format"]
-            logger.warning("[CAPABILITY] 降级: response_format 被移除（渠道不支持）")
+    if not caps.supports_response_format and "response_format" in result:
+        del result["response_format"]
+        logger.warning("[CAPABILITY] 降级: response_format 被移除（渠道不支持）")
 
     # 过滤 reasoning_effort
-    if not caps.supports_reasoning_effort:
-        if "reasoning_effort" in result:
-            del result["reasoning_effort"]
-            logger.warning("[CAPABILITY] 降级: reasoning_effort 被移除（渠道不支持）")
+    if not caps.supports_reasoning_effort and "reasoning_effort" in result:
+        del result["reasoning_effort"]
+        logger.warning("[CAPABILITY] 降级: reasoning_effort 被移除（渠道不支持）")
 
     # 过滤 enable_thinking（非 OpenAI 标准参数，仅部分国产推理模型支持）
     if not caps.supports_enable_thinking and "enable_thinking" in result:

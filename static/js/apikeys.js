@@ -63,9 +63,9 @@ function renderApiKeys() {
                             <td data-label="${I18n.t('apikeys.colTokens')}" class="py-3 px-4 text-right text-ink-900 font-medium">${formatTokens((k.total_input_tokens || 0) + (k.total_output_tokens || 0))}</td>
                             <td data-label="${I18n.t('common.actions')}" class="py-3 px-4 text-right">
                                 <div class="flex items-center justify-end gap-1.5 flex-wrap">
-                                    <button onclick="editApiKey('${esc(k.id)}')" class="pill pill-muted hover:bg-surface-200 transition cursor-pointer">${I18n.t('common.edit')}</button>
-                                    <button onclick="copyApiKey('${esc(k.id)}')" class="pill pill-muted hover:bg-surface-200 transition cursor-pointer">${I18n.t('common.copy')}</button>
-                                    <button onclick="deleteApiKey('${esc(k.id)}')" class="pill pill-danger hover:opacity-80 transition cursor-pointer">${I18n.t('common.delete')}</button>
+                                    <button type="button" onclick="editApiKey('${esc(k.id)}')" class="pill pill-muted hover:bg-surface-200 transition cursor-pointer">${I18n.t('common.edit')}</button>
+                                    <button type="button" onclick="copyApiKey('${esc(k.id)}')" class="pill pill-muted hover:bg-surface-200 transition cursor-pointer">${I18n.t('common.copy')}</button>
+                                    <button type="button" onclick="deleteApiKey('${esc(k.id)}')" class="pill pill-danger hover:opacity-80 transition cursor-pointer">${I18n.t('common.delete')}</button>
                                 </div>
                             </td>
                         </tr>
@@ -77,20 +77,25 @@ function renderApiKeys() {
 }
 
 function openKeyModal() {
+    const modal = document.getElementById('keyModal');
+    const form = document.getElementById('keyForm');
+    clearFormErrors(form);
+    form.reset();
     document.getElementById('keyModalTitle').textContent = I18n.t('modals.keyCreate');
     document.getElementById('keyEditId').value = '';
-    document.getElementById('fk_name').value = '';
-    document.getElementById('fk_notes').value = '';
     tagInputKey.setTags([]);
-    document.getElementById('fk_key').value = '';
     document.getElementById('fk_key').disabled = false;
     document.getElementById('fk_key').placeholder = I18n.t('modals.keyCreatePh');
-    document.getElementById('keyModal').classList.remove('hidden');
+    openKeyModalStatic();
+    setTimeout(() => document.getElementById('fk_name').focus(), 50);
 }
 
 function editApiKey(id) {
     const key = apiKeys.find(k => k.id === id);
     if (!key) return;
+    const modal = document.getElementById('keyModal');
+    const form = document.getElementById('keyForm');
+    clearFormErrors(form);
     document.getElementById('keyModalTitle').textContent = I18n.t('modals.keyEdit');
     document.getElementById('keyEditId').value = id;
     document.getElementById('fk_name').value = key.name || '';
@@ -99,20 +104,56 @@ function editApiKey(id) {
     document.getElementById('fk_key').value = '';
     document.getElementById('fk_key').disabled = false;
     document.getElementById('fk_key').placeholder = I18n.t('modals.keyEditPh');
-    document.getElementById('keyModal').classList.remove('hidden');
+    openKeyModalStatic();
+}
+
+// 打开 Key 弹窗的公共部分：显示弹窗并设置焦点陷阱与触发元素
+function openKeyModalStatic() {
+    const modal = document.getElementById('keyModal');
+    modal.classList.remove('hidden');
+    modal.classList.remove('closing');
+    modal._triggerElement = document.activeElement;
+    setupFocusTrap(modal);
 }
 
 function closeKeyModal() {
-    document.getElementById('keyModal').classList.add('hidden');
+    const modal = document.getElementById('keyModal');
+    removeFocusTrap(modal);
+    modal.classList.add('closing');
+    const onEnd = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('closing');
+        modal.removeEventListener('animationend', onEnd);
+        if (modal._triggerElement) {
+            modal._triggerElement.focus();
+            delete modal._triggerElement;
+        }
+    };
+    modal.addEventListener('animationend', onEnd);
+    setTimeout(() => {
+        if (modal.classList.contains('closing')) {
+            onEnd();
+        }
+    }, 200);
 }
 
 async function saveApiKey(e) {
     e.preventDefault();
+    const form = e.target;
     const id = document.getElementById('keyEditId').value;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    
+    clearFormErrors(form);
+    const name = document.getElementById('fk_name').value.trim();
+    if (!name) {
+        showFieldError(document.getElementById('fk_name'), I18n ? I18n.t('validation.required') : '此项为必填项');
+        return;
+    }
+    
     const modelsStr = document.getElementById('fk_models').value;
     const manualKey = document.getElementById('fk_key').value.trim();
     const data = {
-        name: document.getElementById('fk_name').value,
+        name: name,
         notes: document.getElementById('fk_notes').value || '',
         allowed_models: modelsStr ? modelsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
     };
@@ -120,6 +161,7 @@ async function saveApiKey(e) {
         data.key = manualKey;
     }
 
+    setButtonLoading(submitBtn, true, I18n.t('common.saving'));
     try {
         if (id) {
             const resp = await fetch(`${API_KEYS}/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
@@ -128,6 +170,7 @@ async function saveApiKey(e) {
                 throw new Error(err.detail || ('HTTP ' + resp.status));
             }
             invalidateRequestApiKeys();
+            setButtonLoading(submitBtn, false);
             closeKeyModal();
             loadApiKeys();
         } else {
@@ -138,6 +181,7 @@ async function saveApiKey(e) {
             }
             const result = await resp.json();
             invalidateRequestApiKeys();
+            setButtonLoading(submitBtn, false);
             closeKeyModal();
             if (result.key) {
                 pendingCopyKey = result.key;
@@ -147,6 +191,7 @@ async function saveApiKey(e) {
             loadApiKeys();
         }
     } catch (e) {
+        setButtonLoading(submitBtn, false);
         showGlobalToast(I18n.t('apikeys.saveFailed') + ': ' + e.message);
     }
 }

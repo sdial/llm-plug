@@ -44,10 +44,12 @@ class ToChatCompletionsConverter(BaseConverter):
     def __init__(self):
         self._stream_state: dict[str, Any] | None = None
         self._stream_include_usage: bool = False
+        self._pending_extra_events: list[dict[str, Any]] = []
 
     def set_stream_include_usage(self, flag: bool) -> None:
         """供 proxy_core 在创建 converter 后透传客户端的 stream_options.include_usage。
-        仅影响 Anthropic→Chat 流式：当 flag=True 时，在 message_stop 处 emit 末帧 usage chunk。
+        当 flag=True 时，Anthropic→Chat 流式在 message_stop 处、Responses→Chat 流式在
+        response.completed 处 emit 末帧 usage chunk。
         """
         self._stream_include_usage = bool(flag)
 
@@ -58,8 +60,10 @@ class ToChatCompletionsConverter(BaseConverter):
             "tool_call_index": 0,
             "content_block_to_tc_index": {},  # Anthropic content block index → OpenAI tool_call index
             "output_index_to_tc_index": {},  # Response output_index → OpenAI tool_call index
+            "item_id_to_tc_index": {},  # Response item_id → OpenAI tool_call index
             "anthropic_usage": {},  # 累积 Anthropic 侧 usage
         }
+        self._pending_extra_events = []
 
     @staticmethod
     def _serialize_tool_arguments(value: Any) -> str:
@@ -295,15 +299,14 @@ class ToChatCompletionsConverter(BaseConverter):
                         "function": {"name": tc.get("name", "")},
                     }
         thinking = data.get("thinking")
-        if thinking:
-            if isinstance(thinking, dict):
-                if thinking.get("type") == "enabled":
-                    budget = thinking.get("budget_tokens", 0)
-                    result["reasoning_effort"] = thinking_budget_to_effort(budget)
-                    result["enable_thinking"] = True
-                elif thinking.get("type") == "adaptive":
-                    result["reasoning_effort"] = "medium"
-                    result["enable_thinking"] = True
+        if thinking and isinstance(thinking, dict):
+            if thinking.get("type") == "enabled":
+                budget = thinking.get("budget_tokens", 0)
+                result["reasoning_effort"] = thinking_budget_to_effort(budget)
+                result["enable_thinking"] = True
+            elif thinking.get("type") == "adaptive":
+                result["reasoning_effort"] = "medium"
+                result["enable_thinking"] = True
 
         # metadata/user_id 处理：Anthropic metadata.user_id -> OpenAI user
         metadata = data.get("metadata")
@@ -1070,6 +1073,9 @@ class ToChatCompletionsConverter(BaseConverter):
                 self._stream_state["tool_call_index"] = tc_idx + 1
                 output_index = chunk.get("output_index", 0)
                 self._stream_state["output_index_to_tc_index"][output_index] = tc_idx
+                item_id = chunk.get("item_id", "") or item.get("id", "")
+                if item_id:
+                    self._stream_state["item_id_to_tc_index"][item_id] = tc_idx
                 return {
                     "id": self._stream_state["msg_id"],
                     "object": "chat.completion.chunk",
@@ -1114,7 +1120,22 @@ class ToChatCompletionsConverter(BaseConverter):
 
         elif event_type == "response.function_call_arguments.delta":
             output_index = chunk.get("output_index", 0)
-            tc_idx = self._stream_state["output_index_to_tc_index"].get(output_index, 0)
+            tc_idx = self._stream_state["output_index_to_tc_index"].get(output_index)
+            if tc_idx is None:
+                tc_idx = self._stream_state["item_id_to_tc_index"].get(
+                    chunk.get("item_id", ""), None
+                )
+            if tc_idx is None:
+                # fallback：缺少前置 response.output_item.added 或 output_index 漂移时，
+                # 退到最近一次分配的 tc_idx，避免多个 tool_call 的 arguments
+                # 全部串到 index 0
+                tc_idx = max(0, self._stream_state["tool_call_index"] - 1)
+                logger.warning(
+                    "function_call_arguments.delta without matching output_item.added"
+                    " (output_index=%s), fallback tc_idx=%d",
+                    output_index,
+                    tc_idx,
+                )
             return {
                 "id": self._stream_state["msg_id"],
                 "object": "chat.completion.chunk",
@@ -1147,14 +1168,16 @@ class ToChatCompletionsConverter(BaseConverter):
                         finish_reason = "tool_calls"
                         break
             if self._stream_include_usage:
-                return {
-                    "id": self._stream_state["msg_id"],
-                    "object": "chat.completion.chunk",
-                    "created": 0,
-                    "model": self._stream_state["model"],
-                    "choices": [],
-                    "usage": openai_response_to_chat(resp.get("usage")),
-                }
+                self._pending_extra_events.append(
+                    {
+                        "id": self._stream_state["msg_id"],
+                        "object": "chat.completion.chunk",
+                        "created": 0,
+                        "model": self._stream_state["model"],
+                        "choices": [],
+                        "usage": openai_response_to_chat(resp.get("usage")),
+                    }
+                )
             return {
                 "id": self._stream_state["msg_id"],
                 "object": "chat.completion.chunk",
@@ -1199,3 +1222,10 @@ class ToChatCompletionsConverter(BaseConverter):
         raise ValueError(
             f"ToChatCompletionsConverter 不支持 source_type={source_type!r}"
         )
+
+    def get_extra_events(self, chunk: dict[str, Any]) -> list[dict[str, Any]]:
+        events = self._pending_extra_events
+        self._pending_extra_events = []  # 清空，避免重复发送
+        if events:
+            logger.debug(f"[GET_EXTRA_EVENTS] returning {len(events)} events")
+        return events

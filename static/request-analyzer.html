@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
     <title data-i18n="analyzer.title">请求分析器</title>
     <script src="/admin/static/tailwind.min.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/tailwind-config.js?v=__STATIC_ASSET_VERSION__"></script>
@@ -13,79 +14,76 @@
     <script src="/admin/static/js/i18n-zh.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/i18n-en.js?v=__STATIC_ASSET_VERSION__"></script>
 </head>
-<body>
-    <header class="bg-white border-b border-surface-200 sticky top-0 z-10">
+<body class="min-h-screen">
+    <!-- Header -->
+    <header class="analyzer-header">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex items-center justify-between h-16">
-                <div class="flex items-center gap-4">
-                    <a href="/admin#requests" class="text-ink-600 hover:text-ink-900 transition">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-                        </svg>
-                    </a>
-                    <h1 class="text-lg font-semibold text-ink-900" data-i18n="analyzer.title">请求分析器</h1>
-                </div>
+            <div class="flex items-center justify-between h-14">
                 <div class="flex items-center gap-3">
-                    <a id="requestJsonViewerLink" href="#" target="_blank" class="btn-secondary text-sm px-3 py-1.5 font-medium" data-i18n="analyzer.requestJson">
-                        请求 JSON
+                    <a href="/admin#requests" class="text-ink-500 hover:text-ink-900 transition p-1 rounded-lg hover:bg-surface-100" data-i18n-aria="analyzer.backAria" aria-label="返回请求列表">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
                     </a>
-                    <a id="outputJsonViewerLink" href="#" target="_blank" class="btn-secondary text-sm px-3 py-1.5 font-medium" data-i18n="analyzer.outputJson">
-                        输出 JSON
-                    </a>
-                    <button onclick="I18n.toggle()" class="text-ink-500 hover:text-ink-900 font-medium border border-surface-200 rounded-md px-2 py-1 text-xs" data-i18n-title="common.langLabel" title="切换语言">
-                        <span data-i18n="common.langLabel">中/EN</span>
-                    </button>
+                    <h1 class="text-base font-semibold text-ink-900" data-i18n="analyzer.title">请求分析器</h1>
+                </div>
+                <div class="flex items-center gap-2">
+                    <a id="requestJsonViewerLink" href="#" target="_blank" class="btn-secondary text-sm px-3 py-1.5 font-medium" data-i18n="analyzer.requestJson">请求 JSON</a>
+                    <a id="outputJsonViewerLink" href="#" target="_blank" class="btn-secondary text-sm px-3 py-1.5 font-medium" data-i18n="analyzer.outputJson">输出 JSON</a>
+                    <button type="button" onclick="I18n.toggle()" class="btn-secondary px-2.5 py-1.5 text-xs font-medium" data-i18n-title="common.langLabel" data-i18n-aria="common.langLabel" title="切换语言" aria-label="切换语言"><span data-i18n="common.langLabel">中/EN</span></button>
                 </div>
             </div>
         </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div id="metadataBar" class="card p-4 mb-6 hidden">
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
-                <div>
-                    <div class="text-xs text-ink-400 mb-1" data-i18n="analyzer.format">格式</div>
-                    <div id="metaFormat" class="text-sm font-medium text-ink-900">-</div>
+    <!-- Main Content -->
+    <main class="analyzer-main">
+        <!-- Metadata Bar -->
+        <div id="metadataBar" class="card p-4 mb-5 hidden">
+            <div class="metadata-grid">
+                <div class="metadata-item">
+                    <div class="metadata-label" data-i18n="analyzer.format">格式</div>
+                    <div class="metadata-value" id="metaFormat">-</div>
                 </div>
-                <div>
-                    <div class="text-xs text-ink-400 mb-1" data-i18n="analyzer.model">模型</div>
-                    <div id="metaModel" class="text-sm font-medium text-ink-900">-</div>
+                <div class="metadata-item">
+                    <div class="metadata-label" data-i18n="analyzer.model">模型</div>
+                    <div class="metadata-value" id="metaModel">-</div>
                 </div>
-                <div>
-                    <div class="text-xs text-ink-400 mb-1" data-i18n="analyzer.channel">渠道</div>
-                    <div id="metaChannel" class="text-sm font-medium text-ink-900">-</div>
+                <div class="metadata-item">
+                    <div class="metadata-label" data-i18n="analyzer.channel">渠道</div>
+                    <div class="metadata-value" id="metaChannel">-</div>
                 </div>
-                <div>
-                    <div class="text-xs text-ink-400 mb-1" data-i18n="analyzer.status">状态</div>
-                    <div id="metaStatus" class="text-sm font-medium">-</div>
+                <div class="metadata-item">
+                    <div class="metadata-label" data-i18n="analyzer.status">状态</div>
+                    <div class="metadata-value" id="metaStatus">-</div>
                 </div>
-                <div>
-                    <div class="text-xs text-ink-400 mb-1" data-i18n="analyzer.latency">耗时</div>
-                    <div id="metaLatency" class="text-sm font-medium text-ink-900">-</div>
+                <div class="metadata-item">
+                    <div class="metadata-label" data-i18n="analyzer.latency">耗时</div>
+                    <div class="metadata-value" id="metaLatency">-</div>
                 </div>
-                <div>
-                    <div class="text-xs text-ink-400 mb-1" data-i18n="analyzer.inputToken">输入 Token</div>
-                    <div id="metaInputTokens" class="text-sm font-medium text-ink-900">-</div>
+                <div class="metadata-item">
+                    <div class="metadata-label" data-i18n="analyzer.inputToken">输入 Token</div>
+                    <div class="metadata-value" id="metaInputTokens">-</div>
                 </div>
-                <div>
-                    <div class="text-xs text-ink-400 mb-1" data-i18n="analyzer.outputToken">输出 Token</div>
-                    <div id="metaOutputTokens" class="text-sm font-medium text-ink-900">-</div>
+                <div class="metadata-item">
+                    <div class="metadata-label" data-i18n="analyzer.outputToken">输出 Token</div>
+                    <div class="metadata-value" id="metaOutputTokens">-</div>
                 </div>
             </div>
         </div>
 
-        <div class="tabs">
-            <div class="tab active" data-view="overview" data-i18n="analyzer.tabOverview">概览</div>
-            <div class="tab" data-view="messages" data-i18n="analyzer.tabMessages">消息结构</div>
-            <div class="tab" data-view="output" data-i18n="analyzer.tabOutput">模型输出</div>
-            <div class="tab" data-view="tools" data-i18n="analyzer.tabTools">Tool 调用</div>
-            <div class="tab" data-view="system" data-i18n="analyzer.tabSystem">System 提示词</div>
-            <div class="tab" data-view="diagnostics" data-i18n="analyzer.tabDiagnostics">诊断</div>
+        <!-- Tabs -->
+        <div class="analyzer-tabs" role="tablist">
+            <div class="analyzer-tab active" data-view="overview" role="tab" id="tab-overview" aria-selected="true" aria-controls="panel-overview" tabindex="0"><span data-i18n="analyzer.tabOverview">概览</span></div>
+            <div class="analyzer-tab" data-view="messages" role="tab" id="tab-messages" aria-selected="false" aria-controls="panel-messages" tabindex="-1"><span data-i18n="analyzer.tabMessages">消息结构</span></div>
+            <div class="analyzer-tab" data-view="output" role="tab" id="tab-output" aria-selected="false" aria-controls="panel-output" tabindex="-1"><span data-i18n="analyzer.tabOutput">模型输出</span></div>
+            <div class="analyzer-tab" data-view="tools" role="tab" id="tab-tools" aria-selected="false" aria-controls="panel-tools" tabindex="-1"><span data-i18n="analyzer.tabTools">Tool 调用</span></div>
+            <div class="analyzer-tab" data-view="system" role="tab" id="tab-system" aria-selected="false" aria-controls="panel-system" tabindex="-1"><span data-i18n="analyzer.tabSystem">System 提示词</span></div>
+            <div class="analyzer-tab" data-view="diagnostics" role="tab" id="tab-diagnostics" aria-selected="false" aria-controls="panel-diagnostics" tabindex="-1"><span data-i18n="analyzer.tabDiagnostics">诊断</span></div>
         </div>
 
+        <!-- Content Area -->
         <div id="contentArea">
-            <div class="loading">
-                <div class="loading-spinner"></div>
+            <div class="analyzer-loading">
+                <span class="spinner" aria-hidden="true"></span>
                 <span data-i18n="analyzer.loading">加载中...</span>
             </div>
         </div>

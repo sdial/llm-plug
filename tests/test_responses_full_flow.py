@@ -28,7 +28,11 @@ def client(monkeypatch):
 def test_post_responses_streaming(client):
     async def mock_stream():
         yield b'data: {"type":"response.output_text.delta","delta":"Hello"}\n\n'
-        yield b'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","output":[]}}\n\n'
+        yield (
+            b'event: response.completed\n'
+            b'data: {"type":"response.completed","response":{"id":"resp_1","object":"response",'
+            b'"status":"completed","output":[]}}\n\n'
+        )
 
     with patch("routers.proxy_response.proxy_request") as mock_proxy:
         mock_proxy.return_value = (
@@ -588,11 +592,16 @@ def test_post_responses_streaming_saves_completed_response(client):
     async def mock_stream():
         yield (
             "event: response.created\n"
-            'data: {"type":"response.created","response":{"id":"resp_stream","object":"response","status":"in_progress","model":"gpt-4o","output":[]}}\n\n'
+            'data: {"type":"response.created","response":{"id":"resp_stream","object":"response",'
+            '"status":"in_progress","model":"gpt-4o","output":[]}}\n\n'
         )
         yield (
             "event: response.completed\n"
-            'data: {"type":"response.completed","response":{"id":"resp_stream","object":"response","created_at":123,"model":"gpt-4o","status":"completed","output":[{"type":"message","id":"msg_resp_stream","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Hello stream"}]}],"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}}\n\n'
+            'data: {"type":"response.completed","response":{"id":"resp_stream","object":"response",'
+            '"created_at":123,"model":"gpt-4o","status":"completed",'
+            '"output":[{"type":"message","id":"msg_resp_stream","status":"completed","role":"assistant",'
+            '"content":[{"type":"output_text","text":"Hello stream"}]}],'
+            '"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}}\n\n'
         )
 
     with patch("routers.proxy_response._store") as mock_store:

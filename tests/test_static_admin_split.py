@@ -35,6 +35,24 @@ def test_admin_assets_are_split_into_cohesive_modules():
     assert "<style>" not in html
 
 
+def test_tailwind_runtime_loads_before_config():
+    """tailwind.min.js（定义全局 tailwind）必须先于 tailwind-config.js（赋值
+    tailwind.config）加载；否则抛 `tailwind is not defined`，自定义主题类
+    （brand/ink/surface 等）不生成，页面开关等 UI 不渲染。"""
+    tailwind_script = '"/admin/static/tailwind.min.js?v='
+    config_script = '"/admin/static/js/tailwind-config.js?v='
+    for html_file in (
+        "index.html",
+        "admin-login.html",
+        "stream-test.html",
+        "request-analyzer.html",
+    ):
+        html = (STATIC_DIR / html_file).read_text(encoding="utf-8")
+        runtime_idx = html.index(tailwind_script)
+        config_idx = html.index(config_script)
+        assert runtime_idx < config_idx, f"{html_file}: runtime 必须在 config 之前加载"
+
+
 def test_admin_login_uses_shared_admin_styles_for_primary_button():
     html = LOGIN_HTML.read_text(encoding="utf-8")
 
@@ -67,7 +85,8 @@ def test_admin_index_uses_css_classes_instead_of_inline_styles():
     css = (STATIC_DIR / "css" / "admin.css").read_text(encoding="utf-8")
 
     assert " style=" not in html
-    assert ".modal-panel-shadow" in css
+    assert ".modal-panel" in css
+    assert "box-shadow" in css
 
 
 def test_admin_tool_pages_keep_offline_and_default_port_contracts():

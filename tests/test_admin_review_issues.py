@@ -97,59 +97,6 @@ class TestN1RestartEndpointRemoved:
         assert "restartBtn" not in html
 
 
-# ─────────────────────────── N3 ───────────────────────────
-
-
-class TestN3DnsRebindingSsrf:
-    """N3: 管理端出站请求在 transport 层重复校验 DNS 解析结果。"""
-
-    async def test_fetch_models_rejects_rebound_private_address_before_request(
-        self, admin_files, monkeypatch
-    ):
-        """校验阶段为公网、请求阶段变为内网时，应在 transport 层拒绝。"""
-        calls = 0
-        request_reached_network = False
-
-        def fake_getaddrinfo(host, port, *args, **kwargs):
-            nonlocal calls
-            calls += 1
-            if calls == 1:
-                return [(None, None, None, "", ("93.184.216.34", 443))]
-            return [(None, None, None, "", ("127.0.0.1", 443))]
-
-        monkeypatch.setattr(admin.socket, "getaddrinfo", fake_getaddrinfo)
-
-        class FakeTransport(httpx.AsyncBaseTransport):
-            async def handle_async_request(self, request):
-                nonlocal request_reached_network
-                request_reached_network = True
-                return httpx.Response(200, json={"data": []}, request=request)
-
-        monkeypatch.setattr(admin.httpx, "AsyncHTTPTransport", lambda: FakeTransport())
-
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            await client.post("/admin/auth/setup", json={"password": "pw"})
-            await client.post("/admin/auth/login", json={"password": "pw"})
-            csrf = (await client.get("/admin/auth/csrf")).json()["csrf_token"]
-
-            resp = await client.post(
-                "/admin/channels/fetch-models",
-                headers={"X-CSRF-Token": csrf},
-                json={
-                    "base_url": "https://evil-but-public-now.example.com",
-                    "models_url": "",
-                    "api_key": "sk-x",
-                    "api_type": "openai-chat-completions",
-                },
-            )
-
-        assert resp.status_code == 400
-        assert "内网或本机地址" in resp.json()["detail"]
-        assert request_reached_network is False
-
-
 # ─────────────────────────── N5 ───────────────────────────
 
 

@@ -148,6 +148,41 @@ _CONFIG_SCHEMA: dict[str, ConfigSchemaEntry] = {
         "default": 60,
         "requires_restart": False,
     },
+    "ctx_optimize_enabled": {
+        "type": "bool",
+        "default": False,
+        "requires_restart": False,
+    },
+    "ctx_optimize_strip_ansi": {
+        "type": "bool",
+        "default": True,
+        "requires_restart": False,
+    },
+    "ctx_optimize_trim_ws": {
+        "type": "bool",
+        "default": True,
+        "requires_restart": False,
+    },
+    "ctx_optimize_collapse_blank_lines": {
+        "type": "bool",
+        "default": True,
+        "requires_restart": False,
+    },
+    "ctx_optimize_dedupe_consecutive_lines": {
+        "type": "bool",
+        "default": True,
+        "requires_restart": False,
+    },
+    "ctx_optimize_strip_cc_telemetry": {
+        "type": "bool",
+        "default": False,
+        "requires_restart": False,
+    },
+    "ctx_optimize_caveman_enabled": {
+        "type": "bool",
+        "default": False,
+        "requires_restart": False,
+    },
 }
 
 _settings: dict = {}
@@ -194,10 +229,13 @@ def _validate_iana_timezone(value: str):
 
     try:
         ZoneInfo(value)
-    except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise ValueError(
-            f"aggregation_timezone 不是有效的 IANA 时区名: {value!r}"
-        ) from exc
+    except (
+        ZoneInfoNotFoundError,
+        ValueError,
+        PermissionError,
+        IsADirectoryError,
+    ) as exc:
+        raise ValueError(f"aggregation_timezone 不是有效的 IANA 时区名: {value!r}") from exc
 
 
 def _validate_setting(key: str, value):
@@ -209,9 +247,7 @@ def _validate_setting(key: str, value):
     if "max" in constraints and value > constraints["max"]:
         raise ValueError(f"{key} must be <= {constraints['max']}, got {value}")
     if "choices" in constraints and str(value).lower() not in constraints["choices"]:
-        raise ValueError(
-            f"{key} must be one of {constraints['choices']}, got {value!r}"
-        )
+        raise ValueError(f"{key} must be one of {constraints['choices']}, got {value!r}")
     validator = constraints.get("validator")
     if validator == "iana_timezone":
         _validate_iana_timezone(value)
@@ -414,7 +450,5 @@ async def update_settings(updates: dict) -> dict:
 
             reload_responses_store()
         except Exception as e:
-            logger.warning(
-                f"Failed to reload response state store after settings change: {e}"
-            )
+            logger.warning(f"Failed to reload response state store after settings change: {e}")
     return {"updated": updated_keys, "needs_restart": needs_restart}

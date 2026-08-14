@@ -151,15 +151,6 @@ async function loadSecurityConfig() {
         document.getElementById('set_admin_lockout_base_seconds').value = data.admin_lockout_base_seconds;
         _settingsOriginal.admin_max_attempts = data.admin_max_attempts;
         _settingsOriginal.admin_lockout_base_seconds = data.admin_lockout_base_seconds;
-
-        // 填充阶梯表
-        const tbody = document.getElementById('lockoutTiersBody');
-        tbody.innerHTML = '';
-        for (const tier of data.lockout_tiers) {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td class="py-1">${tier.range}${I18n.t('settings.secTierUnit')}</td><td>${tier.display}</td>`;
-            tbody.appendChild(tr);
-        }
     } catch (err) {
         console.error('Failed to load security config:', err);
     }
@@ -178,6 +169,52 @@ function initSettings() {
   syncLbStrategyMode();
 }
 
+// 用 Intl.supportedValuesOf('timeZone') 填充时区下拉，按地区前缀分组。
+// currentValue：存量值，可能不在列表中（非法/过旧时区），需补入避免回显丢失。
+function _populateTimezoneSelect(currentValue) {
+  const sel = document.getElementById('set_aggregation_timezone');
+  if (!sel) return;
+  // 移除上次动态生成的 option 与 optgroup（保留首个空选项）
+  const first = sel.querySelector('option[value=""]');
+  Array.from(sel.children).forEach((c) => { if (c !== first) c.remove(); });
+
+  let zones;
+  try {
+    zones = Intl.supportedValuesOf('timeZone');
+  } catch (e) {
+    // 极老浏览器不支持：降级为只保留空选项 + 常用区
+    zones = ['UTC', 'Asia/Shanghai', 'America/Los_Angeles', 'Europe/London'];
+  }
+  const present = new Set(zones);
+  if (currentValue && !present.has(currentValue)) {
+    zones = zones.concat(currentValue); // 存量值若不在列表则补入
+    present.add(currentValue);
+  }
+  // 按 "/" 前缀分组
+  const groups = new Map();
+  for (const z of zones) {
+    const slash = z.indexOf('/');
+    const group = slash === -1 ? 'Other' : z.slice(0, slash);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(z);
+  }
+  const frag = document.createDocumentFragment();
+  const sortedGroups = Array.from(groups.keys()).sort();
+  for (const g of sortedGroups) {
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = g;
+    groups.get(g).sort().forEach((z) => {
+      const opt = document.createElement('option');
+      opt.value = z;
+      opt.textContent = z;
+      optgroup.appendChild(opt);
+    });
+    frag.appendChild(optgroup);
+  }
+  sel.appendChild(frag);
+  if (currentValue) sel.value = currentValue;
+}
+
 async function loadSettings() {
   try {
     if (!document.getElementById('set_host')) return;
@@ -191,7 +228,7 @@ async function loadSettings() {
     document.getElementById('set_port').value = data.port || 55555;
     document.getElementById('set_request_timeout').value = data.request_timeout ?? 300;
     document.getElementById('set_max_body_size').value = data.max_body_size_mb ?? 10;
-    document.getElementById('set_aggregation_timezone').value = data.aggregation_timezone || '';
+    _populateTimezoneSelect(data.aggregation_timezone || '');
     document.getElementById('set_request_log_sqlite_path').value = data.request_log_sqlite_path || '';
     document.getElementById('set_save_request_headers').checked = Boolean(data.save_request_headers);
     document.getElementById('set_save_response_headers').checked = Boolean(data.save_response_headers);
@@ -201,7 +238,7 @@ async function loadSettings() {
     document.getElementById('set_save_images').checked = Boolean(data.save_images);
     document.getElementById('set_save_audios').checked = Boolean(data.save_audios);
     document.getElementById('set_max_log_body_size_kb').value = data.max_log_body_size_kb ?? 64;
-    document.getElementById('set_max_stream_chunks').value = data.max_stream_chunks ?? 10000;
+    document.getElementById('set_max_stream_chunks').value = data.max_stream_chunks ?? 50000;
     document.getElementById('set_request_log_raw_retention_days').value = data.request_log_raw_retention_days ?? 0;
     document.getElementById('set_request_log_retention_days').value = data.request_log_retention_days ?? 0;
     document.getElementById('set_max_fail_count').value = data.max_fail_count ?? 5;
@@ -396,13 +433,13 @@ async function loadFormatConversionPanel() {
   }
 }
 
-let _fcGlobalToggleBound = false;
+// 注意：htmx 每次切到设置 Tab 都会重建整个片段（含 fc_global_toggle 元素），
+// 所以这里不能依赖持久标志跳过绑定，必须在面板每次渲染后对新元素重新绑定。
+// 旧元素已被 _fcRenderPanel 替换丢弃，不会造成重复监听。
 function _fcBindGlobalToggle() {
-  if (_fcGlobalToggleBound) return;
   const toggle = document.getElementById('fc_global_toggle');
   if (!toggle) return;
   toggle.addEventListener('change', _fcOnGlobalToggle);
-  _fcGlobalToggleBound = true;
 }
 
 async function _fcOnGlobalToggle(e) {
@@ -474,5 +511,18 @@ Object.assign(window, {
     loadFormatConversionPanel,
     loadSecurityConfig,
 });
-window.adminSettings = { getOriginal: getOriginalSettings };
+
+// 轻量预加载：仅拉取并缓存 settings，不依赖设置页已渲染，
+// 让统计页等无需先进入设置 Tab 即可拿到 aggregation_timezone 等配置。
+async function preloadSettings() {
+    try {
+        const resp = await fetch('/admin/settings');
+        if (!resp.ok) return;
+        _settingsOriginal = await resp.json();
+    } catch (e) {
+        // 预加载失败不影响主流程，统计页时区显示退回浏览器本地时区
+    }
+}
+
+window.adminSettings = { getOriginal: getOriginalSettings, preload: preloadSettings };
 })();

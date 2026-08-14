@@ -18,8 +18,6 @@ import storage
 from main import app
 from routers import admin
 
-pytestmark = pytest.mark.asyncio
-
 
 @pytest_asyncio.fixture
 async def admin_files(tmp_path, monkeypatch):
@@ -163,36 +161,24 @@ class TestAvgLagCountBug:
             rec["fail_count"] += row["fail_count"] or 0
             rec["total_input_tokens"] += row["input_tokens"] or 0
             rec["total_output_tokens"] += row["output_tokens"] or 0
-            rec["total_cache_read_input_tokens"] += (
-                row.get("cache_read_input_tokens") or 0
-            )
-            rec["total_cache_creation_input_tokens"] += (
-                row.get("cache_creation_input_tokens") or 0
-            )
+            rec["total_cache_read_input_tokens"] += row.get("cache_read_input_tokens") or 0
+            rec["total_cache_creation_input_tokens"] += row.get("cache_creation_input_tokens") or 0
             if row.get("avg_latency_ms") is not None:
-                rec["total_latency_ms"] += row["avg_latency_ms"] * (
-                    row["request_count"] or 1
-                )
+                rec["total_latency_ms"] += row["avg_latency_ms"] * (row["request_count"] or 1)
                 rec["latency_count"] += row["request_count"] or 1
             if row.get("avg_lag_ms") is not None:
                 rec["total_lag_ms"] += row["avg_lag_ms"] * (row["request_count"] or 1)
                 rec["lag_count"] += row["request_count"] or 1
 
         # 用 lag_count 计算平均值
-        avg_lag = (
-            round(rec["total_lag_ms"] / rec["lag_count"]) if rec["lag_count"] else 0
-        )
+        avg_lag = round(rec["total_lag_ms"] / rec["lag_count"]) if rec["lag_count"] else 0
         assert avg_lag == 100, (
             f"avg_lag should be 100 (total_lag=300 / lag_count=3), got {avg_lag}. "
             "lag_count must be separate from latency_count"
         )
 
         # 验证 latency 不受影响
-        avg_latency = (
-            round(rec["total_latency_ms"] / rec["latency_count"])
-            if rec["latency_count"]
-            else 0
-        )
+        avg_latency = round(rec["total_latency_ms"] / rec["latency_count"]) if rec["latency_count"] else 0
         assert avg_latency == 100, f"avg_latency should be 100, got {avg_latency}"
 
 
@@ -202,11 +188,10 @@ class TestAvgLagCountBug:
 class TestMutatorNoHTTPException:
     """mutator 不应在锁内抛 HTTPException，应返回标记值由外层抛异常。"""
 
+    @pytest.mark.asyncio
     async def test_update_channel_not_found_returns_404(self, admin_files):
         """更新不存在的渠道应返回 404，但不能在 mutator 内抛异常。"""
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
             await client.post("/admin/auth/login", json={"password": "pw"})
             csrf = (await client.get("/admin/auth/csrf")).json()["csrf_token"]
@@ -218,11 +203,10 @@ class TestMutatorNoHTTPException:
             )
             assert resp.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_delete_channel_not_found_returns_404(self, admin_files):
         """删除不存在的渠道应返回 404，但不能在 mutator 内抛异常。"""
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
             await client.post("/admin/auth/login", json={"password": "pw"})
             csrf = (await client.get("/admin/auth/csrf")).json()["csrf_token"]
@@ -233,11 +217,10 @@ class TestMutatorNoHTTPException:
             )
             assert resp.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_toggle_channel_not_found_returns_404(self, admin_files):
         """切换不存在的渠道应返回 404，但不能在 mutator 内抛异常。"""
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
             await client.post("/admin/auth/login", json={"password": "pw"})
             csrf = (await client.get("/admin/auth/csrf")).json()["csrf_token"]
@@ -321,9 +304,5 @@ class TestLoginRateLimitMemoryLeak:
 
     def test_cleanup_function_exists(self):
         """验证 _cleanup_expired_attempts 函数存在且可调用。"""
-        assert hasattr(admin, "_cleanup_expired_attempts"), (
-            "_cleanup_expired_attempts function should exist"
-        )
-        assert callable(admin._cleanup_expired_attempts), (
-            "_cleanup_expired_attempts should be callable"
-        )
+        assert hasattr(admin, "_cleanup_expired_attempts"), "_cleanup_expired_attempts function should exist"
+        assert callable(admin._cleanup_expired_attempts), "_cleanup_expired_attempts should be callable"
