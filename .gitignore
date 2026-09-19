@@ -50,6 +50,7 @@ Thumbs.db
 .scratch/
 .workbuddy/
 .cnb.yml
+opencode.json
 
 # One-off local test reproductions
 tests/_tmp_*.py
