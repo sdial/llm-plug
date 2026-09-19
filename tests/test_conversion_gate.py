@@ -5,19 +5,16 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from models.api_types import APIType
-from models.channel import Channel
-from proxy_core import (
-    _filter_channels_by_conversion,
-    _proxy_single_model_request,
-)
+from models.channel import Channel, Endpoint
+from proxy.conversion import filter_channels_by_conversion
+from proxy.routing import _proxy_single_model_request
 
 
 def _mk(id_: str, api_type: APIType, allow=None) -> Channel:
     return Channel(
         id=id_,
         name=id_,
-        api_type=api_type,
-        base_url=f"https://{id_}.example",
+        endpoints=[Endpoint(api_type=api_type, base_url=f"https://{id_}.example")],
         api_key="k",
         models=["m"],
         allow_format_conversion=allow,
@@ -27,32 +24,32 @@ def _mk(id_: str, api_type: APIType, allow=None) -> Channel:
 class TestFilterChannelsByConversion:
     def test_same_format_always_passes(self):
         ch = _mk("ch_same", APIType.ANTHROPIC)
-        with patch("proxy_core.get_setting", return_value=False):
-            out = _filter_channels_by_conversion([ch], APIType.ANTHROPIC)
+        with patch("proxy.conversion.get_setting", return_value=False):
+            out = filter_channels_by_conversion([ch], APIType.ANTHROPIC)
         assert [c.id for c in out] == ["ch_same"]
 
     def test_cross_format_blocked_when_global_disabled(self):
         ch = _mk("ch_cross", APIType.OPENAI_CHAT)
-        with patch("proxy_core.get_setting", return_value=False):
-            out = _filter_channels_by_conversion([ch], APIType.ANTHROPIC)
+        with patch("proxy.conversion.get_setting", return_value=False):
+            out = filter_channels_by_conversion([ch], APIType.ANTHROPIC)
         assert out == []
 
     def test_cross_format_allowed_when_global_enabled(self):
         ch = _mk("ch_cross", APIType.OPENAI_CHAT)
-        with patch("proxy_core.get_setting", return_value=True):
-            out = _filter_channels_by_conversion([ch], APIType.ANTHROPIC)
+        with patch("proxy.conversion.get_setting", return_value=True):
+            out = filter_channels_by_conversion([ch], APIType.ANTHROPIC)
         assert [c.id for c in out] == ["ch_cross"]
 
     def test_channel_true_overrides_global_false(self):
         ch = _mk("ch_cross", APIType.OPENAI_CHAT, allow=True)
-        with patch("proxy_core.get_setting", return_value=False):
-            out = _filter_channels_by_conversion([ch], APIType.ANTHROPIC)
+        with patch("proxy.conversion.get_setting", return_value=False):
+            out = filter_channels_by_conversion([ch], APIType.ANTHROPIC)
         assert [c.id for c in out] == ["ch_cross"]
 
     def test_channel_false_overrides_global_true(self):
         ch = _mk("ch_cross", APIType.OPENAI_CHAT, allow=False)
-        with patch("proxy_core.get_setting", return_value=True):
-            out = _filter_channels_by_conversion([ch], APIType.ANTHROPIC)
+        with patch("proxy.conversion.get_setting", return_value=True):
+            out = filter_channels_by_conversion([ch], APIType.ANTHROPIC)
         assert out == []
 
     def test_mixed_same_and_cross_format(self):
@@ -60,8 +57,8 @@ class TestFilterChannelsByConversion:
         cross_blocked = _mk("blocked", APIType.OPENAI_CHAT, allow=False)
         cross_allowed = _mk("allowed", APIType.OPENAI_RESPONSE, allow=True)
         cross_inherit = _mk("inherit", APIType.OPENAI_CHAT)  # follows global
-        with patch("proxy_core.get_setting", return_value=False):
-            out = _filter_channels_by_conversion(
+        with patch("proxy.conversion.get_setting", return_value=False):
+            out = filter_channels_by_conversion(
                 [same, cross_blocked, cross_allowed, cross_inherit],
                 APIType.ANTHROPIC,
             )
@@ -70,8 +67,8 @@ class TestFilterChannelsByConversion:
     def test_get_setting_returns_none_defaults_to_allowed(self):
         # If config returns None (unlikely but safe), default to allowed (backward compat).
         ch = _mk("ch_cross", APIType.OPENAI_CHAT)
-        with patch("proxy_core.get_setting", return_value=None):
-            out = _filter_channels_by_conversion([ch], APIType.ANTHROPIC)
+        with patch("proxy.conversion.get_setting", return_value=None):
+            out = filter_channels_by_conversion([ch], APIType.ANTHROPIC)
         assert [c.id for c in out] == ["ch_cross"]
 
 
@@ -81,11 +78,11 @@ class TestProxySingleModelRequestErrorMessages:
         cross = _mk("ch_cross", APIType.OPENAI_CHAT)
         with (
             patch(
-                "proxy_core._get_channels_for_model",
+                "channel_catalog.catalog.channels_for_model",
                 new_callable=AsyncMock,
                 return_value=[cross],
             ),
-            patch("proxy_core.get_setting", return_value=False),
+            patch("proxy.conversion.get_setting", return_value=False),
         ):
             with pytest.raises(ValueError) as exc:
                 await _proxy_single_model_request(
@@ -106,7 +103,7 @@ class TestProxySingleModelRequestErrorMessages:
     async def test_no_channel_at_all_still_raises_original_error(self):
         with (
             patch(
-                "proxy_core._get_channels_for_model",
+                "channel_catalog.catalog.channels_for_model",
                 new_callable=AsyncMock,
                 return_value=[],
             ),

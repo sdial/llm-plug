@@ -2,7 +2,7 @@
 
 覆盖 ASGI 层路径去重：
 1. normalize_path 函数单元测试（/v1/v1/* → /v1/*）
-2. CombinedMiddleware 端到端集成测试（重复 /v1 路径仍能正确路由和鉴权）
+2. 5 中间件链端到端集成测试（重复 /v1 路径仍能正确路由和鉴权）
 """
 
 import json
@@ -12,6 +12,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
+from middleware.admin_auth_middleware import AdminAuthMiddleware
+from middleware.body_buffer_middleware import BodyBufferMiddleware
+from middleware.proxy_auth_middleware import ProxyAuthMiddleware
+from middleware.request_log_middleware import RequestLogMiddleware
+from middleware.whitelist_middleware import WhitelistMiddleware
+
 # ═══════════════════════════════════════════
 #  单元测试：normalize_path 函数
 # ═══════════════════════════════════════════
@@ -20,43 +26,43 @@ from fastapi.testclient import TestClient
 class TestNormalizePath:
     def test_double_v1_messages(self):
         """/v1/v1/messages → /v1/messages"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/v1/messages") == "/v1/messages"
 
     def test_double_v1_chat_completions(self):
         """/v1/v1/chat/completions → /v1/chat/completions"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/v1/chat/completions") == "/v1/chat/completions"
 
     def test_double_v1_responses(self):
         """/v1/v1/responses → /v1/responses"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/v1/responses") == "/v1/responses"
 
     def test_double_v1_models(self):
         """/v1/v1/models → /v1/models"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/v1/models") == "/v1/models"
 
     def test_triple_v1_messages(self):
         """/v1/v1/v1/messages → /v1/messages"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/v1/v1/messages") == "/v1/messages"
 
     def test_single_v1_unchanged(self):
         """/v1/messages 保持不变"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/messages") == "/v1/messages"
 
     def test_non_proxy_path_unchanged(self):
         """非代理路径不受影响"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/admin") == "/admin"
         assert normalize_path("/health") == "/health"
@@ -64,13 +70,13 @@ class TestNormalizePath:
 
     def test_root_path_unchanged(self):
         """根路径保持不变"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/") == "/"
 
     def test_double_v1_anthropic_models(self):
         """/v1/v1/anthropic/models → /v1/anthropic/models"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/v1/anthropic/models") == "/v1/anthropic/models"
 
@@ -78,43 +84,43 @@ class TestNormalizePath:
 
     def test_bare_messages(self):
         """/messages → /v1/messages"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/messages") == "/v1/messages"
 
     def test_bare_chat_completions(self):
         """/chat/completions → /v1/chat/completions"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/chat/completions") == "/v1/chat/completions"
 
     def test_bare_responses(self):
         """/responses → /v1/responses"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/responses") == "/v1/responses"
 
     def test_bare_responses_with_id(self):
         """/responses/resp_abc123 → /v1/responses/resp_abc123"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/responses/resp_abc123") == "/v1/responses/resp_abc123"
 
     def test_bare_models(self):
         """/models → /v1/models"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/models") == "/v1/models"
 
     def test_bare_anthropic_models(self):
         """/anthropic/models → /v1/anthropic/models"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/anthropic/models") == "/v1/anthropic/models"
 
     def test_unknown_bare_path_unchanged(self):
         """未知的裸路径不应被补 /v1"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/admin") == "/admin"
         assert normalize_path("/health") == "/health"
@@ -124,45 +130,46 @@ class TestNormalizePath:
 
     def test_double_v1_with_trailing_slash(self):
         """/v1/v1/chat/completions/ → /v1/chat/completions/"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/v1/chat/completions/") == "/v1/chat/completions/"
 
     def test_triple_v1_responses(self):
         """/v1/v1/v1/responses → /v1/responses"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/v1/v1/responses") == "/v1/responses"
 
     def test_triple_v1_with_trailing_slash(self):
         """/v1/v1/v1/chat/completions/ → /v1/chat/completions/"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/v1/v1/chat/completions/") == "/v1/chat/completions/"
 
     def test_bare_path_with_trailing_slash(self):
         """/chat/completions/ → /v1/chat/completions/"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/chat/completions/") == "/v1/chat/completions/"
 
     def test_single_v1_with_trailing_slash_unchanged(self):
         """/v1/messages/ 保持不变（已有 /v1 前缀）"""
-        from main import normalize_path
+        from middleware.common import normalize_path
 
         assert normalize_path("/v1/messages/") == "/v1/messages/"
 
 
 # ═══════════════════════════════════════════
-#  集成测试：CombinedMiddleware 路径归一化
+#  集成测试：5 中间件链路径归一化
 # ═══════════════════════════════════════════
 
 
 @pytest.fixture
 def middleware_app(tmp_path, monkeypatch):
-    """构建一个最小 FastAPI 应用 + CombinedMiddleware 的测试环境。"""
+    """构建一个最小 FastAPI 应用 + 5 中间件链的测试环境。"""
     import config
-    import main as _main
+    import middleware.proxy_auth_middleware as pam
+    import middleware.whitelist_middleware as wmod
     import storage
     import whitelist as _whitelist
 
@@ -177,8 +184,9 @@ def middleware_app(tmp_path, monkeypatch):
             {
                 "id": "ch_pn_1",
                 "name": "PN Test",
-                "api_type": "openai-chat-completions",
-                "base_url": "http://127.0.0.1:19876",
+                "endpoints": [
+                    {"api_type": "openai-chat-completions", "base_url": "http://127.0.0.1:19876"},
+                ],
                 "api_key": "test-key",
                 "models": ["gpt-4o"],
                 "enabled": True,
@@ -216,11 +224,11 @@ def middleware_app(tmp_path, monkeypatch):
     storage._keys_cache_ts = 0
     storage._channels_lock = None
     storage._keys_lock = None
-    _main._api_key_index = None
+    pam._api_key_index = None
 
     wl_file = data_dir / "whitelist.csv"
     wl_file.write_text("")
-    _main._whitelist_cache = _whitelist.WhitelistCache(str(wl_file))
+    wmod._whitelist_cache = _whitelist.WhitelistCache(str(wl_file))
 
     inner_app = FastAPI()
 
@@ -251,7 +259,11 @@ def middleware_app(tmp_path, monkeypatch):
             }
         )
 
-    inner_app.add_middleware(_main.CombinedMiddleware)
+    inner_app.add_middleware(RequestLogMiddleware)
+    inner_app.add_middleware(BodyBufferMiddleware)
+    inner_app.add_middleware(ProxyAuthMiddleware)
+    inner_app.add_middleware(AdminAuthMiddleware)
+    inner_app.add_middleware(WhitelistMiddleware)
 
     with TestClient(inner_app, raise_server_exceptions=False) as client:
         yield client
@@ -262,7 +274,7 @@ def middleware_app(tmp_path, monkeypatch):
     storage._keys_cache_ts = 0
     storage._channels_lock = None
     storage._keys_lock = None
-    _main._api_key_index = None
+    pam._api_key_index = None
 
 
 class TestMiddlewarePathNormalization:
@@ -385,13 +397,12 @@ class TestOriginalPathPreservation:
 
         from loguru import logger
 
-        from main import CombinedMiddleware
+        from middleware.common import _log_request
 
         sink = io.StringIO()
         handler_id = logger.add(sink, level="INFO")
         try:
-            mw = CombinedMiddleware.__new__(CombinedMiddleware)
-            mw._log_request(
+            _log_request(
                 ts_start="2026-06-20 12:00:00",
                 method="POST",
                 path="/v1/messages",
@@ -416,13 +427,12 @@ class TestOriginalPathPreservation:
 
         from loguru import logger
 
-        from main import CombinedMiddleware
+        from middleware.common import _log_request
 
         sink = io.StringIO()
         handler_id = logger.add(sink, level="INFO")
         try:
-            mw = CombinedMiddleware.__new__(CombinedMiddleware)
-            mw._log_request(
+            _log_request(
                 ts_start="2026-06-20 12:00:00",
                 method="POST",
                 path="/v1/messages",
@@ -435,8 +445,6 @@ class TestOriginalPathPreservation:
                 start=0.0,
             )
             log_text = sink.getvalue()
-            assert "original=" not in log_text, (
-                f"路径相同时不应显示 original=: {log_text}"
-            )
+            assert "original=" not in log_text, f"路径相同时不应显示 original=: {log_text}"
         finally:
             logger.remove(handler_id)

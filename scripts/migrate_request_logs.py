@@ -31,9 +31,7 @@ from contextlib import closing
 from pathlib import Path
 
 # 保证从项目根 import config（脚本位于 scripts/ 下）
-sys.path.insert(
-    0, str(Path(__file__).resolve().parent.parent)
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from loguru import logger
 
@@ -48,9 +46,7 @@ def discover_month_dbs(logs_dir: str) -> list[str]:
     paths = []
     for path in glob.glob(os.path.join(logs_dir, "request_logs_????_??.sqlite3")):
         basename = os.path.basename(path)
-        parts = (
-            basename.replace("request_logs_", "").replace(".sqlite3", "").split("_")
-        )
+        parts = basename.replace("request_logs_", "").replace(".sqlite3", "").split("_")
         if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 2:
             paths.append(path)
     return sorted(paths)
@@ -63,9 +59,7 @@ def has_column(conn: sqlite3.Connection) -> bool:
 
 def logs_dir_for(data_dir: str) -> str:
     # 月度库位于 request_logs.db 同级的 request_raw_logs/ 下
-    db_path = os.environ.get(
-        "REQUEST_LOG_SQLITE_PATH", os.path.join(data_dir, "request_logs.db")
-    )
+    db_path = os.environ.get("REQUEST_LOG_SQLITE_PATH", os.path.join(data_dir, "request_logs.db"))
     return os.path.join(os.path.dirname(os.path.abspath(db_path)), "request_raw_logs")
 
 
@@ -80,13 +74,9 @@ def migrate_one(db_path: str, dry_run: bool) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="迁移请求日志月度库，补充 requested_model 列"
-    )
+    parser = argparse.ArgumentParser(description="迁移请求日志月度库，补充 requested_model 列")
     parser.add_argument("--dry-run", action="store_true", help="仅预览，不实际修改")
-    parser.add_argument(
-        "--path", default=None, help="data 目录（默认用 config.DATA_DIR）"
-    )
+    parser.add_argument("--path", default=None, help="data 目录（默认用 config.DATA_DIR）")
     args = parser.parse_args()
 
     data_dir = args.path or config.DATA_DIR
@@ -110,9 +100,7 @@ def main() -> int:
             logger.info("{}: 已补齐 {} 列", os.path.basename(db_path), COLUMN)
         elif status == "pending":
             changed += 1
-            logger.info(
-                "{}: [dry-run] 需要补齐 {} 列", os.path.basename(db_path), COLUMN
-            )
+            logger.info("{}: [dry-run] 需要补齐 {} 列", os.path.basename(db_path), COLUMN)
         else:
             logger.info("{}: 已存在 {} 列，跳过", os.path.basename(db_path), COLUMN)
 

@@ -1,8 +1,6 @@
 (() => {
 
-let currentTab = 'channels';
 let adminBootstrapped = false;
-let pendingRequestHashQuery = '';
 let csrfToken = null;
 let csrfTokenPromise = null;
 
@@ -169,6 +167,16 @@ async function _extractErrorMessage(resp) {
     }
 }
 
+// 统一的"非 2xx → Error"提取（ADR-0020 D2 票 06）：全局 fetch 包装（adminFetch）
+// 已统一 401 跳登录 / 403 CSRF 重试 / 5xx toast；业务模块对剩余 4xx 只需调用本助手
+// 把响应体 detail/error 提取为 Error 抛出，不再各自手拼三行错误样板。
+async function ensureOkResponse(resp) {
+    if (resp.ok) return resp;
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || err.error || `HTTP ${resp.status}`);
+}
+window.ensureOkResponse = ensureOkResponse;
+
 window.fetch = async function adminFetch(input, init = {}) {
     const requestMethod = init.method || (input instanceof Request ? input.method : 'GET');
     const isMutation = isAdminMutation(input, requestMethod);
@@ -238,148 +246,21 @@ window.fetch = async function adminFetch(input, init = {}) {
     return resp;
 };
 
-function updateRequestHashSafely() {
-    if (typeof syncRequestHash === 'function' && document.getElementById('reqFilterModel')) {
-        syncRequestHash();
-    } else {
-        history.replaceState(null, '', '#requests');
-    }
-}
-
-function updateTabActiveState(tab) {
-    document.querySelectorAll('[id^="tab_"]').forEach(button => {
-        const tabName = button.id.replace('tab_', '');
-        const isActive = tabName === tab;
-        button.classList.toggle('tab-active', isActive);
-        button.classList.toggle('tab-inactive', !isActive);
-    });
-}
-
-function updateAdminLayoutWidth(tab) {
-    // 请求页与其它 Tab 使用相同的 max-w-6xl 容器宽度，保持布局一致。
-    void tab;
-}
-
 function switchTab(tab, updateHash = true) {
-    currentTab = tab;
-    if (updateHash) {
-        if (tab === 'requests') {
-            updateRequestHashSafely();
-        } else {
-            history.replaceState(null, '', '#' + tab);
-        }
-    }
-    updateTabActiveState(tab);
-    updateAdminLayoutWidth(tab);
-    const content = document.getElementById('admin-content');
-    if (content) {
-        content.setAttribute('hx-get', `/admin/ui/${tab}`);
-        if (window.htmx) {
-            window.htmx.ajax('GET', `/admin/ui/${tab}`, { target: content, swap: 'innerHTML' });
-        }
-    }
-    const mobileSelect = document.getElementById('tabMobileSelect');
-    if (mobileSelect && mobileSelect.value !== tab) mobileSelect.value = tab;
-    if (tab !== 'stats') {
-        _stopStatsAutoRefresh();
-    }
+    // Tab 生命周期（停旧/启新/hash/UI/片段加载）全部交给 TabRuntime，外壳不再按裸名字 poke。
+    TabRuntime.activate(tab, { updateHash });
 }
 
 function initTabFromHash() {
     const hash = window.location.hash.slice(1);
-    const [tab, queryString] = hash.split('?');
-    const validTabs = ['channels', 'apikeys', 'lb', 'stats', 'requests', 'settings', 'whitelist', 'storage', 'context-optimization'];
-    if (tab && validTabs.includes(tab)) {
-        if (tab === 'requests' && queryString) {
-            pendingRequestHashQuery = queryString;
-        }
-        switchTab(tab, false);
+    let [tab, queryString] = hash.split('?');
+    if (tab === 'context-optimization') {
+        tab = 'context-shaping';
+        history.replaceState(null, '', '#context-shaping' + (queryString ? '?' + queryString : ''));
     }
-}
-
-function _isAdminContentReady() {
-    if (currentTab === 'channels') return Boolean(document.getElementById('channelList') || document.getElementById('f_models_container'));
-    if (currentTab === 'apikeys') return Boolean(document.getElementById('apiKeyList') || document.getElementById('fk_models_container'));
-    if (currentTab === 'lb') return Boolean(document.getElementById('modelGroupList') || document.getElementById('modelGroupModal'));
-    if (currentTab === 'stats') return Boolean(document.getElementById('statsDays') || document.getElementById('refreshStatsBtn'));
-    if (currentTab === 'requests') return Boolean(document.getElementById('requestsTbody') || document.getElementById('reqFilterModel'));
-    if (currentTab === 'settings') return Boolean(document.getElementById('set_host') || document.getElementById('settings_server'));
-    if (currentTab === 'whitelist') return Boolean(document.getElementById('whitelist_content') || document.getElementById('whitelist_save_btn'));
-    if (currentTab === 'storage') return Boolean(document.getElementById('storageTab'));
-    if (currentTab === 'context-optimization') return Boolean(document.getElementById('contextOptimizationTab'));
-    return false;
-}
-
-function _applyPendingRequestHash() {
-    if (currentTab !== 'requests' || !pendingRequestHashQuery) {
-        return false;
-    }
-    const modelEl = document.getElementById('reqFilterModel');
-    const startEl = document.getElementById('reqFilterStart');
-    const endEl = document.getElementById('reqFilterEnd');
-    const successEl = document.getElementById('reqFilterSuccess');
-    const apiKeyEl = document.getElementById('reqFilterApiKeyId');
-    if (!modelEl || !startEl || !endEl || !successEl || !apiKeyEl) {
-        return false;
-    }
-    const params = new URLSearchParams(pendingRequestHashQuery);
-    modelEl.value = params.get('model') || '';
-    window.adminRequests.setPendingChannelRestore(params.get('channel') || '');
-    window.adminRequests.setPendingApiKeyRestore(params.get('api_key_id') || '');
-    startEl.value = utcIsoToLocalInput(params.get('start'));
-    endEl.value = utcIsoToLocalInput(params.get('end'));
-    successEl.value = params.get('success') || '';
-    apiKeyEl.value = params.get('api_key_id') || '';
-    // 带时间参数 = 固定区间快照（返回 true，bootstrap 不自动进实时模式）；
-    // 不带时间参数 = 实时尾巴（返回 false，与首次进入一致，自动开启实时刷新）。
-    const hasTimeRange = !!(params.get('start') || params.get('end'));
-    if (!hasTimeRange) setDefaultRequestTimeRange();
-    window.adminRequests.setPage(params.get('page'));
-    window.adminRequests.setPageSize(params.get('page_size'));
-    pendingRequestHashQuery = '';
-    return hasTimeRange;
-}
-
-function _bootstrapCurrentTab() {
-    if (!_isAdminContentReady()) {
-        return;
-    }
-    if (currentTab === 'channels') {
-        loadChannels();
-        initChannels();
-    } else if (currentTab === 'apikeys') {
-        initApiKeys();
-        loadApiKeys();
-    } else if (currentTab === 'lb') {
-        loadModelGroups();
-    } else if (currentTab === 'stats') {
-        loadStats();
-    } else if (currentTab === 'requests') {
-        const restoredFromHash = _applyPendingRequestHash();
-        if (!restoredFromHash) {
-            setDefaultRequestTimeRange();
-            // 首次进入请求页（无历史 query）默认进入实时尾巴并自动刷新；
-            // 带历史 query 的深链 URL（快照）不自动开启，避免历史结果被实时滚动破坏。
-            if (window.adminRequests?.startAutoRefresh) window.adminRequests.startAutoRefresh();
-        }
-        loadRequests();
-    } else {
-        if (window.adminRequests?.stopAutoRefresh) window.adminRequests.stopAutoRefresh();
-    }
-    if (currentTab === 'settings') {
-        initSettings();
-        switchSettingsSection('server');
-        loadSettings();
-    } else if (currentTab === 'whitelist') {
-        loadWhitelist();
-    } else if (currentTab === 'storage') {
-        if (typeof window.loadStorageStats === 'function') {
-            window.loadStorageStats();
-        }
-    } else if (currentTab === 'context-optimization') {
-        if (typeof window.loadContextOptimization === 'function') {
-            window.loadContextOptimization();
-        }
+    if (tab && TabRuntime.isRegistered(tab)) {
+        // 深链：URL 已含 hash，不重复写；query 由 TabRuntime 交给该 tab 的 restore 钩子。
+        TabRuntime.activate(tab, { updateHash: false, hash: queryString || '' });
     }
 }
 
@@ -389,7 +270,8 @@ function bootstrapAdmin() {
     }
     adminBootstrapped = true;
     initTabFromHash();
-    _bootstrapCurrentTab();
+    // 片段已就绪则立即初始化；未就绪由 htmx:afterSettle 兜底（TabRuntime.bootstrap）。
+    TabRuntime.bootstrap();
     // 预加载 settings，使统计页等无需先进入设置 Tab 即可拿到聚合时区等配置
     if (window.adminSettings?.preload) window.adminSettings.preload();
 }
@@ -415,18 +297,7 @@ function _closeTopModal() {
     const openModals = _getOpenModals();
     if (openModals.length === 0) return false;
     const topModal = openModals[openModals.length - 1];
-    const modalId = topModal.id;
-    if (typeof window.closeModal === 'function' && modalId === 'channelModal') {
-        window.closeModal();
-    } else if (typeof window.closeKeyModal === 'function' && modalId === 'keyModal') {
-        window.closeKeyModal();
-    } else if (typeof window.closeConfirmModal === 'function' && modalId === 'confirmModal') {
-        window.closeConfirmModal();
-    } else if (typeof window.closeModelGroupModal === 'function' && modalId === 'modelGroupModal') {
-        window.closeModelGroupModal();
-    } else {
-        topModal.classList.add('hidden');
-    }
+    ModalManager.close(topModal);
     return true;
 }
 
@@ -450,12 +321,12 @@ window.addEventListener('htmx:afterSettle', (event) => {
     const target = event?.target;
     if (target && target.id === 'admin-content') {
         if (window.I18n) I18n.translateRoot(target);
-        _bootstrapCurrentTab();
+        TabRuntime.bootstrap();
     }
 });
 window.addEventListener('hashchange', () => {
     initTabFromHash();
-    _bootstrapCurrentTab();
+    TabRuntime.bootstrap();
 });
 
 window.switchTab = switchTab;

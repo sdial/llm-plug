@@ -3,6 +3,8 @@ import secrets
 import time
 from typing import Any
 
+from converters.stream_usage import _OPENAI_FAMILY_AUTO, _collect_anthropic_stream_usage, _StreamUsageAccumulator
+
 
 def build_stream_response_body(
     chunks: list[Any],
@@ -34,7 +36,6 @@ def build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | Non
     role = "assistant"
     stop_reason = None
     stop_sequence = None
-    usage: dict[str, Any] = {"input_tokens": 0, "output_tokens": 0}
     blocks: dict[int, dict[str, Any]] = {}
     tool_json_buffers: dict[int, str] = {}
 
@@ -48,8 +49,6 @@ def build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | Non
             msg = chunk.get("message", {})
             message_id = msg.get("id")
             role = msg.get("role", "assistant")
-            if isinstance(msg.get("usage"), dict):
-                usage.update(msg["usage"])
 
         elif chunk_type == "content_block_start":
             content_block = chunk.get("content_block", {})
@@ -62,25 +61,30 @@ def build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | Non
         elif chunk_type == "content_block_delta":
             delta = chunk.get("delta", {})
             block_idx = chunk.get("index", 0)
+            if not isinstance(block_idx, int) or not isinstance(delta, dict):
+                continue
             delta_type = delta.get("type")
-            block = blocks.setdefault(block_idx, {"type": "text", "text": ""})
+            defaults = {
+                "text_delta": {"type": "text", "text": ""},
+                "thinking_delta": {"type": "thinking", "thinking": ""},
+                "input_json_delta": {"type": "tool_use"},
+            }
+            block = blocks.setdefault(block_idx, defaults.get(delta_type, {"type": "text", "text": ""}))
             if delta_type == "text_delta":
-                block["type"] = block.get("type") or "text"
+                block["type"] = "text"
                 block["text"] = block.get("text", "") + delta.get("text", "")
             elif delta_type == "thinking_delta":
-                block["type"] = block.get("type") or "thinking"
-                block["thinking"] = block.get("thinking", "") + delta.get(
-                    "thinking", ""
-                )
+                block["type"] = "thinking"
+                block["thinking"] = block.get("thinking", "") + delta.get("thinking", "")
             elif delta_type == "signature_delta":
                 block["signature"] = delta.get("signature", "")
             elif delta_type == "input_json_delta":
-                tool_json_buffers[block_idx] = tool_json_buffers.get(
-                    block_idx, ""
-                ) + delta.get("partial_json", "")
+                tool_json_buffers[block_idx] = tool_json_buffers.get(block_idx, "") + delta.get("partial_json", "")
 
         elif chunk_type == "content_block_stop":
             block_idx = chunk.get("index", 0)
+            if not isinstance(block_idx, int):
+                continue
             if block_idx in tool_json_buffers and block_idx in blocks:
                 buffer = tool_json_buffers[block_idx]
                 try:
@@ -93,8 +97,11 @@ def build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | Non
             delta = chunk.get("delta", {})
             stop_reason = delta.get("stop_reason")
             stop_sequence = delta.get("stop_sequence")
-            if isinstance(chunk.get("usage"), dict):
-                usage.update(chunk["usage"])
+
+    # usage 逐 chunk 原样聚合委托 stream_usage 模块（ADR-0015 D1）：
+    # message_start 的 message.usage 先入，message_delta 的 usage 覆写合并
+    usage: dict[str, Any] = {"input_tokens": 0, "output_tokens": 0}
+    usage.update(_collect_anthropic_stream_usage(chunks))
 
     if not message_id:
         # 尝试从其他 chunk 中获取 id
@@ -126,12 +133,10 @@ def build_anthropic_stream_response(chunks: list[Any], model: str) -> dict | Non
 def build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
     """构建 OpenAI 格式的流式响应体。"""
     response_id = None
-    input_tokens = 0
-    output_tokens = 0
-    total_tokens: int | None = None
-    prompt_details: dict | None = None
-    completion_details: dict | None = None
     choice_states: dict[int, dict[str, Any]] = {}
+    # usage 逐 chunk 聚合委托 stream_usage 累积器（ADR-0015 D1，流重建方言）：
+    # 顶层 usage（Chat 形态）优先，缺失时回退嵌套 response.usage（Responses 形态）
+    usage_acc = _StreamUsageAccumulator(_OPENAI_FAMILY_AUTO)
 
     def get_choice_state(index: int) -> dict[str, Any]:
         if index not in choice_states:
@@ -205,22 +210,8 @@ def build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
                 if fr:
                     state["finish_reason"] = fr
 
-        # 获取 usage（可能在最后一个 chunk）
-        usage = chunk.get("usage")
-        if isinstance(usage, dict):
-            input_tokens = usage.get("prompt_tokens", input_tokens)
-            output_tokens = usage.get("completion_tokens", output_tokens)
-            # 优先使用上游的 total_tokens
-            if usage.get("total_tokens") is not None:
-                total_tokens = usage["total_tokens"]
-            # 透传 prompt_tokens_details
-            pd = usage.get("prompt_tokens_details")
-            if isinstance(pd, dict):
-                prompt_details = pd
-            # 透传 completion_tokens_details
-            cd = usage.get("completion_tokens_details")
-            if isinstance(cd, dict):
-                completion_details = cd
+        # usage 逐 chunk 聚合委托 stream_usage 累积器（顶层 usage 或嵌套 response.usage）
+        usage_acc.feed(chunk)
 
     if not response_id:
         response_id = f"chatcmpl-{secrets.token_hex(12)}"
@@ -253,18 +244,16 @@ def build_openai_stream_response(chunks: list[Any], model: str) -> dict | None:
             }
         )
 
-    # 构建 usage 字段
+    # 构建 usage 字段（token 数值与 total/details 透传均来自 stream_usage 累积器）
     final_usage: dict[str, Any] = {
-        "prompt_tokens": input_tokens,
-        "completion_tokens": output_tokens,
-        "total_tokens": total_tokens
-        if total_tokens is not None
-        else input_tokens + output_tokens,
+        "prompt_tokens": usage_acc.input_tokens,
+        "completion_tokens": usage_acc.output_tokens,
+        "total_tokens": usage_acc.total_tokens if usage_acc.total_tokens is not None else usage_acc.input_tokens + usage_acc.output_tokens,
     }
-    if prompt_details is not None:
-        final_usage["prompt_tokens_details"] = prompt_details
-    if completion_details is not None:
-        final_usage["completion_tokens_details"] = completion_details
+    if usage_acc.prompt_tokens_details is not None:
+        final_usage["prompt_tokens_details"] = usage_acc.prompt_tokens_details
+    if usage_acc.completion_tokens_details is not None:
+        final_usage["completion_tokens_details"] = usage_acc.completion_tokens_details
 
     return {
         "id": response_id,

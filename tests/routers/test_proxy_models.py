@@ -22,8 +22,9 @@ def setup_channels(tmp_path, monkeypatch):
             {
                 "id": "ch_test1",
                 "name": "Test Channel",
-                "api_type": "openai-chat-completions",
-                "base_url": "https://api.example.com",
+                "endpoints": [
+                    {"api_type": "openai-chat-completions", "base_url": "https://api.example.com"},
+                ],
                 "api_key": "test-key",
                 "models": ["gpt-4o"],
                 "enabled": True,
@@ -35,8 +36,9 @@ def setup_channels(tmp_path, monkeypatch):
             {
                 "id": "ch_test2",
                 "name": "Anthropic Channel",
-                "api_type": "anthropic",
-                "base_url": "https://api.anthropic.com",
+                "endpoints": [
+                    {"api_type": "anthropic", "base_url": "https://api.anthropic.com"},
+                ],
                 "api_key": "test-key",
                 "models": [
                     "claude-haiku-4-20250514",
@@ -49,7 +51,21 @@ def setup_channels(tmp_path, monkeypatch):
                 "socks5_proxy": None,
                 "created_at": "2026-04-30T00:00:00Z",
             },
-        ]
+        ],
+        "model_groups": [
+            {
+                "id": "grp_enabled",
+                "name": "smart-fallback",
+                "items": [{"model": "gpt-4o"}, {"model": "claude-sonnet-4-20250514"}],
+                "enabled": True,
+            },
+            {
+                "id": "grp_disabled",
+                "name": "disabled-fallback",
+                "items": [{"model": "gpt-4o"}],
+                "enabled": False,
+            },
+        ],
     }
     with open(channels_file, "w") as f:
         json.dump(channels_data, f)
@@ -89,6 +105,8 @@ class TestOpenAIModelsEndpoint:
             model_ids = [m["id"] for m in data["data"]]
             assert "gpt-4o" in model_ids
             assert "claude-sonnet-4-20250514" in model_ids
+            assert "smart-fallback" in model_ids
+            assert "disabled-fallback" not in model_ids
 
 
 class TestAnthropicModelsEndpoint:
@@ -103,6 +121,8 @@ class TestAnthropicModelsEndpoint:
         assert "data" in data
         model_ids = [m["id"] for m in data["data"]]
         assert "claude-sonnet-4-20250514" in model_ids
+        assert "smart-fallback" in model_ids
+        assert "disabled-fallback" not in model_ids
 
     def test_returns_anthropic_models(self):
         """GET /v1/anthropic/models should work and return models."""
@@ -130,19 +150,13 @@ class TestAnthropicModelsEndpoint:
             assert after_data["has_more"] is True
             assert after_data["first_id"] != first_id
 
-            before = client.get(
-                f"/v1/anthropic/models?limit=1&before={after_data['data'][0]['id']}"
-            )
+            before = client.get(f"/v1/anthropic/models?limit=1&before={after_data['data'][0]['id']}")
             assert before.status_code == 200
             before_data = before.json()
             assert before_data["has_more"] is False
             assert before_data["data"][0]["id"] == first_id
 
-            bounded = client.get(
-                f"/v1/anthropic/models?limit=1&after={first_id}&before=claude-opus-4-20250514"
-            )
+            bounded = client.get(f"/v1/anthropic/models?limit=1&after={first_id}&before=claude-opus-4-20250514")
             assert bounded.status_code == 200
             bounded_data = bounded.json()
-            assert [m["id"] for m in bounded_data["data"]] == [
-                after_data["data"][0]["id"]
-            ]
+            assert [m["id"] for m in bounded_data["data"]] == [after_data["data"][0]["id"]]

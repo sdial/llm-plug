@@ -1,4 +1,7 @@
-<!-- 设置 Tab -->
+<!-- 设置 Tab
+     控件区由 GET /admin/settings/schema 渲染（ADR-0018 D2）：带 data-schema-group 属性的空容器
+     为挂载点（值形如 section:group），static/js/settings.js 按描述的 section/group/顺序填充字段；
+     新增设置项 HTML 零改动。格式转换与敏感信息脱敏分区为手写交互壳，不走 schema 渲染。 -->
 <div id="settingsTab">
     <div class="flex flex-col md:flex-row gap-5">
         <!-- Sidebar Nav -->
@@ -52,6 +55,13 @@
                         <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
                     </button>
                 </li>
+                <li>
+                    <button type="button" onclick="switchSettingsSection('pii-filter')" data-section="pii-filter" class="settings-nav-btn w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg">
+                        <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <span data-i18n="settings.navPiiFilter">敏感信息脱敏</span>
+                        <span class="settings-dirty-dot hidden w-1.5 h-1.5 rounded-full bg-brand-500 ml-auto flex-shrink-0"></span>
+                    </button>
+                </li>
             </ul>
         </nav>
 
@@ -67,16 +77,7 @@
                     <div class="mb-4 rounded-lg border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-800">
                         <span data-i18n-html="settings.serverInfoBox">首次启动会使用内置默认值。渠道配置写入 <code class="font-mono bg-brand-100 px-1 rounded">data/channels.json</code>，API Key 写入 <code class="font-mono bg-brand-100 px-1 rounded">data/api_keys.json</code>，系统设置写入 <code class="font-mono bg-brand-100 px-1 rounded">data/settings.json</code>。<br>只要持久化 <code class="font-mono bg-brand-100 px-1 rounded">data/</code> 目录，所有数据都会随容器重建保留。</span>
                     </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.hostLabel">容器监听地址</label>
-                            <input type="text" id="set_host" readonly class="w-full px-3 py-2.5 text-sm bg-surface-50 text-ink-400">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.portLabel">容器内部端口</label>
-                            <input type="text" id="set_port" readonly class="w-full px-3 py-2.5 text-sm bg-surface-50 text-ink-400">
-                        </div>
-                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-schema-group="server:0"></div>
                 </div>
             </div>
 
@@ -87,25 +88,8 @@
                     <p class="text-sm text-ink-600 mt-1" data-i18n="settings.requestDesc">这些设置影响所有代理入口。</p>
                 </div>
                 <div class="card p-5 space-y-4">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label for="set_request_timeout" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.timeoutLabel">上游空闲超时（秒）</label>
-                            <input type="number" id="set_request_timeout" min="1" class="w-full px-3 py-2.5 text-sm settings-input">
-                            <p class="text-xs text-ink-500 mt-1" data-i18n="settings.timeoutHelp">从最后一次收到上游数据开始计时，超过即中断该请求。持续有数据流出的长请求（如推理模型思考、长回复）不会超时；上游心跳/keep-alive 不算数据。</p>
-                        </div>
-                        <div>
-                            <label for="set_max_body_size" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.maxBodyLabel">最大请求体（MB）</label>
-                            <input type="number" id="set_max_body_size" min="1" class="w-full px-3 py-2.5 text-sm settings-input">
-                        </div>
-                    </div>
-                    <div>
-                        <label for="set_max_stream_chunks" class="block text-sm font-medium text-ink-800 mb-1.5">
-                            <span data-i18n="settings.streamChunksLabel">流式 Chunk 记录上限</span>
-                            <span class="pill pill-success ml-2" data-i18n="settings.hotReload">热更新</span>
-                        </label>
-                        <input type="number" id="set_max_stream_chunks" min="100" max="100000" class="w-full px-3 py-2.5 text-sm settings-input">
-                        <p class="text-xs text-ink-500 mt-2" data-i18n="settings.streamChunksHelp1">每个流式请求在内存中记录的 SSE chunk 最大数量，用于重建请求日志中的响应体。超过上限后停止记录。</p>
-                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-schema-group="request:0"></div>
+                    <div data-schema-group="request:1"></div>
                 </div>
             </div>
 
@@ -127,7 +111,7 @@
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
                             <input type="checkbox" id="fc_global_toggle" class="sr-only peer">
-                            <div class="w-11 h-6 bg-surface-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand-500/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-500"></div>
+                            <div class="w-11 h-6 bg-surface-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand-500/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[0.125rem] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-500"></div>
                         </label>
                     </div>
                     <div id="fc_global_status" class="mt-3 text-xs text-ink-500"></div>
@@ -144,38 +128,17 @@
                     <p class="text-sm text-ink-600 mt-1" data-i18n="settings.lbDesc">渠道按优先级分组，再在同组内按权重轮询。</p>
                 </div>
                 <div class="card p-5 space-y-4">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label for="set_lb_strategy" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.lbStrategyLabel">负载均衡策略</label>
-                            <select id="set_lb_strategy" onchange="syncLbStrategyMode()" class="w-full px-3 py-2.5 text-sm settings-input">
-                                <option value="round_robin" data-i18n="settings.lbStrategyRoundRobin">加权轮询（默认）</option>
-                                <option value="backup" data-i18n="settings.lbStrategyBackup">顺序备份</option>
-                                <option value="sticky" data-i18n="settings.lbStrategySticky">会话粘性</option>
-                            </select>
-                            <p id="lb_strategy_help" class="text-xs text-ink-500 mt-1"></p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-schema-group="lb:0"></div>
+                    <!-- 条件显隐容器保留手写：strategy=sticky 时由 syncLbStrategyMode 切换 -->
+                    <div id="sticky_lb_options" class="grid grid-cols-1 sm:grid-cols-2 gap-4 hidden" data-schema-group="lb:1"></div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-schema-group="lb:2"></div>
+                    <div class="pt-4 border-t border-surface-100">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="text-sm font-medium text-ink-900" data-i18n="settings.groupProbeTitle">组内主动探活</span>
+                            <span class="pill pill-success ml-2" data-i18n="settings.hotReload">热更新</span>
                         </div>
-                    </div>
-                    <div id="sticky_lb_options" class="grid grid-cols-1 sm:grid-cols-2 gap-4 hidden">
-                        <div>
-                            <label for="set_sticky_ttl" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.stickyTtlLabel">粘性有效期（秒）</label>
-                            <input type="number" id="set_sticky_ttl" min="60" max="86400" class="w-full px-3 py-2.5 text-sm settings-input">
-                        </div>
-                        <div>
-                            <label for="set_sticky_cache_max_entries" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.stickyCacheLabel">粘性缓存容量</label>
-                            <input type="number" id="set_sticky_cache_max_entries" min="100" max="1000000" class="w-full px-3 py-2.5 text-sm settings-input">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label for="set_max_fail_count" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.maxFailLabel">失败次数阈值</label>
-                            <input type="number" id="set_max_fail_count" min="1" class="w-full px-3 py-2.5 text-sm settings-input">
-                            <p class="text-xs text-ink-500 mt-1" data-i18n="settings.maxFailHelp">连续失败达此次数后渠道被暂时剔除</p>
-                        </div>
-                        <div>
-                            <label for="set_cooldown_seconds" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.cooldownLabel">冷却时间（秒）</label>
-                            <input type="number" id="set_cooldown_seconds" min="1" class="w-full px-3 py-2.5 text-sm settings-input">
-                            <p class="text-xs text-ink-500 mt-1" data-i18n="settings.cooldownHelp">剔除的渠道经过此时间后自动恢复探测</p>
-                        </div>
+                        <p class="text-xs text-ink-500 mb-3" data-i18n="settings.groupProbeDesc">适用于 lazy_sticky 组：主渠道恢复后自动回切，无需业务流量撞备。三项参数修改后立即生效。</p>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4" data-schema-group="lb:3"></div>
                     </div>
                 </div>
             </div>
@@ -186,15 +149,7 @@
                     <h2 class="text-base font-semibold text-ink-900" data-i18n="settings.tzTitle">时区设置</h2>
                     <p class="text-sm text-ink-600 mt-1" data-i18n="settings.tzDesc">时区同时作用于前端展示与统计边界：前端页面的时间展示，以及统计日切与"今日"边界。留空使用服务器时区。</p>
                 </div>
-                <div class="card p-5">
-                    <label for="set_aggregation_timezone" class="block text-sm font-medium text-ink-800 mb-1.5">
-                        <span data-i18n="settings.tzLabel">时区</span> <span class="pill pill-success ml-2" data-i18n="settings.hotReload">热更新</span>
-                    </label>
-                    <select id="set_aggregation_timezone" class="w-full px-3 py-2.5 text-sm settings-input">
-                        <option value="" data-i18n="settings.tzSelectBlank">留空=使用服务器时区</option>
-                    </select>
-                    <p class="text-xs text-ink-500 mt-1" data-i18n="settings.tzHelp">前端时间展示与统计日切边界均跟随此时区。IANA 时区名。</p>
-                </div>
+                <div class="card p-5" data-schema-group="timezone:0"></div>
             </div>
 
             <!-- Database Section -->
@@ -205,63 +160,17 @@
                     <p class="text-xs text-ink-500 mt-1" data-i18n="settings.dbDesc3">首页图表使用的聚合统计单独保存在 <code class="font-mono bg-surface-100 px-1 rounded">data/stats.db</code>，请求记录默认保存在 <code class="font-mono bg-surface-100 px-1 rounded">data/request_logs.db</code>，不受此处设置影响。</p>
                 </div>
                 <div class="card p-5 space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.dbSqliteLabel">SQLite 文件路径</label>
-                        <input type="text" id="set_request_log_sqlite_path" readonly class="w-full px-3 py-2.5 text-sm bg-surface-50 text-ink-500 font-mono">
-                    </div>
+                    <div data-schema-group="database:0"></div>
                     <div>
                         <div class="text-sm font-medium text-ink-800 mb-3" data-i18n="settings.dbRawTitle">原始信息保存</div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <label class="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
-                                <input type="checkbox" id="set_save_request_headers"> <span data-i18n="settings.dbSaveReqHeaders">请求 Header</span>
-                            </label>
-                            <label class="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
-                                <input type="checkbox" id="set_save_response_headers"> <span data-i18n="settings.dbSaveRespHeaders">返回 Header</span>
-                            </label>
-                            <label class="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
-                                <input type="checkbox" id="set_save_request_body"> <span data-i18n="settings.dbSaveReqBody">请求 Body</span>
-                            </label>
-                            <label class="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
-                                <input type="checkbox" id="set_save_response_body"> <span data-i18n="settings.dbSaveRespBody">返回 Body</span>
-                            </label>
-                            <label class="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
-                                <input type="checkbox" id="set_save_files"> <span data-i18n="settings.dbSaveFiles">请求文件 (File)</span>
-                            </label>
-                            <label class="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
-                                <input type="checkbox" id="set_save_images"> <span data-i18n="settings.dbSaveImages">请求图片 (Image)</span>
-                            </label>
-                            <label class="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
-                                <input type="checkbox" id="set_save_audios"> <span data-i18n="settings.dbSaveAudios">请求音频 (Audio)</span>
-                            </label>
-                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" data-schema-group="database:1"></div>
                     </div>
-                    <div class="pt-4 border-t border-surface-100">
-                        <label for="set_max_log_body_size_kb" class="block text-sm font-medium text-ink-800 mb-1.5">
-                            <span data-i18n="settings.dbTruncLabel">Body 截断限制</span> <span class="pill pill-success ml-2" data-i18n="settings.hotReload">热更新</span>
-                        </label>
-                        <input type="number" id="set_max_log_body_size_kb" min="0" class="w-full px-3 py-2.5 text-sm settings-input">
-                        <p class="text-xs text-ink-500 mt-1" data-i18n="settings.dbTruncUnit">单位：KB。0 表示不限制。</p>
-                    </div>
+                    <div class="pt-4 border-t border-surface-100" data-schema-group="database:2"></div>
                     <div class="pt-4 border-t border-surface-100">
                         <div class="text-sm font-medium text-ink-800 mb-3">
                             <span data-i18n="settings.dbRetentionTitle">数据保留策略</span> <span class="pill pill-success ml-2" data-i18n="settings.hotReload">热更新</span>
                         </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                                <label for="set_request_log_raw_retention_days" class="text-xs font-medium text-ink-700 block mb-1" data-i18n="settings.dbRawRetentionLabel">原始数据保留天数</label>
-                                <div class="flex items-center gap-2">
-                                    <input type="number" id="set_request_log_raw_retention_days" min="0" class="w-full px-3 py-2.5 text-sm settings-input">
-                                    <span class="text-sm text-ink-500 flex-shrink-0" data-i18n="settings.dbDaysUnit">天</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label for="set_request_log_retention_days" class="text-xs font-medium text-ink-700 block mb-1" data-i18n="settings.dbFullRetentionLabel">完整记录保留天数</label>
-                                <div class="flex items-center gap-2">
-                                    <input type="number" id="set_request_log_retention_days" min="0" class="w-full px-3 py-2.5 text-sm settings-input">
-                                    <span class="text-sm text-ink-500 flex-shrink-0" data-i18n="settings.dbDaysUnit">天</span>
-                                </div>
-                            </div>
-                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-schema-group="database:3"></div>
                     </div>
                 </div>
             </div>
@@ -295,16 +204,134 @@
                     <div class="text-sm font-medium text-ink-800 mb-3">
                         <span data-i18n="settings.secLoginProtect">登录保护</span> <span class="pill pill-success ml-2" data-i18n="settings.hotReload">热更新</span>
                     </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label for="set_admin_max_attempts" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.secMaxAttemptsLabel">每阶梯最大尝试次数</label>
-                            <input type="number" id="set_admin_max_attempts" min="1" max="100" class="w-full px-3 py-2.5 text-sm settings-input">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-schema-group="security:0"></div>
+                </div>
+            </div>
+
+            <!-- PII Filter Section -->
+            <div id="settings_pii-filter" class="settings-section hidden">
+                <div class="mb-5">
+                    <div class="flex items-start justify-between gap-4">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2">
+                                <h2 class="text-base font-semibold text-ink-900" data-i18n="settings.piiTitle">敏感信息脱敏</h2>
+                                <button type="button" id="pii_help_btn" onclick="document.getElementById('pii_help_panel').classList.toggle('hidden')" class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-100 text-ink-500 hover:bg-brand-50 hover:text-brand-700 transition-colors flex-shrink-0" title="?" aria-label="?">
+                                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                </button>
+                            </div>
+                            <p class="text-sm text-ink-600 mt-1" data-i18n="settings.piiDesc">请求发往上游前识别并处理手机号、身份证、邮箱、银行卡等敏感信息。默认关闭，开启后仅处理白名单业务字段。</p>
                         </div>
-                        <div>
-                            <label for="set_admin_lockout_base_seconds" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="settings.secLockoutBaseLabel">基础封锁时间（秒）</label>
-                            <input type="number" id="set_admin_lockout_base_seconds" min="10" max="86400" class="w-full px-3 py-2.5 text-sm settings-input">
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <span class="pill pill-success" data-i18n="settings.hotReload">热更新</span>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="set_pii_filter_enabled" class="settings-input sr-only peer">
+                                <div class="w-11 h-6 bg-surface-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand-500/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[0.125rem] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-500"></div>
+                            </label>
                         </div>
                     </div>
+                </div>
+
+                <div id="pii_help_panel" class="card p-5 mt-4 hidden border-brand-100 bg-brand-50/40">
+                    <div class="flex items-center gap-2 mb-3">
+                        <svg class="w-4 h-4 text-brand-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 16 12 12 12 8"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        <span class="text-sm font-semibold text-brand-900" data-i18n="settings.piiHelpTitle">三种动作说明</span>
+                    </div>
+                    <div class="space-y-3 text-sm">
+                        <div class="flex items-start gap-3">
+                            <span class="pill pill-brand flex-shrink-0" data-i18n="settings.piiActionMask">mask</span>
+                            <p class="text-ink-700" data-i18n="settings.piiHelpMask">中间遮星，保留首尾、中间变星号，不可还原。示例：13800138000 → 138****8000；身份证 6 位 + 8 星 + 4 位；邮箱 2 位 + **** + 2 位。</p>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="pill pill-warning flex-shrink-0" data-i18n="settings.piiActionReplace">replace</span>
+                            <p class="text-ink-700" data-i18n="settings.piiHelpReplace">整段替换为 [REDACTED]，不可还原。示例：联系 foo@example.com → 联系 [REDACTED]。</p>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="pill pill-danger flex-shrink-0" data-i18n="settings.piiActionBlock">block</span>
+                            <p class="text-ink-700" data-i18n="settings.piiHelpBlock">命中即拦截整个请求，返回 HTTP 400（Sensitive data blocked by PII filter），请求不会发往上游。</p>
+                        </div>
+                        <div class="text-xs text-ink-500 space-y-1">
+                            <p data-i18n="settings.piiHelpNote">说明：本地轻量正则引擎，零依赖；encrypt 已移除，存量 encrypt 规则静默回退为 mask；豁免渠道（pii_exempt_channels）跳过处理；流式与非流式共用同一管线。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card p-5 mt-4">
+                    <div class="text-sm font-medium text-ink-800 mb-3" data-i18n="settings.piiPresets">预置规则（独立开关 + 动作可选）</div>
+                    <div class="space-y-3">
+                        <label class="flex items-center justify-between gap-3 text-sm text-ink-700 cursor-pointer">
+                            <span class="flex items-center gap-2" data-i18n="settings.piiPresetPhone">中国手机号</span>
+                            <span class="flex items-center gap-2">
+                                <input type="checkbox" id="set_pii_preset_phone" class="settings-input pii-preset-toggle">
+                                <select id="set_pii_preset_phone_action" class="pii-preset-action text-xs px-2 py-1 border border-surface-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-brand-500/30">
+                                    <option value="mask" data-i18n="settings.piiActionMask">mask</option>
+                                    <option value="replace" data-i18n="settings.piiActionReplace">replace</option>
+                                    <option value="block" data-i18n="settings.piiActionBlock">block</option>
+                                </select>
+                            </span>
+                        </label>
+                        <label class="flex items-center justify-between gap-3 text-sm text-ink-700 cursor-pointer">
+                            <span class="flex items-center gap-2" data-i18n="settings.piiPresetIdCard">身份证号</span>
+                            <span class="flex items-center gap-2">
+                                <input type="checkbox" id="set_pii_preset_id_card" class="settings-input pii-preset-toggle">
+                                <select id="set_pii_preset_id_card_action" class="pii-preset-action text-xs px-2 py-1 border border-surface-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-brand-500/30">
+                                    <option value="mask" data-i18n="settings.piiActionMask">mask</option>
+                                    <option value="replace" data-i18n="settings.piiActionReplace">replace</option>
+                                    <option value="block" data-i18n="settings.piiActionBlock">block</option>
+                                </select>
+                            </span>
+                        </label>
+                        <label class="flex items-center justify-between gap-3 text-sm text-ink-700 cursor-pointer">
+                            <span class="flex items-center gap-2" data-i18n="settings.piiPresetEmail">邮箱</span>
+                            <span class="flex items-center gap-2">
+                                <input type="checkbox" id="set_pii_preset_email" class="settings-input pii-preset-toggle">
+                                <select id="set_pii_preset_email_action" class="pii-preset-action text-xs px-2 py-1 border border-surface-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-brand-500/30">
+                                    <option value="mask" data-i18n="settings.piiActionMask">mask</option>
+                                    <option value="replace" data-i18n="settings.piiActionReplace">replace</option>
+                                    <option value="block" data-i18n="settings.piiActionBlock">block</option>
+                                </select>
+                            </span>
+                        </label>
+                        <label class="flex items-center justify-between gap-3 text-sm text-ink-700 cursor-pointer">
+                            <span class="flex items-center gap-2" data-i18n="settings.piiPresetBankCard">银行卡</span>
+                            <span class="flex items-center gap-2">
+                                <input type="checkbox" id="set_pii_preset_bank_card" class="settings-input pii-preset-toggle">
+                                <select id="set_pii_preset_bank_card_action" class="pii-preset-action text-xs px-2 py-1 border border-surface-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-brand-500/30">
+                                    <option value="mask" data-i18n="settings.piiActionMask">mask</option>
+                                    <option value="replace" data-i18n="settings.piiActionReplace">replace</option>
+                                    <option value="block" data-i18n="settings.piiActionBlock">block</option>
+                                </select>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="card p-5 mt-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="text-sm font-medium text-ink-800" data-i18n="settings.piiCustom">自定义规则</div>
+                        <button type="button" id="pii_add_rule" class="text-xs px-2 py-1 bg-brand-50 text-brand-700 rounded" data-i18n="settings.piiAddRule">+ 添加规则</button>
+                    </div>
+                    <div id="pii_custom_rules_container" class="space-y-3">
+                        <!-- JS 动态填充 -->
+                    </div>
+                    <input type="hidden" id="set_pii_custom_rules" value="[]">
+                </div>
+
+                <div class="card p-5 mt-4">
+                    <div class="text-sm font-medium text-ink-800 mb-3" data-i18n="settings.piiTestTitle">实时测试</div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs text-ink-600 mb-1" data-i18n="settings.piiTestInput">测试文本</label>
+                            <textarea id="pii_test_input" rows="4" class="w-full px-3 py-2 text-sm border border-surface-200 rounded-md"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-ink-600 mb-1" data-i18n="settings.piiTestOutput">测试结果</label>
+                            <textarea id="pii_test_output" rows="4" readonly class="w-full px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-md"></textarea>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 mt-3">
+                        <button type="button" id="pii_test_btn" class="btn-primary text-sm px-4 py-2" data-i18n="settings.piiTestBtn">测试脱敏</button>
+                    </div>
+                    <div id="pii_test_meta" class="mt-2 text-xs text-ink-500"></div>
                 </div>
             </div>
 

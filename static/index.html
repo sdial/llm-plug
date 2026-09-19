@@ -15,14 +15,14 @@
     <header class="bg-white border-b border-surface-200 sticky top-0 z-30">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 sm:py-4 flex items-center justify-between gap-4">
             <div class="min-w-0 flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">L</div>
+                <div class="w-10 h-10 rounded-xl bg-brand-500 flex items-center justify-center text-white text-base font-semibold flex-shrink-0">L</div>
                 <div class="min-w-0">
                     <h1 class="text-base sm:text-lg font-semibold text-ink-900 truncate" data-i18n="header.title">LLM API 转换器</h1>
                     <p class="text-ink-400 text-xs mt-0.5 hidden sm:block" data-i18n="header.subtitle">OpenAI Chat Completions / OpenAI Response / Anthropic 三种格式互转 + 负载均衡</p>
                 </div>
             </div>
             <div class="flex items-center gap-2">
-                <span class="text-xs text-ink-400 hidden lg:inline">__APP_VERSION__</span>
+                <span class="text-xs text-ink-400 hidden lg:inline">__APP_VERSION__ · __APP_RELEASE_DATE__</span>
                 <button type="button" onclick="I18n.toggle()" class="btn-secondary px-2.5 py-1.5 text-xs font-medium" data-i18n-title="common.langLabel" data-i18n-aria="common.langLabel" title="切换语言" aria-label="切换语言">
                     <span data-i18n="common.langLabel">中/EN</span>
                 </button>
@@ -35,35 +35,35 @@
     <nav id="mainNav" class="bg-white border-b border-surface-200 sticky z-20 main-nav-sticky" aria-label="主导航" data-i18n-aria="nav.mainNavLabel">
         <!-- Desktop tabs -->
         <div class="max-w-7xl mx-auto px-4 hidden md:flex gap-0.5 overflow-x-auto">
-            <button type="button" onclick="switchTab('channels')" id="tab_channels" class="px-4 py-3 text-sm font-medium transition-colors tab-active" data-i18n="nav.channels">渠道管理</button>
-            <button type="button" onclick="switchTab('apikeys')" id="tab_apikeys" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.apikeys">API Key</button>
-            <button type="button" onclick="switchTab('lb')" id="tab_lb" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.modelGroups">模型分组</button>
-            <button type="button" onclick="switchTab('stats')" id="tab_stats" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.stats">统计</button>
+            <button type="button" onclick="switchTab('stats')" id="tab_stats" class="px-4 py-3 text-sm font-medium transition-colors tab-active" data-i18n="nav.stats">统计</button>
             <button type="button" onclick="switchTab('requests')" id="tab_requests" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.requests">请求记录</button>
-            <button type="button" onclick="switchTab('settings')" id="tab_settings" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.settings">设置</button>
-            <button type="button" onclick="switchTab('whitelist')" id="tab_whitelist" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.whitelist">IP 白名单</button>
+            <button type="button" onclick="switchTab('channels')" id="tab_channels" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.channels">渠道管理</button>
+            <button type="button" onclick="switchTab('lb')" id="tab_lb" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.modelGroups">模型分组</button>
+            <button type="button" onclick="switchTab('apikeys')" id="tab_apikeys" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.apikeys">API Key</button>
             <button type="button" onclick="switchTab('storage')" id="tab_storage" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.storage">存储管理</button>
-            <button type="button" onclick="switchTab('context-optimization')" id="tab_context-optimization" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.contextOptimization">上下文优化</button>
+            <button type="button" onclick="switchTab('context-shaping')" id="tab_context-shaping" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.contextShaping">上下文塑形</button>
+            <button type="button" onclick="switchTab('whitelist')" id="tab_whitelist" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.whitelist">IP 白名单</button>
+            <button type="button" onclick="switchTab('settings')" id="tab_settings" class="px-4 py-3 text-sm font-medium transition-colors tab-inactive" data-i18n="nav.settings">设置</button>
         </div>
         <!-- Mobile select -->
         <div class="md:hidden max-w-7xl mx-auto px-4 py-2">
             <select id="tabMobileSelect" aria-label="选择管理页面" data-i18n-aria="nav.mobileSelectLabel" onchange="switchTab(this.value)" class="w-full text-sm font-medium border border-surface-200 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                <option value="stats" data-i18n="nav.stats">统计</option>
+                <option value="requests" data-i18n="nav.requests">请求记录</option>
                 <option value="channels" data-i18n="nav.channels">渠道管理</option>
                 <option value="apikeys" data-i18n="nav.apikeys">API Key</option>
                 <option value="lb" data-i18n="nav.modelGroups">模型分组</option>
-                <option value="stats" data-i18n="nav.stats">统计</option>
-                <option value="requests" data-i18n="nav.requests">请求记录</option>
-                <option value="settings" data-i18n="nav.settings">设置</option>
-                <option value="whitelist" data-i18n="nav.whitelist">IP 白名单</option>
                 <option value="storage" data-i18n="nav.storage">存储管理</option>
-                <option value="context-optimization" data-i18n="nav.contextOptimization">上下文优化</option>
+                <option value="context-shaping" data-i18n="nav.contextShaping">上下文塑形</option>
+                <option value="whitelist" data-i18n="nav.whitelist">IP 白名单</option>
+                <option value="settings" data-i18n="nav.settings">设置</option>
             </select>
         </div>
     </nav>
 
     <!-- Main Content -->
     <main id="admin-layout" class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        <div id="admin-content" class="space-y-5 min-h-[24rem] animate-fade-in" hx-get="/admin/ui/channels" hx-trigger="load" hx-swap="innerHTML">
+        <div id="admin-content" class="space-y-5 min-h-[24rem] animate-fade-in" hx-get="/admin/ui/stats" hx-trigger="load" hx-swap="innerHTML">
             <div class="loading-text flex items-center justify-center gap-2">
                 <span class="spinner"></span>
                 <span data-i18n="common.loading">加载中...</span>
@@ -74,7 +74,7 @@
     <!-- Modals -->
     <!-- Channel Modal -->
     <div id="channelModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-        <div class="modal-panel max-w-xl mx-4">
+        <div class="modal-panel max-w-2xl mx-4">
             <div class="p-6">
                 <div class="flex justify-between items-start mb-6">
                     <h3 id="modalTitle" class="text-lg font-semibold text-ink-900" data-i18n="modals.channelAdd">添加渠道</h3>
@@ -84,35 +84,31 @@
                 </div>
                 <form id="channelForm" onsubmit="saveChannel(event)" class="space-y-4">
                     <input type="hidden" id="editId">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label for="f_name" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="modals.channelName">名称 <span class="text-brand-500">*</span></label>
-                            <input type="text" id="f_name" required class="w-full px-3 py-2.5 text-sm">
-                        </div>
-                        <div>
-                            <label for="f_api_type" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="modals.apiType">API 类型</label>
-                            <select id="f_api_type" class="w-full px-3 py-2.5 text-sm">
-                                <option value="openai-chat-completions">OpenAI Chat Completions</option>
-                                <option value="openai-response">OpenAI Response</option>
-                                <option value="anthropic">Anthropic</option>
-                            </select>
-                        </div>
+                    <div>
+                        <label for="f_name" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="modals.channelName">名称 <span class="text-brand-500">*</span></label>
+                        <input type="text" id="f_name" required class="w-full px-3 py-2.5 text-sm">
                     </div>
-                    <div class="space-y-3">
-                        <div>
-                            <label for="f_base_url" class="block text-sm font-medium text-ink-800 mb-1.5">Base URL <span class="text-brand-500">*</span></label>
-                            <input type="url" id="f_base_url" required pattern="https?://.+" data-i18n-title="modals.baseUrlTitle" title="请输入以 http:// 或 https:// 开头的有效 URL" placeholder="https://api.openai.com" class="w-full px-3 py-2.5 text-sm">
-                        </div>
-                        <details id="advancedUrlDetails" class="rounded-lg border border-surface-200 bg-surface-50 p-3">
-                            <summary class="cursor-pointer text-sm font-medium text-ink-800 hover:text-brand-600 transition" data-i18n="modals.advancedUrl">高级：自定义 URL 路径</summary>
-                            <div class="mt-3 space-y-2">
-                                <input type="url" id="f_endpoint_url" data-i18n-placeholder="modals.endpointUrlPh" placeholder="对话请求 URL（留空则按 Base URL 自动拼接）" class="w-full px-3 py-2 text-sm">
-                                <input type="url" id="f_models_url" data-i18n-placeholder="modals.modelsUrlPh" placeholder="模型列表 URL（留空则按 Base URL 自动拼接）" class="w-full px-3 py-2 text-sm">
-                            </div>
-                        </details>
+                    <div class="rounded-xl border border-brand-200 bg-brand-50 p-3 flex flex-wrap sm:flex-nowrap items-center gap-2">
+                        <label for="f_upstream_profile" class="shrink-0 text-sm font-medium text-ink-800" data-i18n="modals.upstreamProfile">选择提供商</label>
+                        <select id="f_upstream_profile" class="min-w-32 flex-1 px-3 py-2 text-sm bg-white"></select>
+                        <input type="hidden" id="f_catalog_revision">
+                        <button type="button" onclick="applySelectedProfileUrls()" class="btn-secondary shrink-0 px-3 py-2 text-sm font-medium" data-i18n="modals.applyProfileUrls">应用档案 URL</button>
                     </div>
                     <div>
-                        <label for="f_api_key" class="block text-sm font-medium text-ink-800 mb-1.5">API Key</label>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="block text-sm font-medium text-ink-800" data-i18n="modals.endpointsSection">接入点</label>
+                            <button type="button" id="addEndpointBtn" onclick="addEndpointCard()" class="text-xs text-brand-600 hover:text-brand-700 font-medium transition" data-i18n="modals.addEndpoint">+ 添加接入点</button>
+                        </div>
+                        <div id="endpointsContainer" class="space-y-3"></div>
+                        <div id="endpointsError" class="hidden mt-1 text-xs text-rose-600"></div>
+                    </div>
+                    <div>
+                        <label for="f_api_key" class="block text-sm font-medium text-ink-800 mb-1.5">
+                            API Key
+                            <span class="help-tip" tabindex="0" role="button" aria-label="?">?
+                                <span class="help-tip-text" data-i18n="modals.apiKeyDefaultHelp">渠道默认密钥；接入点可用密钥覆写单独覆盖。</span>
+                            </span>
+                        </label>
                         <div class="relative">
                             <input type="password" id="f_api_key" data-i18n-placeholder="modals.apiKeyPh" placeholder="上游服务的 API Key" class="w-full px-3 py-2.5 pr-10 text-sm">
                             <button type="button" onclick="toggleApiKeyVisibility()" class="absolute inset-y-0 right-0 flex items-center pr-3 text-ink-400 hover:text-ink-600 transition" data-i18n-title="modals.apiKeyToggle" data-i18n-aria="modals.apiKeyToggle" title="显示/隐藏 API Key" aria-label="切换 API Key 可见性">
@@ -124,7 +120,7 @@
                     <div>
                         <div class="flex items-center justify-between mb-1.5">
                             <label class="block text-sm font-medium text-ink-800" data-i18n="modals.modelsList">模型列表</label>
-                            <button type="button" id="fetchModelsBtn" onclick="fetchModels()" class="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1 transition">
+                            <button type="button" id="fetchModelsBtn" onclick="fetchModels()" class="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
                                 <svg id="fetchModelsSpinner" class="hidden w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                 <span data-i18n="modals.fetchModels">获取模型</span>
                             </button>
@@ -142,16 +138,37 @@
                             </div>
                         </div>
                     </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
-                            <label for="f_weight" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="modals.weight">权重</label>
+                            <label for="f_weight" class="block text-sm font-medium text-ink-800 mb-1.5">
+                                <span data-i18n="modals.weight">权重</span>
+                                <span class="help-tip" tabindex="0" role="button" aria-label="?">
+                                    ?
+                                    <span class="help-tip-text" data-i18n="modals.weightHelp">同一优先级内按权重分流，数值越大命中概率越高。</span>
+                                </span>
+                            </label>
                             <input type="number" id="f_weight" value="1" min="1" class="w-full px-3 py-2.5 text-sm">
-                            <p class="text-xs text-ink-400 mt-1" data-i18n="modals.weightHelp">同一优先级内按权重分流，数值越大命中概率越高。</p>
                         </div>
                         <div>
-                            <label for="f_priority" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="modals.priority">优先级</label>
+                            <label for="f_priority" class="block text-sm font-medium text-ink-800 mb-1.5">
+                                <span data-i18n="modals.priority">优先级</span>
+                                <span class="help-tip" tabindex="0" role="button" aria-label="?">
+                                    ?
+                                    <span class="help-tip-text" data-i18n="modals.priorityHelp">数值越小越优先；高优先级失败后才会回落到低优先级。</span>
+                                </span>
+                            </label>
                             <input type="number" id="f_priority" value="1" min="1" class="w-full px-3 py-2.5 text-sm">
-                            <p class="text-xs text-ink-400 mt-1" data-i18n="modals.priorityHelp">数值越小越优先；高优先级失败后才会回落到低优先级。</p>
+                        </div>
+                        <div>
+                            <label for="f_rate_limit_rpm" class="block text-sm font-medium text-ink-800 mb-1.5">
+                                <span data-i18n="modals.rateLimitRpm">限速（RPM）</span>
+                                <span class="text-ink-400 font-normal text-xs" data-i18n="common.optional">（可选）</span>
+                                <span class="help-tip" tabindex="0" role="button" aria-label="?">
+                                    ?
+                                    <span class="help-tip-text" data-i18n="modals.rateLimitRpmHelp">上游每分钟最大请求数（如 NVIDIA 免费层为 40）。超出时请求在代理侧排队等待，避免直接撞 429。留空或 0 = 不限速。</span>
+                                </span>
+                            </label>
+                            <input type="number" id="f_rate_limit_rpm" min="0" placeholder="不限速" class="w-full px-3 py-2.5 text-sm">
                         </div>
                     </div>
                     <div>
@@ -160,43 +177,6 @@
                             <span class="text-ink-400 font-normal text-xs" data-i18n="common.optional">（可选）</span>
                         </label>
                         <input type="text" id="f_socks5_proxy" placeholder="socks5://user:pass@127.0.0.1:1080" class="w-full px-3 py-2.5 text-sm font-mono">
-                    </div>
-                    <div id="anthropicConfigSection" class="hidden space-y-4 rounded-xl border border-brand-200 bg-brand-50 p-4">
-                        <div class="flex items-center gap-2 text-sm font-medium text-ink-800">
-                            <svg class="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            <span>Anthropic 专属配置</span>
-                        </div>
-                        <div>
-                            <label for="f_anthropic_version" class="block text-sm font-medium text-ink-800 mb-1.5">
-                                Version <span class="text-ink-400 font-normal text-xs">（可选）</span>
-                            </label>
-                            <input type="text" id="f_anthropic_version" data-i18n-placeholder="modals.anthropicVersionPh" placeholder="留空则使用默认 2023-06-01" class="w-full px-3 py-2.5 text-sm">
-                        </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                                <label for="f_anthropic_version_policy" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="modals.versionPolicy">Version 策略</label>
-                                <select id="f_anthropic_version_policy" class="w-full px-3 py-2.5 text-sm">
-                                    <option value="channel" data-i18n="modals.versionPolicyChannel">始终使用本渠道配置</option>
-                                    <option value="client" data-i18n="modals.versionPolicyClient">始终使用客户端传入</option>
-                                    <option value="channel_if_missing" data-i18n="modals.versionPolicyMissing">客户端未传时使用本渠道</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label for="f_anthropic_beta_policy" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="modals.betaPolicy">Beta 策略</label>
-                                <select id="f_anthropic_beta_policy" class="w-full px-3 py-2.5 text-sm">
-                                    <option value="channel" data-i18n="modals.betaPolicyChannel">始终使用本渠道配置</option>
-                                    <option value="client" data-i18n="modals.betaPolicyClient">始终使用客户端传入</option>
-                                    <option value="merge" data-i18n="modals.betaPolicyMerge">合并客户端与本渠道</option>
-                                    <option value="channel_if_missing" data-i18n="modals.betaPolicyMissing">客户端未传时使用本渠道</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div>
-                            <label for="f_anthropic_beta" class="block text-sm font-medium text-ink-800 mb-1.5">
-                                Anthropic Beta <span class="text-ink-400 font-normal text-xs">（可选）</span>
-                            </label>
-                            <input type="text" id="f_anthropic_beta" placeholder="prompt-caching-2024-07-31, token-efficient-tools-2025-02-19" class="w-full px-3 py-2.5 text-sm font-mono text-xs">
-                        </div>
                     </div>
                     <div class="flex items-center justify-between pt-4 border-t border-surface-100">
                         <div class="flex items-center gap-4">
@@ -286,7 +266,7 @@
         <div class="modal-panel max-w-2xl mx-4">
             <div class="p-6">
                 <div class="flex justify-between items-start mb-4">
-                    <h3 id="requestDetailModalTitle" class="text-lg font-semibold text-ink-900" data-i18n="modals.requestDetail">请求详情</h3>
+                    <h3 id="requestDetailModalTitle" class="text-lg font-semibold text-ink-900 flex items-center gap-2" data-i18n="modals.requestDetail">请求详情</h3>
                     <button type="button" onclick="closeRequestDetailModal()" class="text-ink-400 hover:text-ink-600 p-1 rounded-lg hover:bg-surface-100 transition" data-i18n-aria="common.close" aria-label="关闭">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
@@ -311,14 +291,10 @@
                         <label for="testModelSelect" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="modals.testSelectModel">选择模型</label>
                         <select id="testModelSelect" class="w-full px-3 py-2.5 text-sm"></select>
                     </div>
-                    <div id="testResult" class="hidden">
-                        <label class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="modals.testResult">测试结果</label>
-                        <div id="testResultContent" class="bg-surface-50 rounded-lg p-3 text-sm font-mono"></div>
-                    </div>
+                    <div id="testEndpointList" class="space-y-2"></div>
                 </div>
-                <div class="flex justify-end gap-3 pt-4 border-t border-surface-100 mt-4">
-                    <button type="button" onclick="closeTestModal()" class="btn-secondary px-4 py-2 text-sm font-medium" data-i18n="common.cancel">取消</button>
-                    <button type="button" onclick="executeTestFromModal()" id="executeTestBtn" class="btn-primary px-4 py-2 text-sm font-medium" data-i18n="modals.testStart">开始测试</button>
+                <div class="flex justify-end pt-4 border-t border-surface-100 mt-4">
+                    <button type="button" onclick="closeTestModal()" class="btn-secondary px-4 py-2 text-sm font-medium" data-i18n="common.close">关闭</button>
                 </div>
             </div>
         </div>
@@ -343,9 +319,28 @@
         </div>
     </div>
 
+    <!-- PII Filter Toggle Confirm Modal -->
+    <div id="piiToggleConfirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="piiToggleConfirmTitle">
+        <div class="modal-panel max-w-sm mx-4">
+            <div class="p-6">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 id="piiToggleConfirmTitle" class="text-lg font-semibold text-ink-900"></h3>
+                    <button type="button" onclick="closePiiToggleConfirm()" class="text-ink-400 hover:text-ink-600 p-1 rounded-lg hover:bg-surface-100 transition" data-i18n-aria="common.close" aria-label="关闭">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <p id="piiToggleConfirmMessage" class="text-sm text-ink-600 mb-6"></p>
+                <div class="flex justify-end gap-3">
+                    <button type="button" onclick="closePiiToggleConfirm()" class="btn-secondary px-4 py-2 text-sm font-medium" data-i18n="common.cancel">取消</button>
+                    <button type="button" onclick="confirmPiiToggle()" id="piiToggleConfirmBtn" class="btn-primary px-4 py-2 text-sm font-medium"></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Model Group Modal -->
     <div id="modelGroupModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modelGroupModalTitle">
-        <div class="modal-panel max-w-lg mx-4">
+        <div class="modal-panel max-w-2xl mx-4">
             <div class="p-6">
                 <div class="flex justify-between items-start mb-4">
                     <h3 id="modelGroupModalTitle" class="text-lg font-semibold text-ink-900" data-i18n="modals.mgAdd">添加模型组</h3>
@@ -372,9 +367,18 @@
                             <button type="button" onclick="addModelInput()" class="mt-2 text-sm text-brand-600 hover:text-brand-700 font-medium transition" data-i18n="modals.mgAddModel">+ 添加模型</button>
                             <p class="text-xs text-ink-400 mt-1" data-i18n="modals.mgModelsHelp">按顺序 Fallback，排在前面的优先使用</p>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <input type="checkbox" id="modelGroupEnabled" checked>
-                            <label for="modelGroupEnabled" class="text-sm text-ink-800 cursor-pointer" data-i18n="common.enabled">启用</label>
+                        <div class="flex items-center gap-4 flex-wrap">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="modelGroupEnabled" checked>
+                                <span class="text-sm text-ink-800" data-i18n="common.enabled">启用</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="modelGroupLazySticky">
+                                <span class="text-sm text-ink-800" data-i18n="modelGroups.lazySticky">惰性粘滞</span>
+                                <span class="help-tip" tabindex="0" role="button" aria-label="?">?
+                                    <span class="help-tip-text" data-i18n="modelGroups.lazyStickyHelp">开启后该组同模型多渠道按“一个可用就不切，出错才切且不回头”粘滞；关闭即轮询</span>
+                                </span>
+                            </label>
                         </div>
                     </div>
                     <div class="flex justify-end gap-3 pt-4 border-t border-surface-100 mt-4">
@@ -400,18 +404,9 @@
                     <span id="modelCapName" class="inline-block text-sm font-medium text-ink-900 bg-surface-100 px-2.5 py-1 rounded-lg"></span>
                 </div>
                 <div class="space-y-3 mb-5">
-                    <label class="flex items-center gap-3 text-sm text-ink-700 cursor-pointer hover:bg-surface-50 p-2 rounded-lg transition">
-                        <input type="checkbox" id="capImage" class="rounded">
-                        <span data-i18n="modals.capImage">支持图片</span>
-                    </label>
-                    <label class="flex items-center gap-3 text-sm text-ink-700 cursor-pointer hover:bg-surface-50 p-2 rounded-lg transition">
-                        <input type="checkbox" id="capAudio" class="rounded">
-                        <span data-i18n="modals.capAudio">支持音频</span>
-                    </label>
-                    <label class="flex items-center gap-3 text-sm text-ink-700 cursor-pointer hover:bg-surface-50 p-2 rounded-lg transition">
-                        <input type="checkbox" id="capFile" class="rounded">
-                        <span data-i18n="modals.capFile">支持文件</span>
-                    </label>
+                    <label class="block text-sm text-ink-700"><span data-i18n="modals.capImage">图片输入</span><select id="capImage" class="w-full mt-1 px-2 py-2"><option value="" data-i18n="modals.capInherit">继承档案</option><option value="supported" data-i18n="modals.capSupported">支持</option><option value="unsupported" data-i18n="modals.capUnsupported">不支持</option><option value="unknown" data-i18n="modals.capUnknown">未知</option></select></label>
+                    <label class="block text-sm text-ink-700"><span data-i18n="modals.capAudio">音频输入</span><select id="capAudio" class="w-full mt-1 px-2 py-2"><option value="" data-i18n="modals.capInherit">继承档案</option><option value="supported" data-i18n="modals.capSupported">支持</option><option value="unsupported" data-i18n="modals.capUnsupported">不支持</option><option value="unknown" data-i18n="modals.capUnknown">未知</option></select></label>
+                    <label class="block text-sm text-ink-700"><span data-i18n="modals.capFile">文件输入</span><select id="capFile" class="w-full mt-1 px-2 py-2"><option value="" data-i18n="modals.capInherit">继承档案</option><option value="supported" data-i18n="modals.capSupported">支持</option><option value="unsupported" data-i18n="modals.capUnsupported">不支持</option><option value="unknown" data-i18n="modals.capUnknown">未知</option></select></label>
                 </div>
                 <div class="flex gap-2 pt-3 border-t border-surface-100">
                     <button type="button" onclick="resetModelCap()" class="btn-secondary px-3 py-1.5 text-xs font-medium" data-i18n="common.reset">重置</button>
@@ -426,14 +421,20 @@
     <script src="/admin/static/js/i18n-zh.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/i18n-en.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/utils.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/modal.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/tab_runtime.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/tag_input.js?v=__STATIC_ASSET_VERSION__"></script>
-    <script src="/admin/static/js/channels.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/channels_table.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/channels_modals.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/channels_editor.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/apikeys.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/settings.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/stats.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/requests.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/model_groups.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/whitelist.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/storage.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/context_shaping.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/admin.js?v=__STATIC_ASSET_VERSION__"></script>
 </body>
 </html>

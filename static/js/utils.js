@@ -245,9 +245,78 @@ function createStatusBadge(enabled, label) {
     return badge;
 }
 
-/** Confirm dialog wrapper */
-function confirmAction(message) {
-    return confirm(message);
+/* ─── .help-tip 悬停气泡：portal 到 <body>，避免被模态框 overflow 裁剪 ─── */
+
+let _helpTipEl = null;
+let _helpTipSource = null;
+
+function _hideHelpTip() {
+    if (_helpTipEl) {
+        _helpTipEl.remove();
+        _helpTipEl = null;
+    }
+    _helpTipSource = null;
+}
+
+function _showHelpTip(icon) {
+    const textEl = icon.querySelector('.help-tip-text');
+    if (!textEl || !textEl.textContent) return;
+    _hideHelpTip();
+    _helpTipSource = icon;
+    const el = document.createElement('div');
+    el.className = 'help-tip-popover';
+    el.textContent = textEl.textContent;
+    document.body.appendChild(el);
+    const r = icon.getBoundingClientRect();
+    const p = el.getBoundingClientRect();
+    let left = r.left + r.width / 2 - p.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - p.width - 8));
+    let top = r.bottom + 6;
+    if (top + p.height > window.innerHeight - 8) {
+        top = Math.max(8, r.top - p.height - 6);
+    }
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+    requestAnimationFrame(() => el.classList.add('visible'));
+    _helpTipEl = el;
+}
+
+function _helpTipIconFrom(e) {
+    const t = e.target;
+    return t && t.closest ? t.closest('.help-tip') : null;
+}
+
+function initHelpTips() {
+    document.addEventListener('mouseover', (e) => {
+        const icon = _helpTipIconFrom(e);
+        if (icon) _showHelpTip(icon);
+    });
+    document.addEventListener('mouseout', (e) => {
+        const icon = _helpTipIconFrom(e);
+        if (!icon || _helpTipSource !== icon) return;
+        const rt = e.relatedTarget;
+        if (rt && rt.closest && rt.closest('.help-tip') === icon) return;
+        _hideHelpTip();
+    });
+    document.addEventListener('focusin', (e) => {
+        const icon = _helpTipIconFrom(e);
+        if (icon) _showHelpTip(icon);
+    });
+    document.addEventListener('focusout', (e) => {
+        const icon = _helpTipIconFrom(e);
+        if (icon && _helpTipSource === icon) _hideHelpTip();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') _hideHelpTip();
+    });
+    document.addEventListener('pointerdown', _hideHelpTip);
+    window.addEventListener('scroll', _hideHelpTip, true);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initHelpTips);
+} else {
+    initHelpTips();
 }
 
 /** Show loading state on button */
@@ -269,7 +338,6 @@ window.showToast = showToast;
 window.togglePasswordVisibility = togglePasswordVisibility;
 window.getApiTypeInfo = getApiTypeInfo;
 window.createStatusBadge = createStatusBadge;
-window.confirmAction = confirmAction;
 
 // 界面统一时区工具（见上方 TZ 注释）
 window.TZ = {

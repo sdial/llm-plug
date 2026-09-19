@@ -1309,13 +1309,6 @@
         }
     }
 
-    function escapeHtml(str) {
-        if (str == null) return '';
-        const div = document.createElement('div');
-        div.textContent = String(str);
-        return div.innerHTML;
-    }
-
     function escapeAttr(str) {
         return String(str || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '-');
     }

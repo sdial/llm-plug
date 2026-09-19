@@ -6,27 +6,6 @@ function getStatsAggregationTimezone() {
   return window.adminSettings?.getOriginal()?.aggregation_timezone || undefined;
 }
 
-function formatStatsDateInTimezone(date, timezone) {
-  const options = {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  };
-  if (timezone) options.timeZone = timezone;
-
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', options)
-      .formatToParts(date)
-      .reduce((acc, part) => {
-        acc[part.type] = part.value;
-        return acc;
-      }, {});
-    return `${parts.year}-${parts.month}-${parts.day}`;
-  } catch (e) {
-    return date.toISOString().slice(0, 10);
-  }
-}
-
 async function refreshStats() {
   const btn = document.getElementById('refreshDailyBtn');
   const hint = document.getElementById('refreshHint');
@@ -95,16 +74,16 @@ async function loadStats() {
     if (daysVal === 'today') {
       _startStatsAutoRefresh();
       document.getElementById('statsDaysLabel') && (document.getElementById('statsDaysLabel').textContent = '7');
+      // ADR-0024 D2：today 实时覆盖合并已服务端化（/admin/stats 的 daily 已含实时当天行），
+      // today 分支退化为普通查询 + 取数组装：overall/截止时间取 today 实时口径，
+      // daily 直用服务端已合并的周视图——浏览器端不做任何行覆盖或聚合数学。
       const [todayResp, weekResp] = await Promise.all([
-fetch('/admin/stats/today'),
-fetch('/admin/stats?days=7'),
+        fetch('/admin/stats/today'),
+        fetch('/admin/stats?days=7'),
       ]);
       if (!todayResp.ok || !weekResp.ok) throw new Error('HTTP ' + (todayResp.ok ? weekResp.status : todayResp.status));
-      const todayData = await todayResp.json();
-      const weekData = await weekResp.json();
-      const todayStr = formatStatsDateInTimezone(new Date(), getStatsAggregationTimezone());
-      const daily = (weekData.daily || []).map(d => d.date === todayStr && todayData.daily?.[0] ? todayData.daily[0] : d);
-      data = { overall: todayData.overall, daily, _debug: todayData._debug };
+      const [todayData, weekData] = await Promise.all([todayResp.json(), weekResp.json()]);
+      data = { overall: todayData.overall, daily: weekData.daily || [], _debug: todayData._debug };
       // 显示截止时间（今天的数据）
       const serverNow = todayData._debug?.server_now;
       if (serverNow) {
@@ -175,9 +154,8 @@ function renderStats(data) {
   const outputTokens = overall.total_output_tokens || 0;
   const successRate = total > 0 ? ((successCount / total) * 100).toFixed(1) : 0;
 
-  const avgLatency = daily.length > 0
-    ? Math.round(daily.reduce((s, d) => s + (d.avg_latency_ms || 0), 0) / daily.length)
-    : 0;
+  // ADR-0024 D1：平均延迟口径由后端按请求数加权算好（overall.avg_latency_ms），前端直读渲染
+  const avgLatency = overall.avg_latency_ms || 0;
 
   document.getElementById('stat_total').textContent = total.toLocaleString();
   document.getElementById('stat_success_rate').textContent = successRate + '%';
@@ -320,5 +298,16 @@ Object.assign(window, {
     renderStats,
     formatTokens,
     _stopStatsAutoRefresh,
+});
+
+// Tab 生命周期：进入时加载统计；离开时停掉 30s 自动刷新定时器。
+window.TabRuntime.register('stats', {
+    init() {
+        if (!document.getElementById('statsDays') && !document.getElementById('refreshStatsBtn')) return;
+        loadStats();
+    },
+    deactivate() {
+        _stopStatsAutoRefresh();
+    },
 });
 })();

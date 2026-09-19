@@ -63,7 +63,5 @@ class TestCheckProxyAuthorization:
     def test_function_signature_accepts_keyword(self):
         """函数应支持关键字参数调用"""
         state = type("State", (), {"proxy_auth_checked": True})()
-        result = check_proxy_authorization(
-            authorization="Bearer x", request_state=state
-        )
+        result = check_proxy_authorization(authorization="Bearer x", request_state=state)
         assert result is True

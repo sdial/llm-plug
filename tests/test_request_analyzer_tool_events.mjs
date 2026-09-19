@@ -28,15 +28,17 @@ function loadFunctions() {
     // Strip the outer wrapper to get the inner body
     const bodyMatch = source.match(/^\s*\(\(\)\s*=>\s*\{([\s\S]*)\}\)\(\);?\s*$/);
     if (!bodyMatch) throw new Error('Cannot parse IIFE wrapper');
-    // Strip the trailing init() call to avoid DOM side-effects in Node.js
-    const body = bodyMatch[1].replace(/\n\s*init\(\);\s*$/, '\n');
+    // Strip top-level init() invocation to avoid DOM side-effects in Node.js
+    const body = bodyMatch[1].split(String.fromCharCode(10))
+        .filter((line) => !line.trim().startsWith('init('))
+        .join(String.fromCharCode(10));
 
     // Build a module that exposes the functions we need
     const wrapped = `
         // Stubs for browser-only globals used by other functions in the IIFE
         const marked = { setOptions() {}, use() {} };
         const hljs = { getLanguage() { return null; }, highlight() { return { value: '' }; }, highlightAuto() { return { value: '' }; } };
-        const document = { getElementById() { return null; }, createElement() { return { textContent: '', innerHTML: '' }; }, querySelector() { return null; }, querySelectorAll() { return []; } };
+        const document = { getElementById() { return null; }, createElement() { return { textContent: '', innerHTML: '' }; }, querySelector() { return null; }, querySelectorAll() { return []; }, addEventListener() {} };
         const window = { location: { search: '' }, addEventListener() {} };
         const history = { pushState() {} };
         const fetch = async () => ({});
@@ -46,14 +48,14 @@ function loadFunctions() {
         ${body}
 
         // Return the functions under test
-        return { extractChatToolEvents, extractAnthropicToolEvents, extractResponsesToolEvents };
+        return { extractChatToolEvents, extractAnthropicToolEvents, extractResponsesToolEvents, normalizeChatMessageBlocks, normalizeChatAnnotationBlock, normalizeAnthropicOutput, normalizeResponsesToolUseBlock };
     `;
 
     const fn = new Function(wrapped);
     return fn();
 }
 
-const { extractChatToolEvents, extractAnthropicToolEvents, extractResponsesToolEvents } = loadFunctions();
+const { extractChatToolEvents, extractAnthropicToolEvents, extractResponsesToolEvents, normalizeChatMessageBlocks, normalizeChatAnnotationBlock, normalizeAnthropicOutput, normalizeResponsesToolUseBlock } = loadFunctions();
 
 // ─── OpenAI Chat Completions ────────────────────────────────────────
 
@@ -249,5 +251,86 @@ describe('extractAnthropicToolEvents', () => {
 
         assert.equal(results.length, 1);
         assert.equal(results[0].matched, false);
+    });
+});
+
+// ─── Normalizer behavior contracts (migrated from fingerprint assertions) ──
+
+describe('normalizeChatMessageBlocks', () => {
+    const { normalizeChatMessageBlocks } = loadFunctions();
+
+    it('renders assistant tool_calls as tool_use message blocks', () => {
+        const blocks = normalizeChatMessageBlocks({
+            role: 'assistant', content: null,
+            tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'get_weather', arguments: '{"city":"Tokyo"}' } }],
+        });
+        const toolUses = blocks.filter((b) => b.type === 'tool_use');
+        assert.equal(toolUses.length, 1);
+        assert.equal(toolUses[0].name, 'get_weather');
+        assert.equal(toolUses[0].id, 'call_1');
+        assert.ok(String(toolUses[0].input).includes('Tokyo'), 'arguments must be visible in the block input');
+    });
+
+    it('maps legacy function_call to a tool_use block', () => {
+        const blocks = normalizeChatMessageBlocks({
+            role: 'assistant', content: '',
+            function_call: { name: 'get_weather', arguments: '{"city":"Paris"}' },
+        });
+        const toolUses = blocks.filter((b) => b.type === 'tool_use');
+        assert.equal(toolUses.length, 1);
+        assert.equal(toolUses[0].name, 'get_weather');
+        assert.ok(String(toolUses[0].input).includes('Paris'));
+    });
+});
+
+describe('normalizeChatAnnotationBlock', () => {
+    const { normalizeChatAnnotationBlock } = loadFunctions();
+
+    it('preserves chat annotations as citation blocks', () => {
+        const block = normalizeChatAnnotationBlock({ url_citation: { title: 'Example', url: 'https://example.com/a', start_index: 0, end_index: 5 } });
+        assert.equal(block.type, 'annotation');
+        assert.equal(block.title, 'Example');
+        assert.equal(block.url, 'https://example.com/a');
+        assert.equal(block.start_index, 0);
+    });
+
+    it('falls back to the annotation type when no citation is present', () => {
+        const block = normalizeChatAnnotationBlock({ type: 'other' });
+        assert.equal(block.type, 'annotation');
+        assert.equal(block.text, 'other');
+        assert.equal(block.url, '');
+    });
+});
+
+describe('normalizeAnthropicOutput', () => {
+    const { normalizeAnthropicOutput } = loadFunctions();
+
+    it('treats redacted_thinking as a thinking block with a placeholder text', () => {
+        const out = normalizeAnthropicOutput({ content: [{ type: 'redacted_thinking', data: 'enc' }] });
+        const thinking = out.blocks.filter((b) => b.type === 'thinking');
+        assert.equal(thinking.length, 1);
+        assert.equal(thinking[0].text, '[redacted thinking]');
+        assert.ok(!thinking[0].text.includes('enc'), 'redacted payload must not leak into the block text (raw preservation is by design)');
+    });
+
+    it('renders tool_use inputs as readable JSON and collects them as tool calls', () => {
+        const out = normalizeAnthropicOutput({ content: [{ type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Tokyo' } }] });
+        assert.equal(out.blocks[0].type, 'tool_use');
+        assert.equal(out.blocks[0].name, 'get_weather');
+        assert.ok(out.blocks[0].input.includes('Tokyo'));
+        assert.equal(out.toolCalls.length, 1);
+        assert.equal(out.toolCalls[0].name, 'get_weather');
+    });
+});
+
+describe('normalizeResponsesToolUseBlock', () => {
+    const { normalizeResponsesToolUseBlock } = loadFunctions();
+
+    it('renders responses function_call items (e.g. terminal_execute) as tool_use blocks', () => {
+        const block = normalizeResponsesToolUseBlock({ type: 'function_call', call_id: 'call_9', name: 'terminal_execute', arguments: '{"cmd":"ls"}' });
+        assert.equal(block.type, 'tool_use');
+        assert.equal(block.name, 'terminal_execute');
+        assert.equal(block.id, 'call_9');
+        assert.ok(String(block.input).includes('ls'));
     });
 });

@@ -1,10 +1,12 @@
-"""REVIEW.md 中已确认的转换器相关问题的回归测试。
+"""转换器边界条件回归测试。
 
 这些测试断言**当前（有缺陷）的行为**，每个测试的 docstring 描述具体问题。
 当问题被修复后，相关测试会失败，提示修改者同时更新测试以匹配新行为。
 """
 
 import json
+
+import pytest
 
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
@@ -41,11 +43,7 @@ class TestN2ThinkingSignature:
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
 
         assistant_msg = result["messages"][1]
-        thinking_blocks = [
-            c
-            for c in assistant_msg["content"]
-            if isinstance(c, dict) and c.get("type") == "thinking"
-        ]
+        thinking_blocks = [c for c in assistant_msg["content"] if isinstance(c, dict) and c.get("type") == "thinking"]
         assert thinking_blocks, "expected a thinking block to be produced"
         # 当前行为：signature 始终是空字符串，官方 Anthropic 会 400
         assert thinking_blocks[0]["signature"] == ""
@@ -253,10 +251,7 @@ class TestM4ToolResultOrderInUserMessage:
         # 第二条 user 消息把 "Hi" 和 "Now what?" 拼到一起，丢失中间 tool_result 的位置
         assert messages[1]["role"] == "user"
         user_content = messages[1]["content"]
-        if isinstance(user_content, list):
-            texts = [c.get("text") for c in user_content if c.get("type") == "text"]
-        else:
-            texts = [user_content]
+        texts = [c.get("text") for c in user_content if c.get("type") == "text"] if isinstance(user_content, list) else [user_content]
         joined = "\n".join(t for t in texts if t)
         # 两段 text 被合并为一段
         assert "Hi" in joined
@@ -338,13 +333,13 @@ class TestM7ResponseFormatSilentlyDropped:
 
 
 class TestM8ContentBlockDowngrade:
-    """M8: 多种内容块单向降级为占位文本。"""
+    """ADR-0031：可移植内容无损转换，不可移植内容明确拒绝。"""
 
     def setup_method(self):
         self.to_chat = ToChatCompletionsConverter()
         self.to_anthropic = ToAnthropicConverter()
 
-    def test_anthropic_document_base64_to_chat_becomes_placeholder_text(self):
+    def test_anthropic_document_base64_to_chat_preserves_file_data(self):
         request = {
             "model": "claude-opus-4-7",
             "messages": [
@@ -365,12 +360,9 @@ class TestM8ContentBlockDowngrade:
         }
         result = self.to_chat.convert_request(request, APIType.ANTHROPIC)
         content = result["messages"][0]["content"]
-        # 当前 bug: PDF 内容退化为 "[DOCUMENT: ...]"
-        assert "[DOCUMENT: application/pdf]" in (
-            content if isinstance(content, str) else json.dumps(content)
-        )
+        assert content == [{"type": "file", "file": {"file_data": "data:application/pdf;base64,JVBERi0xLjQ="}}]
 
-    def test_anthropic_document_url_to_chat_becomes_placeholder_text(self):
+    def test_anthropic_document_url_to_chat_is_rejected(self):
         request = {
             "model": "claude-opus-4-7",
             "messages": [
@@ -388,10 +380,8 @@ class TestM8ContentBlockDowngrade:
                 }
             ],
         }
-        result = self.to_chat.convert_request(request, APIType.ANTHROPIC)
-        content = result["messages"][0]["content"]
-        text_blob = content if isinstance(content, str) else json.dumps(content)
-        assert "[DOCUMENT URL:" in text_blob
+        with pytest.raises(ValueError, match="cannot be represented"):
+            self.to_chat.convert_request(request, APIType.ANTHROPIC)
 
     def test_anthropic_redacted_thinking_response_silently_dropped(self):
         """Bug M8: redacted_thinking 在响应转换中被完全丢弃, 客户端不知存在过。"""
@@ -434,7 +424,7 @@ class TestM8ContentBlockDowngrade:
         # 当前 bug: 音频内容降级成方括号占位
         assert "Audio input not supported" in text_blob
 
-    def test_openai_file_no_data_uri_to_anthropic_becomes_placeholder_text(self):
+    def test_openai_file_without_portable_data_is_rejected(self):
         request = {
             "model": "gpt-4o",
             "messages": [
@@ -444,10 +434,8 @@ class TestM8ContentBlockDowngrade:
                 }
             ],
         }
-        result = self.to_anthropic.convert_request(request, APIType.OPENAI_CHAT)
-        content = result["messages"][0]["content"]
-        text_blob = json.dumps(content)
-        assert "File input not supported" in text_blob
+        with pytest.raises(ValueError, match="portable"):
+            self.to_anthropic.convert_request(request, APIType.OPENAI_CHAT)
 
     def test_openai_refusal_block_to_anthropic_becomes_placeholder_text(self):
         request = {
@@ -503,14 +491,8 @@ class TestM9XStopSequenceFieldPollutesChoice:
         ]
         outputs = []
         for c in chunks:
-            converted = self.converter.convert_stream_chunk(c, APIType.ANTHROPIC.value)
-            if converted is not None:
-                outputs.append(converted)
-        delta_chunks = [
-            o
-            for o in outputs
-            if o.get("choices") and o["choices"][0].get("finish_reason") == "stop"
-        ]
+            outputs.extend(self.converter.convert_stream_chunk(c, APIType.ANTHROPIC.value))
+        delta_chunks = [o for o in outputs if o.get("choices") and o["choices"][0].get("finish_reason") == "stop"]
         assert delta_chunks, "should have a finishing chunk"
         assert delta_chunks[-1]["choices"][0].get("x_stop_sequence") == "STOP"
 
@@ -629,14 +611,12 @@ class TestM12StreamMessageStartInputTokensZero:
         chunk = {
             "id": "chatcmpl-a",
             "model": "gpt-4o",
-            "choices": [
-                {"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}
-            ],
+            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
         }
-        events = self.converter._chat_stream_chunk_to_anthropic(chunk)
-        message_starts = [e for e in events if e[0] == "message_start"]
+        events = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_CHAT.value)
+        message_starts = [e for e in events if e.get("type") == "message_start"]
         assert message_starts
-        usage = message_starts[0][1]["message"]["usage"]
+        usage = message_starts[0]["message"]["usage"]
         # 当前 bug: 首帧 message_start 的 input_tokens 永远是 0
         assert usage["input_tokens"] == 0
 
@@ -657,9 +637,7 @@ class TestM13StreamFirstToolCallEmptyId:
             {
                 "id": "chatcmpl-a",
                 "model": "gpt-4o",
-                "choices": [
-                    {"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}
-                ],
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
             },
             {
                 "id": "chatcmpl-a",
@@ -683,11 +661,9 @@ class TestM13StreamFirstToolCallEmptyId:
         ]
         events = []
         for c in chunks:
-            events.extend(self.converter._chat_stream_chunk_to_anthropic(c))
-        starts = [e for e in events if e[0] == "content_block_start"]
-        tool_starts = [
-            s for s in starts if s[1]["content_block"].get("type") == "tool_use"
-        ]
+            events.extend(self.converter.convert_stream_chunk(c, APIType.OPENAI_CHAT.value))
+        starts = [e for e in events if e.get("type") == "content_block_start"]
+        tool_starts = [s for s in starts if s["content_block"].get("type") == "tool_use"]
         assert tool_starts
         # 当前 bug: id 为空字符串, 后续 tool_result.tool_use_id 无法匹配
-        assert tool_starts[0][1]["content_block"]["id"] == ""
+        assert tool_starts[0]["content_block"]["id"] == ""

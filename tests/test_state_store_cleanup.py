@@ -83,9 +83,8 @@ class TestCleanupExpired:
             f.write("{broken json")
 
         removed = await tmp_store.cleanup_expired()
-        assert removed == 0
-        # 损坏文件保留（不删除，因为无法判断过期时间）
-        assert os.path.exists(path)
+        assert removed == 1
+        assert not os.path.exists(path)
 
     @pytest.mark.asyncio
     async def test_boundary_exactly_expired(self, tmp_store):

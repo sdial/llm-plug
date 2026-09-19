@@ -109,32 +109,11 @@ function editApiKey(id) {
 
 // 打开 Key 弹窗的公共部分：显示弹窗并设置焦点陷阱与触发元素
 function openKeyModalStatic() {
-    const modal = document.getElementById('keyModal');
-    modal.classList.remove('hidden');
-    modal.classList.remove('closing');
-    modal._triggerElement = document.activeElement;
-    setupFocusTrap(modal);
+    ModalManager.open(document.getElementById('keyModal'));
 }
 
 function closeKeyModal() {
-    const modal = document.getElementById('keyModal');
-    removeFocusTrap(modal);
-    modal.classList.add('closing');
-    const onEnd = () => {
-        modal.classList.add('hidden');
-        modal.classList.remove('closing');
-        modal.removeEventListener('animationend', onEnd);
-        if (modal._triggerElement) {
-            modal._triggerElement.focus();
-            delete modal._triggerElement;
-        }
-    };
-    modal.addEventListener('animationend', onEnd);
-    setTimeout(() => {
-        if (modal.classList.contains('closing')) {
-            onEnd();
-        }
-    }, 200);
+    ModalManager.close(document.getElementById('keyModal'));
 }
 
 async function saveApiKey(e) {
@@ -186,7 +165,7 @@ async function saveApiKey(e) {
             if (result.key) {
                 pendingCopyKey = result.key;
                 document.getElementById('copyKeyText').textContent = result.key;
-                document.getElementById('copyKeyModal').classList.remove('hidden');
+                ModalManager.open(document.getElementById('copyKeyModal'));
             }
             loadApiKeys();
         }
@@ -197,7 +176,7 @@ async function saveApiKey(e) {
 }
 
 async function deleteApiKey(id) {
-    showConfirmModal(I18n.t('apikeys.confirmDelete'), I18n.t('apikeys.confirmDeleteMsg'), async () => {
+    ModalManager.confirm(I18n.t('apikeys.confirmDelete'), I18n.t('apikeys.confirmDeleteMsg'), async () => {
         try {
             const resp = await fetch(`${API_KEYS}/${id}`, { method: 'DELETE' });
             if (!resp.ok) {
@@ -247,7 +226,7 @@ async function copyToClipboard(text) {
 }
 
 function closeCopyKeyModal() {
-    document.getElementById('copyKeyModal').classList.add('hidden');
+    ModalManager.close(document.getElementById('copyKeyModal'));
     pendingCopyKey = '';
 }
 
@@ -279,5 +258,14 @@ Object.assign(window, {
     closeCopyKeyModal,
     doCopyKey,
     initApiKeys,
+});
+
+// Tab 生命周期：片段 settle 后初始化 TagInput 并加载列表。
+window.TabRuntime.register('apikeys', {
+    init() {
+        if (!document.getElementById('apiKeyList') && !document.getElementById('fk_models_container')) return;
+        initApiKeys();
+        loadApiKeys();
+    },
 });
 })();

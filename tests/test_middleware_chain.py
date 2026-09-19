@@ -1,4 +1,4 @@
-"""CombinedMiddleware 完整链路测试
+"""5 中间件链完整链路测试
 
 覆盖中间件核心管道的每个环节：
 1. IP 白名单检查（403）
@@ -17,11 +17,19 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
+from middleware.admin_auth_middleware import AdminAuthMiddleware
+from middleware.body_buffer_middleware import BodyBufferMiddleware
+from middleware.proxy_auth_middleware import ProxyAuthMiddleware
+from middleware.request_log_middleware import RequestLogMiddleware
+from middleware.whitelist_middleware import WhitelistMiddleware
+
 
 @pytest.fixture
 def middleware_app(tmp_path, monkeypatch):
-    """构建一个最小 FastAPI 应用 + CombinedMiddleware 的测试环境。"""
+    """构建一个最小 FastAPI 应用 + 5 中间件链的测试环境。"""
     import config
+    import middleware.proxy_auth_middleware as pam
+    import middleware.whitelist_middleware as wmod
     import storage
     import whitelist as _whitelist
 
@@ -37,8 +45,9 @@ def middleware_app(tmp_path, monkeypatch):
             {
                 "id": "ch_mw_1",
                 "name": "MW Test",
-                "api_type": "openai-chat-completions",
-                "base_url": "http://127.0.0.1:19876",
+                "endpoints": [
+                    {"api_type": "openai-chat-completions", "base_url": "http://127.0.0.1:19876"},
+                ],
                 "api_key": "test-key",
                 "models": ["gpt-4o"],
                 "enabled": True,
@@ -82,7 +91,6 @@ def middleware_app(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
     # 设置一个较小的 max_body_size 以便测试 413
     monkeypatch.setattr(config, "MAX_BODY_SIZE", 1024)
-    import main as _main
 
     # 清缓存
     storage._cache = None
@@ -93,14 +101,14 @@ def middleware_app(tmp_path, monkeypatch):
     storage._keys_lock = None
 
     # 重置 api key index
-    _main._api_key_index = None
+    pam._api_key_index = None
 
     # 创建空白的白名单文件
     wl_file = data_dir / "whitelist.csv"
     wl_file.write_text("")
-    _main._whitelist_cache = _whitelist.WhitelistCache(str(wl_file))
+    wmod._whitelist_cache = _whitelist.WhitelistCache(str(wl_file))
 
-    # 构建一个只含中间件 + 一个回显路由的 app
+    # 构建一个只含中间件链 + 一个回显路由的 app
     inner_app = FastAPI()
 
     @inner_app.post("/v1/chat/completions")
@@ -145,7 +153,11 @@ def middleware_app(tmp_path, monkeypatch):
     async def health():
         return JSONResponse({"status": "healthy"})
 
-    inner_app.add_middleware(_main.CombinedMiddleware)
+    inner_app.add_middleware(RequestLogMiddleware)
+    inner_app.add_middleware(BodyBufferMiddleware)
+    inner_app.add_middleware(ProxyAuthMiddleware)
+    inner_app.add_middleware(AdminAuthMiddleware)
+    inner_app.add_middleware(WhitelistMiddleware)
 
     with TestClient(inner_app, raise_server_exceptions=False) as client:
         yield client
@@ -157,7 +169,7 @@ def middleware_app(tmp_path, monkeypatch):
     storage._keys_cache_ts = 0
     storage._channels_lock = None
     storage._keys_lock = None
-    _main._api_key_index = None
+    pam._api_key_index = None
 
 
 # ═══════════════════════════════════════════
@@ -193,9 +205,7 @@ class TestBodySizeLimit:
 
     def test_body_within_limit_passes(self, middleware_app):
         """正常大小的 body 不应被拒绝"""
-        small_body = json.dumps(
-            {"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]}
-        )
+        small_body = json.dumps({"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]})
         resp = middleware_app.post(
             "/v1/chat/completions",
             content=small_body,
@@ -219,7 +229,8 @@ class TestBodySizeLimit:
     def test_chunked_body_exceeds_max_returns_413(self, tmp_path, monkeypatch):
         """无 Content-Length 且 body 分批到达时，应按累计大小返回 413。"""
         import config
-        import main as _main
+        import middleware.proxy_auth_middleware as pam
+        import middleware.whitelist_middleware as wmod
         import storage
         import whitelist as _whitelist
 
@@ -236,8 +247,8 @@ class TestBodySizeLimit:
         monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
         monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
         monkeypatch.setattr(config, "MAX_BODY_SIZE", 8)
-        _main._whitelist_cache = _whitelist.WhitelistCache(str(wl_file))
-        _main._api_key_index = None
+        wmod._whitelist_cache = _whitelist.WhitelistCache(str(wl_file))
+        pam._api_key_index = None
         storage._cache = None
         storage._cache_ts = 0
         storage._keys_cache = None
@@ -249,7 +260,7 @@ class TestBodySizeLimit:
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"ok"})
 
-        middleware = _main.CombinedMiddleware(app)
+        middleware = WhitelistMiddleware(AdminAuthMiddleware(ProxyAuthMiddleware(BodyBufferMiddleware(RequestLogMiddleware(app)))))
         messages = iter(
             [
                 {"type": "http.request", "body": b"12345", "more_body": True},
@@ -293,14 +304,9 @@ class TestApiKeyAuth:
             json={"model": "gpt-4o"},
         )
         assert resp.status_code == 401
-        assert (
-            "Missing" in resp.json()["error"]["message"]
-            or "invalid" in resp.json()["error"]["message"].lower()
-        )
+        assert "Missing" in resp.json()["error"]["message"] or "invalid" in resp.json()["error"]["message"].lower()
 
-    def test_missing_auth_header_on_messages_returns_anthropic_error(
-        self, middleware_app
-    ):
+    def test_missing_auth_header_on_messages_returns_anthropic_error(self, middleware_app):
         """Anthropic Messages endpoint middleware auth errors use Anthropic error format."""
         resp = middleware_app.post(
             "/v1/messages",
@@ -311,10 +317,7 @@ class TestApiKeyAuth:
         body = resp.json()
         assert body["type"] == "error"
         assert body["error"]["type"] == "authentication_error"
-        assert (
-            "Missing" in body["error"]["message"]
-            or "invalid" in body["error"]["message"].lower()
-        )
+        assert "Missing" in body["error"]["message"] or "invalid" in body["error"]["message"].lower()
 
     def test_invalid_bearer_token_returns_401(self, middleware_app):
         """Bearer token 不在已注册的 API Key 中应返回 401"""
@@ -324,10 +327,7 @@ class TestApiKeyAuth:
             headers={"Authorization": "Bearer sk-nonexistent-key"},
         )
         assert resp.status_code == 401
-        assert (
-            "Invalid" in resp.json()["error"]["message"]
-            or "invalid" in resp.json()["error"]["message"].lower()
-        )
+        assert "Invalid" in resp.json()["error"]["message"] or "invalid" in resp.json()["error"]["message"].lower()
 
     def test_valid_bearer_token_passes(self, middleware_app):
         """有效的 Bearer token 应通过认证"""
@@ -499,7 +499,8 @@ class TestIpWhitelist:
     def test_whitelist_deny_returns_403(self, tmp_path, monkeypatch):
         """白名单规则拒绝的 IP 应返回 403"""
         import config
-        import main as _main
+        import middleware.proxy_auth_middleware as pam
+        import middleware.whitelist_middleware as wmod
         import storage
         import whitelist as _whitelist
 
@@ -527,8 +528,8 @@ class TestIpWhitelist:
         # 写一个白名单规则：只允许 10.0.0.0/8
         wl_file = data_dir / "whitelist.csv"
         wl_file.write_text("*,*,10.0.0.0/8,allow 10.x only\n")
-        _main._whitelist_cache = _whitelist.WhitelistCache(str(wl_file))
-        _main._api_key_index = None
+        wmod._whitelist_cache = _whitelist.WhitelistCache(str(wl_file))
+        pam._api_key_index = None
 
         from fastapi import FastAPI
         from fastapi.responses import JSONResponse
@@ -539,7 +540,11 @@ class TestIpWhitelist:
         async def handler(request: Request):
             return JSONResponse({"status": "ok"})
 
-        inner.add_middleware(_main.CombinedMiddleware)
+        inner.add_middleware(RequestLogMiddleware)
+        inner.add_middleware(BodyBufferMiddleware)
+        inner.add_middleware(ProxyAuthMiddleware)
+        inner.add_middleware(AdminAuthMiddleware)
+        inner.add_middleware(WhitelistMiddleware)
 
         with TestClient(inner, raise_server_exceptions=False) as client:
             resp = client.post(
@@ -548,10 +553,7 @@ class TestIpWhitelist:
             )
             # TestClient 的 client IP 是 "testclient"，不在 10.0.0.0/8 范围内
             assert resp.status_code == 403
-            assert (
-                "whitelist" in resp.json()["error"].get("type", "").lower()
-                or resp.status_code == 403
-            )
+            assert "whitelist" in resp.json()["error"].get("type", "").lower() or resp.status_code == 403
 
         storage._cache = None
         storage._cache_ts = 0
@@ -559,7 +561,7 @@ class TestIpWhitelist:
         storage._keys_cache_ts = 0
         storage._channels_lock = None
         storage._keys_lock = None
-        _main._api_key_index = None
+        pam._api_key_index = None
 
 
 # ═══════════════════════════════════════════

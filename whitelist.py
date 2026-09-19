@@ -39,9 +39,7 @@ def load_rules(path: str) -> list[WhitelistRule]:
     except FileNotFoundError:
         return []
 
-    filtered = [
-        line for line in lines if line.strip() and not line.strip().startswith("#")
-    ]
+    filtered = [line for line in lines if line.strip() and not line.strip().startswith("#")]
     rules: list[WhitelistRule] = []
     reader = csv.reader(filtered)
     for row in reader:
@@ -56,7 +54,9 @@ def load_rules(path: str) -> list[WhitelistRule]:
         if methods_str and methods_str != "*":
             methods = frozenset(m.strip().upper() for m in methods_str.split("|"))
         try:
-            network = ipaddress.ip_network(ip_cidr, strict=False)
+            # 与管理端保存校验保持一致：手工篡改文件也不能把 host-bit CIDR
+            # 静默放宽为更大的网段。
+            network = ipaddress.ip_network(ip_cidr, strict=True)
         except ValueError:
             continue
         rules.append(

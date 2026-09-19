@@ -18,7 +18,7 @@ import time
 import pytest
 
 import config
-from models.channel import Channel
+from models.channel import Channel, Endpoint
 
 
 def _make_channel(
@@ -29,8 +29,7 @@ def _make_channel(
     return Channel(
         id=id,
         name=f"Bench {id}",
-        api_type="openai-chat-completions",
-        base_url="http://example.com",
+        endpoints=[Endpoint(api_type="openai-chat-completions", base_url="http://example.com")],
         api_key="key",
         models=["gpt-4o"],
         enabled=True,
@@ -62,35 +61,33 @@ class TestLoadBalancerConcurrency:
 
         # 所有选择都应返回有效渠道
         assert all(r is not None for r in results)
-        assert elapsed < 1.0, (
-            f"100 concurrent selects took {elapsed:.2f}s, expected < 1s"
-        )
+        assert elapsed < 1.0, f"100 concurrent selects took {elapsed:.2f}s, expected < 1s"
 
     @pytest.mark.asyncio
     async def test_1000_concurrent_selects_with_health(self):
-        """1000 次并发选择 + 健康记录混合操作不应出错"""
+        """1000 次并发选择 + 健康记录混合操作不应出错（记账直连 outcomes，ADR-0025 D1）"""
         from balancer.load_balancer import LoadBalancer
+        from proxy import outcomes
+        from proxy.outcomes import OutcomeKind
 
         lb = LoadBalancer()
-        channels = [
-            _make_channel(id=f"ch_{i}", weight=1, priority=1) for i in range(10)
-        ]
+        channels = [_make_channel(id=f"ch_{i}", weight=1, priority=1) for i in range(10)]
 
         async def do_select():
             return await lb.select_channel(channels)
 
-        async def do_record_success():
-            await lb.record_success("ch_0")
+        async def write_success_event():
+            outcomes.record("gpt-4o", "ch_0", OutcomeKind.success)
 
-        async def do_record_failure():
-            await lb.record_failure("ch_9")
+        async def write_failure_event():
+            outcomes.record("gpt-4o", "ch_9", OutcomeKind.transport_failure)
 
         tasks = []
         for i in range(1000):
             if i % 10 == 0:
-                tasks.append(do_record_success())
+                tasks.append(write_success_event())
             elif i % 10 == 1:
-                tasks.append(do_record_failure())
+                tasks.append(write_failure_event())
             else:
                 tasks.append(do_select())
 
@@ -100,9 +97,7 @@ class TestLoadBalancerConcurrency:
 
         # 不应有任何异常
         exceptions = [r for r in results if isinstance(r, Exception)]
-        assert len(exceptions) == 0, (
-            f"Got {len(exceptions)} exceptions in concurrent ops"
-        )
+        assert len(exceptions) == 0, f"Got {len(exceptions)} exceptions in concurrent ops"
         assert elapsed < 5.0, f"1000 mixed ops took {elapsed:.2f}s, expected < 5s"
 
 
@@ -147,9 +142,7 @@ class TestClientPoolStability:
         channels = [_make_channel(id=f"ch_conc_{i}") for i in range(50)]
 
         start = time.time()
-        clients = await asyncio.gather(
-            *[get_or_create_client(ch, timeout=5) for ch in channels]
-        )
+        clients = await asyncio.gather(*[get_or_create_client(ch, timeout=5) for ch in channels])
         elapsed = time.time() - start
 
         assert all(c is not None for c in clients)
@@ -179,8 +172,6 @@ class TestStorageThroughput:
                 {
                     "id": f"ch_{i}",
                     "name": f"Ch {i}",
-                    "api_type": "openai-chat-completions",
-                    "base_url": "http://example.com",
                     "api_key": "key",
                     "models": ["gpt-4o"],
                     "enabled": True,
@@ -188,6 +179,7 @@ class TestStorageThroughput:
                     "priority": 1,
                     "socks5_proxy": None,
                     "created_at": "2026-06-01T00:00:00Z",
+                    "endpoints": [{"api_type": "openai-chat-completions", "base_url": "http://example.com"}],
                 }
                 for i in range(20)
             ]
@@ -200,23 +192,21 @@ class TestStorageThroughput:
         monkeypatch.setattr(config, "DATA_DIR", str(data_dir))
         monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
         monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
-        storage._cache = None
-        storage._cache_ts = 0
+        from channel_catalog import catalog
+
+        catalog.reset()
         storage._keys_cache = None
         storage._keys_cache_ts = 0
-        storage._channels_lock = None
         storage._keys_lock = None
 
         start = time.time()
-        results = await asyncio.gather(*[storage.load_data() for _ in range(50)])
+        results = await asyncio.gather(*(catalog.snapshot() for _ in range(50)))
         elapsed = time.time() - start
 
-        assert all("channels" in r for r in results)
+        assert all(len(result.channels) == 20 for result in results)
         assert elapsed < 1.0, f"50 concurrent reads took {elapsed:.2f}s"
 
-        storage._cache = None
-        storage._cache_ts = 0
-        storage._channels_lock = None
+        catalog.reset()
         storage._keys_lock = None
 
 

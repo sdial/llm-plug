@@ -109,4 +109,12 @@ Object.assign(window, {
     loadWhitelist,
     saveWhitelist,
 });
+
+// Tab 生命周期：片段 settle 后加载白名单内容。
+window.TabRuntime.register('whitelist', {
+    init() {
+        if (!document.getElementById('whitelist_content') && !document.getElementById('whitelist_save_btn')) return;
+        loadWhitelist();
+    },
+});
 })();

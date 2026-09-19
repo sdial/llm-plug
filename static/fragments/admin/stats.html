@@ -15,7 +15,7 @@
         <div class="hidden sm:block flex-1"></div>
         <span id="statsCutoffTime" class="text-xs text-ink-400 hidden"><span data-i18n="stats.cutoffPrefix">数据截止:</span> <span id="cutoffTimeValue">-</span></span>
         <button type="button" id="refreshStatsBtn" onclick="refreshStatsData()" class="pill pill-muted hover:bg-surface-200 transition cursor-pointer text-xs flex items-center gap-1.5 ml-auto sm:ml-0" data-i18n-aria="stats.refreshBtn">
-            <svg id="refreshStatsIcon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+            <svg id="refreshStatsIcon" class="w-3 h-3" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
             <span id="refreshStatsText" data-i18n="stats.refreshBtn">刷新数据</span>
         </button>
     </div>
@@ -39,9 +39,11 @@
             <div id="stat_input_tokens" class="text-2xl font-bold text-cyan-600">-</div>
         </div>
         <div class="card p-4">
-            <div class="text-xs text-ink-500 uppercase tracking-wider font-medium mb-1" data-i18n="stats.cardCacheHit">缓存命中</div>
+            <div class="flex items-center justify-between text-xs text-ink-500 uppercase tracking-wider font-medium mb-1">
+                <span data-i18n="stats.cardCacheHit">缓存命中</span>
+                <span id="stat_cache_hit_rate" class="font-medium text-emerald-600">-</span>
+            </div>
             <div id="stat_cache_hit" class="text-2xl font-bold text-emerald-600">-</div>
-            <div class="text-xs text-ink-500 mt-1"><span data-i18n="stats.cacheHitRate">命中率</span> <span id="stat_cache_hit_rate" class="font-medium text-emerald-600">-</span></div>
         </div>
         <div class="card p-4">
             <div class="text-xs text-ink-500 uppercase tracking-wider font-medium mb-1" data-i18n="stats.cardOutputTokens">输出 Token</div>

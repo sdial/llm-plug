@@ -11,6 +11,7 @@ from models.channel import (
     Channel,
     ChannelCreate,
     ChannelUpdate,
+    Endpoint,
     ModelCapabilities,
 )
 
@@ -35,13 +36,13 @@ class TestChannel:
     def test_creates_with_defaults(self):
         ch = Channel(
             name="Test Channel",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.openai.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
             api_key="sk-test",
         )
         assert ch.name == "Test Channel"
-        assert ch.api_type == APIType.OPENAI_CHAT
-        assert ch.base_url == "https://api.openai.com"
+        ep = ch.selected_endpoint()
+        assert ep.api_type == APIType.OPENAI_CHAT
+        assert ep.base_url == "https://api.openai.com"
         assert ch.api_key == "sk-test"
         assert ch.models == []
         assert ch.enabled is True
@@ -52,26 +53,15 @@ class TestChannel:
         assert re.match(r"ch_[a-f0-9]{8}", ch.id)
 
     def test_id_is_unique(self):
-        ch1 = Channel(
-            name="A",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://a.com",
-            api_key="k1",
-        )
-        ch2 = Channel(
-            name="B",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://b.com",
-            api_key="k2",
-        )
+        ch1 = Channel(name="A", endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://a.com")], api_key="k1")
+        ch2 = Channel(name="B", endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://b.com")], api_key="k2")
         assert ch1.id != ch2.id
 
     def test_weight_must_be_positive(self):
         with pytest.raises(ValidationError):
             Channel(
                 name="Test",
-                api_type=APIType.OPENAI_CHAT,
-                base_url="https://api.openai.com",
+                endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
                 api_key="sk-test",
                 weight=0,
             )
@@ -80,8 +70,7 @@ class TestChannel:
         with pytest.raises(ValidationError):
             Channel(
                 name="Test",
-                api_type=APIType.OPENAI_CHAT,
-                base_url="https://api.openai.com",
+                endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
                 api_key="sk-test",
                 priority=0,
             )
@@ -89,8 +78,7 @@ class TestChannel:
     def test_created_at_is_iso_format(self):
         ch = Channel(
             name="Test",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.openai.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
             api_key="sk-test",
         )
         assert ch.created_at.endswith("+00:00")
@@ -98,8 +86,7 @@ class TestChannel:
     def test_models_list(self):
         ch = Channel(
             name="Test",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.openai.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
             api_key="sk-test",
             models=["gpt-4", "gpt-3.5-turbo"],
         )
@@ -108,8 +95,7 @@ class TestChannel:
     def test_capabilities_can_be_configured(self):
         ch = Channel(
             name="Test",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.openai.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
             api_key="sk-test",
             capabilities={"filter_think_content": True},
         )
@@ -118,44 +104,46 @@ class TestChannel:
     def test_anthropic_header_policies_have_defaults(self):
         ch = Channel(
             name="Anthropic",
-            api_type=APIType.ANTHROPIC,
-            base_url="https://api.anthropic.com",
+            endpoints=[Endpoint(api_type=APIType.ANTHROPIC, base_url="https://api.anthropic.com")],
             api_key="ak-test",
         )
-        assert ch.anthropic_version is None
-        assert ch.anthropic_version_policy == AnthropicVersionPolicy.CHANNEL
-        assert ch.anthropic_beta is None
-        assert ch.anthropic_beta_policy == AnthropicBetaPolicy.CHANNEL
+        ep = ch.endpoints[0]
+        assert ep.anthropic_version is None
+        assert ep.anthropic_version_policy == AnthropicVersionPolicy.CHANNEL
+        assert ep.anthropic_beta is None
+        assert ep.anthropic_beta_policy == AnthropicBetaPolicy.CHANNEL
 
     def test_advanced_urls_default_to_none(self):
         ch = Channel(
             name="OpenAI",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.openai.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
             api_key="sk-test",
         )
 
-        assert ch.endpoint_url is None
-        assert ch.models_url is None
+        assert ch.endpoints[0].url_override is None
+        assert ch.endpoints[0].models_url is None
 
     def test_advanced_urls_can_be_configured(self):
         ch = Channel(
             name="Custom",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.example.com",
-            endpoint_url="https://gateway.example.com/custom/chat",
-            models_url="https://gateway.example.com/custom/models",
+            endpoints=[
+                Endpoint(
+                    api_type=APIType.OPENAI_CHAT,
+                    base_url="https://api.example.com",
+                    url_override="https://gateway.example.com/custom/chat",
+                    models_url="https://gateway.example.com/custom/models",
+                ),
+            ],
             api_key="sk-test",
         )
 
-        assert ch.endpoint_url == "https://gateway.example.com/custom/chat"
-        assert ch.models_url == "https://gateway.example.com/custom/models"
+        assert ch.endpoints[0].url_override == "https://gateway.example.com/custom/chat"
+        assert ch.endpoints[0].models_url == "https://gateway.example.com/custom/models"
 
     def test_model_capabilities_defaults_to_none(self):
         ch = Channel(
             name="Test",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.openai.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
             api_key="sk-test",
         )
         assert ch.model_capabilities is None
@@ -163,8 +151,7 @@ class TestChannel:
     def test_model_capabilities_can_be_configured(self):
         ch = Channel(
             name="Test",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.openai.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
             api_key="sk-test",
             model_capabilities={
                 "gpt-4o": ModelCapabilities(
@@ -182,8 +169,7 @@ class TestChannel:
     def test_model_capabilities_serialization(self):
         ch = Channel(
             name="Test",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.openai.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
             api_key="sk-test",
             model_capabilities={
                 "gpt-4o": ModelCapabilities(supports_image_content=True),
@@ -203,21 +189,23 @@ class TestChannelCreate:
     def test_all_fields_required_except_defaults(self):
         cc = ChannelCreate(
             name="New Channel",
-            api_type=APIType.ANTHROPIC,
-            base_url="https://api.anthropic.com",
+            endpoints=[{"api_type": APIType.ANTHROPIC, "base_url": "https://api.anthropic.com"}],
             api_key="ak-test",
         )
         assert cc.name == "New Channel"
-        assert cc.api_type == APIType.ANTHROPIC
+        assert cc.endpoints[0].api_type == APIType.ANTHROPIC
         assert cc.models == []
         assert cc.enabled is True
+
+    def test_create_without_any_endpoint_rejected(self):
+        with pytest.raises(ValidationError, match="接入点"):
+            ChannelCreate(name="No Endpoint", api_key="ak-test")
 
     def test_weight_validation(self):
         with pytest.raises(ValidationError):
             ChannelCreate(
                 name="Test",
-                api_type=APIType.OPENAI_CHAT,
-                base_url="https://api.openai.com",
+                endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
                 api_key="sk-test",
                 weight=0,
             )
@@ -225,69 +213,103 @@ class TestChannelCreate:
     def test_anthropic_policy_fields(self):
         cc = ChannelCreate(
             name="Anthropic",
-            api_type=APIType.ANTHROPIC,
-            base_url="https://api.anthropic.com",
+            endpoints=[
+                {
+                    "api_type": APIType.ANTHROPIC,
+                    "base_url": "https://api.anthropic.com",
+                    "anthropic_version": "2024-10-22",
+                    "anthropic_version_policy": "client",
+                    "anthropic_beta": "prompt-caching-2024-07-31",
+                    "anthropic_beta_policy": "merge",
+                }
+            ],
             api_key="ak-test",
-            anthropic_version="2024-10-22",
-            anthropic_version_policy="client",
-            anthropic_beta="prompt-caching-2024-07-31",
-            anthropic_beta_policy="merge",
         )
-        assert cc.anthropic_version == "2024-10-22"
-        assert cc.anthropic_version_policy == AnthropicVersionPolicy.CLIENT
-        assert cc.anthropic_beta_policy == AnthropicBetaPolicy.MERGE
+        ep = cc.endpoints[0]
+        assert ep.anthropic_version == "2024-10-22"
+        assert ep.anthropic_version_policy == AnthropicVersionPolicy.CLIENT
+        assert ep.anthropic_beta_policy == AnthropicBetaPolicy.MERGE
 
     def test_advanced_urls_fields(self):
         cc = ChannelCreate(
             name="Custom",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.example.com",
-            endpoint_url="https://gateway.example.com/custom/chat",
-            models_url="https://gateway.example.com/custom/models",
+            endpoints=[
+                {
+                    "api_type": APIType.OPENAI_CHAT,
+                    "base_url": "https://api.example.com",
+                    "url_override": "https://gateway.example.com/custom/chat",
+                    "models_url": "https://gateway.example.com/custom/models",
+                }
+            ],
             api_key="sk-test",
         )
 
-        assert cc.endpoint_url == "https://gateway.example.com/custom/chat"
-        assert cc.models_url == "https://gateway.example.com/custom/models"
+        ep = cc.endpoints[0]
+        assert ep.url_override == "https://gateway.example.com/custom/chat"
+        assert ep.models_url == "https://gateway.example.com/custom/models"
+
+    def test_flat_protocol_keys_are_rejected(self):
+        # 票据05 契约收紧：扁平键不再被归一或覆写首个接入点，显式拒绝并点名「扁平」
+        with pytest.raises(ValidationError, match="扁平"):
+            ChannelCreate(
+                name="Flat",
+                api_type=APIType.OPENAI_CHAT,
+                base_url="https://api.openai.com",
+                api_key="sk-test",
+            )
 
 
 class TestChannelUpdate:
     def test_all_fields_optional(self):
         cu = ChannelUpdate()
         assert cu.name is None
-        assert cu.api_type is None
-        assert cu.base_url is None
         assert cu.api_key is None
         assert cu.models is None
         assert cu.enabled is None
         assert cu.weight is None
         assert cu.priority is None
         assert cu.socks5_proxy is None
+        assert cu.endpoints is None
 
     def test_partial_update(self):
         cu = ChannelUpdate(name="Updated", enabled=False)
         assert cu.name == "Updated"
         assert cu.enabled is False
-        assert cu.base_url is None
+        # 不传 endpoints 即整组不动（PUT 合并语义由 exclude_unset 保证）
+        assert cu.endpoints is None
 
     def test_policy_update_fields(self):
         cu = ChannelUpdate(
-            anthropic_version="2024-10-22",
-            anthropic_version_policy="channel_if_missing",
-            anthropic_beta_policy="client",
+            endpoints=[
+                {
+                    "api_type": APIType.ANTHROPIC,
+                    "base_url": "https://api.anthropic.com",
+                    "anthropic_version": "2024-10-22",
+                    "anthropic_version_policy": "channel_if_missing",
+                    "anthropic_beta_policy": "client",
+                }
+            ]
         )
-        assert cu.anthropic_version == "2024-10-22"
-        assert cu.anthropic_version_policy == AnthropicVersionPolicy.CHANNEL_IF_MISSING
-        assert cu.anthropic_beta_policy == AnthropicBetaPolicy.CLIENT
+        ep = cu.endpoints[0]
+        assert ep.anthropic_version == "2024-10-22"
+        assert ep.anthropic_version_policy == AnthropicVersionPolicy.CHANNEL_IF_MISSING
+        assert ep.anthropic_beta_policy == AnthropicBetaPolicy.CLIENT
 
     def test_advanced_urls_update_fields(self):
         cu = ChannelUpdate(
-            endpoint_url="https://gateway.example.com/custom/chat",
-            models_url="https://gateway.example.com/custom/models",
+            endpoints=[
+                {
+                    "api_type": APIType.OPENAI_CHAT,
+                    "base_url": "https://api.example.com",
+                    "url_override": "https://gateway.example.com/custom/chat",
+                    "models_url": "https://gateway.example.com/custom/models",
+                }
+            ]
         )
 
-        assert cu.endpoint_url == "https://gateway.example.com/custom/chat"
-        assert cu.models_url == "https://gateway.example.com/custom/models"
+        ep = cu.endpoints[0]
+        assert ep.url_override == "https://gateway.example.com/custom/chat"
+        assert ep.models_url == "https://gateway.example.com/custom/models"
 
     def test_weight_validation(self):
         with pytest.raises(ValidationError):

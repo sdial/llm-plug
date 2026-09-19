@@ -1,4 +1,4 @@
-"""REVIEW.md 中已确认的管理端安全/可靠性问题的回归测试。
+"""管理端安全与可靠性回归测试。
 
 测试断言**当前（有缺陷）的行为**：进程不重启、cookie 缺少 Secure 标志、
 速率限制按 TCP-level client.host 计数等。每个测试的 docstring 描述具体问题。
@@ -56,11 +56,10 @@ def admin_files(tmp_path, monkeypatch):
     # 重置登录速率限制状态以避免跨测试污染
     admin._login_attempts.clear()
 
-    import main
+    import middleware.whitelist_middleware as wmod
+    import whitelist as _whitelist
 
-    main._whitelist_cache = main._whitelist.WhitelistCache(
-        str(data_dir / "whitelist.csv")
-    )
+    wmod._whitelist_cache = _whitelist.WhitelistCache(str(data_dir / "whitelist.csv"))
     yield
 
 
@@ -71,9 +70,7 @@ class TestN1RestartEndpointRemoved:
     """N1/D3: 无效的 /admin/restart 入口已移除。"""
 
     async def test_restart_endpoint_is_not_registered(self, admin_files):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
             await client.post("/admin/auth/login", json={"password": "pw"})
             csrf = (await client.get("/admin/auth/csrf")).json()["csrf_token"]
@@ -113,9 +110,7 @@ class TestN5RateLimitByTcpClientHost:
 
     async def test_failed_logins_from_distinct_xff_share_same_bucket(self, admin_files):
         """Bug N5: 模拟两个不同 X-Forwarded-For 头, 因为底层 client.host 相同, 共享速率桶。"""
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
 
             # "用户 A" 用 6 次错误密码, 然后 "用户 B" 再试一次, 应该已被限流
@@ -160,9 +155,7 @@ class TestN6SessionCookieMissingSecureFlag:
         assert "Secure" not in cookie
 
     async def test_login_set_cookie_header_lacks_secure_flag(self, admin_files):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
             login = await client.post("/admin/auth/login", json={"password": "pw"})
 
@@ -187,9 +180,7 @@ class TestN9LoginRateLimitInMemory:
 
     async def test_clearing_in_memory_state_immediately_resets_limit(self, admin_files):
         """Bug N9: 直接清空 dict 就能重置攻击者的失败窗口, 等价于一次进程重启。"""
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
 
             for _ in range(12):
@@ -201,9 +192,7 @@ class TestN9LoginRateLimitInMemory:
             # 模拟 "进程重启": 清空内存 state
             admin._login_attempts.clear()
 
-            after_restart = await client.post(
-                "/admin/auth/login", json={"password": "pw"}
-            )
+            after_restart = await client.post("/admin/auth/login", json={"password": "pw"})
 
         assert limited.status_code == 429
         # 当前 bug: 一次内存清空就让登录恢复, 攻击者借助 docker restart/OOM 可重置

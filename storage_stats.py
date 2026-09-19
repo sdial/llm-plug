@@ -1,19 +1,30 @@
-"""Storage statistics and cleanup utilities."""
+"""Storage statistics and cleanup utilities.
+
+月度分库（request_raw_logs）部分是纯视图（ADR-0017 D1）：文件名格式、目录
+发现、db/-wal/-shm 伴随文件删除等 on-disk 知识单一属主是 request_logs 的
+SQLiteRequestLogBackend，这里只消费其公开接口；通用文件系统 helper（目录
+大小、文件列表）不涉及月库布局知识，保持本地实现。
+"""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import glob
 import os
-import sqlite3
-from contextlib import closing
 from datetime import datetime
 from typing import Any
 
-from loguru import logger
-
 import config
+from request_logs import SQLiteRequestLogBackend
+
+
+def _month_store(raw_logs_dir: str) -> SQLiteRequestLogBackend:
+    """构造绑定给定月库目录的后端实例——月度分库 on-disk 知识全在后端（ADR-0017 D1）。
+
+    db_path 仅为构造签名占位：视图操作（枚举 / 详情 / 删除 / 预览）只消费
+    月库目录与月库路径，从不读写该入口库。
+    """
+    return SQLiteRequestLogBackend(os.path.join(raw_logs_dir, "request_logs.db"), logs_dir=raw_logs_dir)
 
 
 async def get_directory_size(path: str) -> int:
@@ -37,29 +48,12 @@ async def get_directory_size(path: str) -> int:
 async def discover_month_dbs(raw_logs_dir: str) -> list[str]:
     """Discover all month database files in raw logs directory.
 
-    Returns sorted list of YYYYMM strings.
+    Returns sorted list of YYYYMM strings. 目录发现转调后端公开接口：
+    容差归一（isdigit），非数字命名的杂散文件一律忽略。
     """
 
     def _sync() -> list[str]:
-        if not os.path.isdir(raw_logs_dir):
-            return []
-        months: list[str] = []
-        for path in glob.glob(
-            os.path.join(raw_logs_dir, "request_logs_????_??.sqlite3")
-        ):
-            basename = os.path.basename(path)
-            parts = (
-                basename.replace("request_logs_", "").replace(".sqlite3", "").split("_")
-            )
-            if (
-                len(parts) == 2
-                and len(parts[0]) == 4
-                and len(parts[1]) == 2
-                and parts[0].isdigit()
-                and parts[1].isdigit()
-            ):
-                months.append(parts[0] + parts[1])
-        return sorted(months)
+        return _month_store(raw_logs_dir).discover_month_dbs()
 
     return await asyncio.to_thread(_sync)
 
@@ -76,30 +70,14 @@ async def get_month_db_details(raw_logs_dir: str, month: str) -> dict[str, Any] 
     """
 
     def _sync() -> dict[str, Any] | None:
-        if len(month) != 6 or not month.isdigit():
+        store = _month_store(raw_logs_dir)
+        if not store.is_valid_month_key(month):
             return None
-        db_path = os.path.join(
-            raw_logs_dir,
-            f"request_logs_{month[:4]}_{month[4:]}.sqlite3",
-        )
+        db_path = store.month_db_path(month)
         if not os.path.exists(db_path):
             return None
 
-        record_count = 0
-        try:
-            with closing(sqlite3.connect(db_path)) as conn:
-                cursor = conn.execute(
-                    "SELECT name FROM sqlite_master"
-                    " WHERE type='table' AND name='request_logs'"
-                )
-                if cursor.fetchone() is not None:
-                    cursor = conn.execute("SELECT COUNT(*) FROM request_logs")
-                    row = cursor.fetchone()
-                    if row is not None:
-                        record_count = int(row[0])
-        except sqlite3.DatabaseError as exc:
-            logger.debug("Database error reading %s: %s", db_path, exc)
-            record_count = 0
+        record_count = store.month_db_record_count(db_path)
 
         try:
             stat = os.stat(db_path)
@@ -238,9 +216,7 @@ async def list_files_in_directory(path: str) -> list[dict[str, Any]]:
                         {
                             "name": f,
                             "size": stat.st_size,
-                            "modified": datetime.fromtimestamp(
-                                stat.st_mtime
-                            ).isoformat(),
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                         }
                     )
                 except OSError:
@@ -258,39 +234,24 @@ async def cleanup_month(raw_logs_dir: str, month: str) -> dict[str, Any]:
         month: Month string in YYYYMM format.
 
     Returns:
-        Dict with success/message/freed_bytes/removed_files.
+        Dict with success/message/freed_bytes/removed_files. 文件删除转调后端
+        公开接口，三件套（db/-wal/-shm）连根清掉。
     """
 
     def _sync() -> dict[str, Any]:
-        if len(month) != 6 or not month.isdigit():
+        store = _month_store(raw_logs_dir)
+        if not store.is_valid_month_key(month):
             return {"success": False, "message": f"月份格式错误: {month}"}
 
-        db_path = os.path.join(
-            raw_logs_dir,
-            f"request_logs_{month[:4]}_{month[4:]}.sqlite3",
-        )
-
+        db_path = store.month_db_path(month)
         if not os.path.exists(db_path):
             return {
                 "success": False,
                 "message": f"月份 {month[:4]}-{month[4:]} 数据库不存在",
             }
 
-        freed_bytes = 0
-        removed_files: list[str] = []
-
-        for suffix in ("", "-wal", "-shm"):
-            path = db_path + suffix
-            if os.path.exists(path):
-                try:
-                    size = os.path.getsize(path)
-                    os.remove(path)
-                    freed_bytes += size
-                    removed_files.append(os.path.basename(path))
-                except OSError as exc:
-                    logger.warning("Failed to remove %s: %s", path, exc)
-
-        if not removed_files:
+        removed = store.remove_month_db_files(db_path)
+        if not removed:
             return {
                 "success": False,
                 "message": f"月份 {month[:4]}-{month[4:]} 数据库文件无法删除",
@@ -299,8 +260,8 @@ async def cleanup_month(raw_logs_dir: str, month: str) -> dict[str, Any]:
         return {
             "success": True,
             "message": f"已删除 {month[:4]}-{month[4:]} 月份数据",
-            "freed_bytes": freed_bytes,
-            "removed_files": removed_files,
+            "freed_bytes": sum(size for _, size in removed),
+            "removed_files": [name for name, _ in removed],
         }
 
     return await asyncio.to_thread(_sync)
@@ -330,33 +291,22 @@ async def preview_cleanup(
 
 
 async def _preview_delete_month(raw_logs_dir: str, target: str) -> dict[str, Any]:
-    """Preview deletion of a specific month database."""
+    """Preview deletion of a specific month database. 三件套清单转调后端，不产生实际删除。"""
 
     def _sync() -> dict[str, Any]:
-        if len(target) != 6 or not target.isdigit():
+        store = _month_store(raw_logs_dir)
+        if not store.is_valid_month_key(target):
             return {"success": False, "message": f"月份格式错误: {target}"}
 
-        db_path = os.path.join(
-            raw_logs_dir,
-            f"request_logs_{target[:4]}_{target[4:]}.sqlite3",
-        )
-
-        will_delete: list[str] = []
-        freed_bytes = 0
-
-        for suffix in ("", "-wal", "-shm"):
-            path = db_path + suffix
-            if os.path.exists(path):
-                will_delete.append(path)
-                with contextlib.suppress(OSError):
-                    freed_bytes += os.path.getsize(path)
+        db_path = store.month_db_path(target)
+        siblings = store.month_db_sibling_files(db_path)
 
         return {
             "success": True,
             "action": "delete_month",
             "target": f"{target[:4]}-{target[4:]}",
-            "will_delete": will_delete,
-            "freed_bytes": freed_bytes,
+            "will_delete": [path for path, _ in siblings],
+            "freed_bytes": sum(size for _, size in siblings),
         }
 
     return await asyncio.to_thread(_sync)

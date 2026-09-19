@@ -54,49 +54,46 @@ def thinking_budget_to_effort(budget: int | None) -> str:
 class BaseConverter(ABC):
     """转换器基类，定义格式转换接口。
 
-    `source_type` 由 proxy_core 传入，为上游渠道 `Channel.api_type` 的字符串值
-    （如 ``openai-chat-completions``），多源转换实现可按需分支。
+    `source_type` 由 proxy 传入，为选定接入点 `Endpoint.api_type` 的字符串值
+    （如 ``openai-chat-completions``），多源转换实现按类级映射表
+    （source_type → handler，见各子类的 ``_*_HANDLERS``）分发。
+
+    **流式转换协议（两拍，ADR-0016 D0）**
+
+    - 拍 1 —— 每个上游 chunk 调一次 ``convert_stream_chunk(chunk, source_type)``，
+      返回该拍产生的**全部**事件（``list[dict]``，空列表 = 本拍无产出）。
+    - 拍 2 —— 上游流结束时调一次 ``finalize_stream(source_type)``，返回收尾事件
+      （``list[dict]``，可为空列表）。
+
+    此外无第三拍："下一拍排空 stash" 不是协议的一部分（原 ``get_extra_events``
+    已废除，额外事件并入拍 1 的返回列表）。事件统一 dict 形态：Anthropic /
+    Responses 目标事件的协议类型内嵌于事件 dict 的 ``type`` 字段，SSE ``event:``
+    行由 ``format_sse_for_list`` 从 ``type`` 推断；Chat 目标事件为
+    chat.completion.chunk dict（仅 ``data:`` 行）。
     """
 
     @abstractmethod
-    def convert_request(
-        self, source_data: dict[str, Any], source_type: str = ""
-    ) -> dict[str, Any]:
+    def convert_request(self, source_data: dict[str, Any], source_type: str = "") -> dict[str, Any]:
         """将入口请求体转为上游 API 所需 JSON。"""
         pass
 
     @abstractmethod
-    def convert_response(
-        self, target_response: dict[str, Any], source_type: str = ""
-    ) -> dict[str, Any]:
+    def convert_response(self, target_response: dict[str, Any], source_type: str = "") -> dict[str, Any]:
         """将上游非流式 JSON 转为入口 API 对应格式。"""
         pass
 
     @abstractmethod
-    def convert_stream_chunk(
-        self, chunk: dict[str, Any], source_type: str = ""
-    ) -> dict[str, Any] | None:
-        """将上游 SSE 解析出的单条 JSON 转为入口格式；返回 None 表示跳过该块。"""
+    def convert_stream_chunk(self, chunk: dict[str, Any], source_type: str = "") -> list[dict[str, Any]]:
+        """流式拍 1：将上游 SSE 解析出的单条 JSON 转为该拍全部事件（空列表 = 本拍无产出）。"""
         pass
 
-    def get_stream_event_type(
-        self, chunk: dict[str, Any], source_type: str = ""
-    ) -> str | None:
-        """获取流式事件的 event type（仅 Anthropic 输出格式需要）。
-
-        默认实现从 chunk 的 _event_type 字段读取；
-        子类可在 convert_stream_chunk 中缓存 event type 后覆盖此方法。
-        """
-        if isinstance(chunk, dict) and chunk.get("_event_type"):
-            return chunk["_event_type"]
-        return None
-
-    def get_extra_events(self, chunk: dict[str, Any]) -> list:
-        """获取流式转换产生的额外事件。子类可覆盖。"""
-        if isinstance(chunk, dict) and chunk.get("_extra_events"):
-            return chunk["_extra_events"]
-        return []
+    def _dispatch_source(self, handlers: dict[str, Any], source_type: str, *args: Any) -> Any:
+        """类级映射表分发（source_type → handler），错误文案全场统一。"""
+        handler = handlers.get(source_type)
+        if handler is None:
+            raise ValueError(f"{type(self).__name__} 不支持 source_type={source_type!r}")
+        return handler(self, *args)
 
     def finalize_stream(self, source_type: str = "") -> list[dict[str, Any]]:
-        """在上游流结束时补发必要的收尾事件；默认无需额外事件。"""
+        """流式拍 2：在上游流结束时补发必要的收尾事件；默认无需额外事件。"""
         return []

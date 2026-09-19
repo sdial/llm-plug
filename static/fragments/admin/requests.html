@@ -1,5 +1,10 @@
 <!-- 请求记录 Tab -->
 <div id="requestsTab">
+    <!-- Title row with filter-scope summary -->
+    <div class="flex items-center justify-between flex-wrap gap-2 mb-4">
+        <h2 class="text-sm font-semibold text-ink-900" data-i18n="requests.title">请求记录</h2>
+        <div id="reqSummary" class="req-summary hidden"></div>
+    </div>
     <!-- Search Form -->
     <div class="card p-4 mb-4">
         <div class="flex flex-nowrap items-end gap-3 overflow-x-auto pb-1">
@@ -9,22 +14,31 @@
             </div>
             <div class="flex flex-col gap-1 shrink-0">
                 <label class="text-xs text-ink-500 font-medium" data-i18n="requests.filterChannel">渠道</label>
-                <select id="reqFilterChannel" class="text-sm border border-surface-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-28">
+                <select id="reqFilterChannel" class="text-xs border border-surface-200 rounded-lg px-2 py-1.5 h-9 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-20">
                     <option value="" data-i18n="requests.filterAllChannels">全部渠道</option>
                 </select>
             </div>
             <div class="flex flex-col gap-1 shrink-0">
                 <label class="text-xs text-ink-500 font-medium" data-i18n="requests.filterApiKey">API Key</label>
-                <select id="reqFilterApiKeyId" class="text-sm border border-surface-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-28">
-                    <option value="" data-i18n="requests.filterAllApiKeys">全部 API Key</option>
+                <select id="reqFilterApiKeyId" class="text-xs border border-surface-200 rounded-lg px-2 py-1.5 h-9 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-20">
+                    <option value="" data-i18n="requests.filterAllApiKeys">全部</option>
                 </select>
             </div>
             <div class="flex flex-col gap-1 shrink-0">
                 <label class="text-xs text-ink-500 font-medium" data-i18n="requests.filterStatus">状态</label>
-                <select id="reqFilterSuccess" class="text-sm border border-surface-200 rounded-lg px-2.5 py-2 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-24">
+                <select id="reqFilterSuccess" class="text-xs border border-surface-200 rounded-lg px-2 py-1.5 h-9 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-20">
                     <option value="" data-i18n="requests.filterAll">全部</option>
                     <option value="true" data-i18n="requests.filterSuccess">成功</option>
                     <option value="false" data-i18n="requests.filterFail">失败</option>
+                </select>
+            </div>
+            <div class="flex flex-col gap-1 shrink-0">
+                <label class="text-xs text-ink-500 font-medium" data-i18n="requests.filterSource">来源</label>
+                <select id="reqFilterSource" class="text-xs border border-surface-200 rounded-lg px-2 py-1.5 h-9 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-20" onchange="searchRequests()">
+                    <option value="" data-i18n="requests.filterAllSources">全部</option>
+                    <option value="client" selected data-i18n="requests.sourceClient">客户端</option>
+                    <option value="group_probe" data-i18n="requests.sourceGroupProbe">探活</option>
+                    <option value="admin_test" data-i18n="requests.sourceAdminTest">测试</option>
                 </select>
             </div>
             <div class="flex flex-col gap-1 shrink-0">
@@ -32,9 +46,9 @@
                     <span id="reqFilterTzHint" class="font-mono text-ink-400" title=""></span>
                 </label>
                 <div class="flex items-center gap-1.5">
-                    <input type="datetime-local" id="reqFilterStart" class="text-sm border border-surface-200 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-40">
-                    <span class="text-ink-400">—</span>
-                    <input type="datetime-local" id="reqFilterEnd" class="text-sm border border-surface-200 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-40">
+                    <input type="datetime-local" id="reqFilterStart" class="text-sm border border-surface-200 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-44">
+                    <span class="text-ink-400 text-xs">-</span>
+                    <input type="datetime-local" id="reqFilterEnd" class="text-sm border border-surface-200 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white w-44">
                 </div>
             </div>
             <div class="flex gap-2 shrink-0">
@@ -44,7 +58,9 @@
                 </button>
                 <button type="button" onclick="resetRequestFilters()" class="btn-secondary text-sm px-3.5 py-2 font-medium" data-i18n="requests.resetBtn">重置</button>
                 <button type="button" id="reqAutoRefreshBtn" onclick="toggleRequestsAutoRefresh()" class="btn-secondary text-sm px-3.5 py-2 font-medium flex items-center gap-1.5" data-i18n-title="requests.autoRefreshTitle" data-i18n-aria="requests.autoRefresh" aria-label="实时刷新" title="实时刷新">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+                    <span class="req-refresh-iconwrap">
+                        <svg class="req-refresh-ring" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"></circle></svg>
+                    </span>
                     <span id="reqAutoRefreshLabel" data-i18n="requests.autoRefresh">实时刷新</span>
                 </button>
             </div>

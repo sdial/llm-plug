@@ -52,7 +52,7 @@ path_pattern,methods,ip_cidr,description
 /admin/*,*,127.0.0.1,本机
 /admin/stats,GET,203.0.113.5,公司只读</pre>
                     <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-ink-700" data-i18n-html="whitelist.proxyNote">
-                        <span class="font-semibold">注意：</span>系统当前使用直连 IP（TCP 连接地址）进行匹配。若服务部署在 nginx/caddy 等反向代理后面，所有请求的来源 IP 都会是代理本身（通常 127.0.0.1），白名单将以代理 IP 为准。请在代理层做访问控制，或等后续版本支持 <code class="font-mono bg-amber-100 px-0.5 rounded">X-Forwarded-For</code> 后再在此配置。
+                        <span class="font-semibold">反向代理：</span>服务只会接受已信任代理提供的 <code class="font-mono bg-amber-100 px-0.5 rounded">X-Forwarded-For</code>。Docker + Nginx 场景请将 Nginx 的容器/网关地址设置为 <code class="font-mono bg-amber-100 px-0.5 rounded">FORWARDED_ALLOW_IPS</code>；不要设为 <code class="font-mono bg-amber-100 px-0.5 rounded">*</code>，否则来源 IP 可被伪造。
                     </div>
                 </div>
             </div>
@@ -64,6 +64,11 @@ path_pattern,methods,ip_cidr,description
                     <div class="flex items-center gap-3">
                         <span id="whitelist_rule_count" class="text-xs text-ink-400"></span>
                         <span id="whitelist_client_ip" class="text-xs text-ink-400"></span>
+                        <span class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-ink-300 text-[11px] font-semibold leading-none text-ink-500"
+                            data-i18n-title="whitelist.currentIpHelp"
+                            data-i18n-aria="whitelist.currentIpHelp"
+                            title="当前 IP 由服务接收到的客户端地址决定。Docker + Nginx 反向代理时，需将 Nginx 的容器/网关地址设置为 FORWARDED_ALLOW_IPS，系统才会使用 X-Forwarded-For 中的真实客户端 IP；不要设为 *。"
+                            aria-label="当前 IP 说明">?</span>
                     </div>
                 </div>
                 <textarea id="whitelist_content"

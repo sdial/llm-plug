@@ -2,10 +2,7 @@ from pathlib import Path
 
 from loguru import logger
 
-LOG_FILE_FORMAT = (
-    "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
-    "{name}:{function}:{line} - {message}"
-)
+LOG_FILE_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}"
 
 
 def configure_level_file_logging(log_dir: Path | str) -> list[int]:
@@ -17,6 +14,7 @@ def configure_level_file_logging(log_dir: Path | str) -> list[int]:
             log_path / "warning.log",
             level="WARNING",
             rotation="10 MB",
+            retention="30 days",
             filter=lambda r: r["level"].name == "WARNING",
             encoding="utf-8",
             format=LOG_FILE_FORMAT,
@@ -25,6 +23,7 @@ def configure_level_file_logging(log_dir: Path | str) -> list[int]:
             log_path / "error.log",
             level="ERROR",
             rotation="10 MB",
+            retention="30 days",
             filter=lambda r: r["level"].name == "ERROR",
             encoding="utf-8",
             format=LOG_FILE_FORMAT,
@@ -33,6 +32,7 @@ def configure_level_file_logging(log_dir: Path | str) -> list[int]:
             log_path / "critical.log",
             level="CRITICAL",
             rotation="10 MB",
+            retention="30 days",
             filter=lambda r: r["level"].name == "CRITICAL",
             encoding="utf-8",
             format=LOG_FILE_FORMAT,

@@ -7,6 +7,8 @@ Supports both static and streaming modes.
 
 import re
 
+_MAX_UNCLOSED_THINK_BUFFER = 1024 * 1024
+
 
 def filter_think_content_static(content: str) -> str:
     """
@@ -68,8 +70,14 @@ class ThinkFilter:
                 # Look for end tag
                 end_pos = self._find_end_tag(self.buffer, i)
                 if end_pos == -1:
-                    # End tag not found, keep in buffer
-                    self.buffer = self.buffer[i:]
+                    # End tag not found. Never let a malformed never-ending think
+                    # block retain unbounded output in memory; retain only a suffix
+                    # that may complete a split closing tag in the next chunk.
+                    pending = self.buffer[i:]
+                    if len(pending) > _MAX_UNCLOSED_THINK_BUFFER:
+                        suffix_length = max(0, len("</think>") - 1) if self._think_start_tag == "<think>" else 0
+                        pending = pending[-suffix_length:] if suffix_length else ""
+                    self.buffer = pending
                     return "".join(result_parts)
                 # Found end tag, skip past it
                 self.in_think = False
@@ -81,9 +89,7 @@ class ThinkFilter:
                 if start_pos == -1:
                     # No full start tag found. Only keep a tail that could
                     # become a split "<think>" tag in the next chunk.
-                    safe_len = len(self.buffer) - self._partial_start_tag_len(
-                        self.buffer
-                    )
+                    safe_len = len(self.buffer) - self._partial_start_tag_len(self.buffer)
                     if safe_len > i:
                         result_parts.append(self.buffer[i:safe_len])
                         self.buffer = self.buffer[safe_len:]
@@ -104,15 +110,8 @@ class ThinkFilter:
 
     def _find_start_tag(self, text: str, start: int) -> int:
         """Find start tag position, return -1 if not found."""
-        # Check <think>
-        idx = text.find("<think>", start)
-        if idx != -1:
-            return idx
-        # Check emoji
-        idx = text.find("💭", start)
-        if idx != -1:
-            return idx
-        return -1
+        candidates = [idx for idx in (text.find("<think>", start), text.find("💭", start)) if idx != -1]
+        return min(candidates) if candidates else -1
 
     def _partial_start_tag_len(self, text: str) -> int:
         """Return tail length if text ends with a prefix of a start tag."""
@@ -151,12 +150,6 @@ class ThinkFilter:
         If inside think block, discard. Otherwise return buffer.
         """
         if self.in_think:
-            if self._think_start_tag == "💭":
-                result = self._think_start_tag + self.buffer
-                self.buffer = ""
-                self.in_think = False
-                self._think_start_tag = ""
-                return result
             self.buffer = ""
             self.in_think = False
             self._think_start_tag = ""

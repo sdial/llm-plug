@@ -298,9 +298,7 @@ async def create_admin_csrf_token(session_token: str | None) -> str | None:
     ).hexdigest()
 
 
-async def validate_admin_csrf_token(
-    session_token: str | None, csrf_token: str | None
-) -> bool:
+async def validate_admin_csrf_token(session_token: str | None, csrf_token: str | None) -> bool:
     if not csrf_token:
         return False
     expected = await create_admin_csrf_token(session_token)

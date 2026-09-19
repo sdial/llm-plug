@@ -47,12 +47,13 @@ async def admin_files(tmp_path, monkeypatch):
 
     admin._login_attempts.clear()
 
-    import main
+    import middleware.whitelist_middleware as wmod
+    import whitelist as _whitelist_mod
 
     monkeypatch.setattr(
-        main,
+        wmod,
         "_whitelist_cache",
-        main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
+        _whitelist_mod.WhitelistCache(str(data_dir / "whitelist.csv")),
     )
 
     yield
@@ -172,10 +173,7 @@ class TestAvgLagCountBug:
 
         # 用 lag_count 计算平均值
         avg_lag = round(rec["total_lag_ms"] / rec["lag_count"]) if rec["lag_count"] else 0
-        assert avg_lag == 100, (
-            f"avg_lag should be 100 (total_lag=300 / lag_count=3), got {avg_lag}. "
-            "lag_count must be separate from latency_count"
-        )
+        assert avg_lag == 100, f"avg_lag should be 100 (total_lag=300 / lag_count=3), got {avg_lag}. lag_count must be separate from latency_count"
 
         # 验证 latency 不受影响
         avg_latency = round(rec["total_latency_ms"] / rec["latency_count"]) if rec["latency_count"] else 0
@@ -231,29 +229,13 @@ class TestMutatorNoHTTPException:
             )
             assert resp.status_code == 404
 
-    def test_mutator_functions_do_not_raise_http_exception(self):
-        """验证 _mutate 内部不含 raise HTTPException。
-
-        mutator 应返回 None 标记未找到，由外层 atomic_update_data 返回后抛异常。
-        """
-        import re
-
+    def test_channel_routes_delegate_mutation_to_catalog(self):
         from routers.admin import delete_channel, toggle_channel, update_channel
 
         for func in [update_channel, delete_channel, toggle_channel]:
             source = inspect.getsource(func)
-            # 提取 _mutate 函数体（从 def _mutate 到其结束）
-            match = re.search(
-                r"def _mutate\([^)]*\):(.+?)(?=\n    result =|\n    await )",
-                source,
-                re.DOTALL,
-            )
-            assert match, f"Could not find _mutate in {func.__name__}"
-            mutator_body = match.group(1)
-            assert "raise HTTPException" not in mutator_body, (
-                f"{func.__name__}: _mutate should not raise HTTPException; "
-                "return None and let caller raise after lock release"
-            )
+            assert "catalog." in source
+            assert "atomic_update_data" not in source
 
 
 # ─────────────── Issue 3: _login_attempts 内存泄漏 ───────────────

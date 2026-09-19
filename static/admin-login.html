@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
-    <title data-i18n="login.title">管理员登录</title>
+    <title data-i18n="login.title">LLM Plug 管理员登录</title>
     <script src="/admin/static/tailwind.min.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/tailwind-config.js?v=__STATIC_ASSET_VERSION__"></script>
     <link rel="stylesheet" href="/admin/static/css/admin.css?v=__STATIC_ASSET_VERSION__">
@@ -16,9 +16,11 @@
     <div class="w-full max-w-sm animate-fade-in">
         <!-- Logo/Brand -->
         <div class="text-center mb-8">
-            <div class="w-12 h-12 rounded-xl bg-brand-500 flex items-center justify-center text-white text-lg font-semibold mx-auto mb-4" aria-hidden="true">L</div>
-            <h1 class="text-2xl font-semibold text-ink-900" data-i18n="login.title">管理员登录</h1>
-            <p class="text-sm text-ink-500 mt-2" data-i18n="login.subtitle">仅用于后台管理，不影响 LLM API 请求鉴权。</p>
+            <div class="flex items-center justify-center gap-3 mb-4">
+                <div class="w-12 h-12 rounded-xl bg-brand-500 flex items-center justify-center text-white text-lg font-semibold flex-shrink-0" aria-hidden="true">L</div>
+                <h1 class="text-2xl font-semibold text-ink-900" data-i18n="login.title">LLM Plug 管理员登录</h1>
+            </div>
+            <p class="text-sm text-ink-500" data-i18n="login.subtitle">仅用于后台管理，不影响 LLM API 请求鉴权。</p>
         </div>
 
         <div class="card p-6">
@@ -54,6 +56,7 @@
             <button type="button" onclick="I18n.toggle()" class="text-xs text-ink-400 hover:text-ink-600 font-medium transition" data-i18n-title="common.langLabel" data-i18n-aria="common.langLabel" title="切换语言" aria-label="切换语言">
                 <span data-i18n="common.langLabel">中/EN</span>
             </button>
+            <p class="text-xs text-ink-400 mt-3 font-mono">LLM Plug __APP_VERSION__ · __APP_RELEASE_DATE__</p>
         </div>
     </div>
 

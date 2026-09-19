@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from typing import Annotated
@@ -7,13 +8,18 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from loguru import logger
 
+from conversion_plan import IncompatibleRequestError, IncompatibleResponseError
 from models.api_types import APIType
-from proxy_core import AllChannelsExhausted, proxy_request
+from pii_errors import SensitiveBlockError
+from proxy.errors import AllChannelsExhausted
+from proxy.routing import proxy_request
 from routers.auth import check_proxy_authorization
 from routers.proxy_errors import (
     anthropic_invalid_request,
     anthropic_response_from_exception,
     anthropic_unauthorized,
+    incompatible_request,
+    incompatible_response,
     invalid_request,
     response_from_proxy_exception,
     safe_httpx_response_content,
@@ -22,12 +28,23 @@ from routers.proxy_errors import (
 
 
 async def _closeable_stream(gen: AsyncGenerator):
-    """包装流式生成器，确保客户端断开时显式关闭，释放 converter 等资源。"""
+    """包装流式生成器，确保客户端断开时显式关闭，释放 converter 等资源。
+
+    GeneratorExit 路径下上游 client.aclose() 可能因对端半关而 hang，
+    使用 wait_for 2s 超时防护，避免 worker 慢释放。
+    """
     try:
         async for chunk in gen:
             yield chunk
     finally:
-        await gen.aclose()
+        try:
+            await asyncio.wait_for(gen.aclose(), timeout=2.0)
+        except TimeoutError:
+            logger.warning("[CLOSEABLE STREAM ACLOSE TIMEOUT] gen.aclose() timeout 2.0s")
+        except (asyncio.CancelledError, GeneratorExit):
+            raise
+        except Exception as e:
+            logger.warning(f"closeable stream aclose error: {e}")
 
 
 def _pick_error_helpers(api_type: APIType):
@@ -41,16 +58,12 @@ def _pick_error_helpers(api_type: APIType):
     return unauthorized, invalid_request, response_from_proxy_exception
 
 
-def make_proxy_router(
-    path: str, api_type: APIType, tags: list[str] | None = None
-) -> APIRouter:
+def make_proxy_router(path: str, api_type: APIType, tags: list[str] | None = None) -> APIRouter:
     router = APIRouter(tags=tags or ["代理"])
     err_unauth, err_invalid, err_exception = _pick_error_helpers(api_type)
 
     @router.post(path)
-    async def proxy_handler(
-        request: Request, authorization: Annotated[str | None, Header()] = None
-    ):
+    async def proxy_handler(request: Request, authorization: Annotated[str | None, Header()] = None):
         if not check_proxy_authorization(authorization, request.state):
             return err_unauth()
 
@@ -82,15 +95,28 @@ def make_proxy_router(
             request.state.selected_channel_name = _channel.name
         except AllChannelsExhausted as e:
             logger.error(f"{path} AllChannelsExhausted: {e}")
+            if isinstance(e.last_error, IncompatibleRequestError):
+                return incompatible_request(e.last_error, anthropic=api_type == APIType.ANTHROPIC)
+            if isinstance(e.last_error, IncompatibleResponseError):
+                return incompatible_response(e.last_error, anthropic=api_type == APIType.ANTHROPIC)
             if isinstance(e.last_error, httpx.HTTPStatusError):
                 return _response_from_upstream_http_error(e.last_error, api_type)
             return err_exception(e.last_error or e)
+        except IncompatibleRequestError as e:
+            logger.info(f"{path} incompatible request: {e}")
+            return incompatible_request(e, anthropic=api_type == APIType.ANTHROPIC)
+        except IncompatibleResponseError as e:
+            logger.info(f"{path} incompatible response: {e}")
+            return incompatible_response(e, anthropic=api_type == APIType.ANTHROPIC)
         except ValueError as e:
             logger.error(f"{path} ValueError: {e}")
             return err_invalid(str(e))
         except httpx.HTTPStatusError as e:
             logger.error(f"{path} upstream HTTP {e.response.status_code}: {e}")
             return _response_from_upstream_http_error(e, api_type)
+        except SensitiveBlockError as e:
+            logger.warning(f"{path} SensitiveBlockError: {e}; triggered={e.triggered}")
+            return err_invalid(str(e))
         except Exception as e:
             logger.error(f"{path} {type(e).__name__}: {e}")
             return err_exception(e)
@@ -111,9 +137,7 @@ def make_proxy_router(
     return router
 
 
-def _response_from_upstream_http_error(
-    exc: httpx.HTTPStatusError, api_type: APIType
-) -> Response:
+def _response_from_upstream_http_error(exc: httpx.HTTPStatusError, api_type: APIType) -> Response:
     """透传上游 HTTP 错误状态码和响应体。"""
     content = safe_httpx_response_content(exc.response)
     if content is None:

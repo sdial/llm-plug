@@ -33,20 +33,19 @@ def admin_ui_data_dir(tmp_path, monkeypatch):
     storage._channels_lock = None
     storage._keys_lock = None
 
-    import main
+    import middleware.whitelist_middleware as wmod
+    import whitelist as _whitelist
 
     monkeypatch.setattr(
-        main,
+        wmod,
         "_whitelist_cache",
-        main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
+        _whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
     )
 
 
 @pytest_asyncio.fixture
 async def client(admin_ui_data_dir):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
         await login_admin(c)
         yield c
 
@@ -58,7 +57,7 @@ async def test_admin_index_is_a_shell(client):
     assert resp.status_code == 200
     html = resp.text
     assert "/admin/static/js/htmx.min.js" in html
-    assert 'hx-get="/admin/ui/channels"' in html
+    assert 'hx-get="/admin/ui/stats"' in html
     assert 'id="admin-content"' in html
     assert 'id="channelsTab"' not in html
 
@@ -93,3 +92,13 @@ async def test_admin_ui_fragments_exist(client):
     assert resp.status_code == 200
     assert "渠道列表" in resp.text
     assert "channelList" in resp.text
+
+
+@pytest.mark.anyio
+async def test_whitelist_current_ip_has_proxy_configuration_help(client):
+    resp = await client.get("/admin/ui/whitelist")
+
+    assert resp.status_code == 200
+    assert 'data-i18n-title="whitelist.currentIpHelp"' in resp.text
+    assert 'data-i18n-aria="whitelist.currentIpHelp"' in resp.text
+    assert ">?</span>" in resp.text

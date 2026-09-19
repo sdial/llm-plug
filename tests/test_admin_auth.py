@@ -52,11 +52,10 @@ def admin_auth_files(tmp_path, monkeypatch):
     storage._keys_lock = asyncio.Lock()
     admin._login_attempts.clear()
 
-    import main
+    import middleware.whitelist_middleware as wmod
+    import whitelist as _whitelist
 
-    main._whitelist_cache = main._whitelist.WhitelistCache(
-        str(data_dir / "whitelist.csv")
-    )
+    wmod._whitelist_cache = _whitelist.WhitelistCache(str(data_dir / "whitelist.csv"))
 
     yield
     admin._login_attempts.clear()
@@ -64,9 +63,7 @@ def admin_auth_files(tmp_path, monkeypatch):
 
 @pytest.mark.anyio
 async def test_unconfigured_admin_requires_password_setup(admin_auth_files):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/admin/channels")
 
     assert resp.status_code == 401
@@ -75,9 +72,7 @@ async def test_unconfigured_admin_requires_password_setup(admin_auth_files):
 
 @pytest.mark.anyio
 async def test_admin_login_sets_http_only_session_cookie(admin_auth_files):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         setup_resp = await client.post(
             "/admin/auth/setup",
             json={"password": "correct horse battery staple"},
@@ -101,9 +96,7 @@ async def test_admin_login_sets_http_only_session_cookie(admin_auth_files):
 
 @pytest.mark.anyio
 async def test_llm_api_key_does_not_authorize_admin(admin_auth_files):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         await client.post("/admin/auth/setup", json={"password": "admin-passphrase"})
         resp = await client.get(
             "/admin/channels",
@@ -119,9 +112,7 @@ async def test_admin_router_requires_session_without_main_middleware(admin_auth_
     isolated_app = FastAPI()
     isolated_app.include_router(admin.router)
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=isolated_app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=isolated_app), base_url="http://test") as client:
         await client.post("/admin/auth/setup", json={"password": "admin-passphrase"})
         resp = await client.get("/admin/channels")
 
@@ -131,9 +122,7 @@ async def test_admin_router_requires_session_without_main_middleware(admin_auth_
 
 @pytest.mark.anyio
 async def test_login_page_and_static_assets_are_public(admin_auth_files):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         page = await client.get("/admin/login", follow_redirects=False)
         asset = await client.get("/admin/static/js/admin.js")
 
@@ -144,9 +133,7 @@ async def test_login_page_and_static_assets_are_public(admin_auth_files):
 
 @pytest.mark.anyio
 async def test_root_redirects_to_admin(admin_auth_files):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/", follow_redirects=False)
 
     assert resp.status_code == 307
@@ -155,12 +142,8 @@ async def test_root_redirects_to_admin(admin_auth_files):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("login_path", ["/admin/login", "/admin/login/"])
-async def test_login_page_redirects_to_admin_when_already_logged_in(
-    admin_auth_files, login_path
-):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+async def test_login_page_redirects_to_admin_when_already_logged_in(admin_auth_files, login_path):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         await client.post(
             "/admin/auth/setup",
             json={"password": "correct horse battery staple"},
@@ -177,9 +160,7 @@ async def test_login_page_redirects_to_admin_when_already_logged_in(
 
 @pytest.mark.anyio
 async def test_logout_revokes_existing_session_token(admin_auth_files):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         await client.post(
             "/admin/auth/setup",
             json={"password": "correct horse battery staple"},
@@ -201,9 +182,7 @@ async def test_logout_revokes_existing_session_token(admin_auth_files):
     assert logout_resp.status_code == 200
     assert "Max-Age=0" in logout_resp.headers["set-cookie"]
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get(
             "/admin/channels",
             headers={"Cookie": session_cookie},
@@ -215,9 +194,7 @@ async def test_logout_revokes_existing_session_token(admin_auth_files):
 
 @pytest.mark.anyio
 async def test_admin_mutation_requires_csrf_token(admin_auth_files):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         await client.post(
             "/admin/auth/setup",
             json={"password": "correct horse battery staple"},
@@ -246,18 +223,13 @@ async def test_admin_mutation_requires_csrf_token(admin_auth_files):
 
 @pytest.mark.anyio
 async def test_admin_login_rate_limits_failed_attempts(admin_auth_files):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         await client.post(
             "/admin/auth/setup",
             json={"password": "correct horse battery staple"},
         )
 
-        responses = [
-            await client.post("/admin/auth/login", json={"password": "wrong"})
-            for _ in range(11)
-        ]
+        responses = [await client.post("/admin/auth/login", json={"password": "wrong"}) for _ in range(11)]
         valid_after_limit = await client.post(
             "/admin/auth/login",
             json={"password": "correct horse battery staple"},

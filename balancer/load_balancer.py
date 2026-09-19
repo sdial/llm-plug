@@ -2,131 +2,85 @@ import asyncio
 import hashlib
 import json
 import math
-import time
-from collections import OrderedDict, defaultdict
-from dataclasses import dataclass
 
 from models.channel import Channel
+from proxy import outcomes
 
 VALID_STRATEGIES = {"round_robin", "backup", "sticky"}
 
 
-@dataclass
-class StickyCacheEntry:
-    channel_id: str
-    last_active_at: float
-
-
-class ChannelHealth:
-    """跟踪单个渠道的健康状态"""
-
-    def __init__(self):
-        self.fail_count: int = 0
-        self.last_fail_time: float = 0
-        self.current_weight: int = 0
-
-    def record_success(self):
-        self.fail_count = 0
-
-    def record_failure(self):
-        self.fail_count += 1
-        self.last_fail_time = time.time()
-
-    def is_healthy(self, max_fail_count: int, cooldown_seconds: float) -> bool:
-        """检查渠道是否健康
-
-        Args:
-            max_fail_count: 最大允许失败次数
-            cooldown_seconds: 冷却时间（秒）
-        """
-        if self.fail_count < max_fail_count:
-            return True
-        if (time.time() - self.last_fail_time) <= cooldown_seconds:
-            return False
-        # 冷却期结束视为恢复：清零失败计数，让渠道按完整的 max_fail_count
-        # 重新计数，否则 fail_count 残留会导致再失败一次就重新进入整段冷却
-        # （实际生效阈值变成 1 而非 max_fail_count）
-        self.fail_count = 0
-        self.last_fail_time = 0
-        return True
-
-
 class LoadBalancer:
-    """优先级分组 + 加权轮询负载均衡器"""
+    """优先级分组 + 加权轮询负载均衡器。
+
+    健康 / 降级 / 阻塞 / 粘滞等"服务表现级"状态全部由 :mod:`proxy.outcomes`
+    派生（ADR-0008 D0），本类不再维护独立健康表；只保留选择算法自身的
+    可移植状态：
+
+    - ``_current_weights``：SWRR 平滑加权轮询的权重累加（键 ``(model, channel_id)``，
+      轮询始终发生在单模型候选集内，A 模型的轮询进度不污染 B 模型）。
+    - 会话粘滞缓存：由 ``outcomes`` 内部维护（``session_sticky_*`` 适配器）。
+
+    ``select_channel`` 的选路遵循 "blocked 优先于一切"：先查
+    ``outcomes.is_blocked(ch)``，再查 ``outcomes.is_healthy(model, ch)``。
+    """
 
     def __init__(self):
-        self._health: dict[str, ChannelHealth] = defaultdict(ChannelHealth)
+        self._current_weights: dict[tuple[str, str], int] = {}
         self._lock = asyncio.Lock()
-        self._max_fail_count: int = 5
-        self._cooldown_seconds: float = 60.0
         self._strategy: str = "round_robin"
         self._sticky_ttl: float = 1800.0
-        self._sticky_cache_max_entries: int = 10000
-        self._sticky_cache: OrderedDict[str, StickyCacheEntry] = OrderedDict()
 
     async def update_config(
         self,
-        max_fail_count: int = 5,
-        cooldown_seconds: int = 60,
         strategy: str = "round_robin",
         sticky_ttl: int = 1800,
         sticky_cache_max_entries: int = 10000,
     ):
-        """热更新配置参数"""
+        """热更新策略与会话粘滞配置（阈值直调 outcomes，不经 LB 中转）。"""
         normalized_strategy = str(strategy).lower()
         if normalized_strategy not in VALID_STRATEGIES:
-            raise ValueError(
-                "lb_strategy must be one of "
-                f"{sorted(VALID_STRATEGIES)}, got {strategy!r}"
-            )
+            raise ValueError(f"lb_strategy must be one of {sorted(VALID_STRATEGIES)}, got {strategy!r}")
         async with self._lock:
-            clear_sticky_cache = (
-                normalized_strategy != self._strategy
-                or float(sticky_ttl) != self._sticky_ttl
-            )
-            self._max_fail_count = max_fail_count
-            self._cooldown_seconds = float(cooldown_seconds)
+            clear_sticky_cache = normalized_strategy != self._strategy or float(sticky_ttl) != self._sticky_ttl
             self._strategy = normalized_strategy
             self._sticky_ttl = float(sticky_ttl)
-            self._sticky_cache_max_entries = int(sticky_cache_max_entries)
+            outcomes.configure_session_sticky(
+                ttl=self._sticky_ttl,
+                max_entries=int(sticky_cache_max_entries),
+            )
             if clear_sticky_cache:
-                self._sticky_cache.clear()
+                outcomes.clear_session_sticky()
             else:
-                self._trim_sticky_cache(time.time())
+                outcomes.trim_session_sticky()
 
-    async def record_success(self, channel_id: str):
+    async def remove_channel(self, channel_id: str) -> None:
+        """删除且只删除一个 Channel 的选择算法与 outcome 状态。"""
         async with self._lock:
-            self._health[channel_id].record_success()
-
-    async def record_failure(self, channel_id: str):
-        async with self._lock:
-            self._health[channel_id].record_failure()
-
-    async def cleanup_removed_channels(self, active_channel_ids: set[str]):
-        async with self._lock:
-            for ch_id in list(self._health.keys()):
-                if ch_id not in active_channel_ids:
-                    del self._health[ch_id]
+            for key in [key for key in self._current_weights if key[1] == channel_id]:
+                self._current_weights.pop(key, None)
+        outcomes.remove_channel(channel_id)
 
     async def select_channel(
         self,
         channels: list[Channel],
         exclude_ids: set[str] | None = None,
+        model: str | None = None,
         client_ip: str | None = None,
         api_key_id: str | None = None,
         client_headers: dict[str, str] | None = None,
     ) -> Channel | None:
         """
         从候选渠道中选择一个：
-        1. 过滤掉禁用、不健康及 exclude_ids 中的渠道
+        1. 过滤掉禁用、阻塞（``outcomes.is_blocked``，优先于一切）、
+           ``(model, channel)`` 不健康（``outcomes.is_healthy``）及 exclude_ids 中的渠道
         2. 按优先级分组
-        3. 在最高优先级组内加权轮询
+        3. 在最高优先级组内按策略（round_robin / backup / sticky）选路
 
         整个选择过程在锁内完成，确保健康检查与轮询的原子性。
         """
         exclude_ids = exclude_ids or set()
         async with self._lock:
-            top_group = self._get_top_priority_group(channels, exclude_ids)
+            top_group = self._get_top_priority_group(channels, exclude_ids, model)
             if not top_group:
                 return None
 
@@ -139,32 +93,23 @@ class LoadBalancer:
                     client_headers=client_headers,
                 )
                 return self._sticky_select_cached(session_key, top_group)
-            return (
-                self._weighted_round_robin(top_group)
-                if len(top_group) > 1
-                else top_group[0]
-            )
+            return self._weighted_round_robin(top_group, model) if len(top_group) > 1 else top_group[0]
 
     def _get_top_priority_group(
-        self, channels: list[Channel], exclude_ids: set[str]
+        self,
+        channels: list[Channel],
+        exclude_ids: set[str],
+        model: str | None = None,
     ) -> list[Channel]:
-        available = [
-            ch
-            for ch in channels
-            if ch.enabled
-            and ch.id not in exclude_ids
-            and self._health[ch.id].is_healthy(
-                self._max_fail_count, self._cooldown_seconds
-            )
-        ]
+        # 准入公式单一住所 outcomes.admits()（ADR-0021 D0）：LB 锁内调 outcomes 读视图，
+        # 锁序 LB→outcomes 单向，无死锁风险。
+        available = [ch for ch in channels if outcomes.admits(ch, model, exclude_ids=exclude_ids)]
         if not available:
             return []
         min_priority = min(ch.priority for ch in available)
         return [ch for ch in available if ch.priority == min_priority]
 
-    def _sticky_select_by_hrw(
-        self, session_key: str, candidates: list[Channel]
-    ) -> Channel:
+    def _sticky_select_by_hrw(self, session_key: str, candidates: list[Channel]) -> Channel:
         if not candidates:
             raise ValueError("candidates must not be empty")
         best_channel: Channel | None = None
@@ -179,10 +124,8 @@ class LoadBalancer:
                 best_channel = channel
         return best_channel
 
-    def _sticky_select_cached(
-        self, session_key: str, candidates: list[Channel]
-    ) -> Channel:
-        """带缓存的粘性选择。
+    def _sticky_select_cached(self, session_key: str, candidates: list[Channel]) -> Channel:
+        """带缓存的粘性选择（缓存由 outcomes 会话粘滞适配器维护）。
 
         缓存命中条件：未过期 且 缓存渠道仍在候选列表中。
         缓存未命中时（过期、渠道被 exclude_ids 排除、或首次访问），
@@ -192,69 +135,52 @@ class LoadBalancer:
         即使原渠道后续恢复，会话也不会回切——这是有意为之的设计，
         避免故障恢复后反复震荡导致流量分布不稳定。
         """
-        now = time.time()
         candidate_by_id = {ch.id: ch for ch in candidates}
-        entry = self._sticky_cache.get(session_key)
-        if (
-            entry
-            and now - entry.last_active_at < self._sticky_ttl
-            and entry.channel_id in candidate_by_id
-        ):
-            entry.last_active_at = now
-            self._sticky_cache.move_to_end(session_key)
-            return candidate_by_id[entry.channel_id]
-        if entry:
-            self._sticky_cache.pop(session_key, None)
+        cached = outcomes.session_sticky_get(session_key)
+        if cached and cached in candidate_by_id:
+            return candidate_by_id[cached]
 
         selected = self._sticky_select_by_hrw(session_key, candidates)
-        self._sticky_cache[session_key] = StickyCacheEntry(selected.id, now)
-        self._sticky_cache.move_to_end(session_key)
-        self._trim_sticky_cache(now)
+        outcomes.remember_session_sticky(session_key, selected.id)
         return selected
-
-    def _trim_sticky_cache(self, now: float) -> None:
-        expired = []
-        for key, entry in self._sticky_cache.items():
-            if len(expired) >= 100:
-                break
-            if now - entry.last_active_at >= self._sticky_ttl:
-                expired.append(key)
-        for key in expired:
-            self._sticky_cache.pop(key, None)
-        while len(self._sticky_cache) > self._sticky_cache_max_entries:
-            self._sticky_cache.popitem(last=False)
 
     def _backup_select(self, channels: list[Channel]) -> Channel:
         return sorted(channels, key=lambda ch: (-ch.weight, ch.id))[0]
 
-    def _weighted_round_robin(self, channels: list[Channel]) -> Channel:
-        """平滑加权轮询算法
+    def _weighted_round_robin(self, channels: list[Channel], model: str | None = None) -> Channel:
+        """平滑加权轮询算法（SWRR，键为 ``(model, channel_id)``）。
 
         算法：
         1. 所有 channel 的 current_weight += weight
         2. 选择 current_weight 最大的 channel
         3. 被选中 channel 的 current_weight -= total_weight
+
+        轮询进度按 ``(model, channel)`` 隔离：同一渠道上 A 模型的轮询进度
+        不污染 B 模型（A 挂不死 B 的权重维度）。``model=None`` 退化为
+        空字符串键（与 ``select_channel`` 的兼容语义一致：未传 model
+        不参与隔离）。
         """
+        key_model = model or ""
         total_weight = sum(ch.weight for ch in channels)
 
         best: Channel | None = None
-        best_health: ChannelHealth | None = None
+        best_weight: int = -1  # Channel.weight 恒为正（ge=1），-1 保证首个渠道必选
         for ch in channels:
-            health = self._health[ch.id]
-            health.current_weight += ch.weight
+            key = (key_model, ch.id)
+            current = self._current_weights.get(key, 0) + ch.weight
+            self._current_weights[key] = current
             # 选择 current_weight 最大的 channel
-            if best is None or health.current_weight > best_health.current_weight:
+            if best is None or current > best_weight:
                 best = ch
-                best_health = health
+                best_weight = current
 
-        # 递减选中channel的current_weight
-        best_health.current_weight -= total_weight
+        # 递减选中channel的current_weight（调用方保证 channels 非空）
+        assert best is not None
+        self._current_weights[(key_model, best.id)] = best_weight - total_weight
 
         return best
 
-    def _normalize_headers(
-        self, client_headers: dict[str, str] | None
-    ) -> dict[str, str]:
+    def _normalize_headers(self, client_headers: dict[str, str] | None) -> dict[str, str]:
         if not client_headers:
             return {}
         return {str(k).lower(): str(v) for k, v in client_headers.items()}
@@ -267,9 +193,7 @@ class LoadBalancer:
         client_headers: dict[str, str] | None,
     ) -> str:
         headers = self._normalize_headers(client_headers)
-        explicit_session = headers.get("x-session-id") or headers.get(
-            "x-claude-code-session-id"
-        )
+        explicit_session = headers.get("x-session-id") or headers.get("x-claude-code-session-id")
         if explicit_session:
             canonical = json.dumps(
                 {"session": explicit_session[:512]},

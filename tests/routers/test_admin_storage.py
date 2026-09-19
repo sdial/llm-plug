@@ -43,12 +43,13 @@ async def setup_test_env(tmp_path, monkeypatch):
     logs_dir.mkdir()
     monkeypatch.setattr(storage_stats, "_get_logs_dir", lambda: str(logs_dir))
 
-    import main
+    import middleware.whitelist_middleware as wmod
+    import whitelist as _whitelist_mod
 
     monkeypatch.setattr(
-        main,
+        wmod,
         "_whitelist_cache",
-        main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
+        _whitelist_mod.WhitelistCache(str(data_dir / "whitelist.csv")),
     )
 
     await stats.init_db(str(tmp_path / "stats.db"))
@@ -58,9 +59,7 @@ async def setup_test_env(tmp_path, monkeypatch):
 
 @pytest_asyncio.fixture
 async def client():
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
         await login_admin(c)
         yield c
 
@@ -107,9 +106,7 @@ async def test_cleanup_requires_action(client):
 
 
 async def test_cleanup_unknown_action(client):
-    resp = await client.post(
-        "/admin/storage/cleanup", json={"action": "unknown_action"}
-    )
+    resp = await client.post("/admin/storage/cleanup", json={"action": "unknown_action"})
     assert resp.status_code == 422  # Pydantic Literal 校验拒绝
 
 
@@ -129,11 +126,7 @@ async def test_cleanup_delete_month_requires_target(client):
     error_details = resp.json()["detail"]
     assert isinstance(error_details, list)
     # Pydantic 验证错误格式: loc=["body", "target"], type="missing"
-    assert any(
-        error.get("type") == "missing"
-        and error.get("loc", [])[-1:] == ["target"]
-        for error in error_details
-    )
+    assert any(error.get("type") == "missing" and error.get("loc", [])[-1:] == ["target"] for error in error_details)
 
 
 async def test_cleanup_delete_month_missing_db(client):

@@ -16,7 +16,7 @@ import pytest
 
 import config
 import storage
-from models.channel import Channel
+from models.channel import Channel, Endpoint
 
 # ═══════════════════════════════════════════
 #  Lifespan 关闭清理
@@ -191,6 +191,38 @@ class TestRequestLogWorkersShutdown:
         await request_logs.stop_request_log_workers()
         await request_logs.stop_request_log_workers()  # 第二次不应报错
 
+    @pytest.mark.asyncio
+    async def test_stop_drains_queued_records_without_workers(self, tmp_path, monkeypatch):
+        """H10: stop_request_log_workers 应消费队列残留记录而非直接丢弃。"""
+        import request_logs
+
+        monkeypatch.setattr(config, "DATA_DIR", str(tmp_path))
+
+        request_logs._backend = None
+        request_logs._backend_error = ""
+
+        await request_logs.init_backend({"request_log_sqlite_path": str(tmp_path / "request_logs.db")})
+        # 不启动 workers，让记录全部堆积在队列
+        for _ in range(30):
+            request_logs.record_request(
+                channel_id="ch_rl",
+                channel_name="ch_rl",
+                model="gpt-4o",
+                is_stream=False,
+                input_tokens=100,
+                output_tokens=50,
+                latency_ms=100,
+                success=True,
+                api_key_id="key",
+            )
+
+        await request_logs.stop_request_log_workers()
+
+        # 队列残留记录应被 drain 写入后端，而不是直接丢失
+        requests = await request_logs.list_requests(page=1, page_size=100)
+        assert requests.get("total", 0) == 30, f"Expected 30 request logs after stop, got {requests.get('total', 0)}"
+        await request_logs.close_backend()
+
 
 # ═══════════════════════════════════════════
 #  客户端池关闭
@@ -208,8 +240,7 @@ class TestClientPoolShutdown:
             ch = Channel(
                 id=f"ch_shut_{i}",
                 name=f"Shut {i}",
-                api_type="openai-chat-completions",
-                base_url=f"http://example{i}.com",
+                endpoints=[Endpoint(api_type="openai-chat-completions", base_url=f"http://example{i}.com")],
                 api_key="key",
                 models=["gpt-4o"],
             )

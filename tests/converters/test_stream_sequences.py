@@ -1,37 +1,26 @@
 import pytest
 
+from converters.anthropic_stream_state import AnthropicStreamState
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
 
 
 def feed_anthropic_events(converter, events):
-    """辅助函数：逐 chunk 输入并收集全部输出（Chat→Anthropic 方向）"""
+    """辅助函数：逐 chunk 走公共两拍协议，收集全部输出 (event_type, event) 对（Chat→Anthropic 方向）"""
     outputs = []
     for evt in events:
-        result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-        if result is not None:
-            et = converter.get_stream_event_type(evt, "openai-chat-completions")
-            outputs.append((et, result))
-            extra = converter.get_extra_events(result or {})
-            for extra_evt in extra:
-                if isinstance(extra_evt, tuple) and len(extra_evt) == 2:
-                    outputs.append(extra_evt)
-                elif isinstance(extra_evt, dict):
-                    outputs.append((extra_evt.get("type", ""), extra_evt))
+        for out in converter.convert_stream_chunk(evt, "openai-chat-completions"):
+            outputs.append((out.get("type", ""), out))
     return outputs
 
 
 def feed_response_events(converter, events):
-    """辅助函数：逐 chunk 输入并收集全部输出（Chat→Response 方向）"""
+    """辅助函数：逐 chunk 走公共两拍协议，收集全部输出（Chat→Response 方向）"""
     outputs = []
     for evt in events:
-        result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-        if result is not None:
-            outputs.append(result)
-            extra = converter.get_extra_events(result or {})
-            outputs.extend(extra)
-    # finalize
+        outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
+    # 拍 2：finalize
     outputs.extend(converter.finalize_stream("openai-chat-completions"))
     return outputs
 
@@ -111,15 +100,7 @@ class TestChatToResponseStreamGolden:
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"index": 0, "function": {"arguments": '{"q":"x"}'}}
-                            ]
-                        }
-                    }
-                ],
+                "choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"q":"x"}'}}]}}],
             },
             {
                 "id": "chatcmpl_1",
@@ -196,16 +177,9 @@ class TestChatToResponseStreamGolden:
             "response.completed",
         ]
 
-        reasoning_done = next(
-            o for o in outputs if o.get("type") == "response.reasoning_text.done"
-        )
+        reasoning_done = next(o for o in outputs if o.get("type") == "response.reasoning_text.done")
         assert reasoning_done["text"] == "Think first"
-        item_done = next(
-            o
-            for o in outputs
-            if o.get("type") == "response.output_item.done"
-            and o.get("item", {}).get("type") == "reasoning"
-        )
+        item_done = next(o for o in outputs if o.get("type") == "response.output_item.done" and o.get("item", {}).get("type") == "reasoning")
         assert item_done["item"]["content"][0]["text"] == "Think first"
 
     def test_mixed_text_and_tool_stream_golden(self):
@@ -242,15 +216,7 @@ class TestChatToResponseStreamGolden:
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"index": 0, "function": {"arguments": '{"q":"x"}'}}
-                            ]
-                        }
-                    }
-                ],
+                "choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"q":"x"}'}}]}}],
             },
             {
                 "id": "chatcmpl_1",
@@ -286,31 +252,16 @@ class TestChatToAnthropicStream:
         assert "thinking_delta" in delta_types
         # 切到 text 前必须补 signature_delta，结束 thinking 块
         assert "signature_delta" in delta_types
-        assert delta_types.index("signature_delta") > delta_types.index(
-            "thinking_delta"
-        )
+        assert delta_types.index("signature_delta") > delta_types.index("thinking_delta")
 
-        thinking_deltas = [
-            d.get("delta", {}).get("thinking")
-            for _, d in outputs
-            if d.get("delta", {}).get("type") == "thinking_delta"
-        ]
+        thinking_deltas = [d.get("delta", {}).get("thinking") for _, d in outputs if d.get("delta", {}).get("type") == "thinking_delta"]
         assert thinking_deltas == ["Let me think..."]
 
-        text_deltas = [
-            d.get("delta", {}).get("text")
-            for _, d in outputs
-            if d.get("delta", {}).get("type") == "text_delta"
-        ]
+        text_deltas = [d.get("delta", {}).get("text") for _, d in outputs if d.get("delta", {}).get("type") == "text_delta"]
         assert text_deltas == ["The answer is 42"]
 
         # thinking content_block 必须带空 signature
-        thinking_starts = [
-            d
-            for evt, d in outputs
-            if evt == "content_block_start"
-            and d.get("content_block", {}).get("type") == "thinking"
-        ]
+        thinking_starts = [d for evt, d in outputs if evt == "content_block_start" and d.get("content_block", {}).get("type") == "thinking"]
         assert len(thinking_starts) == 1
         assert thinking_starts[0]["content_block"]["signature"] == ""
 
@@ -522,9 +473,7 @@ class TestChatToResponseStream:
 
         assert result["output_text"] == ""
         assert result["output"][0]["type"] == "message"
-        assert result["output"][0]["content"] == [
-            {"type": "refusal", "refusal": "I cannot help with that."}
-        ]
+        assert result["output"][0]["content"] == [{"type": "refusal", "refusal": "I cannot help with that."}]
 
     def test_non_stream_chat_usage_details_are_mapped(self):
         converter = ToResponseConverter()
@@ -623,16 +572,8 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
-        added_events = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.output_item.added"
-        ]
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
+        added_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.output_item.added"]
         assert len(added_events) == 2
         assert added_events[0]["output_index"] == 0
         assert added_events[1]["output_index"] == 1
@@ -666,28 +607,12 @@ class TestChatToResponseStream:
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"index": 0, "function": {"arguments": '{"q"'}}
-                            ]
-                        }
-                    }
-                ],
+                "choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"q"'}}]}}],
             },
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"index": 0, "function": {"arguments": ':"x"}'}}
-                            ]
-                        }
-                    }
-                ],
+                "choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": ':"x"}'}}]}}],
             },
             {
                 "id": "chatcmpl_1",
@@ -698,22 +623,11 @@ class TestChatToResponseStream:
 
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                outputs.extend(converter.get_extra_events(result or {}))
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
 
-        completed = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ][0]
-        tool_call = [
-            item
-            for item in completed["response"]["output"]
-            if item["type"] == "function_call"
-        ][0]
+        completed = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"][0]
+        tool_call = [item for item in completed["response"]["output"] if item["type"] == "function_call"][0]
         assert tool_call["call_id"] == "call_1"
         assert tool_call["arguments"] == '{"q":"x"}'
 
@@ -742,19 +656,9 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
-        added_events = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.output_item.added"
-        ]
-        reasoning_events = [
-            o for o in added_events if o.get("item", {}).get("type") == "reasoning"
-        ]
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
+        added_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.output_item.added"]
+        reasoning_events = [o for o in added_events if o.get("item", {}).get("type") == "reasoning"]
         assert len(reasoning_events) == 1
         assert reasoning_events[0]["output_index"] == 1
 
@@ -768,17 +672,9 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
-        completed_events = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ]
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
         resp = completed_events[0]["response"]
         assert resp["status"] == "completed"
@@ -821,17 +717,10 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                outputs.extend(converter.get_extra_events(result or {}))
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
 
-        completed = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ][0]
+        completed = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"][0]
         assert [item["type"] for item in completed["response"]["output"]] == [
             "message",
             "function_call",
@@ -850,18 +739,10 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
         # 验证 response.completed 被发送
-        completed_events = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ]
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
 
     def test_response_completed_incomplete_status(self):
@@ -874,22 +755,12 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
-        completed_events = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ]
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
         assert completed_events[0]["response"]["status"] == "incomplete"
-        assert completed_events[0]["response"]["incomplete_details"] == {
-            "reason": "max_output_tokens"
-        }
+        assert completed_events[0]["response"]["incomplete_details"] == {"reason": "max_output_tokens"}
 
     def test_output_item_added_marks_message_and_function_call_in_progress(self):
         converter = ToResponseConverter()
@@ -920,32 +791,33 @@ class TestChatToResponseStream:
 
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                outputs.extend(converter.get_extra_events(result or {}))
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
 
-        added_items = [
-            o["item"] for o in outputs if o.get("type") == "response.output_item.added"
-        ]
+        added_items = [o["item"] for o in outputs if o.get("type") == "response.output_item.added"]
         message = [item for item in added_items if item["type"] == "message"][0]
-        function_call = [
-            item for item in added_items if item["type"] == "function_call"
-        ][0]
+        function_call = [item for item in added_items if item["type"] == "function_call"][0]
         assert message["status"] == "in_progress"
         assert function_call["status"] == "in_progress"
 
     def test_usage_chunk_with_empty_choices_is_ignored(self):
-        """usage chunk（choices 为空数组）应被忽略，不产生事件，但 usage 数据被累积"""
+        """usage chunk（choices 为空数组）应被忽略不产生事件；usage 数据经公共协议
+        在后续 response.completed 中体现"""
         converter = ToResponseConverter()
-        events = [
+        # 先建流（role chunk 产生 created），再喂 usage-only chunk
+        converter.convert_stream_chunk(
+            {"id": "c1", "model": "gpt-4o", "choices": [{"delta": {"role": "assistant", "content": ""}}]},
+            "openai-chat-completions",
+        )
+        usage_beat = converter.convert_stream_chunk(
             {"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 5}},
-        ]
-        result = converter.convert_stream_chunk(events[0], "openai-chat-completions")
-        assert result is None
-        # usage 数据应被累积到 stream_state 中
-        assert converter._stream_state["input_tokens"] == 10
-        assert converter._stream_state["output_tokens"] == 5
+            "openai-chat-completions",
+        )
+        assert usage_beat == []
+
+        outputs = converter.finalize_stream("openai-chat-completions")
+        completed = [o for o in outputs if o.get("type") == "response.completed"][0]
+        assert completed["response"]["usage"]["input_tokens"] == 10
+        assert completed["response"]["usage"]["output_tokens"] == 5
 
     def test_response_created_sent_when_first_chunk_has_no_role(self):
         """第一个 chunk 没有 role 字段时应自动发送 response.created"""
@@ -958,25 +830,13 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
         # 应有 response.created
-        created_events = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.created"
-        ]
+        created_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.created"]
         assert len(created_events) == 1
         # 应有 response.completed
-        completed_events = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ]
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
 
     def test_response_created_sent_before_first_content(self):
@@ -987,11 +847,7 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         # 验证顺序：response.created 应该在 response.output_text.delta 之前
         event_types = [o.get("type") if isinstance(o, dict) else None for o in outputs]
         assert event_types[0] == "response.created"
@@ -1009,10 +865,7 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                outputs.extend(converter.get_extra_events(result or {}))
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
 
         delta = [o for o in outputs if o.get("type") == "response.output_text.delta"][0]
         assert delta["item_id"].startswith("msg_")
@@ -1037,24 +890,13 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                outputs.extend(converter.get_extra_events(result or {}))
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
 
         event_types = [o.get("type") for o in outputs]
-        assert event_types.index("response.output_item.added") < event_types.index(
-            "response.content_part.added"
-        )
-        assert event_types.index("response.content_part.added") < event_types.index(
-            "response.output_text.delta"
-        )
-        assert event_types.index("response.output_text.done") < event_types.index(
-            "response.content_part.done"
-        )
-        assert event_types.index("response.content_part.done") < event_types.index(
-            "response.output_item.done"
-        )
+        assert event_types.index("response.output_item.added") < event_types.index("response.content_part.added")
+        assert event_types.index("response.content_part.added") < event_types.index("response.output_text.delta")
+        assert event_types.index("response.output_text.done") < event_types.index("response.content_part.done")
+        assert event_types.index("response.content_part.done") < event_types.index("response.output_item.done")
 
     def test_tool_stream_includes_arguments_done(self):
         """工具调用流结束时应输出 function_call_arguments.done。"""
@@ -1080,15 +922,7 @@ class TestChatToResponseStream:
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"index": 0, "function": {"arguments": '{"q":"x"}'}}
-                            ]
-                        }
-                    }
-                ],
+                "choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"q":"x"}'}}]}}],
             },
             {
                 "id": "chatcmpl_1",
@@ -1098,27 +932,15 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                outputs.extend(converter.get_extra_events(result or {}))
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
 
-        done_events = [
-            o
-            for o in outputs
-            if o.get("type") == "response.function_call_arguments.done"
-        ]
+        done_events = [o for o in outputs if o.get("type") == "response.function_call_arguments.done"]
         assert len(done_events) == 1
         assert done_events[0]["item_id"].startswith("fc_")
         assert done_events[0]["output_index"] == 0
         assert done_events[0]["arguments"] == '{"q":"x"}'
 
-        item_done_events = [
-            o
-            for o in outputs
-            if o.get("type") == "response.output_item.done"
-            and o.get("item", {}).get("type") == "function_call"
-        ]
+        item_done_events = [o for o in outputs if o.get("type") == "response.output_item.done" and o.get("item", {}).get("type") == "function_call"]
         assert len(item_done_events) == 1
         assert item_done_events[0]["output_index"] == 0
         assert item_done_events[0]["item"]["call_id"] == "call_1"
@@ -1135,18 +957,12 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         event_types = [o.get("type") if isinstance(o, dict) else None for o in outputs]
         # output_item.added 应在第一个 output_text.delta 之前
         item_added_idx = event_types.index("response.output_item.added")
         first_delta_idx = event_types.index("response.output_text.delta")
-        assert item_added_idx < first_delta_idx, (
-            f"output_item.added at {item_added_idx} should be before first delta at {first_delta_idx}"
-        )
+        assert item_added_idx < first_delta_idx, f"output_item.added at {item_added_idx} should be before first delta at {first_delta_idx}"
         # 验证 item 类型为 message
         item_added = outputs[item_added_idx]
         assert item_added["item"]["type"] == "message"
@@ -1161,11 +977,7 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
         event_types = [o.get("type") if isinstance(o, dict) else None for o in outputs]
         assert "response.output_text.done" in event_types
@@ -1192,17 +1004,9 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
-        completed_events = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ]
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
         usage = completed_events[0]["response"]["usage"]
         assert usage["input_tokens"] == 100
@@ -1237,17 +1041,10 @@ class TestChatToResponseStream:
 
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                outputs.extend(converter.get_extra_events(result or {}))
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
 
-        completed_events = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ]
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
         assert completed_events[0]["response"]["usage"] == {
             "input_tokens": 7,
@@ -1285,17 +1082,10 @@ class TestChatToResponseStream:
 
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                outputs.extend(converter.get_extra_events(result or {}))
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
 
-        completed = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ][0]
+        completed = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"][0]
         assert completed["response"]["usage"] == {
             "input_tokens": 7,
             "output_tokens": 2,
@@ -1322,27 +1112,14 @@ class TestChatToResponseStream:
 
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                outputs.extend(converter.get_extra_events(result or {}))
-        assert not [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ]
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
+        assert not [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
 
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
 
-        completed_events = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ]
+        completed_events = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"]
         assert len(completed_events) == 1
-        assert (
-            completed_events[0]["response"]["output"][0]["content"][0]["text"] == "Hi"
-        )
+        assert completed_events[0]["response"]["output"][0]["content"][0]["text"] == "Hi"
 
     def test_finalize_stream_emits_response_completed_without_finish_reason(self):
         """上游只返回内容和 [DONE] 时，收尾仍应补出 response.completed"""
@@ -1361,11 +1138,7 @@ class TestChatToResponseStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-chat-completions")
-            if result is not None:
-                outputs.append(result)
-                extra = converter.get_extra_events(result or {})
-                outputs.extend(extra)
+            outputs.extend(converter.convert_stream_chunk(evt, "openai-chat-completions"))
 
         outputs.extend(converter.finalize_stream("openai-chat-completions"))
 
@@ -1373,11 +1146,7 @@ class TestChatToResponseStream:
         assert "response.output_text.done" in event_types
         assert "response.output_item.done" in event_types
         assert "response.completed" in event_types
-        completed = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ][0]
+        completed = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"][0]
         assert completed["response"]["status"] == "completed"
         assert completed["response"]["output"][0]["content"][0]["text"] == "Hello"
 
@@ -1416,9 +1185,7 @@ class TestAnthropicToChatStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "anthropic")
-            if result is not None:
-                outputs.append(result)
+            outputs.extend(converter.convert_stream_chunk(evt, "anthropic"))
         contents = [o["choices"][0]["delta"].get("content", "") for o in outputs]
         assert "Hello" in contents
         assert " world" in contents
@@ -1457,12 +1224,8 @@ class TestAnthropicToChatStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "anthropic")
-            if result is not None:
-                outputs.append(result)
-        tool_call_events = [
-            o for o in outputs if o["choices"][0]["delta"].get("tool_calls")
-        ]
+            outputs.extend(converter.convert_stream_chunk(evt, "anthropic"))
+        tool_call_events = [o for o in outputs if o["choices"][0]["delta"].get("tool_calls")]
         assert len(tool_call_events) >= 1
         assert outputs[-1]["choices"][0]["finish_reason"] == "tool_calls"
 
@@ -1505,20 +1268,12 @@ class TestAnthropicToChatStream:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "anthropic")
-            if result is not None:
-                outputs.append(result)
+            outputs.extend(converter.convert_stream_chunk(evt, "anthropic"))
         reasoning_parts = [
-            o["choices"][0]["delta"].get("reasoning_content", "")
-            for o in outputs
-            if o["choices"][0]["delta"].get("reasoning_content")
+            o["choices"][0]["delta"].get("reasoning_content", "") for o in outputs if o["choices"][0]["delta"].get("reasoning_content")
         ]
         assert "Let me think..." in reasoning_parts
-        content_parts = [
-            o["choices"][0]["delta"].get("content", "")
-            for o in outputs
-            if o["choices"][0]["delta"].get("content")
-        ]
+        content_parts = [o["choices"][0]["delta"].get("content", "") for o in outputs if o["choices"][0]["delta"].get("content")]
         assert "The answer is 42" in content_parts
 
 
@@ -1558,15 +1313,11 @@ class TestAnthropicToChatStreamIncludeUsage:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "anthropic")
-            if result is not None:
-                outputs.append(result)
+            outputs.extend(converter.convert_stream_chunk(evt, "anthropic"))
 
         # message_stop 应返回 usage chunk（choices 为空数组）
         last_chunk = outputs[-1]
-        assert last_chunk["choices"] == [], (
-            f"Expected choices=[], got {last_chunk['choices']}"
-        )
+        assert last_chunk["choices"] == [], f"Expected choices=[], got {last_chunk['choices']}"
         assert "usage" in last_chunk
         # prompt_tokens = input_tokens + cache_creation + cache_read = 100 + 0 + 20 = 120
         assert last_chunk["usage"]["prompt_tokens"] == 120
@@ -1607,9 +1358,7 @@ class TestAnthropicToChatStreamIncludeUsage:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "anthropic")
-            if result is not None:
-                outputs.append(result)
+            outputs.extend(converter.convert_stream_chunk(evt, "anthropic"))
 
         # message_stop 应返回 None，最后一个 chunk 是 message_delta（有 finish_reason）
         assert outputs[-1]["choices"][0]["finish_reason"] == "stop"
@@ -1650,9 +1399,7 @@ class TestAnthropicToChatStreamIncludeUsage:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "anthropic")
-            if result is not None:
-                outputs.append(result)
+            outputs.extend(converter.convert_stream_chunk(evt, "anthropic"))
 
         usage_chunk = outputs[-1]
         # prompt_tokens = 50 + 10 + 5 = 65
@@ -1733,9 +1480,9 @@ class TestAnthropicToResponseCacheTokens:
         ]
         completed_events = []
         for e in events:
-            out = conv.convert_stream_chunk(e, source_type="anthropic")
-            if isinstance(out, dict) and out.get("type") == "response.completed":
-                completed_events.append(out)
+            for out in conv.convert_stream_chunk(e, source_type="anthropic"):
+                if out.get("type") == "response.completed":
+                    completed_events.append(out)
         assert completed_events, "expected at least one response.completed event"
         usage = completed_events[-1]["response"].get("usage")
         assert usage is not None, "response.completed must carry usage"
@@ -1764,13 +1511,9 @@ class TestAnthropicToResponseStreamIndexes:
 
         outputs = []
         for event in events:
-            out = converter.convert_stream_chunk(event, "anthropic")
-            if out is not None:
-                outputs.append(out)
+            outputs.extend(converter.convert_stream_chunk(event, "anthropic"))
 
-        completed = [
-            event for event in outputs if event.get("type") == "response.completed"
-        ][0]
+        completed = [event for event in outputs if event.get("type") == "response.completed"][0]
         assert completed["response"]["id"] == "resp_msg_stream"
 
     def test_delta_events_include_response_indexes(self):
@@ -1819,10 +1562,7 @@ class TestAnthropicToResponseStreamIndexes:
 
         outputs = []
         for event in events:
-            out = converter.convert_stream_chunk(event, "anthropic")
-            if out is not None:
-                outputs.append(out)
-                outputs.extend(converter.get_extra_events(out))
+            outputs.extend(converter.convert_stream_chunk(event, "anthropic"))
 
         deltas = {
             event["type"]: event
@@ -1839,10 +1579,7 @@ class TestAnthropicToResponseStreamIndexes:
         assert deltas["response.reasoning_text.delta"]["output_index"] == 0
         assert deltas["response.reasoning_text.delta"]["content_index"] == 0
 
-        assert (
-            deltas["response.function_call_arguments.delta"]["item_id"]
-            == "fc_toolu_idx"
-        )
+        assert deltas["response.function_call_arguments.delta"]["item_id"] == "fc_toolu_idx"
         assert deltas["response.function_call_arguments.delta"]["output_index"] == 1
 
         assert deltas["response.output_text.delta"]["item_id"] == "msg_idx"
@@ -1871,14 +1608,9 @@ class TestAnthropicToResponseStreamIndexes:
 
         outputs = []
         for event in events:
-            out = converter.convert_stream_chunk(event, "anthropic")
-            if out is not None:
-                outputs.append(out)
-                outputs.extend(converter.get_extra_events(out))
+            outputs.extend(converter.convert_stream_chunk(event, "anthropic"))
 
-        event_types = [
-            event.get("type") for event in outputs if isinstance(event, dict)
-        ]
+        event_types = [event.get("type") for event in outputs if isinstance(event, dict)]
 
         assert "response.reasoning_text.delta" in event_types
         assert "response.reasoning_summary_text.delta" not in event_types
@@ -1893,10 +1625,7 @@ class TestAnthropicToResponseAddedEvents:
         converter = ToResponseConverter()
         outputs = []
         for event in events:
-            out = converter.convert_stream_chunk(event, "anthropic")
-            if out is not None:
-                outputs.append(out)
-                outputs.extend(converter.get_extra_events(out))
+            outputs.extend(converter.convert_stream_chunk(event, "anthropic"))
         return outputs
 
     def test_text_block_emits_output_item_added_before_text_delta(self):
@@ -1928,9 +1657,7 @@ class TestAnthropicToResponseAddedEvents:
         part_added_idx = event_types.index("response.content_part.added")
         assert item_added_idx < part_added_idx < delta_idx
 
-        added = next(
-            o for o in outputs if o.get("type") == "response.output_item.added"
-        )
+        added = next(o for o in outputs if o.get("type") == "response.output_item.added")
         assert added["item"]["type"] == "message"
         assert added["item"]["id"] == "msg_txt"
 
@@ -1961,9 +1688,7 @@ class TestAnthropicToResponseAddedEvents:
         part_added_idx = event_types.index("response.content_part.added")
         assert part_added_idx < delta_idx
 
-        added = next(
-            o for o in outputs if o.get("type") == "response.output_item.added"
-        )
+        added = next(o for o in outputs if o.get("type") == "response.output_item.added")
         assert added["item"]["type"] == "reasoning"
         assert added["item"]["id"] == "rs_msg_thk"
 
@@ -2029,16 +1754,9 @@ class TestReviewBugFixes:
         ]
         outputs = feed_anthropic_events(converter, events)
         start_events = [e for et, e in outputs if et == "content_block_start"]
-        assert len(start_events) == 1, (
-            f"Expected exactly 1 content_block_start for the repeated tool_call, "
-            f"got {len(start_events)} -> {start_events}"
-        )
+        assert len(start_events) == 1, f"Expected exactly 1 content_block_start for the repeated tool_call, got {len(start_events)} -> {start_events}"
         # 参数应完整拼接
-        arg_text = "".join(
-            d.get("delta", {}).get("partial_json", "")
-            for et, d in outputs
-            if d.get("delta", {}).get("type") == "input_json_delta"
-        )
+        arg_text = "".join(d.get("delta", {}).get("partial_json", "") for et, d in outputs if d.get("delta", {}).get("type") == "input_json_delta")
         assert arg_text == '{"q":"x"}', f"Got partial_json={arg_text!r}"
 
     # --- C13 ---
@@ -2074,15 +1792,7 @@ class TestReviewBugFixes:
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"index": 0, "function": {"arguments": '"x"}'}}
-                            ]
-                        }
-                    }
-                ],
+                "choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '"x"}'}}]}}],
             },
             {
                 "id": "chatcmpl_1",
@@ -2091,25 +1801,12 @@ class TestReviewBugFixes:
             },
         ]
         outputs = feed_response_events(converter, events)
-        args_text = "".join(
-            o.get("delta", "")
-            for o in outputs
-            if isinstance(o, dict)
-            and o.get("type") == "response.function_call_arguments.delta"
-        )
+        args_text = "".join(o.get("delta", "") for o in outputs if isinstance(o, dict) and o.get("type") == "response.function_call_arguments.delta")
         assert args_text == '{"q":"x"}', f'Expected \'{{"q":"x"}}\', got {args_text!r}'
 
         # 最终 completed 的 arguments 也应完整
-        completed = [
-            o
-            for o in outputs
-            if isinstance(o, dict) and o.get("type") == "response.completed"
-        ][0]
-        tool_call = [
-            item
-            for item in completed["response"]["output"]
-            if item["type"] == "function_call"
-        ][0]
+        completed = [o for o in outputs if isinstance(o, dict) and o.get("type") == "response.completed"][0]
+        tool_call = [item for item in completed["response"]["output"] if item["type"] == "function_call"][0]
         assert tool_call["arguments"] == '{"q":"x"}'
 
     # --- C14 ---
@@ -2129,9 +1826,7 @@ class TestReviewBugFixes:
         delta_events = [d for et, d in outputs if et == "message_delta"]
         assert delta_events, "Expected at least one message_delta"
         last_delta = delta_events[-1]
-        assert last_delta["usage"]["output_tokens"] == 1, (
-            f"Expected output_tokens=1, got {last_delta['usage']['output_tokens']}"
-        )
+        assert last_delta["usage"]["output_tokens"] == 1, f"Expected output_tokens=1, got {last_delta['usage']['output_tokens']}"
 
     # --- C15 ---
     def test_c15_response_reasoning_event_reaches_anthropic_output(self):
@@ -2174,33 +1869,15 @@ class TestReviewBugFixes:
         ]
         outputs = []
         for evt in events:
-            result = converter.convert_stream_chunk(evt, "openai-response")
-            if result is not None:
-                et = converter.get_stream_event_type(evt, "openai-response")
-                outputs.append((et, result))
-                extra = converter.get_extra_events(result or {})
-                for extra_evt in extra:
-                    if isinstance(extra_evt, tuple) and len(extra_evt) == 2:
-                        outputs.append(extra_evt)
-                    elif isinstance(extra_evt, dict):
-                        outputs.append((extra_evt.get("type", ""), extra_evt))
+            for out in converter.convert_stream_chunk(evt, "openai-response"):
+                outputs.append((out.get("type", ""), out))
 
         # thinking 文本到达
-        thinking_text = "".join(
-            d.get("delta", {}).get("thinking", "")
-            for et, d in outputs
-            if d.get("delta", {}).get("type") == "thinking_delta"
-        )
-        assert "thinking step..." in thinking_text, (
-            f"Expected thinking text in Anthropic output, got events={[et for et, _ in outputs]}"
-        )
+        thinking_text = "".join(d.get("delta", {}).get("thinking", "") for et, d in outputs if d.get("delta", {}).get("type") == "thinking_delta")
+        assert "thinking step..." in thinking_text, f"Expected thinking text in Anthropic output, got events={[et for et, _ in outputs]}"
 
         # 常规文本仍能到达
-        text_content = "".join(
-            d.get("delta", {}).get("text", "")
-            for et, d in outputs
-            if d.get("delta", {}).get("type") == "text_delta"
-        )
+        text_content = "".join(d.get("delta", {}).get("text", "") for et, d in outputs if d.get("delta", {}).get("type") == "text_delta")
         assert "the answer" in text_content
 
     # --- C16 ---
@@ -2238,15 +1915,7 @@ class TestReviewBugFixes:
             {
                 "id": "chatcmpl_1",
                 "model": "gpt-4o",
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"index": 0, "function": {"arguments": "{}"}}
-                            ]
-                        }
-                    }
-                ],
+                "choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{}"}}]}}],
             },
             {
                 "id": "chatcmpl_1",
@@ -2257,27 +1926,17 @@ class TestReviewBugFixes:
         outputs = feed_response_events(converter, events)
         event_seq = [o.get("type") for o in outputs if isinstance(o, dict)]
 
-        added_indexes = [
-            i for i, t in enumerate(event_seq) if t == "response.output_item.added"
-        ]
+        added_indexes = [i for i, t in enumerate(event_seq) if t == "response.output_item.added"]
         # 至少 2 个 output_item.added：text message + function_call
-        assert len(added_indexes) >= 2, (
-            f"Expected >=2 output_item.added, got {event_seq}"
-        )
+        assert len(added_indexes) >= 2, f"Expected >=2 output_item.added, got {event_seq}"
 
         # 找 function_call 对应的 output_item.added
         function_call_added_idx = None
         for i, o in enumerate(outputs):
-            if (
-                isinstance(o, dict)
-                and o.get("type") == "response.output_item.added"
-                and o.get("item", {}).get("type") == "function_call"
-            ):
+            if isinstance(o, dict) and o.get("type") == "response.output_item.added" and o.get("item", {}).get("type") == "function_call":
                 function_call_added_idx = i
                 break
-        assert function_call_added_idx is not None, (
-            "function_call output_item.added not found"
-        )
+        assert function_call_added_idx is not None, "function_call output_item.added not found"
 
         # text 的关闭事件必须在 function_call 的 added 之前
         for ev_name in (
@@ -2287,16 +1946,15 @@ class TestReviewBugFixes:
         ):
             assert ev_name in event_seq, f"Missing {ev_name} in stream"
             assert event_seq.index(ev_name) < function_call_added_idx, (
-                f"{ev_name} ({event_seq.index(ev_name)}) must precede "
-                f"function_call output_item.added ({function_call_added_idx})"
+                f"{ev_name} ({event_seq.index(ev_name)}) must precede function_call output_item.added ({function_call_added_idx})"
             )
 
 
 def test_response_stream_aggregate_text_is_bounded(monkeypatch):
-    monkeypatch.setattr("converters.to_response.MAX_STREAM_AGGREGATE_TEXT_CHARS", 10)
+    monkeypatch.setattr("converters.response_stream_state.MAX_STREAM_AGGREGATE_TEXT_CHARS", 10)
     converter = ToResponseConverter()
 
-    created = converter.convert_stream_chunk(
+    created_beat = converter.convert_stream_chunk(
         {
             "id": "chatcmpl_1",
             "model": "gpt-4o",
@@ -2304,36 +1962,27 @@ def test_response_stream_aggregate_text_is_bounded(monkeypatch):
         },
         "openai-chat-completions",
     )
-    assert created["type"] == "response.created"
+    assert [e["type"] for e in created_beat] == ["response.created", "response.in_progress"]
 
-    first_text_event = converter.convert_stream_chunk(
+    text_beat = converter.convert_stream_chunk(
         {
             "id": "chatcmpl_1",
             "model": "gpt-4o",
-            "choices": [
-                {"delta": {"content": "abcdefghijklmnop"}, "finish_reason": None}
-            ],
+            "choices": [{"delta": {"content": "abcdefghijklmnop"}, "finish_reason": None}],
         },
         "openai-chat-completions",
     )
-    events = [first_text_event]
-    events.extend(converter.get_extra_events(first_text_event))
-    delta = [
-        event for event in events if event["type"] == "response.output_text.delta"
-    ][0]
+    delta = [event for event in text_beat if event["type"] == "response.output_text.delta"][0]
     assert delta["delta"] == "abcdefghijklmnop"
 
     final_events = converter.finalize_stream("openai-chat-completions")
-    completed = [
-        event for event in final_events if event["type"] == "response.completed"
-    ][0]
+    completed = [event for event in final_events if event["type"] == "response.completed"][0]
 
     assert completed["response"]["output_text"] == "abcdefghij"
-    assert converter._stream_state["aggregate_truncated"] is True
 
 
 def test_anthropic_to_response_stream_aggregate_text_is_bounded(monkeypatch):
-    monkeypatch.setattr("converters.to_response.MAX_STREAM_AGGREGATE_TEXT_CHARS", 10)
+    monkeypatch.setattr("converters.response_stream_state.MAX_STREAM_AGGREGATE_TEXT_CHARS", 10)
     converter = ToResponseConverter()
 
     converter.convert_stream_chunk(
@@ -2351,7 +2000,7 @@ def test_anthropic_to_response_stream_aggregate_text_is_bounded(monkeypatch):
         },
         source_type="anthropic",
     )
-    delta_event = converter.convert_stream_chunk(
+    text_beat = converter.convert_stream_chunk(
         {
             "type": "content_block_delta",
             "index": 0,
@@ -2359,7 +2008,46 @@ def test_anthropic_to_response_stream_aggregate_text_is_bounded(monkeypatch):
         },
         source_type="anthropic",
     )
-    assert delta_event["delta"] == "abcdefghijklmnop"
+    assert [e["delta"] for e in text_beat if e["type"] == "response.output_text.delta"] == ["abcdefghijklmnop"]
 
-    assert converter._stream_state["accumulated_text"] == "abcdefghij"
-    assert converter._stream_state["aggregate_truncated"] is True
+    # 公共协议侧验证截断：finalize 的 response.completed 只携带截断后文本
+    final_events = converter.finalize_stream("anthropic")
+    completed = [event for event in final_events if event["type"] == "response.completed"][0]
+    assert completed["response"]["output_text"] == "abcdefghij"
+
+
+# ─── Anthropic 块切换原子操作直测（ADR-0023 D1 自 tests/streaming 随迁） ───
+
+
+class TestCloseContentBlock:
+    """AnthropicStreamState.close_block 不变量直测。"""
+
+    def test_text_block_close_stops_and_advances_index(self):
+        state = AnthropicStreamState(content_block_started=True, content_block_index=2, current_content_type="text")
+        events = state.close_block()
+        assert events == [{"type": "content_block_stop", "index": 2}]
+        assert state.content_block_started is False
+        assert state.content_block_index == 3
+
+    def test_thinking_block_emits_signature_delta_before_stop(self):
+        """signature_delta 统一语义：thinking 块关块前一律先补空签名。"""
+        state = AnthropicStreamState(content_block_started=True, content_block_index=1, current_content_type="thinking")
+        events = state.close_block()
+        assert events == [
+            {"type": "content_block_delta", "index": 1, "delta": {"type": "signature_delta", "signature": ""}},
+            {"type": "content_block_stop", "index": 1},
+        ]
+        assert state.content_block_index == 2
+
+    def test_advance_index_false_keeps_index(self):
+        """终局关块（finish / usage-only / completed 收尾）不自增 index。"""
+        state = AnthropicStreamState(content_block_started=True, content_block_index=4, current_content_type="text")
+        events = state.close_block(advance_index=False)
+        assert events == [{"type": "content_block_stop", "index": 4}]
+        assert state.content_block_started is False
+        assert state.content_block_index == 4
+
+    def test_tool_use_block_close_no_signature_delta(self):
+        state = AnthropicStreamState(content_block_started=True, content_block_index=0, current_content_type="tool_use")
+        events = state.close_block()
+        assert events == [{"type": "content_block_stop", "index": 0}]

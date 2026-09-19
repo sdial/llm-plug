@@ -5,7 +5,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from models.api_types import APIType
-from proxy_core import ConverterError
+from models.channel import Endpoint
+from proxy.errors import ConverterError
 
 
 @pytest.fixture
@@ -29,7 +30,7 @@ def test_post_responses_streaming(client):
     async def mock_stream():
         yield b'data: {"type":"response.output_text.delta","delta":"Hello"}\n\n'
         yield (
-            b'event: response.completed\n'
+            b"event: response.completed\n"
             b'data: {"type":"response.completed","response":{"id":"resp_1","object":"response",'
             b'"status":"completed","output":[]}}\n\n'
         )
@@ -37,7 +38,11 @@ def test_post_responses_streaming(client):
     with patch("routers.proxy_response.proxy_request") as mock_proxy:
         mock_proxy.return_value = (
             mock_stream(),
-            MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+            MagicMock(
+                id="ch1",
+                name="test",
+                endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://mock.local")],
+            ),
         )
 
         resp = client.post(
@@ -53,8 +58,8 @@ def test_post_responses_streaming(client):
         assert "text/event-stream" in resp.headers.get("content-type", "")
 
 
-def test_post_responses_basic_uses_proxy_core_converted_response(client):
-    """proxy_core already returns Responses format; the route must not convert it again."""
+def test_post_responses_basic_uses_proxy_converted_response(client):
+    """proxy.routing already returns Responses format; the route must not convert it again."""
     with patch("routers.proxy_response._store") as mock_store:
         mock_store.put = AsyncMock()
         mock_store.get_conversation = AsyncMock(return_value=None)
@@ -82,7 +87,11 @@ def test_post_responses_basic_uses_proxy_core_converted_response(client):
                         "total_tokens": 15,
                     },
                 },
-                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+                MagicMock(
+                    id="ch1",
+                    name="test",
+                    endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://mock.local")],
+                ),
             )
 
             resp = client.post(
@@ -132,7 +141,11 @@ def test_post_responses_saves_function_call_output_as_history_item(client):
                         "total_tokens": 15,
                     },
                 },
-                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+                MagicMock(
+                    id="ch1",
+                    name="test",
+                    endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://mock.local")],
+                ),
             )
 
             resp = client.post(
@@ -192,7 +205,11 @@ def test_post_responses_with_previous_response_id_expands_history(client):
                         "total_tokens": 15,
                     },
                 },
-                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+                MagicMock(
+                    id="ch1",
+                    name="test",
+                    endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://mock.local")],
+                ),
             )
 
             resp = client.post(
@@ -239,9 +256,7 @@ def test_post_responses_same_type_previous_response_id_passthrough_when_local_st
                             "id": "msg_resp_remote_2",
                             "status": "completed",
                             "role": "assistant",
-                            "content": [
-                                {"type": "output_text", "text": "Remote state worked"}
-                            ],
+                            "content": [{"type": "output_text", "text": "Remote state worked"}],
                         }
                     ],
                     "output_text": "Remote state worked",
@@ -252,7 +267,9 @@ def test_post_responses_same_type_previous_response_id_passthrough_when_local_st
                     },
                 },
                 MagicMock(
-                    id="ch_resp", name="Responses", api_type=APIType.OPENAI_RESPONSE
+                    id="ch_resp",
+                    name="Responses",
+                    endpoints=[Endpoint(api_type=APIType.OPENAI_RESPONSE, base_url="https://mock.local")],
                 ),
             )
 
@@ -290,18 +307,14 @@ def test_post_responses_saves_reasoning_item_in_history(client):
                         {
                             "type": "reasoning",
                             "id": "rs_abc",
-                            "summary": [
-                                {"type": "summary_text", "text": "Thinking..."}
-                            ],
+                            "summary": [{"type": "summary_text", "text": "Thinking..."}],
                         },
                         {
                             "type": "message",
                             "id": "msg_resp_reasoning",
                             "status": "completed",
                             "role": "assistant",
-                            "content": [
-                                {"type": "output_text", "text": "The answer is 42"}
-                            ],
+                            "content": [{"type": "output_text", "text": "The answer is 42"}],
                         },
                     ],
                     "usage": {
@@ -310,7 +323,11 @@ def test_post_responses_saves_reasoning_item_in_history(client):
                         "total_tokens": 15,
                     },
                 },
-                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+                MagicMock(
+                    id="ch1",
+                    name="test",
+                    endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://mock.local")],
+                ),
             )
 
             resp = client.post(
@@ -324,19 +341,11 @@ def test_post_responses_saves_reasoning_item_in_history(client):
             assert resp.status_code == 200
             _, conversation, _ = mock_store.put.await_args.args
             # reasoning 项应出现在历史中
-            reasoning_items = [
-                m
-                for m in conversation["messages"]
-                if isinstance(m, dict) and m.get("type") == "reasoning"
-            ]
+            reasoning_items = [m for m in conversation["messages"] if isinstance(m, dict) and m.get("type") == "reasoning"]
             assert len(reasoning_items) == 1
             assert reasoning_items[0]["id"] == "rs_abc"
             # message 项也应出现
-            assistant_items = [
-                m
-                for m in conversation["messages"]
-                if isinstance(m, dict) and m.get("role") == "assistant"
-            ]
+            assistant_items = [m for m in conversation["messages"] if isinstance(m, dict) and m.get("role") == "assistant"]
             assert len(assistant_items) == 1
             assert assistant_items[0]["content"] == "The answer is 42"
 
@@ -382,7 +391,11 @@ def test_previous_response_id_expands_function_call_history(client):
                         "total_tokens": 15,
                     },
                 },
-                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+                MagicMock(
+                    id="ch1",
+                    name="test",
+                    endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://mock.local")],
+                ),
             )
 
             resp = client.post(
@@ -444,7 +457,11 @@ def test_post_responses_store_false_does_not_save_state(client):
                     "output": [],
                     "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
                 },
-                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+                MagicMock(
+                    id="ch1",
+                    name="test",
+                    endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://mock.local")],
+                ),
             )
 
             resp = client.post(
@@ -489,7 +506,11 @@ def test_post_responses_hosted_tools_are_degraded_instead_of_400(client):
                     ],
                     "usage": {"input_tokens": 3, "output_tokens": 4, "total_tokens": 7},
                 },
-                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+                MagicMock(
+                    id="ch1",
+                    name="test",
+                    endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://mock.local")],
+                ),
             )
 
             resp = client.post(
@@ -507,15 +528,13 @@ def test_post_responses_hosted_tools_are_degraded_instead_of_400(client):
             mock_store.put.assert_awaited_once()
 
 
-def test_post_responses_returns_400_for_proxy_core_converter_error(client):
+def test_post_responses_returns_400_for_proxy_converter_error(client):
     with patch("routers.proxy_response._store") as mock_store:
         mock_store.get_conversation = AsyncMock(return_value=None)
         mock_store.put = AsyncMock()
 
         with patch("routers.proxy_response.proxy_request") as mock_proxy:
-            mock_proxy.side_effect = ConverterError(
-                "请求转换失败: Responses tool 'web_search' is not supported when upstream is Chat Completions"
-            )
+            mock_proxy.side_effect = ConverterError("请求转换失败: Responses tool 'web_search' is not supported when upstream is Chat Completions")
 
             resp = client.post(
                 "/v1/responses",
@@ -554,9 +573,7 @@ def test_post_responses_chat_upstream_compatible_response_is_saved_after_degrade
                             "id": "msg_resp_saved_after_degrade",
                             "status": "completed",
                             "role": "assistant",
-                            "content": [
-                                {"type": "output_text", "text": "Fallback completed"}
-                            ],
+                            "content": [{"type": "output_text", "text": "Fallback completed"}],
                         }
                     ],
                     "usage": {
@@ -565,7 +582,11 @@ def test_post_responses_chat_upstream_compatible_response_is_saved_after_degrade
                         "total_tokens": 14,
                     },
                 },
-                MagicMock(id="ch1", name="chat-upstream", api_type=APIType.OPENAI_CHAT),
+                MagicMock(
+                    id="ch1",
+                    name="chat-upstream",
+                    endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://mock.local")],
+                ),
             )
 
             resp = client.post(
@@ -611,7 +632,11 @@ def test_post_responses_streaming_saves_completed_response(client):
         with patch("routers.proxy_response.proxy_request") as mock_proxy:
             mock_proxy.return_value = (
                 mock_stream(),
-                MagicMock(id="ch1", name="test", api_type=APIType.OPENAI_CHAT),
+                MagicMock(
+                    id="ch1",
+                    name="test",
+                    endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://mock.local")],
+                ),
             )
 
             resp = client.post(
@@ -636,21 +661,17 @@ def test_post_responses_streaming_saves_completed_response(client):
 
 
 def test_post_responses_all_channels_exhausted_returns_upstream_status(client):
-    from proxy_core import AllChannelsExhausted
+    from proxy.errors import AllChannelsExhausted
 
     upstream_resp = MagicMock()
     upstream_resp.status_code = 429
     upstream_resp.headers = {"content-type": "application/json"}
     upstream_resp.content = b'{"error":{"message":"rate limited"}}'
     upstream_resp.text = '{"error":{"message":"rate limited"}}'
-    last_error = httpx.HTTPStatusError(
-        "429", request=MagicMock(), response=upstream_resp
-    )
+    last_error = httpx.HTTPStatusError("429", request=MagicMock(), response=upstream_resp)
 
     with patch("routers.proxy_response.proxy_request") as mock_proxy:
-        mock_proxy.side_effect = AllChannelsExhausted(
-            "all channels exhausted", last_error=last_error
-        )
+        mock_proxy.side_effect = AllChannelsExhausted("all channels exhausted", last_error=last_error)
 
         resp = client.post(
             "/v1/responses",
@@ -661,12 +682,10 @@ def test_post_responses_all_channels_exhausted_returns_upstream_status(client):
 
 
 def test_post_responses_all_channels_exhausted_non_http_returns_502(client):
-    from proxy_core import AllChannelsExhausted
+    from proxy.errors import AllChannelsExhausted
 
     with patch("routers.proxy_response.proxy_request") as mock_proxy:
-        mock_proxy.side_effect = AllChannelsExhausted(
-            "all channels exhausted", last_error=RuntimeError("network down")
-        )
+        mock_proxy.side_effect = AllChannelsExhausted("all channels exhausted", last_error=RuntimeError("network down"))
 
         resp = client.post(
             "/v1/responses",

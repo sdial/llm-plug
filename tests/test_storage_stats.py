@@ -63,6 +63,46 @@ async def test_discover_month_dbs_missing_dir(tmp_path):
     assert result == []
 
 
+async def test_discover_month_dbs_ignores_non_numeric_files(tmp_path):
+    """容差归一（ADR-0017 D1）：非数字命名的杂散月库文件在存储管理页消费方一致被忽略。"""
+    raw_logs_dir = tmp_path / "request_raw_logs"
+    raw_logs_dir.mkdir()
+    (raw_logs_dir / "request_logs_2026_05.sqlite3").touch()
+    for name in (
+        "request_logs_20x6_05.sqlite3",
+        "request_logs_2026_0x.sqlite3",
+        "request_logs_202605.sqlite3",
+        "request_logs_2026_05.sqlite3-wal",
+        "request_logs_2026_05.sqlite3-shm",
+        "other_file.txt",
+    ):
+        (raw_logs_dir / name).touch()
+
+    result = await storage_stats.discover_month_dbs(str(raw_logs_dir))
+    assert result == ["202605"]
+
+
+async def test_get_storage_stats_months_ignores_non_numeric_files(tmp_path, monkeypatch):
+    """get_storage_stats 的 months 枚举与 discover_month_dbs 容差一致：杂散文件不进入月度统计。"""
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    raw_logs_dir = data_dir / "request_raw_logs"
+    raw_logs_dir.mkdir()
+    (raw_logs_dir / "request_logs_2026_05.sqlite3").write_bytes(b"x" * 10)
+    (raw_logs_dir / "request_logs_20x6_05.sqlite3").write_bytes(b"x" * 10)
+    (raw_logs_dir / "request_logs_2026_0x.sqlite3").write_bytes(b"x" * 10)
+
+    monkeypatch.setattr(config, "DATA_DIR", str(data_dir))
+    monkeypatch.setattr(storage_stats, "_get_logs_dir", lambda: str(logs_dir))
+
+    result = await storage_stats.get_storage_stats()
+
+    months = result["request_raw_logs"]["months"]
+    assert [m["month"] for m in months] == ["2026-05"]
+
+
 async def test_get_month_db_details(tmp_path):
     raw_logs_dir = tmp_path / "request_raw_logs"
     raw_logs_dir.mkdir()
@@ -281,9 +321,7 @@ async def test_preview_cleanup_delete_month(tmp_path):
     shm_path = raw_logs_dir / "request_logs_2026_06.sqlite3-shm"
     shm_path.write_bytes(b"x" * 50)
 
-    result = await storage_stats.preview_cleanup(
-        str(raw_logs_dir), "202606"
-    )
+    result = await storage_stats.preview_cleanup(str(raw_logs_dir), "202606")
 
     assert result["action"] == "delete_month"
     assert result["target"] == "2026-06"
@@ -298,9 +336,7 @@ async def test_preview_cleanup_delete_month_missing(tmp_path):
     raw_logs_dir = tmp_path / "request_raw_logs"
     raw_logs_dir.mkdir()
 
-    result = await storage_stats.preview_cleanup(
-        str(raw_logs_dir), "202606"
-    )
+    result = await storage_stats.preview_cleanup(str(raw_logs_dir), "202606")
 
     assert result["action"] == "delete_month"
     assert result["target"] == "2026-06"
@@ -313,4 +349,3 @@ async def test_preview_cleanup_delete_month_missing_params():
 
     assert result["success"] is False
     assert result["message"] == "delete_month 需要 raw_logs_dir 和 target 参数"
-

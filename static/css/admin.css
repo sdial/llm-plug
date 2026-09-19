@@ -10,8 +10,26 @@
     box-sizing: border-box;
 }
 
+/*
+   Density base — 90% design scale without CSS `zoom`.
+
+   Every Tailwind utility (spacing, type, size, radius) and every `rem` value
+   in this file is derived from the root font size.  14.4px = 16px × 0.9
+   therefore renders the whole UI at the same size as the former
+   `html { zoom: 0.9 }` did, while keeping real CSS pixels for media queries,
+   pointer targets, scrollbars and browser zoom.
+
+   Authoring rule: write lengths at the conventional 16px scale and express
+   them in `rem` (px ÷ 16).  A literal `Npx` is NOT scaled, so it renders 11%
+   larger than the 90% reference — only use px for hairlines (borders),
+   shadows and media-query breakpoints.
+*/
+html {
+    font-size: 14.4px;
+}
+
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
     background-color: #faf9f7;
     color: #1a1a1a;
     line-height: 1.6;
@@ -25,7 +43,7 @@ body {
 .card {
     background: #ffffff;
     border: 1px solid #e8e6e3;
-    border-radius: 12px;
+    border-radius: 0.75rem;
     box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.02);
     transition: box-shadow 0.2s ease-out, border-color 0.2s ease-out;
 }
@@ -46,7 +64,7 @@ body {
     justify-content: center;
     gap: 0.375rem;
     font-weight: 500;
-    border-radius: 8px;
+    border-radius: 0.5rem;
     transition: all 0.15s ease-out;
     cursor: pointer;
     border: none;
@@ -108,7 +126,7 @@ textarea {
     font-size: 0.875rem;
     background: #ffffff;
     border: 1px solid #e8e6e3;
-    border-radius: 8px;
+    border-radius: 0.5rem;
     outline: none;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -139,7 +157,7 @@ textarea[readonly] {
 input[type="checkbox"] {
     width: 1rem;
     height: 1rem;
-    border-radius: 4px;
+    border-radius: 0.25rem;
     border: 1px solid #e8e6e3;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -155,12 +173,16 @@ input[type="checkbox"]:focus-visible {
    ========================================================================== */
 .tab-active {
     color: #635bff;
-    border-bottom: 2px solid #635bff;
+    border-bottom: 0.125rem solid #635bff;
+    min-width: 5.5rem;
+    text-align: center;
 }
 
 .tab-inactive {
     color: #6b6b6b;
-    border-bottom: 2px solid transparent;
+    border-bottom: 0.125rem solid transparent;
+    min-width: 5.5rem;
+    text-align: center;
 }
 
 .tab-inactive:hover {
@@ -212,7 +234,7 @@ input[type="checkbox"]:focus-visible {
     justify-content: center;
     width: 1.5rem;
     height: 1.5rem;
-    border-radius: 6px;
+    border-radius: 0.375rem;
     font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -276,7 +298,7 @@ input[type="checkbox"]:focus-visible {
 
 .modal-panel {
     background: white;
-    border-radius: 16px;
+    border-radius: 1rem;
     box-shadow: 0 20px 60px rgba(0,0,0,0.15);
     width: 100%;
     max-height: 90vh;
@@ -300,6 +322,63 @@ input[type="checkbox"]:focus-visible {
 @keyframes slideDown {
     from { opacity: 1; transform: translateY(0) scale(1); }
     to { opacity: 0; transform: translateY(8px) scale(0.98); }
+}
+
+/* ==========================================================================
+   Help Tip (? icon with hover tooltip)
+   ========================================================================== */
+.help-tip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.15rem;
+    height: 1.15rem;
+    margin-left: 0.375rem;
+    border-radius: 9999px;
+    background: #f5f5f4;
+    border: 1px solid #e8e6e3;
+    color: #71717a;
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: middle;
+    cursor: help;
+    user-select: none;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.help-tip:hover,
+.help-tip:focus-visible {
+    border-color: #635bff;
+    color: #635bff;
+}
+
+.help-tip .help-tip-text {
+    display: none;
+}
+
+/* 气泡由 JS portal 到 <body>（position: fixed），避免被模态框 overflow 裁剪 */
+.help-tip-popover {
+    position: fixed;
+    z-index: 1000;
+    max-width: 15rem;
+    padding: 0.375rem 0.625rem;
+    border-radius: 0.375rem;
+    background: #1a1a1a;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.5;
+    text-align: left;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.help-tip-popover.visible {
+    opacity: 1;
 }
 
 @keyframes slideUp {
@@ -338,7 +417,7 @@ textarea.border-rose-500:focus {
     justify-content: center;
     gap: 0.375rem;
     font-weight: 500;
-    border-radius: 8px;
+    border-radius: 0.5rem;
     transition: all 0.15s ease-out;
     cursor: pointer;
     border: none;
@@ -367,7 +446,8 @@ textarea.border-rose-500:focus {
 .toast-container {
     position: fixed;
     top: 1.25rem;
-    right: 1.25rem;
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 9999;
     display: flex;
     flex-direction: column;
@@ -377,7 +457,7 @@ textarea.border-rose-500:focus {
 
 .toast {
     padding: 0.75rem 1rem;
-    border-radius: 10px;
+    border-radius: 0.625rem;
     box-shadow: 0 8px 24px rgba(0,0,0,0.12);
     font-size: 0.8125rem;
     font-weight: 500;
@@ -421,7 +501,7 @@ textarea.border-rose-500:focus {
     background: linear-gradient(90deg, #e8e6e3 0%, #f5f5f4 50%, #e8e6e3 100%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
-    border-radius: 6px;
+    border-radius: 0.375rem;
 }
 
 @keyframes spin {
@@ -438,9 +518,12 @@ textarea.border-rose-500:focus {
     to { opacity: 1; }
 }
 
-/* Header height CSS variable for dynamic sticky positioning */
+/* Header height CSS variable for dynamic sticky positioning.
+   Fallback only — admin.js:updateHeaderHeight() overwrites it with the
+   measured height on load/resize; this is the measured desktop value at the
+   90% density base. */
 :root {
-    --header-height: 57px;
+    --header-height: 71px;
 }
 
 /* Sticky tab navigation offset below header */
@@ -454,7 +537,7 @@ textarea.border-rose-500:focus {
 .request-table-shell {
     background: #ffffff;
     border: 1px solid #e8e6e3;
-    border-radius: 12px;
+    border-radius: 0.75rem;
     overflow-x: auto;
     box-shadow: 0 1px 2px rgba(0,0,0,0.04);
 }
@@ -493,20 +576,21 @@ textarea.border-rose-500:focus {
 
 /* Text columns stay adaptive but are capped so they don't squeeze the
    numeric/metric columns; long values truncate with title tooltip.
-   Only on desktop (>=768px): the mobile stacked-card layout needs full width. */
-@media (min-width: 768px) {
-    .request-log-table tbody td:nth-child(2) { max-width: 150px; }
-    .request-log-table tbody td:nth-child(3) { max-width: 150px; }
-    .request-log-table tbody td:nth-child(4) { max-width: 150px; }
-    .request-log-table tbody td:nth-child(5) { max-width: 240px; }
-    .request-log-table tbody td:nth-child(11) { max-width: 100px; }
+   Only on desktop (>=691px = md 断点 × 0.9): the mobile stacked-card layout
+   needs full width. */
+@media (min-width: 691px) {
+    .request-log-table tbody td:nth-child(2) { max-width: 9.375rem; }
+    .request-log-table tbody td:nth-child(3) { max-width: 9.375rem; }
+    .request-log-table tbody td:nth-child(4) { max-width: 9.375rem; }
+    .request-log-table tbody td:nth-child(5) { max-width: 15rem; }
+    .request-log-table tbody td:nth-child(11) { max-width: 6.25rem; }
 }
 
 .request-token-cell {
     display: inline-flex;
     justify-content: flex-end;
     align-items: center;
-    gap: 4px;
+    gap: 0.25rem;
     width: 100%;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
@@ -567,7 +651,7 @@ textarea.border-rose-500:focus {
 .request-detail-metric {
     background: #f5f5f4;
     border: 1px solid #e8e6e3;
-    border-radius: 8px;
+    border-radius: 0.5rem;
     padding: 0.5rem 0.75rem;
     text-align: center;
 }
@@ -630,10 +714,10 @@ textarea.border-rose-500:focus {
     content: '';
     position: absolute;
     left: 0;
-    top: 8px;
-    bottom: 8px;
-    width: 3px;
-    border-radius: 2px;
+    top: 0.5rem;
+    bottom: 0.5rem;
+    width: 0.1875rem;
+    border-radius: 0.125rem;
     background-color: #635bff;
 }
 
@@ -644,12 +728,12 @@ textarea.border-rose-500:focus {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
+    gap: 0.375rem;
+    padding: 0.5rem 0.75rem;
     border: 1px solid #e8e6e3;
-    border-radius: 8px;
+    border-radius: 0.5rem;
     background: white;
-    min-height: 40px;
+    min-height: 2.5rem;
     cursor: text;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -662,8 +746,8 @@ textarea.border-rose-500:focus {
 .tag-chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 2px 10px;
+    gap: 0.25rem;
+    padding: 0.125rem 0.625rem;
     background: #f0efff;
     color: #4a42cc;
     border-radius: 9999px;
@@ -675,7 +759,7 @@ textarea.border-rose-500:focus {
 .tag-chip-remove {
     cursor: pointer;
     opacity: 0.5;
-    font-size: 14px;
+    font-size: 0.875rem;
     line-height: 1;
     transition: opacity 0.1s ease;
 }
@@ -689,7 +773,7 @@ textarea.border-rose-500:focus {
     border: none;
     outline: none;
     flex: 1;
-    min-width: 80px;
+    min-width: 5rem;
     font-size: 0.875rem;
     background: transparent;
 }
@@ -712,6 +796,89 @@ textarea.border-rose-500:focus {
     box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
 }
 
+/* 实时刷新按钮上的圆形进度环：未激活时整体隐藏（避免按钮左侧留空白），激活时围绕图标走一圈描边动画 */
+.req-refresh-iconwrap {
+    position: relative;
+    display: none;
+    width: 1rem;
+    height: 1rem;
+}
+.btn-primary.req-refresh-active .req-refresh-iconwrap {
+    display: inline-flex;
+}
+.req-refresh-ring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: #1a1a1a;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+.btn-primary.req-refresh-active .req-refresh-ring {
+    stroke: #ffffff;
+    opacity: 1;
+}
+/* 起始偏移由 requests.js 内联的 stroke-dashoffset 提供（2π×r，r=7），动画从该值走回 0，
+   不在 CSS 中硬编码周长，避免与 JS 的 _REQUESTS_RING_RADIUS 失同步 */
+@keyframes reqRefreshRing {
+    to { stroke-dashoffset: 0; }
+}
+
+/* 实时刷新完成后的表格外壳边框微光（一次脉冲）。100% 帧收敛到外壳静止样式
+   （border-color #e8e6e3 + box-shadow 0 1px 2px rgba(0,0,0,0.04)），避免动画结束后回弹；移动端见下方媒体查询 */
+.req-refresh-flash {
+    animation: reqRefreshFlash 0.5s ease-out;
+}
+@keyframes reqRefreshFlash {
+    0% {
+        border-color: #34d399;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+    }
+    100% {
+        border-color: #e8e6e3;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+}
+
+/* 请求记录头部筛选范围汇总统计 */
+.req-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 0.65rem;
+    font-size: 0.75rem;
+    color: #6b6b6b;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Ensure hidden summary is truly hidden, regardless of stylesheet load order */
+.req-summary[hidden],
+.req-summary.hidden {
+    display: none !important;
+}
+.req-summary-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    white-space: nowrap;
+}
+.req-summary-label {
+    color: #6b6b6b;
+}
+.req-summary-value {
+    font-weight: 600;
+}
+.req-sum-color-input { color: #0891b2; }
+.req-sum-color-cache { color: #059669; }
+.req-sum-color-output { color: #7c3aed; }
+.req-sum-color-amber { color: #d97706; }
+.req-sum-color-count { color: #374151; }
+
 /* Empty State */
 .empty-state {
     display: flex;
@@ -724,9 +891,9 @@ textarea.border-rose-500:focus {
 }
 
 .empty-state-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 0.75rem;
     background: #f5f5f4;
     display: flex;
     align-items: center;
@@ -743,8 +910,8 @@ textarea.border-rose-500:focus {
 /* ==========================================================================
    Mobile Responsive
    ========================================================================== */
-@media (max-width: 767px) {
-    /* Card table to stacked layout */
+@media (max-width: 690px) {
+    /* Card table to stacked layout (md 断点 × 0.9 以下) */
     table.responsive-card,
     table.responsive-card thead,
     table.responsive-card tbody,
@@ -765,6 +932,19 @@ textarea.border-rose-500:focus {
         box-shadow: none;
         background: transparent;
         overflow: visible;
+    }
+
+    /* 移动端外壳无边框无阴影，闪光的结束态须收敛到 box-shadow:none，避免动画结束后回弹 */
+    .req-refresh-flash {
+        animation-name: reqRefreshFlashMobile;
+    }
+    @keyframes reqRefreshFlashMobile {
+        0% {
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+        }
+        100% {
+            box-shadow: none;
+        }
     }
 
     .request-log-table {
@@ -790,9 +970,9 @@ textarea.border-rose-500:focus {
 
     table.responsive-card tr {
         border: 1px solid #e8e6e3;
-        border-radius: 10px;
-        padding: 12px 16px;
-        margin-bottom: 10px;
+        border-radius: 0.625rem;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.625rem;
         background: #fff;
         box-shadow: 0 1px 2px rgba(0,0,0,0.02);
     }
@@ -801,10 +981,10 @@ textarea.border-rose-500:focus {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 8px;
-        padding: 4px 0 !important;
+        gap: 0.5rem;
+        padding: 0.25rem 0 !important;
         text-align: right !important;
-        min-height: 24px;
+        min-height: 1.5rem;
         border: none !important;
     }
 
@@ -821,19 +1001,19 @@ textarea.border-rose-500:focus {
         content: attr(data-label);
         color: #6b6b6b;
         font-weight: 500;
-        font-size: 11px;
+        font-size: 0.6875rem;
         text-transform: uppercase;
         letter-spacing: 0.04em;
         text-align: left;
         flex-shrink: 0;
-        min-width: 70px;
+        min-width: 4.375rem;
     }
 
     table.responsive-card td.row-title {
         display: block;
         text-align: left !important;
-        padding-bottom: 8px !important;
-        margin-bottom: 6px;
+        padding-bottom: 0.5rem !important;
+        margin-bottom: 0.375rem;
         border-bottom: 1px dashed #e8e6e3 !important;
         font-weight: 600;
     }
@@ -849,12 +1029,12 @@ textarea.border-rose-500:focus {
     }
 
     .settings-nav-btn.active::before {
-        left: 8px;
-        right: 8px;
+        left: 0.5rem;
+        right: 0.5rem;
         top: auto;
         bottom: 0;
         width: auto;
-        height: 2px;
+        height: 0.125rem;
     }
 
     #settingsNav::-webkit-scrollbar {
@@ -864,7 +1044,7 @@ textarea.border-rose-500:focus {
     /* Modal full width on mobile */
     .modal-panel {
         margin: 0.75rem;
-        border-radius: 12px;
+        border-radius: 0.75rem;
     }
 }
 

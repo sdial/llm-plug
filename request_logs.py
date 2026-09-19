@@ -15,35 +15,31 @@ from typing import Any
 from loguru import logger
 
 import config
+from db_write_behind import (
+    _VALID_JOURNAL_MODE,
+    WriteBehindParams,
+    WriteBehindWiring,
+    _sanitize_int_env,
+    _sanitize_pragma_env,
+    create_connection,
+)
+from request_record_query import (
+    build_summary_sql,
+    build_where_clause,
+    normalize_bool_fields,
+    normalize_pagination,
+    normalize_query_time,
+    record_timestamp_to_iso,
+    to_utc_naive_datetime,
+)
 
 # 请求记录仅支持 SQLite3，不再扩展其他关系型数据库后端。
 BACKEND = "sqlite3"
 
+# 请求来源枚举（ADR-0009）：存储层与查询入口共用的唯一事实源，校验方从此导入。
+REQUEST_SOURCES = ("client", "group_probe", "admin_test")
+
 _SQLITE_MMAP_SIZE_BYTES = 64 * 1024 * 1024
-_VALID_SYNCHRONOUS = {"OFF", "NORMAL", "FULL", "EXTRA", "0", "1", "2", "3"}
-_VALID_TEMP_STORE = {"DEFAULT", "FILE", "MEMORY", "0", "1", "2"}
-_VALID_JOURNAL_MODE = {"DELETE", "TRUNCATE", "PERSIST", "MEMORY", "WAL", "OFF"}
-
-
-def _sanitize_pragma_env(name: str, default: str, valid: set[str]) -> str:
-    val = os.environ.get(name, default)
-    if val.upper() not in valid:
-        logger.warning("非法 {}={!r}, 回退默认 {}", name, val, default)
-        return default
-    return val
-
-
-def _sanitize_int_env(name: str | None, default: int | None) -> int | None:
-    if name is None:
-        return default
-    val = os.environ.get(name)
-    if val is None:
-        return default
-    try:
-        return int(val)
-    except ValueError:
-        logger.warning("非法 {}={!r} 不是整数,回退默认 {}", name, val, default)
-        return default
 
 
 _RAW_FIELDS = {
@@ -61,10 +57,6 @@ _RAW_FIELD_SELECT: dict[str, str] = {
 }
 
 
-def _escape_like(text: str) -> str:
-    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
 _BACKEND_UNINITIALIZED_ERROR = "request log backend is not initialized"
 
 _OVERFLOW_LOG_FILENAME = "request_logs_overflow.jsonl"
@@ -73,40 +65,13 @@ _backend: SQLiteRequestLogBackend | None = None
 _backend_error = _BACKEND_UNINITIALIZED_ERROR
 _backend_lock = asyncio.Lock()
 
-_REQUEST_QUEUE: asyncio.Queue | None = None
-_REQUEST_QUEUE_LOOP: asyncio.AbstractEventLoop | None = None
 _REQUEST_QUEUE_MAX_SIZE = 1000
-_REQUEST_WORKERS: list[asyncio.Task] = []
 _REQUEST_WORKER_COUNT = _sanitize_int_env("REQUEST_LOG_WORKER_COUNT", 2)
 _REQUEST_WRITE_TIMEOUT = 60
 
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def _normalize_to_utc_aware(value: datetime) -> datetime:
-    """naive 输入按 UTC 解释；aware 转 UTC。返回 aware UTC datetime。"""
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
-def _normalize_to_utc_naive(value: datetime) -> datetime:
-    """返回 naive UTC datetime（SQLite TEXT 时间戳比较用）。"""
-    return _normalize_to_utc_aware(value).replace(tzinfo=None)
-
-
-def _to_iso(value: Any) -> str:
-    if isinstance(value, datetime):
-        return value.isoformat(sep=" ", timespec="microseconds")
-    if value:
-        return str(value)
-    return _utc_now().isoformat(sep=" ", timespec="microseconds")
-
-
-def _normalize_pagination(page: int = 1, page_size: int = 10) -> tuple[int, int]:
-    return max(1, page), max(1, min(page_size, 100))
 
 
 def _get_setting(settings: dict | None, key: str) -> Any:
@@ -148,20 +113,42 @@ def _base_item_from_mapping(row: dict[str, Any]) -> dict[str, Any]:
         "finish_reason": row.get("finish_reason"),
         "success": row["success"],
         "error_msg": row.get("error_msg"),
+        "sensitivity_info": _safe_json_loads(row.get("sensitivity_info")),
+        "conversion_info": _safe_json_loads(row.get("conversion_info")),
+        "shaping_info": _safe_json_loads(row.get("shaping_info")),
+        "api_type": row.get("api_type"),
+        "request_source": row.get("request_source"),
     }
     if isinstance(data["timestamp"], datetime):
         data["timestamp"] = data["timestamp"].isoformat()
-    if data["success"] is not None:
-        data["success"] = bool(data["success"])
-    if data["is_stream"] is not None:
-        data["is_stream"] = bool(data["is_stream"])
-    return data
+    return normalize_bool_fields(data)
+
+
+def _safe_json_loads(value: Any) -> Any:
+    """将 JSON 字符串安全解析为 Python 对象；失败时返回原值。"""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return value
+    return value
 
 
 class SQLiteRequestLogBackend:
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, logs_dir: str | None = None):
+        """db_path 指向聚合入口库（其所在目录即 data_dir）。
+
+        logs_dir 显式指定月度分库目录，缺省为 data_dir/request_raw_logs；
+        存储管理页等纯视图以显式 logs_dir 绑定任意月库目录（ADR-0017 D1）。
+        """
         self.db_path = db_path
         self.data_dir = os.path.dirname(os.path.abspath(db_path))
+        self.logs_dir = logs_dir if logs_dir else os.path.join(self.data_dir, "request_raw_logs")
+
+    # db/-wal/-shm 伴随文件三件套后缀——伴随文件知识的唯一定义处（ADR-0017 D1）
+    _SQLITE_SIDECAR_SUFFIXES = ("", "-wal", "-shm")
 
     async def init(self) -> None:
         await asyncio.to_thread(self._init_sync)
@@ -173,14 +160,10 @@ class SQLiteRequestLogBackend:
     def _current_year_month() -> str:
         return _utc_now().strftime("%Y%m")
 
-    @property
-    def _logs_dir(self) -> str:
-        return os.path.join(self.data_dir, "request_raw_logs")
-
-    def _month_db_path(self, year_month: str) -> str:
-        return os.path.join(
-            self._logs_dir, f"request_logs_{year_month[:4]}_{year_month[4:]}.sqlite3"
-        )
+    @staticmethod
+    def is_valid_month_key(year_month: str) -> bool:
+        """月度分库键（YYYYMM 六位数字）的唯一校验口径。"""
+        return len(year_month) == 6 and year_month.isdigit()
 
     @staticmethod
     def _month_end_utc_naive(year_month: str) -> datetime:
@@ -190,65 +173,84 @@ class SQLiteRequestLogBackend:
             return datetime(year + 1, 1, 1)
         return datetime(year, month + 1, 1)
 
-    @staticmethod
-    def _remove_sqlite_files(db_path: str) -> int:
-        removed = 0
-        for suffix in ("", "-wal", "-shm"):
-            path = db_path + suffix
-            if os.path.exists(path):
-                try:
-                    os.remove(path)
-                    removed += 1
-                except OSError:
-                    pass
-        return removed
+    def month_db_path(self, year_month: str) -> str:
+        """月份键 → 月度库文件路径；文件名格式 request_logs_{y}_{m}.sqlite3 的唯一定义处（ADR-0017 D1）。"""
+        return os.path.join(self.logs_dir, f"request_logs_{year_month[:4]}_{year_month[4:]}.sqlite3")
 
-    def _discover_month_dbs(self) -> list[str]:
-        if not os.path.isdir(self._logs_dir):
+    def discover_month_dbs(self) -> list[str]:
+        """扫描月库目录，返回升序月份键列表。
+
+        容差归一（ADR-0017 D1）：统一带数字校验，非数字命名的杂散文件在所有
+        消费方（列表查询 / raw 字段读取 / 保留清理 / 存储管理页）一致被忽略。
+        """
+        if not os.path.isdir(self.logs_dir):
             return []
         months: list[str] = []
-        for path in glob.glob(
-            os.path.join(self._logs_dir, "request_logs_????_??.sqlite3")
-        ):
+        for path in glob.glob(os.path.join(self.logs_dir, "request_logs_????_??.sqlite3")):
             basename = os.path.basename(path)
-            parts = (
-                basename.replace("request_logs_", "").replace(".sqlite3", "").split("_")
-            )
-            if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 2:
+            parts = basename.replace("request_logs_", "").replace(".sqlite3", "").split("_")
+            if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 2 and parts[0].isdigit() and parts[1].isdigit():
                 months.append(parts[0] + parts[1])
         return sorted(months)
 
+    def month_db_sibling_files(self, db_path: str) -> list[tuple[str, int]]:
+        """月度库伴随文件三件套（db/-wal/-shm）中实际存在的文件 [(路径, 字节大小)]；只列出，不删除。"""
+        siblings: list[tuple[str, int]] = []
+        for suffix in self._SQLITE_SIDECAR_SUFFIXES:
+            path = db_path + suffix
+            if os.path.exists(path):
+                try:
+                    siblings.append((path, os.path.getsize(path)))
+                except OSError:
+                    pass
+        return siblings
+
+    def remove_month_db_files(self, db_path: str) -> list[tuple[str, int]]:
+        """删除月度库及其 -wal/-shm 伴随文件，返回成功删除的 [(文件名, 字节大小)]；单个文件失败告警跳过。"""
+        removed: list[tuple[str, int]] = []
+        for path, _size in self.month_db_sibling_files(db_path):
+            try:
+                size = os.path.getsize(path)
+                os.remove(path)
+                removed.append((os.path.basename(path), size))
+            except OSError as exc:
+                logger.warning(f"Failed to remove {path}: {exc}")
+        return removed
+
+    def month_db_record_count(self, db_path: str) -> int:
+        """月度库记录数（存储管理页详情视图消费）；表缺失或库损坏返回 0。
+
+        行数统计走统一连接工厂 `_connect_to`——storage_stats 等视图不得自行连接 SQLite（ADR-0017 D1）。
+        """
+        record_count = 0
+        try:
+            with closing(self._connect_to(db_path)) as conn:
+                cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='request_logs'")
+                if cursor.fetchone() is not None:
+                    cursor = conn.execute("SELECT COUNT(*) FROM request_logs")
+                    row = cursor.fetchone()
+                    if row is not None:
+                        record_count = int(row[0])
+        except sqlite3.DatabaseError as exc:
+            logger.debug(f"Database error reading {db_path}: {exc}")
+            record_count = 0
+        return record_count
+
     def _connect_to(self, db_path: str) -> sqlite3.Connection:
-        conn = sqlite3.connect(db_path)
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute(
-            f"PRAGMA synchronous={_sanitize_pragma_env('SQLITE_SYNCHRONOUS', 'NORMAL', _VALID_SYNCHRONOUS)}"
-        )
-        conn.execute(
-            f"PRAGMA temp_store={_sanitize_pragma_env('SQLITE_TEMP_STORE', 'FILE', _VALID_TEMP_STORE)}"
-        )
-        cache_size = _sanitize_int_env("SQLITE_CACHE_SIZE", None)
-        if cache_size is not None:
-            conn.execute(f"PRAGMA cache_size={cache_size}")
-        conn.execute(
-            f"PRAGMA mmap_size={_sanitize_int_env('SQLITE_MMAP_SIZE_LOGS', _SQLITE_MMAP_SIZE_BYTES)}"
-        )
-        conn.row_factory = sqlite3.Row
-        return conn
+        return create_connection(db_path, mmap_size=("SQLITE_MMAP_SIZE_LOGS", _SQLITE_MMAP_SIZE_BYTES))
 
     def _ensure_month_db(self, year_month: str) -> str:
-        path = self._month_db_path(year_month)
+        path = self.month_db_path(year_month)
         if not os.path.exists(path):
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             with closing(sqlite3.connect(path)) as conn, conn:
-                conn.execute(
-                    f"PRAGMA journal_mode={_sanitize_pragma_env('SQLITE_JOURNAL_MODE', 'WAL', _VALID_JOURNAL_MODE)}"
-                )
+                conn.execute(f"PRAGMA journal_mode={_sanitize_pragma_env('SQLITE_JOURNAL_MODE', 'WAL', _VALID_JOURNAL_MODE)}")
                 conn.execute("PRAGMA busy_timeout=5000")
                 conn.executescript(
                     """
                     CREATE TABLE IF NOT EXISTS request_logs (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        write_id TEXT UNIQUE,
                         timestamp TEXT NOT NULL,
                         model TEXT NOT NULL,
                         requested_model TEXT,
@@ -269,7 +271,12 @@ class SQLiteRequestLogBackend:
                         request_headers TEXT,
                         response_headers TEXT,
                         request_body TEXT,
-                        response_body TEXT
+                        response_body TEXT,
+                        sensitivity_info TEXT,
+                        conversion_info TEXT,
+                        shaping_info TEXT,
+                        api_type TEXT,
+                        request_source TEXT NOT NULL DEFAULT 'client'
                     );
 
                     CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp);
@@ -278,13 +285,51 @@ class SQLiteRequestLogBackend:
                     CREATE INDEX IF NOT EXISTS idx_request_logs_channel ON request_logs(channel_id, channel_name);
                     CREATE INDEX IF NOT EXISTS idx_request_logs_api_key ON request_logs(api_key_id);
                     CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip);
+                    CREATE INDEX IF NOT EXISTS idx_request_logs_source ON request_logs(request_source, timestamp DESC);
                     """
                 )
+        else:
+            self._migrate_month_db(path)
         return path
+
+    @staticmethod
+    def _migrate_month_db(db_path: str) -> None:
+        """补齐旧月度库缺失的列与索引；幂等，可对任意历史月份重复执行。
+
+        Why 启动迁移必须覆盖全部历史月度库：漏迁的旧月份在跨月 SELECT 新列时抛
+        OperationalError，会被 _list_requests_sync 的 except 静默吞掉，整月历史
+        从列表里消失。
+        """
+        with closing(sqlite3.connect(db_path)) as conn, conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(request_logs)").fetchall()}
+            if "sensitivity_info" not in cols:
+                conn.execute("ALTER TABLE request_logs ADD COLUMN sensitivity_info TEXT")
+            if "conversion_info" not in cols:
+                conn.execute("ALTER TABLE request_logs ADD COLUMN conversion_info TEXT")
+            if "shaping_info" not in cols:
+                conn.execute("ALTER TABLE request_logs ADD COLUMN shaping_info TEXT")
+            if "api_type" not in cols:
+                conn.execute("ALTER TABLE request_logs ADD COLUMN api_type TEXT")
+            if "request_source" not in cols:
+                conn.execute("ALTER TABLE request_logs ADD COLUMN request_source TEXT NOT NULL DEFAULT 'client'")
+            if "write_id" not in cols:
+                conn.execute("ALTER TABLE request_logs ADD COLUMN write_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_source ON request_logs(request_source, timestamp DESC)")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_request_logs_write_id ON request_logs(write_id) WHERE write_id IS NOT NULL")
 
     def _init_sync(self) -> None:
         os.makedirs(self.data_dir, exist_ok=True)
         self._ensure_month_db(self._current_year_month())
+        # 全部历史月度库逐一补列（含当月重复调用，迁移幂等）；单个损坏文件不阻断启动，
+        # 查询侧本就按月容错跳过。
+        for month in self.discover_month_dbs():
+            db_path = self.month_db_path(month)
+            if not os.path.exists(db_path):
+                continue
+            try:
+                self._migrate_month_db(db_path)
+            except sqlite3.Error as exc:
+                logger.warning(f"Skip migrating request log month db {db_path}: {exc}")
 
     @staticmethod
     def _json_dumps(value: Any) -> str | None:
@@ -297,27 +342,27 @@ class SQLiteRequestLogBackend:
         raw = str(request_id)
         if "_" in raw:
             month, local_id = raw.split("_", 1)
-            if month.isdigit() and len(month) == 6:
+            if SQLiteRequestLogBackend.is_valid_month_key(month):
                 return month, int(local_id)
         return None, int(raw)
 
     def _write_record_sync(self, record: dict[str, Any]) -> None:
-        ts_str = _to_iso(record.get("timestamp"))
-        ym = (
-            ts_str[:4] + ts_str[5:7] if len(ts_str) >= 7 else self._current_year_month()
-        )
+        ts_str = record_timestamp_to_iso(record.get("timestamp"))
+        ym = ts_str[:4] + ts_str[5:7] if len(ts_str) >= 7 else self._current_year_month()
         db_path = self._ensure_month_db(ym)
         with closing(self._connect_to(db_path)) as conn, conn:
             conn.execute(
                 """
-                INSERT INTO request_logs
-                (timestamp, model, requested_model, channel_id, channel_name, api_key_id, client_ip,
+                INSERT OR IGNORE INTO request_logs
+                (write_id, timestamp, model, requested_model, channel_id, channel_name, api_key_id, client_ip,
                  is_stream, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
                  latency_ms, lag_ms, finish_reason, success, error_msg,
-                 request_headers, response_headers, request_body, response_body)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 request_headers, response_headers, request_body, response_body, sensitivity_info, conversion_info, shaping_info, api_type,
+                 request_source)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    record.get("_write_id"),
                     ts_str,
                     record["model"],
                     record.get("requested_model"),
@@ -339,56 +384,20 @@ class SQLiteRequestLogBackend:
                     self._json_dumps(record.get("response_headers")),
                     self._json_dumps(record.get("request_body")),
                     self._json_dumps(record.get("response_body")),
+                    self._json_dumps(record.get("sensitivity_info")),
+                    self._json_dumps(record.get("conversion_info")),
+                    self._json_dumps(record.get("shaping_info")),
+                    record.get("api_type"),
+                    record.get("request_source") or "client",
                 ),
             )
 
     async def write_record(self, record: dict[str, Any]) -> None:
         await asyncio.to_thread(self._write_record_sync, record)
 
-    def _build_where_clause(
-        self,
-        model: str | None,
-        channel: str | None,
-        start: datetime | None,
-        end: datetime | None,
-        success: bool | None,
-        api_key_id: str | None,
-        client_ip: str | None,
-        is_stream: bool | None,
-    ) -> tuple[str, list[Any]]:
-        conditions = ["1 = 1"]
-        args: list[Any] = []
-        if model:
-            conditions.append("LOWER(model) LIKE LOWER(?) ESCAPE '\\'")
-            args.append(f"%{_escape_like(model)}%")
-        if channel:
-            conditions.append(
-                "(LOWER(channel_name) LIKE LOWER(?) ESCAPE '\\' OR LOWER(channel_id) LIKE LOWER(?) ESCAPE '\\')"
-            )
-            escaped = f"%{_escape_like(channel)}%"
-            args.extend([escaped, escaped])
-        if start:
-            conditions.append("timestamp >= ?")
-            args.append(_to_iso(_normalize_to_utc_naive(start)))
-        if end:
-            conditions.append("timestamp < ?")
-            args.append(_to_iso(_normalize_to_utc_naive(end)))
-        if success is not None:
-            conditions.append("success = ?")
-            args.append(1 if success else 0)
-        if api_key_id:
-            conditions.append("api_key_id = ?")
-            args.append(api_key_id)
-        if client_ip:
-            conditions.append("LOWER(client_ip) LIKE LOWER(?) ESCAPE '\\'")
-            args.append(f"%{_escape_like(client_ip)}%")
-        if is_stream is not None:
-            conditions.append("is_stream = ?")
-            args.append(1 if is_stream else 0)
-        return " AND ".join(conditions), args
-
     def _query_single_month_page(
         self,
+        month: str,
         db_path: str,
         model: str | None,
         channel: str | None,
@@ -398,12 +407,12 @@ class SQLiteRequestLogBackend:
         api_key_id: str | None,
         client_ip: str | None,
         is_stream: bool | None,
+        request_source: str | tuple[str, ...] | None,
         limit: int,
         offset: int,
-    ) -> tuple[list[dict[str, Any]], int]:
-        where_clause, args = self._build_where_clause(
-            model, channel, start, end, success, api_key_id, client_ip, is_stream
-        )
+    ) -> tuple[list[dict[str, Any]], int, dict[str, float | int]]:
+        # 九条件 WHERE / 汇总聚合 SQL 走共享查询模块（ADR-0017 D0）：与 stats 列表查询同一份方言
+        where_clause, args = build_where_clause(model, channel, start, end, success, api_key_id, client_ip, is_stream, request_source)
         with closing(self._connect_to(db_path)) as conn:
             total = conn.execute(
                 f"SELECT COUNT(*) FROM request_logs WHERE {where_clause}",
@@ -417,7 +426,8 @@ class SQLiteRequestLogBackend:
                     SELECT id, timestamp, model, requested_model, channel_id, channel_name, api_key_id,
                            client_ip, is_stream, input_tokens, output_tokens,
                            cache_read_input_tokens, cache_creation_input_tokens,
-                           latency_ms, lag_ms, finish_reason, success, error_msg
+                           latency_ms, lag_ms, finish_reason, success, error_msg, sensitivity_info, conversion_info, shaping_info,
+                           api_type, request_source
                     FROM request_logs
                     WHERE {where_clause}
                     ORDER BY timestamp DESC, id DESC
@@ -425,14 +435,28 @@ class SQLiteRequestLogBackend:
                     """,
                     [*args, limit, offset],
                 ).fetchall()
+            agg = conn.execute(
+                build_summary_sql("request_logs", where_clause),
+                args,
+            ).fetchone()
+        summary = {
+            "total": total or 0,
+            "success_count": agg["success_count"] or 0,
+            "input_tokens": agg["input_tokens"],
+            "output_tokens": agg["output_tokens"],
+            "cache_read_input_tokens": agg["cache_read_input_tokens"],
+            "success_latency_sum": agg["success_latency_sum"],
+            "success_latency_count": agg["success_latency_count"] or 0,
+            "success_lag_sum": agg["success_lag_sum"],
+            "success_lag_count": agg["success_lag_count"] or 0,
+        }
         items = []
         for row in rows:
             item = _base_item_from_mapping(dict(row))
-            item["id"] = (
-                f"{os.path.basename(db_path)[13:17]}{os.path.basename(db_path)[18:20]}_{item['id']}"
-            )
+            # 复合 id 月份前缀由月键生成（ADR-0017 D1）：与记录所在月一致，不再从文件名固定位置切片
+            item["id"] = f"{month}_{item['id']}"
             items.append(item)
-        return items, total or 0
+        return items, total or 0, summary
 
     def _list_requests_sync(
         self,
@@ -446,23 +470,34 @@ class SQLiteRequestLogBackend:
         is_stream: bool | None = None,
         page: int = 1,
         page_size: int = 10,
+        request_source: str | tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
-        page, page_size = _normalize_pagination(page, page_size)
-        months = sorted(
-            set(self._discover_month_dbs() + [self._current_year_month()]), reverse=True
-        )
+        page, page_size = normalize_pagination(page, page_size)
+        months = sorted(set(self.discover_month_dbs() + [self._current_year_month()]), reverse=True)
         target_offset = (page - 1) * page_size
         remaining_skip = target_offset
         collected: list[dict[str, Any]] = []
         total = 0
+        agg = {
+            "total": 0,
+            "success_count": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "success_latency_sum": 0,
+            "success_latency_count": 0,
+            "success_lag_sum": 0,
+            "success_lag_count": 0,
+        }
         for month in months:
-            db_path = self._month_db_path(month)
+            db_path = self.month_db_path(month)
             if not os.path.exists(db_path):
                 continue
             limit = max(page_size - len(collected), 0)
             query_limit = 0 if limit == 0 and remaining_skip == 0 else limit
             try:
-                rows, month_total = self._query_single_month_page(
+                rows, month_total, month_agg = self._query_single_month_page(
+                    month,
                     db_path,
                     model,
                     channel,
@@ -472,24 +507,37 @@ class SQLiteRequestLogBackend:
                     api_key_id,
                     client_ip,
                     is_stream,
+                    request_source,
                     query_limit,
                     remaining_skip,
                 )
             except sqlite3.OperationalError:
                 continue
             total += month_total
+            for key in agg:
+                agg[key] += month_agg[key]
             if remaining_skip >= month_total:
                 remaining_skip -= month_total
                 continue
             remaining_skip = 0
             if limit > 0:
                 collected.extend(rows)
+        summary = {
+            "total_requests": agg["total"],
+            "success_count": agg["success_count"],
+            "input_tokens": agg["input_tokens"],
+            "output_tokens": agg["output_tokens"],
+            "cache_read_input_tokens": agg["cache_read_input_tokens"],
+            "avg_latency_ms": (agg["success_latency_sum"] / agg["success_latency_count"] if agg["success_latency_count"] else None),
+            "avg_lag_ms": (agg["success_lag_sum"] / agg["success_lag_count"] if agg["success_lag_count"] else None),
+        }
         return {
             "available": True,
             "items": collected[:page_size],
             "total": total,
             "page": page,
             "page_size": page_size,
+            "summary": summary,
         }
 
     async def list_requests(
@@ -504,6 +552,7 @@ class SQLiteRequestLogBackend:
         is_stream: bool | None = None,
         page: int = 1,
         page_size: int = 10,
+        request_source: str | tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         return await asyncio.to_thread(
             self._list_requests_sync,
@@ -517,6 +566,7 @@ class SQLiteRequestLogBackend:
             is_stream,
             page,
             page_size,
+            request_source,
         )
 
     def _get_request_field_sync(self, request_id: int | str, field: str) -> dict | None:
@@ -524,11 +574,11 @@ class SQLiteRequestLogBackend:
         if sql is None:
             return None
         month, local_id = self._parse_request_id(request_id)
-        search_months = [month] if month else reversed(self._discover_month_dbs())
+        search_months = [month] if month else reversed(self.discover_month_dbs())
         for candidate in search_months:
             if candidate is None:
                 continue
-            db_path = self._month_db_path(candidate)
+            db_path = self.month_db_path(candidate)
             if not os.path.exists(db_path):
                 continue
             with closing(self._connect_to(db_path)) as conn:
@@ -542,32 +592,19 @@ class SQLiteRequestLogBackend:
     async def get_request_field(self, request_id: int | str, field: str) -> dict | None:
         return await asyncio.to_thread(self._get_request_field_sync, request_id, field)
 
-    def _cleanup_old_records_sync(
-        self, retention_days: int, raw_retention_days: int
-    ) -> dict[str, int]:
+    def _cleanup_old_records_sync(self, retention_days: int, raw_retention_days: int) -> dict[str, int]:
         result = {"raw_fields_cleared": 0, "rows_deleted": 0, "month_dbs_deleted": 0}
-        retention_cutoff_dt = (
-            _normalize_to_utc_naive(_utc_now() - timedelta(days=retention_days))
-            if retention_days > 0
-            else None
-        )
-        retention_cutoff = _to_iso(retention_cutoff_dt) if retention_cutoff_dt else None
+        retention_cutoff_dt = to_utc_naive_datetime(_utc_now() - timedelta(days=retention_days)) if retention_days > 0 else None
+        retention_cutoff = record_timestamp_to_iso(retention_cutoff_dt) if retention_cutoff_dt else None
         raw_cutoff = None
-        if raw_retention_days > 0 and (
-            retention_days == 0 or raw_retention_days < retention_days
-        ):
-            raw_cutoff = _to_iso(
-                _normalize_to_utc_naive(_utc_now() - timedelta(days=raw_retention_days))
-            )
-        for month in self._discover_month_dbs():
-            db_path = self._month_db_path(month)
+        if raw_retention_days > 0 and (retention_days == 0 or raw_retention_days < retention_days):
+            raw_cutoff = normalize_query_time(_utc_now() - timedelta(days=raw_retention_days))
+        for month in self.discover_month_dbs():
+            db_path = self.month_db_path(month)
             if not os.path.exists(db_path):
                 continue
-            if (
-                retention_cutoff_dt
-                and self._month_end_utc_naive(month) <= retention_cutoff_dt
-            ):
-                self._remove_sqlite_files(db_path)
+            if retention_cutoff_dt and self._month_end_utc_naive(month) <= retention_cutoff_dt:
+                self.remove_month_db_files(db_path)
                 result["month_dbs_deleted"] += 1
                 continue
             mutated = False
@@ -604,12 +641,8 @@ class SQLiteRequestLogBackend:
                     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         return result
 
-    async def cleanup_old_records(
-        self, retention_days: int, raw_retention_days: int
-    ) -> dict[str, int]:
-        return await asyncio.to_thread(
-            self._cleanup_old_records_sync, retention_days, raw_retention_days
-        )
+    async def cleanup_old_records(self, retention_days: int, raw_retention_days: int) -> dict[str, int]:
+        return await asyncio.to_thread(self._cleanup_old_records_sync, retention_days, raw_retention_days)
 
 
 def _build_backend(settings: dict | None = None) -> SQLiteRequestLogBackend:
@@ -668,91 +701,60 @@ async def reload_backend(settings: dict | None = None) -> dict:
 
 
 async def close_backend() -> None:
-    global _backend, _backend_error, _REQUEST_QUEUE, _REQUEST_QUEUE_LOOP
+    global _backend, _backend_error
     await stop_request_log_workers()
     async with _backend_lock:
         backend = _backend
         _backend = None
         _backend_error = _BACKEND_UNINITIALIZED_ERROR
-        _REQUEST_QUEUE = None
-        _REQUEST_QUEUE_LOOP = None
+        # 重置队列句柄：下一次使用按当前参数重建全新队列（close-后-重建语义）
+        _wiring.reset()
         if backend is not None:
             await backend.close()
 
 
-def _ensure_queue() -> asyncio.Queue | None:
-    global _REQUEST_QUEUE, _REQUEST_QUEUE_LOOP
-    try:
-        current_loop = asyncio.get_running_loop()
-    except RuntimeError:
-        logger.warning(
-            "Request log queue requires a running event loop; discarding record"
-        )
-        return None
-    if _REQUEST_QUEUE is None or _REQUEST_QUEUE_LOOP is not current_loop:
-        _REQUEST_QUEUE = asyncio.Queue(maxsize=_REQUEST_QUEUE_MAX_SIZE)
-        _REQUEST_QUEUE_LOOP = current_loop
-    return _REQUEST_QUEUE
+async def _request_log_write(record: dict[str, Any]) -> None:
+    """reqlog 写回调（注入共享队列）：消费时晚绑定 _backend，不可用则丢弃并告警。"""
+    backend = _backend
+    if backend is None:
+        logger.warning(f"Request log backend unavailable ({_backend_error}); discarding queued record for model={record.get('model')}")
+        return
+    await backend.write_record(record)
 
 
-def start_request_log_workers(worker_count: int | None = None) -> None:
-    queue = _ensure_queue()
-    if queue is None:
-        return
-    if _REQUEST_WORKERS:
-        return
-    count = worker_count or _REQUEST_WORKER_COUNT
-    for _ in range(count):
-        _REQUEST_WORKERS.append(asyncio.create_task(_request_log_worker()))
-    logger.info(
-        f"Request log workers started: {count} workers, queue max={queue.maxsize}"
+def _serialize_overflow(record: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(record)
+    ts = payload.get("timestamp")
+    if isinstance(ts, datetime):
+        payload["timestamp"] = record_timestamp_to_iso(ts)
+    return payload
+
+
+def _queue_params() -> WriteBehindParams:
+    """队列参数快照：每次（重）建时重新读取模块全局（测试 monkeypatch 后立即生效）。"""
+    return WriteBehindParams(
+        worker_count=_REQUEST_WORKER_COUNT,
+        overflow_path=os.path.join(config.DATA_DIR, _OVERFLOW_LOG_FILENAME),
+        overflow_serialize=_serialize_overflow,
+        maxsize=_REQUEST_QUEUE_MAX_SIZE,
+        write_timeout=_REQUEST_WRITE_TIMEOUT,
+        name="request_logs",
     )
 
 
+# 请求日志队列接线句柄：loop 检查/重建、启停、排空、重置钩子的实现全在共享模块（ADR-0013/D0），
+# 差异（写回调/溢出路径与序列化/worker 数/maxsize/写超时）经 _queue_params 注入。
+_wiring = WriteBehindWiring(write=_request_log_write, params=_queue_params)
+
+
+def start_request_log_workers(worker_count: int | None = None) -> None:
+    """启动请求日志写入后台 worker（per-call worker_count 覆盖，缺省用 REQUEST_LOG_WORKER_COUNT）。"""
+    _wiring.start(worker_count)
+
+
 async def stop_request_log_workers() -> None:
-    global _REQUEST_QUEUE, _REQUEST_QUEUE_LOOP
-    for task in _REQUEST_WORKERS:
-        task.cancel()
-    for task in _REQUEST_WORKERS:
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-    _REQUEST_WORKERS.clear()
-    _REQUEST_QUEUE = None
-    _REQUEST_QUEUE_LOOP = None
-
-
-async def _request_log_worker() -> None:
-    while True:
-        try:
-            queue = _REQUEST_QUEUE
-            if queue is None:
-                await asyncio.sleep(0)
-                continue
-            record = await queue.get()
-            try:
-                backend = _backend
-                if backend is None:
-                    logger.warning(
-                        f"Request log backend unavailable ({_backend_error}); discarding queued record "
-                        f"for model={record.get('model')}"
-                    )
-                else:
-                    await asyncio.wait_for(
-                        backend.write_record(record), timeout=_REQUEST_WRITE_TIMEOUT
-                    )
-            except TimeoutError:
-                logger.warning(
-                    f"Request log write timed out ({_REQUEST_WRITE_TIMEOUT}s), "
-                    f"discarding record for model={record.get('model')}"
-                )
-            except Exception as exc:
-                logger.warning(f"Request log write failed: {exc}")
-            finally:
-                queue.task_done()
-        except asyncio.CancelledError:
-            break
-        except Exception as exc:
-            logger.warning(f"Request log worker error: {exc}")
+    """停止请求日志写入后台 worker 并消费队列残留记录。"""
+    await _wiring.stop()
 
 
 def _filtered_raw_value(flags: dict[str, bool], flag_name: str, value: Any) -> Any:
@@ -787,20 +789,6 @@ def _truncate_raw_value(value: Any) -> Any:
     }
 
 
-def _spill_to_overflow_file(record: dict[str, Any]) -> None:
-    try:
-        path = os.path.join(config.DATA_DIR, _OVERFLOW_LOG_FILENAME)
-        os.makedirs(config.DATA_DIR, exist_ok=True)
-        payload = dict(record)
-        ts = payload.get("timestamp")
-        if isinstance(ts, datetime):
-            payload["timestamp"] = ts.isoformat(sep=" ", timespec="microseconds")
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
-    except Exception as exc:
-        logger.error(f"Failed to spill request log to overflow file: {exc}")
-
-
 def record_request(
     channel_id: str,
     channel_name: str,
@@ -822,13 +810,16 @@ def record_request(
     lag_ms: int | None = None,
     finish_reason: str | None = None,
     requested_model: str | None = None,
+    sensitivity_info: dict[str, Any] | None = None,
+    conversion_info: dict[str, Any] | None = None,
+    shaping_info: dict[str, Any] | None = None,
+    api_type: str | None = None,
+    request_source: str = "client",
 ) -> None:
     if _backend is None:
-        logger.warning(
-            f"Request log backend unavailable ({_backend_error}); discarding record for model={model}"
-        )
+        logger.warning(f"Request log backend unavailable ({_backend_error}); discarding record for model={model}")
         return
-    queue = _ensure_queue()
+    queue = _wiring.ensure_queue()
     if queue is None:
         return
     flags = _get_save_flags()
@@ -848,59 +839,33 @@ def record_request(
         "error_msg": error_msg,
         "api_key_id": api_key_id,
         "client_ip": client_ip,
-        "request_headers": _filtered_raw_value(
-            flags, "save_request_headers", request_headers
-        ),
-        "response_headers": _filtered_raw_value(
-            flags, "save_response_headers", response_headers
-        ),
+        "request_headers": _filtered_raw_value(flags, "save_request_headers", request_headers),
+        "response_headers": _filtered_raw_value(flags, "save_response_headers", response_headers),
         "request_body": _filtered_raw_value(flags, "save_request_body", request_body),
-        "response_body": _filtered_raw_value(
-            flags, "save_response_body", response_body
-        ),
+        "response_body": _filtered_raw_value(flags, "save_response_body", response_body),
         "lag_ms": lag_ms,
         "finish_reason": finish_reason,
+        "sensitivity_info": sensitivity_info,
+        "conversion_info": conversion_info,
+        "shaping_info": shaping_info,
+        "api_type": api_type,
+        "request_source": request_source,
     }
-    try:
-        queue.put_nowait(record)
-    except asyncio.QueueFull:
-        logger.warning(
-            f"Request log queue full ({_REQUEST_QUEUE_MAX_SIZE}); "
-            f"spilling record for model={model} to overflow file"
-        )
-        _spill_to_overflow_file(record)
+    queue.enqueue(record)
 
 
 async def drain_queue() -> None:
-    queue = _REQUEST_QUEUE
-    if queue is None:
-        return
-    while not _REQUEST_WORKERS and not queue.empty():
-        record = await queue.get()
-        try:
-            backend = _backend
-            if backend is None:
-                logger.warning(
-                    f"Request log backend unavailable ({_backend_error}); discarding queued record "
-                    f"for model={record.get('model')}"
-                )
-            else:
-                await backend.write_record(record)
-        except Exception as exc:
-            logger.warning(f"Request log write failed: {exc}")
-        finally:
-            queue.task_done()
-    await queue.join()
+    """消费当前队列中已入队的请求日志记录，主要供测试和优雅停机使用。"""
+    await _wiring.drain()
 
 
 async def wait_for_queue() -> None:
-    queue = _REQUEST_QUEUE
-    if queue is not None:
-        await queue.join()
+    """等待队列排空：与 drain_queue 排空等价；无 worker / 无句柄时安全返回。"""
+    await _wiring.wait()
 
 
 def _unavailable_result(page: int, page_size: int) -> dict[str, Any]:
-    page, page_size = _normalize_pagination(page, page_size)
+    page, page_size = normalize_pagination(page, page_size)
     return {
         "available": False,
         "error": _backend_error or _BACKEND_UNINITIALIZED_ERROR,
@@ -922,6 +887,7 @@ async def list_requests(
     is_stream: bool | None = None,
     page: int = 1,
     page_size: int = 10,
+    request_source: str | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     backend = _backend
     if backend is None:
@@ -938,6 +904,7 @@ async def list_requests(
             is_stream=is_stream,
             page=page,
             page_size=page_size,
+            request_source=request_source,
         )
     except Exception as exc:
         logger.warning(f"Request log list failed: {exc}")
@@ -951,9 +918,7 @@ async def get_request_field(request_id: int, field: str) -> dict | None:
         return None
     backend = _backend
     if backend is None:
-        logger.warning(
-            f"Request log backend unavailable ({_backend_error}); cannot read {field}"
-        )
+        logger.warning(f"Request log backend unavailable ({_backend_error}); cannot read {field}")
         return None
     try:
         return await backend.get_request_field(request_id, field)
@@ -969,16 +934,8 @@ async def cleanup_old_records(
     backend = _backend
     if backend is None:
         return {"error": _backend_error, "raw_fields_cleared": 0, "rows_deleted": 0}
-    r_days = (
-        retention_days
-        if retention_days is not None
-        else int(config.get_setting("request_log_retention_days") or 0)
-    )
-    raw_days = (
-        raw_retention_days
-        if raw_retention_days is not None
-        else int(config.get_setting("request_log_raw_retention_days") or 0)
-    )
+    r_days = retention_days if retention_days is not None else int(config.get_setting("request_log_retention_days") or 0)
+    raw_days = raw_retention_days if raw_retention_days is not None else int(config.get_setting("request_log_raw_retention_days") or 0)
     try:
         return await backend.cleanup_old_records(r_days, raw_days)
     except Exception as exc:

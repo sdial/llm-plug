@@ -25,9 +25,7 @@ from routers.proxy_errors import (
 # ─── helpers ───
 
 
-def _make_mock_response(
-    content: bytes = b"error body", status_code: int = 500, encoding: str = "utf-8"
-):
+def _make_mock_response(content: bytes = b"error body", status_code: int = 500, encoding: str = "utf-8"):
     resp = MagicMock(spec=httpx.Response)
     resp.status_code = status_code
     type(resp).content = PropertyMock(return_value=content)
@@ -268,4 +266,4 @@ class TestOpenAIErrorBuilders:
         result = response_from_proxy_exception(exc)
         assert result.status_code == 502
         body = json.loads(result.body)
-        assert "generic error" in body["error"]["message"]
+        assert body["error"]["message"] == "代理处理上游响应时发生内部错误"
