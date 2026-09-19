@@ -7,7 +7,13 @@
     <script src="/admin/static/js/i18n.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/i18n-zh.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/i18n-en.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/escape.js?v=__STATIC_ASSET_VERSION__"></script>
     <style>
+        /* 与 admin.css 全局视觉密度保持一致（等效浏览器缩放 90%） */
+        html {
+            --page-zoom: 0.9;
+            zoom: var(--page-zoom);
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
@@ -15,8 +21,10 @@
             color: #a9b7c6;
             font-size: 13px;
             line-height: 1.6;
-            height: 100vh;
+            height: calc(100vh / var(--page-zoom));
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
         /* Header bar */
@@ -28,6 +36,11 @@
             background: #212121;
             border-bottom: 1px solid #333;
             height: 40px;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         .header-title {
             color: #a9b7c6;
@@ -90,7 +103,9 @@
         /* Main layout */
         .main-layout {
             display: flex;
-            height: calc(100vh - 40px);
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
         }
 
         /* Sidebar */
@@ -260,11 +275,13 @@
 </head>
 <body>
     <div class="header">
-        <span class="header-title" data-i18n="jsonViewer.title">JSON 查看器</span>
+        <div class="header-left">
+            <button class="toggle-sidebar-btn" id="toggleSidebar" data-i18n-title="jsonViewer.toggleSidebar" title="收起/展开侧栏">&#9776;</button>
+            <span class="header-title" data-i18n="jsonViewer.title">JSON 查看器</span>
+        </div>
         <div class="header-actions">
             <button class="download-btn" id="downloadBtn" data-i18n-title="jsonViewer.downloadTitle" title="下载当前 JSON" disabled>&#11015; <span data-i18n="jsonViewer.download">下载</span></button>
-            <button class="toggle-sidebar-btn" id="toggleSidebar" data-i18n-title="jsonViewer.toggleSidebar" title="收起/展开侧栏">&#9776;</button>
-            <button class="lang-toggle-btn" onclick="I18n.toggle()" data-i18n="common.langLabel">中/EN</button>
+            <button type="button" class="lang-toggle-btn" onclick="I18n.toggle()" data-i18n="common.langLabel">中/EN</button>
         </div>
     </div>
     <div class="main-layout">
@@ -283,12 +300,6 @@
     <script>
         var originalData = null;
         var fieldTree = null;
-
-        function escapeHtml(s) {
-            var d = document.createElement('div');
-            d.textContent = s;
-            return d.innerHTML;
-        }
 
         function buildFieldTree(data, key, path) {
             key = key || '';

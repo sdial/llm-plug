@@ -153,7 +153,10 @@ class FileStore:
                     os.unlink(path)
                     removed += 1
             except (json.JSONDecodeError, OSError):
-                continue
+                # 崩溃遗留的临时/损坏状态既不可读取也不能永远绕过容量治理。
+                with contextlib.suppress(OSError):
+                    os.unlink(path)
+                    removed += 1
         return removed
 
     async def cleanup_expired(self) -> int:
@@ -171,12 +174,10 @@ class FileStore:
             try:
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)
-                access_time = float(
-                    data.get("last_access_at")
-                    or data.get("created_at")
-                    or os.path.getmtime(path)
-                )
+                access_time = float(data.get("last_access_at") or data.get("created_at") or os.path.getmtime(path))
             except (json.JSONDecodeError, OSError, TypeError, ValueError):
+                # 无法解析时按最旧条目参与淘汰，避免 malformed 文件逃逸 max_entries。
+                files.append((path, float("-inf"), 0.0))
                 continue
             # 次级排序键：mtime，避免 last_access_at 相同时淘汰顺序不确定
             try:

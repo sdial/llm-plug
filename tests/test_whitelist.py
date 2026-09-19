@@ -57,15 +57,16 @@ def test_load_rules_skips_invalid_cidr(tmp_path):
     assert wl.load_rules(str(f)) == []
 
 
+def test_load_rules_skips_host_bit_cidr_instead_of_widening_it(tmp_path):
+    f = tmp_path / "whitelist.csv"
+    f.write_text("/admin/*,*,1.2.3.4/8,test\n", encoding="utf-8")
+    assert wl.load_rules(str(f)) == []
+
+
 def test_load_rules_multiple_with_comments(tmp_path):
     f = tmp_path / "whitelist.csv"
     f.write_text(
-        "# comment\n"
-        "path_pattern,methods,ip_cidr,description\n"
-        "/admin/*,*,10.1.1.0/24,内网\n"
-        "\n"
-        "# another comment\n"
-        "/admin/stats,GET,203.0.113.5,公司\n",
+        "# comment\npath_pattern,methods,ip_cidr,description\n/admin/*,*,10.1.1.0/24,内网\n\n# another comment\n/admin/stats,GET,203.0.113.5,公司\n",
         encoding="utf-8",
     )
     rules = wl.load_rules(str(f))
@@ -103,9 +104,7 @@ def test_check_path_not_matched_allows():
 
 
 def test_check_ip_not_in_cidr_returns_403():
-    ok, reason = wl.check_request(
-        _make_rules(), "/admin/channels", "GET", "192.168.1.1"
-    )
+    ok, reason = wl.check_request(_make_rules(), "/admin/channels", "GET", "192.168.1.1")
     assert ok is False
     assert "IP 白名单" in reason
 
@@ -116,9 +115,7 @@ def test_check_ip_in_cidr_allowed():
 
 
 def test_check_method_not_allowed_returns_403():
-    ok, reason = wl.check_request(
-        _make_rules(), "/admin/stats", "DELETE", "203.0.113.5"
-    )
+    ok, reason = wl.check_request(_make_rules(), "/admin/stats", "DELETE", "203.0.113.5")
     assert ok is False
     assert "DELETE" in reason
 
@@ -203,6 +200,24 @@ def test_validate_line_number_with_preceding_comments():
     ok, err, _ = wl.validate_rules_text(text)
     assert ok is False
     assert "第 4 行" in err  # actual line 4 in the file
+
+
+def test_validate_quoted_newline_in_description():
+    """引号内换行的字段应解析为单条记录，且不破坏后续记录的行号"""
+    text = '/admin/a,*,10.0.0.0/8,"第一行\n第二行"\n'
+    ok, err, rules = wl.validate_rules_text(text)
+    assert ok is True, err
+    assert len(rules) == 1
+    assert rules[0].description == "第一行\n第二行"
+
+
+def test_validate_line_number_after_quoted_newline():
+    """引号内换行会消耗多行，后续记录报错的行号不应错位"""
+    text = '/admin/a,*,10.0.0.0/8,"line1\nline2"\n/admin/b,*,bad-ip,test\n'
+    ok, err, _ = wl.validate_rules_text(text)
+    assert ok is False
+    assert "bad-ip" in err
+    assert "第 3 行" in err  # 记录 b 的物理行号，而非 zip 错位后的 2
 
 
 # ─── WhitelistCache ───

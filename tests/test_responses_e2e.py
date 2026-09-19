@@ -8,9 +8,7 @@ from state_store import FileStore
 
 @pytest.fixture
 def store(tmp_path):
-    return FileStore(
-        data_dir=str(tmp_path / "sessions"), max_entries=100, ttl_minutes=60
-    )
+    return FileStore(data_dir=str(tmp_path / "sessions"), max_entries=100, ttl_minutes=60)
 
 
 def test_multi_turn_conversation_flow(store):

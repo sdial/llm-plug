@@ -6,15 +6,6 @@ __pycache__/
 dist/
 build/
 *.egg
-.agents/
-.claude/
-.codebuddy/
-.joycode/
-.omc/
-.ruff_cache/
-.mypy_cache/
-.pytest_cache/
-
 
 # Virtual environments
 .venv/
@@ -28,9 +19,19 @@ ENV/
 *.swp
 *.swo
 
+# Claude / Agent 本地配置
+.claude/
+.superpowers/
+.codbuddy/
+.joycode/
+.zed/
+.ohmyagent/
+.codegraph/
+
 # Data
 data/
-docs/
+tests/_test_data/
+tests/_test_data/responses_session/
 
 # Debug logs
 logs/
@@ -42,17 +43,13 @@ Thumbs.db
 
 # .omc
 .omc/
-.ohmyagent/
-.claude/
-.opencode/
-.trae/
+
+# Local agent, planning, and platform artifacts (never publish)
 .codebuddy/
+.codegraph/
+.scratch/
+.workbuddy/
+.cnb.yml
 
-
-
-REVIEW.md
-PLAN.md
-
-
-# test
-tests/
+# One-off local test reproductions
+tests/_tmp_*.py

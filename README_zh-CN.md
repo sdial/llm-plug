@@ -6,7 +6,6 @@
 
 [English](./README.md) | **中文**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136+-009688.svg)](https://fastapi.tiangolo.com/)
 
@@ -16,16 +15,19 @@
 
 LLM-Plug 是一个 LLM API 格式转换代理服务。客户端用一种 API 格式发请求，代理自动转换后转发给不同格式的上游 LLM 提供商，再把响应转换回来——对客户端完全透明。
 
+**搜索关键词：** 自托管 LLM API 代理、OpenAI 兼容 API 网关、OpenAI Chat Completions 代理、OpenAI Responses API、Anthropic Messages API、LLM 负载均衡、故障转移、API 格式转换。
+
 ## 核心特性
 
 - **三种 API 格式互转** — OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 任意组合转换
 - **负载均衡与故障转移** — 平滑加权轮询（SWRR）+ 优先级分组 + 自动健康检查与冷却
 - **模型组 Fallback** — 两层降级：先按模型组顺序切换模型，再在模型内部切换渠道
+- **Channel Catalog** — 渠道与模型组的类型化、原子化变更，并精确同步运行态
 - **SOCKS5 代理** — 每个渠道可独立配置出站代理
 - **能力管理** — 按渠道/模型自动推断并过滤不支持的多模态内容（图片、音频、文件）
 - **Web 管理界面** — 可视化配置渠道、API Key、模型组、IP 白名单和业务设置
 - **请求记录与统计** — SQLite 持久化，按月分库，支持原始请求/响应回放
-- **安全** — 管理员会话鉴权（PBKDF2-SHA256）、CSRF 防护、IP 白名单、SSRF 防护
+- **安全** — 管理员会话鉴权（PBKDF2-SHA256）、CSRF 防护、IP 白名单
 - **零配置启动** — 无需 `.env`，默认监听 `0.0.0.0:55555`
 
 ## 技术栈
@@ -142,11 +144,16 @@ Docker 部署时挂载 `./data` 和 `./logs` 即可实现持久化，建议定�
 
 | 文档 | 说明 |
 |------|------|
-| [快速上手](docs/getting-started.md) | 安装、配置、使用指南 |
+| [快速上手](docs/getting-started.md) | 中文安装、配置、使用指南 |
+| [Getting Started](docs/getting-started.en.md) | English installation, configuration, and usage guide |
+| [文档导航](docs/README.md) | 中文文档导航 |
+| [Documentation Map](docs/README.en.md) | English documentation map |
 | [架构设计](docs/architecture.md) | 核心概念、请求流程、模块划分 |
 | [模块详解](docs/modules.md) | 各模块详细实现文档 |
 | [部署指南](docs/deployment.md) | 零配置启动、Docker、生产部署 |
 | [故障排查](docs/troubleshooting.md) | 常见问题与解决方案 |
+| [额度限制](docs/quota-limits.md) | 429 窗口额度与恢复行为 |
+| [ADR 索引](docs/adr/README.md) | 架构决策与实施状态 |
 
 ## 开发
 
@@ -160,7 +167,3 @@ uv run ruff check .
 # 格式化
 uv run ruff format .
 ```
-
-## License
-
-[MIT](./LICENSE)

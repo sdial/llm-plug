@@ -13,8 +13,17 @@ docs/
 *.db
 docker-deploy/
 .codebuddy/
+.codegraph/
+.pytest_cache/
+.ruff_cache/
+.superpowers/
 opencode.json*
 REVIEW*.md
 serve_viewer.py
 test_jsonb_debug.py
 kill_port.sh
+start.sh
+.cnb.yml
+.gitignore
+.python-version
+.env.example

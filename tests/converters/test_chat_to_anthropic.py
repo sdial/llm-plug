@@ -1,3 +1,5 @@
+import pytest
+
 from converters.to_anthropic import ToAnthropicConverter
 from models.api_types import APIType
 
@@ -75,12 +77,10 @@ class TestChatToAnthropic:
         }
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
-        assert assistant_msg["content"][0]["input"] == {
-            "_partial_args": "not valid json"
-        }
+        assert assistant_msg["content"][0]["input"] == {"_partial_args": "not valid json"}
 
-    def test_assistant_empty_string_content_is_preserved(self):
-        """OpenAI content: "" 应保留为空文本块，而不是被当成 None 丢弃。"""
+    def test_all_empty_assistant_conversation_is_rejected(self):
+        """清理后无有效对话的请求应本地明确拒绝。"""
         request = {
             "model": "gpt-4o",
             "messages": [
@@ -88,10 +88,129 @@ class TestChatToAnthropic:
             ],
         }
 
+        with pytest.raises(ValueError, match="all-empty conversation"):
+            self.converter.convert_request(request, APIType.OPENAI_CHAT)
+
+    @pytest.mark.parametrize("content", ["", [{"type": "text", "text": ""}]])
+    def test_empty_user_message_without_other_blocks_is_omitted(self, content):
+        """纯空 user turn 省略而不中断同一请求中的有效对话。"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "user", "content": "Keep this turn."},
+                {"role": "user", "content": content},
+            ],
+        }
+
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
 
-        assistant_msg = result["messages"][0]
-        assert assistant_msg["content"] == [{"type": "text", "text": ""}]
+        assert result["messages"] == [{"role": "user", "content": "Keep this turn."}]
+
+    def test_all_empty_responses_conversation_is_rejected(self):
+        """Responses → Anthropic 同样不能把全空输入交给上游。"""
+        request = {
+            "model": "gpt-4o",
+            "input": [{"role": "user", "content": ""}],
+        }
+
+        with pytest.raises(ValueError, match="all-empty conversation"):
+            self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
+
+    def test_empty_assistant_text_is_omitted_but_tool_call_is_preserved(self):
+        """OpenAI 工具调用常带 content:\"\"；Anthropic 只应收到 tool_use。"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "user", "content": "Check the status."},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_status",
+                            "type": "function",
+                            "function": {"name": "get_status", "arguments": "{}"},
+                        }
+                    ],
+                },
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+
+        assert result["messages"][1] == {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "call_status",
+                    "name": "get_status",
+                    "input": {},
+                }
+            ],
+        }
+
+    def test_empty_text_part_is_omitted_but_image_is_preserved(self):
+        """多模态消息中只移除空 text，不影响同一 turn 的非文本内容。"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}},
+                    ],
+                }
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+
+        assert result["messages"][0]["content"] == [{"type": "image", "source": {"type": "url", "url": "https://example.com/image.png"}}]
+
+    def test_empty_tool_result_omits_content_but_preserves_tool_use_id(self):
+        """空工具结果仍是一次结果回传，不能丢 tool_result 关联。"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "user", "content": "Check the status."},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_status",
+                            "type": "function",
+                            "function": {"name": "get_status", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_status", "content": ""},
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+
+        assert result["messages"][2] == {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "call_status"}],
+        }
+
+    def test_empty_system_and_developer_text_are_omitted(self):
+        """空 system/developer 文本不应变成上游的空 text 块。"""
+        request = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": ""},
+                {"role": "developer", "content": [{"type": "text", "text": ""}]},
+                {"role": "user", "content": "Hello"},
+            ],
+        }
+
+        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
+
+        assert "system" not in result
 
     def test_non_data_image_url_fallback_text(self):
         """HTTP URL 图片应直接转为 Anthropic URL source，避免同步下载阻塞"""
@@ -113,11 +232,7 @@ class TestChatToAnthropic:
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         user_msg = result["messages"][0]
         assert user_msg["role"] == "user"
-        image = [
-            c
-            for c in user_msg["content"]
-            if isinstance(c, dict) and c.get("type") == "image"
-        ][0]
+        image = [c for c in user_msg["content"] if isinstance(c, dict) and c.get("type") == "image"][0]
         assert image["source"] == {
             "type": "url",
             "url": "https://example.com/image.png",
@@ -194,10 +309,7 @@ class TestChatToAnthropic:
         assistant_msg = [m for m in result["messages"] if m["role"] == "assistant"][0]
         content = assistant_msg.get("content")
         if isinstance(content, list):
-            has_refusal = any(
-                c.get("type") == "text" and "[REFUSAL]" in c.get("text", "")
-                for c in content
-            )
+            has_refusal = any(c.get("type") == "text" and "[REFUSAL]" in c.get("text", "") for c in content)
             assert has_refusal
 
     def test_developer_role_to_system(self):
@@ -281,11 +393,7 @@ class TestChatToAnthropic:
         user_msg = result["messages"][0]
         content = user_msg.get("content")
         if isinstance(content, list):
-            assert any(
-                c.get("type") == "text"
-                and "Audio input not supported" in c.get("text", "")
-                for c in content
-            )
+            assert any(c.get("type") == "text" and "Audio input not supported" in c.get("text", "") for c in content)
 
     def test_file_data_uri_to_document(self):
         """file data URI 应转为 document"""
@@ -312,8 +420,7 @@ class TestChatToAnthropic:
         if isinstance(content, list):
             assert any(c.get("type") == "document" for c in content)
 
-    def test_file_without_data_uri_fallback(self):
-        """file 无 data URI 时应保留文本提示"""
+    def test_file_without_portable_data_is_rejected(self):
         request = {
             "model": "gpt-4o",
             "messages": [
@@ -325,15 +432,8 @@ class TestChatToAnthropic:
                 }
             ],
         }
-        result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
-        user_msg = result["messages"][0]
-        content = user_msg.get("content")
-        if isinstance(content, list):
-            assert any(
-                c.get("type") == "text"
-                and "File input not supported" in c.get("text", "")
-                for c in content
-            )
+        with pytest.raises(ValueError, match="portable"):
+            self.converter.convert_request(request, APIType.OPENAI_CHAT)
 
     def test_assistant_reasoning_content_emits_thinking_with_empty_signature(self):
         """Chat 请求转 Anthropic 上游默认允许空 signature thinking 块"""
@@ -452,13 +552,12 @@ class TestChatToAnthropic:
                 },
             },
         ]
-        events: list[tuple[str, dict]] = []
+        events = []
         for c in chunks:
-            out = self.converter._chat_stream_chunk_to_anthropic(c)
-            events.extend(out)
-        delta_events = [e for e in events if e[0] == "message_delta"]
+            events.extend(self.converter.convert_stream_chunk(c, APIType.OPENAI_CHAT.value))
+        delta_events = [e for e in events if e.get("type") == "message_delta"]
         assert delta_events, "expected message_delta"
-        md = delta_events[-1][1]
+        md = delta_events[-1]
         assert md["usage"] == {"output_tokens": 50}
 
     def test_chat_to_anthropic_stream_usage_null_starts_message(self):
@@ -476,12 +575,11 @@ class TestChatToAnthropic:
             "usage": None,
         }
 
-        events = self.converter.convert_stream_chunk(
-            chunk, APIType.OPENAI_CHAT.value
-        )
+        events = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_CHAT.value)
 
-        assert events["type"] == "message_start"
-        assert events["message"]["usage"]["input_tokens"] == 0
+        assert len(events) == 1
+        assert events[0]["type"] == "message_start"
+        assert events[0]["message"]["usage"]["input_tokens"] == 0
 
     def test_chat_to_anthropic_stream_content_filter_maps_to_refusal(self):
         """Chat 流式 content_filter finish_reason 应映射为 Anthropic refusal stop_reason。"""
@@ -498,18 +596,16 @@ class TestChatToAnthropic:
             },
             {
                 "id": "chatcmpl-a",
-                "choices": [
-                    {"index": 0, "delta": {}, "finish_reason": "content_filter"}
-                ],
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "content_filter"}],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5},
             },
         ]
-        events: list[tuple[str, dict]] = []
+        events = []
         for c in chunks:
-            events.extend(self.converter._chat_stream_chunk_to_anthropic(c))
-        delta_events = [e for e in events if e[0] == "message_delta"]
+            events.extend(self.converter.convert_stream_chunk(c, APIType.OPENAI_CHAT.value))
+        delta_events = [e for e in events if e.get("type") == "message_delta"]
         assert delta_events, "expected message_delta"
-        assert delta_events[-1][1]["delta"]["stop_reason"] == "refusal"
+        assert delta_events[-1]["delta"]["stop_reason"] == "refusal"
 
     def test_response_to_anthropic_nonstream_uses_input_tokens_details(self):
         """Response 响应的 input_tokens_details.cached_tokens 应转为 cache_read_input_tokens"""
@@ -574,13 +670,12 @@ class TestChatToAnthropic:
                 },
             },
         ]
-        all_events: list[tuple[str, dict]] = []
+        all_events = []
         for c in chunks:
-            out = self.converter._response_stream_chunk_to_anthropic(c)
-            all_events.extend(out)
-        delta_events = [e for e in all_events if e[0] == "message_delta"]
+            all_events.extend(self.converter.convert_stream_chunk(c, APIType.OPENAI_RESPONSE.value))
+        delta_events = [e for e in all_events if e.get("type") == "message_delta"]
         assert delta_events, "expected message_delta"
-        md = delta_events[-1][1]
+        md = delta_events[-1]
         assert md["usage"] == {"output_tokens": 50}
 
     def test_response_to_anthropic_stream_thinking_start_has_signature(self):
@@ -602,21 +697,18 @@ class TestChatToAnthropic:
             {"type": "response.reasoning_text.delta", "delta": "thinking"},
         ]
 
-        all_events: list[tuple[str, dict]] = []
+        all_events = []
         for c in chunks:
-            all_events.extend(self.converter._response_stream_chunk_to_anthropic(c))
+            all_events.extend(self.converter.convert_stream_chunk(c, APIType.OPENAI_RESPONSE.value))
 
         thinking_start = [
-            event
-            for event_type, event in all_events
-            if event_type == "content_block_start"
-            and event["content_block"]["type"] == "thinking"
+            event for event in all_events if event.get("type") == "content_block_start" and event["content_block"]["type"] == "thinking"
         ][0]
         assert thinking_start["content_block"]["signature"] == ""
 
 
 class TestReviewFixes:
-    """REVIEW.md 必须修复 / 建议修改 项的回归测试。"""
+    """边界条件的回归测试。"""
 
     def setup_method(self):
         self.converter = ToAnthropicConverter()
@@ -656,9 +748,7 @@ class TestReviewFixes:
         user_with_tool_result = [
             m
             for m in result["messages"]
-            if m["role"] == "user"
-            and isinstance(m["content"], list)
-            and any(c.get("type") == "tool_result" for c in m["content"])
+            if m["role"] == "user" and isinstance(m["content"], list) and any(c.get("type") == "tool_result" for c in m["content"])
         ]
         assert user_with_tool_result
         tr = user_with_tool_result[-1]["content"][0]
@@ -727,10 +817,7 @@ class TestReviewFixes:
         }
         result = self.converter.convert_response(response, APIType.OPENAI_CHAT)
         # refusal 应作为带标记的 text 块出现
-        assert any(
-            c.get("type") == "text" and "[REFUSED]" in c.get("text", "")
-            for c in result["content"]
-        )
+        assert any(c.get("type") == "text" and "[REFUSED]" in c.get("text", "") for c in result["content"])
         assert result["stop_reason"] == "refusal"
 
     def test_chat_response_refusal_skipped_when_text_present(self):

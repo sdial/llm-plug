@@ -4,235 +4,166 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="streamTest.title">流式响应测试工具</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
-        }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-        .header h1 {
-            font-size: 28px;
-            margin-bottom: 10px;
-        }
-        .header p {
-            opacity: 0.9;
-            font-size: 14px;
-        }
-        .header .lang-toggle {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: rgba(255,255,255,0.2);
-            border: 1px solid rgba(255,255,255,0.3);
-            color: white;
-            padding: 4px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 12px;
-            font-family: inherit;
-        }
-        .header .lang-toggle:hover {
-            background: rgba(255,255,255,0.3);
-        }
-        .content {
-            padding: 30px;
-        }
-        .config-section {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        .config-section h3 {
-            margin-bottom: 15px;
-            color: #333;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            color: #555;
-            font-weight: 500;
-        }
-        .form-group input, .form-group textarea {
-            width: 100%;
-            padding: 10px;
-            border: 2px solid #e0e0e0;
-            border-radius: 6px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-        .form-group input:focus, .form-group textarea:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        .form-group textarea {
-            resize: vertical;
-            min-height: 80px;
-            font-family: inherit;
-        }
-        .btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 12px 30px;
-            border-radius: 6px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-        .btn:active {
-            transform: translateY(0);
-        }
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        .output-section {
-            margin-top: 30px;
-        }
-        .output-box {
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 20px;
-            border-radius: 8px;
-            min-height: 200px;
-            max-height: 500px;
-            overflow-y: auto;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            line-height: 1.6;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-top: 20px;
-        }
-        .stat-card {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-        }
-        .stat-card .label {
-            color: #666;
-            font-size: 12px;
-            margin-bottom: 5px;
-        }
-        .stat-card .value {
-            color: #333;
-            font-size: 24px;
-            font-weight: 600;
-        }
-        .streaming {
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        .error {
-            color: #e74c3c;
-            background: #fee;
-            padding: 15px;
-            border-radius: 6px;
-            margin-top: 15px;
-        }
-        .success {
-            color: #27ae60;
-            background: #efe;
-            padding: 15px;
-            border-radius: 6px;
-            margin-top: 15px;
-        }
-    </style>
+    <script src="/admin/static/tailwind.min.js?v=__STATIC_ASSET_VERSION__"></script>
+    <script src="/admin/static/js/tailwind-config.js?v=__STATIC_ASSET_VERSION__"></script>
+    <link rel="stylesheet" href="/admin/static/css/admin.css?v=__STATIC_ASSET_VERSION__">
     <script src="/admin/static/js/i18n.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/i18n-zh.js?v=__STATIC_ASSET_VERSION__"></script>
     <script src="/admin/static/js/i18n-en.js?v=__STATIC_ASSET_VERSION__"></script>
+    <style>
+        /* Page-specific styles only */
+        .output-terminal {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border-radius: 8px;
+            padding: 16px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .output-terminal::-webkit-scrollbar {
+            width: 8px;
+        }
+        .output-terminal::-webkit-scrollbar-track {
+            background: #2d2d2d;
+            border-radius: 4px;
+        }
+        .output-terminal::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 4px;
+        }
+        .stat-card-mini {
+            background: #ffffff;
+            border: 1px solid #e8e6e3;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+        .stat-card-mini .label {
+            color: #6b6b6b;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 4px;
+        }
+        .stat-card-mini .value {
+            color: #1a1a1a;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #6b6b6b;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #9ca3af;
+        }
+        .status-dot.streaming {
+            background: #059669;
+            animation: pulse-dot 1.5s ease-in-out infinite;
+        }
+        .status-dot.done {
+            background: #2563eb;
+        }
+        .status-dot.error {
+            background: #dc2626;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(0.9); }
+        }
+    </style>
 </head>
-<body>
-    <div class="container">
-        <div class="header" style="position: relative;">
-            <button onclick="I18n.toggle()" class="lang-toggle" data-i18n="common.langLabel">中/EN</button>
-            <h1 data-i18n="streamTest.title">🚀 流式响应测试工具</h1>
-            <p data-i18n="streamTest.subtitle">测试 LLM API 代理的流式响应功能</p>
-        </div>
-        
-        <div class="content">
-            <div class="config-section">
-                <h3 data-i18n="streamTest.config">配置</h3>
-                <div class="form-group">
-                    <label data-i18n="streamTest.apiUrl">API 端点</label>
-                    <input type="text" id="apiUrl" value="http://localhost:55555/v1/chat/completions">
-                </div>
-                <div class="form-group">
-                    <label data-i18n="streamTest.apiKey">API Key</label>
-                    <input type="text" id="apiKey" value="test-key">
-                </div>
-                <div class="form-group">
-                    <label data-i18n="streamTest.modelName">模型名称</label>
-                    <input type="text" id="model" value="google/gemma-4-31b-it">
-                </div>
-                <div class="form-group">
-                    <label data-i18n="streamTest.prompt">提示词</label>
-                    <textarea id="prompt"></textarea>
-                </div>
-                <button class="btn" id="startBtn" onclick="startStream()" data-i18n="streamTest.start">开始流式请求</button>
-                <button class="btn" id="stopBtn" onclick="stopStream()" style="display:none; background: #e74c3c;" data-i18n="streamTest.stop">停止</button>
+<body class="min-h-screen">
+    <div class="max-w-4xl mx-auto px-4 py-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center gap-3">
+                <a href="/admin" class="text-ink-500 hover:text-ink-900 transition p-1 rounded-lg hover:bg-surface-100" data-i18n-aria="streamTest.backToAdmin" aria-label="返回管理页面">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                </a>
+                <h1 class="text-lg font-semibold text-ink-900" data-i18n="streamTest.title">流式响应测试工具</h1>
             </div>
+            <button type="button" onclick="I18n.toggle()" class="btn-secondary px-2.5 py-1.5 text-xs font-medium" id="langBtn" data-i18n="common.langLabel" data-i18n-aria="common.langLabel">
+                中/EN
+            </button>
+        </div>
 
-            <div class="output-section">
-                <h3 data-i18n="streamTest.realtimeOutput">实时输出</h3>
-                <div class="output-box" id="output"></div>
-                
-                <div class="stats">
-                    <div class="stat-card">
-                        <div class="label" data-i18n="streamTest.chunks">接收到的 Chunks</div>
-                        <div class="value" id="chunkCount">0</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label" data-i18n="streamTest.totalChars">总字符数</div>
-                        <div class="value" id="charCount">0</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label" data-i18n="streamTest.duration">耗时 (秒)</div>
-                        <div class="value" id="duration">0</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label" data-i18n="streamTest.status">状态</div>
-                        <div class="value" id="status">就绪</div>
-                    </div>
+        <!-- Config Form -->
+        <div class="card p-5 mb-5">
+            <h2 class="text-sm font-semibold text-ink-900 mb-4" data-i18n="streamTest.config">配置</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="apiUrl" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="streamTest.apiUrl">API 端点</label>
+                    <input type="text" id="apiUrl" value="http://localhost:55555/v1/chat/completions" class="w-full px-3 py-2.5 text-sm font-mono">
+                </div>
+                <div>
+                    <label for="apiKey" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="streamTest.apiKey">API Key</label>
+                    <input type="text" id="apiKey" value="test-key" class="w-full px-3 py-2.5 text-sm">
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="model" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="streamTest.modelName">模型名称</label>
+                    <input type="text" id="model" value="google/gemma-4-31b-it" class="w-full px-3 py-2.5 text-sm">
+                </div>
+                <div>
+                    <label for="prompt" class="block text-sm font-medium text-ink-800 mb-1.5" data-i18n="streamTest.prompt">提示词</label>
+                    <textarea id="prompt" rows="3" class="w-full px-3 py-2.5 text-sm resize-y" data-i18n-placeholder="streamTest.promptPlaceholder" placeholder="输入提示词..."></textarea>
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button type="button" class="btn-primary px-5 py-2.5 text-sm font-medium flex items-center gap-2" id="startBtn" onclick="startStream()">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span data-i18n="streamTest.start">开始流式请求</span>
+                </button>
+                <button type="button" class="btn-secondary px-5 py-2.5 text-sm font-medium hidden" id="stopBtn" onclick="stopStream()">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" ry="2"/></svg>
+                    <span data-i18n="streamTest.stop">停止</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Output -->
+        <div class="card p-5">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-sm font-semibold text-ink-900" data-i18n="streamTest.realtimeOutput">实时输出</h2>
+                <div class="status-indicator">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="statusText" class="text-xs text-ink-500">就绪</span>
+                </div>
+            </div>
+            <div class="output-terminal" id="output" aria-live="polite"></div>
+
+            <!-- Stats -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                <div class="stat-card-mini">
+                    <div class="label" data-i18n="streamTest.chunks">接收到的 Chunks</div>
+                    <div class="value" id="chunkCount">0</div>
+                </div>
+                <div class="stat-card-mini">
+                    <div class="label" data-i18n="streamTest.totalChars">总字符数</div>
+                    <div class="value" id="charCount">0</div>
+                </div>
+                <div class="stat-card-mini">
+                    <div class="label" data-i18n="streamTest.duration">耗时 (秒)</div>
+                    <div class="value" id="duration">0</div>
+                </div>
+                <div class="stat-card-mini">
+                    <div class="label" data-i18n="streamTest.speed">速率 (tok/s)</div>
+                    <div class="value" id="speed">0</div>
                 </div>
             </div>
         </div>
@@ -243,38 +174,73 @@
         let startTime = null;
         let chunkCount = 0;
         let charCount = 0;
+        let outputBytes = 0;
         let durationInterval = null;
+        let currentStatus = '';
+
+        const $ = (id) => document.getElementById(id);
 
         function initPrompt() {
-            document.getElementById('prompt').value = I18n.t('streamTest.promptDefault');
+            $('prompt').value = I18n.t('streamTest.promptDefault');
+            currentStatus = 'ready';
+            applyStatusText('ready');
+        }
+
+        function applyStatusText(status) {
+            const keys = {
+                ready: 'streamTest.statusReady',
+                streaming: 'streamTest.statusStreaming',
+                done: 'streamTest.statusDone',
+                error: 'streamTest.statusError',
+                '': 'streamTest.statusStopped'
+            };
+            $('statusText').textContent = I18n.t(keys[status] ?? 'streamTest.statusReady');
+        }
+
+        function updateStatus(status) {
+            currentStatus = status;
+            const dot = $('statusDot');
+            dot.className = 'status-dot ' + status;
+            applyStatusText(status);
         }
 
         async function startStream() {
-            const apiUrl = document.getElementById('apiUrl').value;
-            const apiKey = document.getElementById('apiKey').value;
-            const model = document.getElementById('model').value;
-            const prompt = document.getElementById('prompt').value;
-            
+            const apiUrl = $('apiUrl').value.trim();
+            const apiKey = $('apiKey').value.trim();
+            const model = $('model').value.trim();
+            const prompt = $('prompt').value.trim();
+
+            if (!prompt) {
+                alert(I18n.t('streamTest.inputPromptRequired'));
+                return;
+            }
+
             chunkCount = 0;
             charCount = 0;
-            document.getElementById('output').textContent = '';
-            document.getElementById('chunkCount').textContent = '0';
-            document.getElementById('charCount').textContent = '0';
-            document.getElementById('duration').textContent = '0';
-            document.getElementById('status').textContent = I18n.t('streamTest.statusStreaming');
-            document.getElementById('status').classList.add('streaming');
-            
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('stopBtn').style.display = 'inline-block';
-            
+            outputBytes = 0;
+            $('output').textContent = '';
+            $('chunkCount').textContent = '0';
+            $('charCount').textContent = '0';
+            $('duration').textContent = '0';
+            $('speed').textContent = '0';
+            updateStatus('streaming');
+
+            $('startBtn').classList.add('hidden');
+            $('stopBtn').classList.remove('hidden');
+
             abortController = new AbortController();
             startTime = Date.now();
-            
+
             durationInterval = setInterval(() => {
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                document.getElementById('duration').textContent = elapsed;
+                $('duration').textContent = elapsed;
+                if (parseFloat(elapsed) > 0) {
+                    // 估算 token 数：按 UTF-8 字节长度 / 2.4（中英文混合经验值）
+                    const estTokens = outputBytes / 2.4;
+                    $('speed').textContent = (estTokens / parseFloat(elapsed)).toFixed(1);
+                }
             }, 100);
-            
+
             try {
                 const response = await fetch(apiUrl, {
                     method: 'POST',
@@ -284,9 +250,7 @@
                     },
                     body: JSON.stringify({
                         model: model,
-                        messages: [
-                            { role: 'user', content: prompt }
-                        ],
+                        messages: [{ role: 'user', content: prompt }],
                         stream: true,
                         max_tokens: 500
                     }),
@@ -303,86 +267,55 @@
 
                 while (true) {
                     const { done, value } = await reader.read();
-                    
-                    if (done) {
-                        break;
-                    }
+                    if (done) break;
 
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n');
                     buffer = lines.pop();
 
                     for (const line of lines) {
-                        if (line.trim() === '') continue;
-                        if (line.trim() === 'data: [DONE]') {
-                            console.log('Stream completed');
-                            continue;
-                        }
-                        
+                        if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
                         if (line.startsWith('data: ')) {
                             try {
-                                const jsonStr = line.slice(6);
-                                const data = JSON.parse(jsonStr);
-                                
+                                const data = JSON.parse(line.slice(6));
                                 chunkCount++;
-                                document.getElementById('chunkCount').textContent = chunkCount;
-                                
+                                $('chunkCount').textContent = chunkCount;
                                 const content = data.choices?.[0]?.delta?.content;
                                 if (content) {
                                     charCount += content.length;
-                                    document.getElementById('charCount').textContent = charCount;
-                                    
-                                    const outputBox = document.getElementById('output');
+                                    outputBytes += new TextEncoder().encode(content).length;
+                                    $('charCount').textContent = charCount;
+                                    const outputBox = $('output');
                                     outputBox.textContent += content;
                                     outputBox.scrollTop = outputBox.scrollHeight;
                                 }
-                                
-                                console.log('Chunk received:', data);
                             } catch (e) {
-                                console.error('Failed to parse chunk:', line, e);
+                                console.error('Parse error:', e);
                             }
                         }
                     }
                 }
-
-                document.getElementById('status').textContent = I18n.t('streamTest.statusDone');
-                document.getElementById('status').classList.remove('streaming');
-                
+                updateStatus('done');
             } catch (error) {
                 if (error.name === 'AbortError') {
-                    document.getElementById('status').textContent = I18n.t('streamTest.statusStopped');
+                    updateStatus('');
                 } else {
-                    document.getElementById('status').textContent = I18n.t('streamTest.statusError');
-                    console.error('Stream error:', error);
-                    alert(I18n.t('streamTest.errorPrefix') + error.message);
+                    updateStatus('error');
+                    alert(I18n.t('streamTest.streamRequestFailedPrefix') + error.message);
                 }
-                document.getElementById('status').classList.remove('streaming');
             } finally {
                 clearInterval(durationInterval);
-                document.getElementById('startBtn').style.display = 'inline-block';
-                document.getElementById('stopBtn').style.display = 'none';
+                $('startBtn').classList.remove('hidden');
+                $('stopBtn').classList.add('hidden');
             }
         }
 
         function stopStream() {
-            if (abortController) {
-                abortController.abort();
-            }
+            if (abortController) abortController.abort();
         }
 
-        document.addEventListener('i18n:langchange', () => {
-            document.getElementById('status').textContent = I18n.t('streamTest.statusReady');
-        });
-
-        document.addEventListener('DOMContentLoaded', () => {
-            initPrompt();
-            document.getElementById('status').textContent = I18n.t('streamTest.statusReady');
-        });
-
-        if (document.readyState !== 'loading') {
-            initPrompt();
-            document.getElementById('status').textContent = I18n.t('streamTest.statusReady');
-        }
+        document.addEventListener('DOMContentLoaded', initPrompt);
+        document.addEventListener('i18n:langchange', () => applyStatusText(currentStatus));
     </script>
 </body>
 </html>

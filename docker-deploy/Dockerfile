@@ -7,7 +7,7 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock .
 
-RUN uv sync --no-dev --frozen
+RUN uv sync --no-dev --frozen --compile-bytecode
 
 # ===== Stage 2: Runtime =====
 FROM python:3.12-slim

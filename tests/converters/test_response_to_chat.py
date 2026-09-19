@@ -54,9 +54,7 @@ class TestResponseRequestToChat:
         }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
 
-        assert result["messages"] == [
-            {"role": "user", "content": "What is the weather?"}
-        ]
+        assert result["messages"] == [{"role": "user", "content": "What is the weather?"}]
 
     def test_function_call_input_to_assistant_tool_calls(self):
         """function_call 类型输入转换为 assistant message 的 tool_calls"""
@@ -171,9 +169,7 @@ class TestResponseRequestToChat:
         assert tool["type"] == "function"
         assert tool["function"]["name"] == "get_weather"
         assert tool["function"]["description"] == "Get weather info"
-        assert (
-            tool["function"]["parameters"]["properties"]["location"]["type"] == "string"
-        )
+        assert tool["function"]["parameters"]["properties"]["location"]["type"] == "string"
 
     def test_function_tool_strict_passthrough(self):
         """Responses function tool strict 字段应转换到 Chat function.strict"""
@@ -464,9 +460,7 @@ class TestResponseRequestToChat:
 
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
 
-        assert result["messages"][0]["content"] == [
-            {"type": "file", "file": {"file_id": "file_123", "filename": "a.pdf"}}
-        ]
+        assert result["messages"][0]["content"] == [{"type": "file", "file": {"file_id": "file_123", "filename": "a.pdf"}}]
 
     def test_input_audio_content_block_is_preserved(self):
         request = {
@@ -486,9 +480,7 @@ class TestResponseRequestToChat:
 
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
 
-        assert result["messages"][0]["content"] == [
-            {"type": "input_audio", "input_audio": {"data": "AAAA", "format": "wav"}}
-        ]
+        assert result["messages"][0]["content"] == [{"type": "input_audio", "input_audio": {"data": "AAAA", "format": "wav"}}]
 
     @pytest.mark.parametrize(
         "field,value",
@@ -733,9 +725,7 @@ class TestResponseRequestFieldContract:
             ],
         }
         result = self.converter.convert_request(request, APIType.OPENAI_RESPONSE)
-        assert result["messages"][0]["content"] == [
-            {"type": "refusal", "refusal": "I cannot help with that."}
-        ]
+        assert result["messages"][0]["content"] == [{"type": "refusal", "refusal": "I cannot help with that."}]
 
 
 class TestResponseResponseToChat:
@@ -758,9 +748,7 @@ class TestResponseResponseToChat:
                     "id": "msg_xyz",
                     "status": "completed",
                     "role": "assistant",
-                    "content": [
-                        {"type": "output_text", "text": "Hello, I am an AI assistant."}
-                    ],
+                    "content": [{"type": "output_text", "text": "Hello, I am an AI assistant."}],
                 }
             ],
             "usage": {"input_tokens": 10, "output_tokens": 20},
@@ -822,9 +810,7 @@ class TestResponseResponseToChat:
                     "type": "message",
                     "id": "msg_xyz",
                     "role": "assistant",
-                    "content": [
-                        {"type": "output_text", "text": "Let me check the weather."}
-                    ],
+                    "content": [{"type": "output_text", "text": "Let me check the weather."}],
                 },
                 {
                     "type": "function_call",
@@ -928,9 +914,7 @@ class TestResponseResponseToChat:
                     "type": "message",
                     "id": "msg_1",
                     "role": "assistant",
-                    "content": [
-                        {"type": "output_text", "text": "Use the smaller model."}
-                    ],
+                    "content": [{"type": "output_text", "text": "Use the smaller model."}],
                 },
             ],
             "usage": {"input_tokens": 10, "output_tokens": 20},
@@ -949,6 +933,14 @@ class TestResponseStreamToChat:
     def setup_method(self):
         self.converter = ToChatCompletionsConverter()
 
+    def _seed_response_created(self, msg_id: str, model: str) -> None:
+        """经公共协议前置 response.created 事件，建立等价的 msg_id / model 流状态
+        （两拍协议下不再直摸 _stream_state）。"""
+        self.converter.convert_stream_chunk(
+            {"type": "response.created", "response": {"id": msg_id.removeprefix("chatcmpl-"), "model": model}},
+            APIType.OPENAI_RESPONSE,
+        )
+
     def test_response_created_event(self):
         """response.created 事件转换为首块"""
         chunk = {
@@ -960,7 +952,7 @@ class TestResponseStreamToChat:
                 "model": "gpt-4o",
             },
         }
-        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
 
         assert result is not None
         assert result["id"] == "chatcmpl-resp_abc123"
@@ -972,23 +964,53 @@ class TestResponseStreamToChat:
 
     def test_output_text_delta_event(self):
         """response.output_text.delta 事件转换为文本增量"""
-        self.converter._reset_stream_state()
-        self.converter._stream_state["msg_id"] = "chatcmpl-test"
-        self.converter._stream_state["model"] = "gpt-4o"
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
 
         chunk = {
             "type": "response.output_text.delta",
             "delta": "Hello",
         }
-        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
 
         assert result["choices"][0]["delta"]["content"] == "Hello"
 
+    def test_reasoning_text_delta_maps_to_reasoning_content(self):
+        """M1: response.reasoning_text.delta 应转换为 reasoning_content 增量（与非流式一致）"""
+        self._seed_response_created("chatcmpl-test", "o3")
+
+        chunk = {
+            "type": "response.reasoning_text.delta",
+            "item_id": "rs_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Think first",
+        }
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
+
+        assert result is not None
+        assert result["id"] == "chatcmpl-test"
+        assert result["choices"][0]["delta"]["reasoning_content"] == "Think first"
+        assert "content" not in result["choices"][0]["delta"]
+
+    def test_reasoning_summary_text_delta_maps_to_reasoning_content(self):
+        """M1: response.reasoning_summary_text.delta 应转换为 reasoning_content"""
+        self._seed_response_created("chatcmpl-test", "o3")
+
+        chunk = {
+            "type": "response.reasoning_summary_text.delta",
+            "item_id": "rs_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Summary of thought",
+        }
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
+
+        assert result is not None
+        assert result["choices"][0]["delta"]["reasoning_content"] == "Summary of thought"
+
     def test_output_item_added_function_call(self):
         """response.output_item.added (function_call) 转换为 tool_calls 开始"""
-        self.converter._reset_stream_state()
-        self.converter._stream_state["msg_id"] = "chatcmpl-test"
-        self.converter._stream_state["model"] = "gpt-4o"
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
 
         chunk = {
             "type": "response.output_item.added",
@@ -1000,33 +1022,33 @@ class TestResponseStreamToChat:
                 "arguments": "",
             },
         }
-        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
 
         assert result["choices"][0]["delta"]["tool_calls"][0]["index"] == 0
         assert result["choices"][0]["delta"]["tool_calls"][0]["id"] == "call_xyz"
         assert result["choices"][0]["delta"]["tool_calls"][0]["type"] == "function"
-        assert (
-            result["choices"][0]["delta"]["tool_calls"][0]["function"]["name"]
-            == "search"
-        )
-        assert (
-            result["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"]
-            == ""
-        )
+        assert result["choices"][0]["delta"]["tool_calls"][0]["function"]["name"] == "search"
+        assert result["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"] == ""
 
     def test_function_call_arguments_delta(self):
         """response.function_call_arguments.delta 转换为参数增量"""
-        self.converter._reset_stream_state()
-        self.converter._stream_state["msg_id"] = "chatcmpl-test"
-        self.converter._stream_state["model"] = "gpt-4o"
-        self.converter._stream_state["output_index_to_tc_index"] = {0: 0}
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
+        # 公共协议前置 output_item.added，建立 output_index 0 → tc_idx 0 映射
+        self.converter.convert_stream_chunk(
+            {
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {"type": "function_call", "call_id": "call_xyz", "name": "search", "arguments": ""},
+            },
+            APIType.OPENAI_RESPONSE,
+        )
 
         chunk = {
             "type": "response.function_call_arguments.delta",
             "output_index": 0,
             "delta": '{"query"',
         }
-        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
 
         tc = result["choices"][0]["delta"]["tool_calls"][0]
         assert tc["index"] == 0
@@ -1034,9 +1056,7 @@ class TestResponseStreamToChat:
 
     def test_response_completed_stop(self):
         """response.completed (stop) 事件"""
-        self.converter._reset_stream_state()
-        self.converter._stream_state["msg_id"] = "chatcmpl-test"
-        self.converter._stream_state["model"] = "gpt-4o"
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
 
         chunk = {
             "type": "response.completed",
@@ -1046,16 +1066,14 @@ class TestResponseStreamToChat:
                 "output": [],
             },
         }
-        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
 
         assert result["choices"][0]["finish_reason"] == "stop"
         assert result["choices"][0]["delta"] == {}
 
     def test_response_completed_with_function_call(self):
         """response.completed 包含 function_call 时 finish_reason 为 tool_calls"""
-        self.converter._reset_stream_state()
-        self.converter._stream_state["msg_id"] = "chatcmpl-test"
-        self.converter._stream_state["model"] = "gpt-4o"
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
 
         chunk = {
             "type": "response.completed",
@@ -1072,15 +1090,13 @@ class TestResponseStreamToChat:
                 ],
             },
         }
-        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
 
         assert result["choices"][0]["finish_reason"] == "tool_calls"
 
     def test_response_completed_incomplete(self):
         """response.completed (incomplete) 事件 → finish_reason 为 length"""
-        self.converter._reset_stream_state()
-        self.converter._stream_state["msg_id"] = "chatcmpl-test"
-        self.converter._stream_state["model"] = "gpt-4o"
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
 
         chunk = {
             "type": "response.completed",
@@ -1089,12 +1105,13 @@ class TestResponseStreamToChat:
                 "status": "incomplete",
             },
         }
-        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
 
         assert result["choices"][0]["finish_reason"] == "length"
 
     def test_response_completed_emits_usage_chunk_when_include_usage(self):
-        """include_usage=True 时 response.completed 应额外发 Chat usage chunk。"""
+        """include_usage=True 时 response.completed 同拍产出 finish_reason chunk + usage
+        chunk（与 OpenAI 官方流式结尾一致）。"""
         self.converter.set_stream_include_usage(True)
         self.converter.convert_stream_chunk(
             {
@@ -1121,24 +1138,108 @@ class TestResponseStreamToChat:
             APIType.OPENAI_RESPONSE,
         )
 
-        assert result["choices"] == []
-        assert result["usage"]["prompt_tokens"] == 11
-        assert result["usage"]["completion_tokens"] == 7
-        assert result["usage"]["total_tokens"] == 18
+        # 首事件仍是 finish_reason chunk，不能丢失
+        assert len(result) == 2
+        assert result[0]["choices"] == [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+        assert "usage" not in result[0]
+
+        # usage chunk 同拍第二事件发出
+        assert result[1]["choices"] == []
+        assert result[1]["usage"]["prompt_tokens"] == 11
+        assert result[1]["usage"]["completion_tokens"] == 7
+        assert result[1]["usage"]["total_tokens"] == 18
+
+    def test_response_completed_include_usage_keeps_tool_calls_finish_reason(self):
+        """include_usage=True 时 finish_reason=tool_calls 仍应保留在首个 chunk。"""
+        self.converter.set_stream_include_usage(True)
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
+
+        result = self.converter.convert_stream_chunk(
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_abc123",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "call_id": "call_xyz",
+                            "name": "search",
+                            "arguments": "{}",
+                        },
+                    ],
+                    "usage": {
+                        "input_tokens": 11,
+                        "output_tokens": 7,
+                        "total_tokens": 18,
+                    },
+                },
+            },
+            APIType.OPENAI_RESPONSE,
+        )
+
+        assert len(result) == 2
+        assert result[0]["choices"][0]["finish_reason"] == "tool_calls"
+        assert result[1]["choices"] == []
+
+    def test_response_completed_include_usage_keeps_length_finish_reason(self):
+        """include_usage=True 时 finish_reason=length 仍应保留在首个 chunk。"""
+        self.converter.set_stream_include_usage(True)
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
+
+        result = self.converter.convert_stream_chunk(
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_abc123",
+                    "status": "incomplete",
+                    "usage": {
+                        "input_tokens": 11,
+                        "output_tokens": 7,
+                        "total_tokens": 18,
+                    },
+                },
+            },
+            APIType.OPENAI_RESPONSE,
+        )
+
+        assert len(result) == 2
+        assert result[0]["choices"][0]["finish_reason"] == "length"
+        assert result[1]["choices"] == []
+
+    def test_response_completed_without_include_usage_no_extra_events(self):
+        """include_usage=False（默认）时 response.completed 单事件拍，无 usage chunk。"""
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
+
+        result = self.converter.convert_stream_chunk(
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_abc123",
+                    "status": "completed",
+                    "output": [],
+                    "usage": {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+                },
+            },
+            APIType.OPENAI_RESPONSE,
+        )
+
+        assert len(result) == 1
+        assert result[0]["choices"][0]["finish_reason"] == "stop"
+        assert "usage" not in result[0]
 
     def test_unknown_content_type_gracefully_degrades(self):
         """未知 Responses content 类型应降级为文本，而非抛异常。"""
-        result = self.converter._response_content_to_chat_content(
-            [{"type": "mystery", "text": "fallback"}]
+        result = self.converter.convert_request(
+            {"model": "gpt-4o", "input": [{"role": "user", "content": [{"type": "mystery", "text": "fallback"}]}]},
+            source_type="openai-response",
         )
 
-        assert result == "fallback"
+        assert result["messages"][0]["content"] == "fallback"
 
     def test_multiple_function_calls_output_index(self):
         """多个 function_call 的 output_index 正确映射到 tool_calls index"""
-        self.converter._reset_stream_state()
-        self.converter._stream_state["msg_id"] = "chatcmpl-test"
-        self.converter._stream_state["model"] = "gpt-4o"
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
 
         # 第一个 function_call
         chunk1 = {
@@ -1151,7 +1252,7 @@ class TestResponseStreamToChat:
                 "arguments": "",
             },
         }
-        result1 = self.converter.convert_stream_chunk(chunk1, APIType.OPENAI_RESPONSE)
+        result1 = self.converter.convert_stream_chunk(chunk1, APIType.OPENAI_RESPONSE)[0]
         assert result1["choices"][0]["delta"]["tool_calls"][0]["index"] == 0
 
         # 第二个 function_call
@@ -1165,7 +1266,7 @@ class TestResponseStreamToChat:
                 "arguments": "",
             },
         }
-        result2 = self.converter.convert_stream_chunk(chunk2, APIType.OPENAI_RESPONSE)
+        result2 = self.converter.convert_stream_chunk(chunk2, APIType.OPENAI_RESPONSE)[0]
         assert result2["choices"][0]["delta"]["tool_calls"][0]["index"] == 1
 
         # 第二个 function_call 的参数 delta
@@ -1174,5 +1275,64 @@ class TestResponseStreamToChat:
             "output_index": 1,
             "delta": '{"x": 1',
         }
-        result3 = self.converter.convert_stream_chunk(chunk3, APIType.OPENAI_RESPONSE)
+        result3 = self.converter.convert_stream_chunk(chunk3, APIType.OPENAI_RESPONSE)[0]
         assert result3["choices"][0]["delta"]["tool_calls"][0]["index"] == 1
+
+    def test_arguments_delta_without_output_item_added_falls_back_to_last_tc(self):
+        """缺少前置 output_item.added 的参数 delta，应回退到最近分配的 tool_call index"""
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
+        # 公共协议分配 2 个 tool_call（tc_idx 0、1），随后喂 output_index 漂移的 delta
+        for call_id in ("call_a", "call_b"):
+            self.converter.convert_stream_chunk(
+                {
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": {"type": "function_call", "call_id": call_id, "name": "f", "arguments": ""},
+                },
+                APIType.OPENAI_RESPONSE,
+            )
+
+        chunk = {
+            "type": "response.function_call_arguments.delta",
+            "output_index": 5,
+            "delta": '{"query"',
+        }
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
+
+        tc = result["choices"][0]["delta"]["tool_calls"][0]
+        assert tc["index"] == 1  # 回退到最近分配的 tc_idx，而非 0
+        assert tc["function"]["arguments"] == '{"query"'
+
+    def test_arguments_delta_uses_item_id_when_output_index_drifts(self):
+        """output_index 漂移时，item_id 应精确回退到对应 tool_call"""
+        self._seed_response_created("chatcmpl-test", "gpt-4o")
+
+        for item_id, call_id, name, output_index in [
+            ("fc_alpha", "call_alpha", "func_a", 0),
+            ("fc_beta", "call_beta", "func_b", 1),
+        ]:
+            self.converter.convert_stream_chunk(
+                {
+                    "type": "response.output_item.added",
+                    "output_index": output_index,
+                    "item_id": item_id,
+                    "item": {
+                        "type": "function_call",
+                        "call_id": call_id,
+                        "name": name,
+                        "arguments": "",
+                    },
+                },
+                APIType.OPENAI_RESPONSE,
+            )
+
+        chunk = {
+            "type": "response.function_call_arguments.delta",
+            "output_index": 9,  # 漂移的 output_index
+            "item_id": "fc_alpha",
+            "delta": '{"x": 1',
+        }
+        result = self.converter.convert_stream_chunk(chunk, APIType.OPENAI_RESPONSE)[0]
+
+        tc = result["choices"][0]["delta"]["tool_calls"][0]
+        assert tc["index"] == 0

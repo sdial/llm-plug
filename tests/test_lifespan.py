@@ -7,6 +7,7 @@ import pytest
 
 import config
 import storage
+from channel_catalog import CatalogSnapshot, catalog
 
 
 @pytest.fixture(autouse=True)
@@ -22,8 +23,9 @@ def setup_data(tmp_path, monkeypatch):
             {
                 "id": "ch_1",
                 "name": "Test",
-                "api_type": "openai-chat-completions",
-                "base_url": "https://api.example.com",
+                "endpoints": [
+                    {"api_type": "openai-chat-completions", "base_url": "https://api.example.com"},
+                ],
                 "api_key": "key",
                 "models": ["gpt-4o", "gpt-4"],
                 "enabled": True,
@@ -35,8 +37,9 @@ def setup_data(tmp_path, monkeypatch):
             {
                 "id": "ch_2",
                 "name": "Test2",
-                "api_type": "anthropic",
-                "base_url": "https://api.anthropic.com",
+                "endpoints": [
+                    {"api_type": "anthropic", "base_url": "https://api.anthropic.com"},
+                ],
                 "api_key": "key",
                 "models": ["claude-sonnet-4-20250514"],
                 "enabled": True,
@@ -47,9 +50,7 @@ def setup_data(tmp_path, monkeypatch):
             },
         ]
     }
-    api_keys_data = {
-        "api_keys": [{"id": "key_1", "name": "test-key", "key": "sk-test"}]
-    }
+    api_keys_data = {"api_keys": [{"id": "key_1", "name": "test-key", "key": "sk-test"}]}
     with open(channels_file, "w") as f:
         json.dump(channels_data, f)
     with open(api_keys_file, "w") as f:
@@ -58,36 +59,32 @@ def setup_data(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", str(data_dir))
     monkeypatch.setattr(config, "CHANNELS_FILE", str(channels_file))
     monkeypatch.setattr(config, "API_KEYS_FILE", str(api_keys_file))
-    storage._cache = None
-    storage._cache_ts = 0
+    catalog.reset()
     storage._keys_cache = None
     storage._keys_cache_ts = 0
-    storage._channels_lock = None
     storage._keys_lock = None
 
     yield
 
-    storage._cache = None
-    storage._cache_ts = 0
+    catalog.reset()
     storage._keys_cache = None
     storage._keys_cache_ts = 0
-    storage._channels_lock = None
     storage._keys_lock = None
 
 
 class TestLifespanPreWarming:
     def test_lifespan_pre_warms_cache(self):
-        """lifespan should call load_data() and load_api_keys() before yielding."""
+        """lifespan should warm the catalog and Access Key cache before yielding."""
         import asyncio
 
         from main import app
 
         with (
-            patch("main.load_data") as mock_load_data,
+            patch("main.catalog.snapshot") as mock_snapshot,
             patch("main.load_api_keys") as mock_load_api_keys,
             patch("main.close_all_clients") as mock_close,
         ):
-            mock_load_data.return_value = {"channels": []}
+            mock_snapshot.return_value = CatalogSnapshot((), ())
             mock_load_api_keys.return_value = {"api_keys": []}
 
             async def run_lifespan():
@@ -98,7 +95,7 @@ class TestLifespanPreWarming:
 
             mock_close.assert_called_once()
 
-            mock_load_data.assert_called_once()
+            mock_snapshot.assert_called_once()
             mock_load_api_keys.assert_called_once()
 
     def test_lifespan_logs_startup_info(self):

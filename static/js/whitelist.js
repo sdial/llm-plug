@@ -1,5 +1,7 @@
 (() => {
 
+let currentClientIp = '';
+
 async function loadWhitelist() {
   try {
     if (!document.getElementById('whitelist_content')) return;
@@ -14,12 +16,13 @@ async function loadWhitelist() {
       return;
     }
     const data = await res.json();
+    currentClientIp = data.client_ip || '';
     document.getElementById('whitelist_content').value = data.content || '';
     const countEl = document.getElementById('whitelist_rule_count');
     countEl.textContent = data.rule_count > 0 ? I18n.t('whitelist.ruleCount', { count: data.rule_count }) : I18n.t('whitelist.noRules');
     const ipEl = document.getElementById('whitelist_client_ip');
-    if (ipEl && data.client_ip) {
-      ipEl.textContent = I18n.t('whitelist.currentIp', { ip: data.client_ip });
+    if (ipEl && currentClientIp) {
+      ipEl.textContent = I18n.t('whitelist.currentIp', { ip: currentClientIp });
     }
   } catch (e) {
     console.error('loadWhitelist error', e);
@@ -50,11 +53,25 @@ async function saveWhitelist() {
     }
   }
 
-    // Check if might lock self out
-  const ipEl = document.getElementById('whitelist_client_ip');
-  const myIp = ipEl ? ipEl.textContent.replace(/^.*?(\d[\d.:]+)\s*$/, '$1').trim() : '';
-  if (myIp && content.trim() && !content.trim().split('\n').every(l => l.trim().startsWith('#') || !l.trim())) {
-    const confirmed = confirm(I18n.t('whitelist.lockoutWarning', { ip: myIp }));
+  // 保存前由后端权威判定：新规则下当前客户端 IP 是否仍能访问管理界面。
+  // 若会被锁定，用结构化 IP 弹出确认（不再从前端已渲染文案里正则抠 IP）。
+  let adminLockout = false;
+  try {
+    const prevRes = await fetch('/admin/whitelist/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    const prevData = await prevRes.json();
+    if (prevRes.ok && prevData && typeof prevData.admin_lockout === 'boolean') {
+      adminLockout = prevData.admin_lockout;
+    }
+  } catch (e) {
+    // 预览失败时保守处理：仅当能拿到当前 IP 且存在有效规则时才提示
+    adminLockout = !!(currentClientIp && content.trim() && !content.trim().split('\n').every(l => l.trim().startsWith('#') || !l.trim()));
+  }
+  if (adminLockout) {
+    const confirmed = confirm(I18n.t('whitelist.lockoutWarning', { ip: currentClientIp }));
     if (!confirmed) return;
   }
 
@@ -91,5 +108,13 @@ async function saveWhitelist() {
 Object.assign(window, {
     loadWhitelist,
     saveWhitelist,
+});
+
+// Tab 生命周期：片段 settle 后加载白名单内容。
+window.TabRuntime.register('whitelist', {
+    init() {
+        if (!document.getElementById('whitelist_content') && !document.getElementById('whitelist_save_btn')) return;
+        loadWhitelist();
+    },
 });
 })();

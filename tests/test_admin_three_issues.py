@@ -18,8 +18,6 @@ import storage
 from main import app
 from routers import admin
 
-pytestmark = pytest.mark.asyncio
-
 
 @pytest_asyncio.fixture
 async def admin_files(tmp_path, monkeypatch):
@@ -49,12 +47,13 @@ async def admin_files(tmp_path, monkeypatch):
 
     admin._login_attempts.clear()
 
-    import main
+    import middleware.whitelist_middleware as wmod
+    import whitelist as _whitelist_mod
 
     monkeypatch.setattr(
-        main,
+        wmod,
         "_whitelist_cache",
-        main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
+        _whitelist_mod.WhitelistCache(str(data_dir / "whitelist.csv")),
     )
 
     yield
@@ -163,36 +162,21 @@ class TestAvgLagCountBug:
             rec["fail_count"] += row["fail_count"] or 0
             rec["total_input_tokens"] += row["input_tokens"] or 0
             rec["total_output_tokens"] += row["output_tokens"] or 0
-            rec["total_cache_read_input_tokens"] += (
-                row.get("cache_read_input_tokens") or 0
-            )
-            rec["total_cache_creation_input_tokens"] += (
-                row.get("cache_creation_input_tokens") or 0
-            )
+            rec["total_cache_read_input_tokens"] += row.get("cache_read_input_tokens") or 0
+            rec["total_cache_creation_input_tokens"] += row.get("cache_creation_input_tokens") or 0
             if row.get("avg_latency_ms") is not None:
-                rec["total_latency_ms"] += row["avg_latency_ms"] * (
-                    row["request_count"] or 1
-                )
+                rec["total_latency_ms"] += row["avg_latency_ms"] * (row["request_count"] or 1)
                 rec["latency_count"] += row["request_count"] or 1
             if row.get("avg_lag_ms") is not None:
                 rec["total_lag_ms"] += row["avg_lag_ms"] * (row["request_count"] or 1)
                 rec["lag_count"] += row["request_count"] or 1
 
         # 用 lag_count 计算平均值
-        avg_lag = (
-            round(rec["total_lag_ms"] / rec["lag_count"]) if rec["lag_count"] else 0
-        )
-        assert avg_lag == 100, (
-            f"avg_lag should be 100 (total_lag=300 / lag_count=3), got {avg_lag}. "
-            "lag_count must be separate from latency_count"
-        )
+        avg_lag = round(rec["total_lag_ms"] / rec["lag_count"]) if rec["lag_count"] else 0
+        assert avg_lag == 100, f"avg_lag should be 100 (total_lag=300 / lag_count=3), got {avg_lag}. lag_count must be separate from latency_count"
 
         # 验证 latency 不受影响
-        avg_latency = (
-            round(rec["total_latency_ms"] / rec["latency_count"])
-            if rec["latency_count"]
-            else 0
-        )
+        avg_latency = round(rec["total_latency_ms"] / rec["latency_count"]) if rec["latency_count"] else 0
         assert avg_latency == 100, f"avg_latency should be 100, got {avg_latency}"
 
 
@@ -202,11 +186,10 @@ class TestAvgLagCountBug:
 class TestMutatorNoHTTPException:
     """mutator 不应在锁内抛 HTTPException，应返回标记值由外层抛异常。"""
 
+    @pytest.mark.asyncio
     async def test_update_channel_not_found_returns_404(self, admin_files):
         """更新不存在的渠道应返回 404，但不能在 mutator 内抛异常。"""
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
             await client.post("/admin/auth/login", json={"password": "pw"})
             csrf = (await client.get("/admin/auth/csrf")).json()["csrf_token"]
@@ -218,11 +201,10 @@ class TestMutatorNoHTTPException:
             )
             assert resp.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_delete_channel_not_found_returns_404(self, admin_files):
         """删除不存在的渠道应返回 404，但不能在 mutator 内抛异常。"""
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
             await client.post("/admin/auth/login", json={"password": "pw"})
             csrf = (await client.get("/admin/auth/csrf")).json()["csrf_token"]
@@ -233,11 +215,10 @@ class TestMutatorNoHTTPException:
             )
             assert resp.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_toggle_channel_not_found_returns_404(self, admin_files):
         """切换不存在的渠道应返回 404，但不能在 mutator 内抛异常。"""
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/admin/auth/setup", json={"password": "pw"})
             await client.post("/admin/auth/login", json={"password": "pw"})
             csrf = (await client.get("/admin/auth/csrf")).json()["csrf_token"]
@@ -248,29 +229,13 @@ class TestMutatorNoHTTPException:
             )
             assert resp.status_code == 404
 
-    def test_mutator_functions_do_not_raise_http_exception(self):
-        """验证 _mutate 内部不含 raise HTTPException。
-
-        mutator 应返回 None 标记未找到，由外层 atomic_update_data 返回后抛异常。
-        """
-        import re
-
+    def test_channel_routes_delegate_mutation_to_catalog(self):
         from routers.admin import delete_channel, toggle_channel, update_channel
 
         for func in [update_channel, delete_channel, toggle_channel]:
             source = inspect.getsource(func)
-            # 提取 _mutate 函数体（从 def _mutate 到其结束）
-            match = re.search(
-                r"def _mutate\([^)]*\):(.+?)(?=\n    result =|\n    await )",
-                source,
-                re.DOTALL,
-            )
-            assert match, f"Could not find _mutate in {func.__name__}"
-            mutator_body = match.group(1)
-            assert "raise HTTPException" not in mutator_body, (
-                f"{func.__name__}: _mutate should not raise HTTPException; "
-                "return None and let caller raise after lock release"
-            )
+            assert "catalog." in source
+            assert "atomic_update_data" not in source
 
 
 # ─────────────── Issue 3: _login_attempts 内存泄漏 ───────────────
@@ -321,9 +286,5 @@ class TestLoginRateLimitMemoryLeak:
 
     def test_cleanup_function_exists(self):
         """验证 _cleanup_expired_attempts 函数存在且可调用。"""
-        assert hasattr(admin, "_cleanup_expired_attempts"), (
-            "_cleanup_expired_attempts function should exist"
-        )
-        assert callable(admin._cleanup_expired_attempts), (
-            "_cleanup_expired_attempts should be callable"
-        )
+        assert hasattr(admin, "_cleanup_expired_attempts"), "_cleanup_expired_attempts function should exist"
+        assert callable(admin._cleanup_expired_attempts), "_cleanup_expired_attempts should be callable"

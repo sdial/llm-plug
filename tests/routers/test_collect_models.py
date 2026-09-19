@@ -38,8 +38,9 @@ class TestCollectModels:
                 {
                     "id": "ch_on",
                     "name": "On",
-                    "api_type": "openai-chat-completions",
-                    "base_url": "http://a.com",
+                    "endpoints": [
+                        {"api_type": "openai-chat-completions", "base_url": "http://a.com"},
+                    ],
                     "api_key": "k",
                     "models": ["gpt-4"],
                     "enabled": True,
@@ -49,8 +50,9 @@ class TestCollectModels:
                 {
                     "id": "ch_off",
                     "name": "Off",
-                    "api_type": "anthropic",
-                    "base_url": "http://b.com",
+                    "endpoints": [
+                        {"api_type": "anthropic", "base_url": "http://b.com"},
+                    ],
                     "api_key": "k",
                     "models": ["claude-3"],
                     "enabled": False,
@@ -76,8 +78,9 @@ class TestCollectModels:
                 {
                     "id": "ch_a",
                     "name": "A",
-                    "api_type": "openai-chat-completions",
-                    "base_url": "http://a.com",
+                    "endpoints": [
+                        {"api_type": "openai-chat-completions", "base_url": "http://a.com"},
+                    ],
                     "api_key": "k",
                     "models": ["gpt-4", "gpt-3.5"],
                     "enabled": True,
@@ -87,8 +90,9 @@ class TestCollectModels:
                 {
                     "id": "ch_b",
                     "name": "B",
-                    "api_type": "openai-chat-completions",
-                    "base_url": "http://b.com",
+                    "endpoints": [
+                        {"api_type": "openai-chat-completions", "base_url": "http://b.com"},
+                    ],
                     "api_key": "k",
                     "models": ["gpt-4", "gpt-4o"],
                     "enabled": True,
@@ -115,8 +119,9 @@ class TestCollectModels:
                 {
                     "id": "ch_first",
                     "name": "First",
-                    "api_type": "openai-chat-completions",
-                    "base_url": "http://a.com",
+                    "endpoints": [
+                        {"api_type": "openai-chat-completions", "base_url": "http://a.com"},
+                    ],
                     "api_key": "k",
                     "models": ["shared-model"],
                     "enabled": True,
@@ -126,8 +131,9 @@ class TestCollectModels:
                 {
                     "id": "ch_second",
                     "name": "Second",
-                    "api_type": "anthropic",
-                    "base_url": "http://b.com",
+                    "endpoints": [
+                        {"api_type": "anthropic", "base_url": "http://b.com"},
+                    ],
                     "api_key": "k",
                     "models": ["shared-model"],
                     "enabled": True,
@@ -152,8 +158,9 @@ class TestCollectModels:
                 {
                     "id": "ch_x",
                     "name": "X",
-                    "api_type": "anthropic",
-                    "base_url": "http://x.com",
+                    "endpoints": [
+                        {"api_type": "anthropic", "base_url": "http://x.com"},
+                    ],
                     "api_key": "k",
                     "models": ["claude-3"],
                     "enabled": True,
@@ -177,8 +184,9 @@ class TestCollectModels:
                 {
                     "id": "ch_multi",
                     "name": "Multi",
-                    "api_type": "openai-chat-completions",
-                    "base_url": "http://a.com",
+                    "endpoints": [
+                        {"api_type": "openai-chat-completions", "base_url": "http://a.com"},
+                    ],
                     "api_key": "k",
                     "models": ["m1", "m2", "m3", "m4"],
                     "enabled": True,
@@ -204,8 +212,9 @@ class TestCollectModels:
                 {
                     "id": "ch_empty",
                     "name": "Empty",
-                    "api_type": "openai-chat-completions",
-                    "base_url": "http://a.com",
+                    "endpoints": [
+                        {"api_type": "openai-chat-completions", "base_url": "http://a.com"},
+                    ],
                     "api_key": "k",
                     "models": [],
                     "enabled": True,
@@ -220,3 +229,37 @@ class TestCollectModels:
 
         models = await _collect_models()
         assert models == []
+
+    @pytest.mark.asyncio
+    async def test_enabled_model_groups_are_included_and_deduplicated(self, tmp_path, monkeypatch):
+        """启用的模型组作为可请求 ID 展示；禁用组隐藏，同名组不重复。"""
+        data = {
+            "channels": [
+                {
+                    "id": "ch_a",
+                    "name": "A",
+                    "endpoints": [
+                        {"api_type": "openai-chat-completions", "base_url": "http://a.com"},
+                    ],
+                    "api_key": "k",
+                    "models": ["gpt-4", "shared"],
+                    "enabled": True,
+                    "weight": 1,
+                    "priority": 1,
+                },
+            ],
+            "model_groups": [
+                {"id": "grp_enabled", "name": "fallback", "items": [{"model": "gpt-4"}], "enabled": True},
+                {"id": "grp_collision", "name": "shared", "items": [{"model": "gpt-4"}], "enabled": True},
+                {"id": "grp_disabled", "name": "hidden", "items": [{"model": "gpt-4"}], "enabled": False},
+            ],
+        }
+        channels_file = tmp_path / "channels.json"
+        channels_file.write_text(json.dumps(data))
+        monkeypatch.setattr("config.CHANNELS_FILE", str(channels_file))
+
+        models = await _collect_models()
+
+        assert [model["id"] for model in models] == ["gpt-4", "shared", "fallback"]
+        assert next(model for model in models if model["id"] == "shared")["is_group"] is True
+        assert next(model for model in models if model["id"] == "fallback")["api_type"] is None

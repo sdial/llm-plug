@@ -6,7 +6,6 @@
 
 **English** | [中文](./README_zh-CN.md)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136+-009688.svg)](https://fastapi.tiangolo.com/)
 
@@ -16,16 +15,19 @@
 
 LLM-Plug is an LLM API format conversion proxy. Clients send requests in one API format, and the proxy transparently converts and forwards them to upstream LLM providers using a different format, then converts the response back — completely invisible to the client.
 
+**Search keywords:** self-hosted LLM API proxy, OpenAI-compatible API gateway, OpenAI Chat Completions proxy, OpenAI Responses API proxy, Anthropic Messages API proxy, LLM load balancing, failover, and API format conversion.
+
 ## Key Features
 
 - **Tri-format Conversion** — Convert between OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages in any combination
 - **Load Balancing & Failover** — Smooth Weighted Round-Robin (SWRR) + priority groups + automatic health checks with cooldown
 - **Model Group Fallback** — Two-tier degradation: switch models within a group first, then switch channels within a model
+- **Channel Catalog** — Typed, atomic Channel and Model Group changes with precise runtime-state synchronization
 - **SOCKS5 Proxy** — Per-channel outbound proxy configuration
 - **Capability Management** — Auto-infer and filter unsupported multimodal content (images, audio, files) per channel/model
 - **Web Admin UI** — Visual management for channels, API keys, model groups, IP whitelist, and settings
 - **Request Logging & Stats** — SQLite persistence with monthly database rotation and raw request/response replay
-- **Security** — Admin session auth (PBKDF2-SHA256), CSRF protection, IP whitelist, SSRF prevention
+- **Security** — Admin session auth (PBKDF2-SHA256), CSRF protection, IP whitelist
 - **Zero-config Startup** — No `.env` required, listens on `0.0.0.0:55555` by default
 
 ## Tech Stack
@@ -142,11 +144,16 @@ For Docker deployments, mount `./data` and `./logs` for persistence. Regular bac
 
 | Document | Description |
 |----------|-------------|
-| [Getting Started](docs/getting-started.md) | Installation, configuration, and usage guide |
+| [Getting Started](docs/getting-started.en.md) | English installation, configuration, and usage guide |
+| [中文快速上手](docs/getting-started.md) | Chinese installation, configuration, and usage guide |
+| [Documentation Map](docs/README.en.md) | English documentation map |
+| [文档导航](docs/README.md) | Chinese documentation map |
 | [Architecture](docs/architecture.md) | Core concepts, request flow, module layout |
 | [Module Reference](docs/modules.md) | Detailed implementation docs per module |
 | [Deployment Guide](docs/deployment.md) | Zero-config startup, Docker, production deployment |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
+| [Quota Limits](docs/quota-limits.md) | 429 window limits and recovery behavior |
+| [ADR Index](docs/adr/README.md) | Architectural decisions and their implementation status |
 
 ## Development
 
@@ -160,7 +167,3 @@ uv run ruff check .
 # Format
 uv run ruff format .
 ```
-
-## License
-
-[MIT](./LICENSE)

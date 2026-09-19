@@ -2,16 +2,24 @@
 
 import asyncio
 import json
+from unittest.mock import patch
 
+import httpx
 import pytest
 
-from proxy_core import (
-    _build_chat_stream_chunks_from_object,
-    _build_responses_stream_events_from_object,
+from converters.stream_events import (
+    build_chat_stream_chunks_from_object,
+    build_responses_stream_events_from_object,
+    format_raw_sse,
+    format_sse_for_list,
+    iter_sse_blocks,
+)
+from models.api_types import APIType
+from models.channel import Channel, Endpoint
+from proxy.channel_attempt import _prime_stream
+from proxy.stream_executor import (
+    _do_stream_request,
     _EmptyStreamError,
-    _format_raw_sse,
-    _iter_sse_blocks,
-    _prime_stream,
     _StreamPreflightError,
 )
 
@@ -28,9 +36,7 @@ def _collect_sse_blocks(lines: list[str], coalesce: bool = True):
 
     async def _run():
         blocks = []
-        async for event_type, data_lines, passthrough in _iter_sse_blocks(
-            _lines_from_list(lines), coalesce_data_lines=coalesce
-        ):
+        async for event_type, data_lines, passthrough in iter_sse_blocks(_lines_from_list(lines), coalesce_data_lines=coalesce):
             blocks.append((event_type, data_lines, passthrough))
         return blocks
 
@@ -198,17 +204,48 @@ class TestIterSseBlocks:
 
 class TestFormatRawSse:
     def test_data_only(self):
-        result = _format_raw_sse(None, "hello")
+        result = format_raw_sse(None, "hello")
         assert result == "data: hello\n\n"
 
     def test_event_and_data(self):
-        result = _format_raw_sse("message", "payload")
+        result = format_raw_sse("message", "payload")
         assert result == "event: message\ndata: payload\n\n"
 
     def test_multiline_data(self):
-        result = _format_raw_sse(None, "line1\nline2")
+        result = format_raw_sse(None, "line1\nline2")
         assert "data: line1\n" in result
         assert "data: line2\n" in result
+
+
+# ═══════════════════════════════════════════
+#  format_sse_for_list — 显式事件类型 / 隐式推断门控
+# ═══════════════════════════════════════════
+
+
+class TestFormatSseForList:
+    def test_no_args_with_type_key_infers_event(self):
+        result = format_sse_for_list({"type": "message_stop"})
+        assert result == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
+
+    def test_no_args_without_type_key_plain_data(self):
+        result = format_sse_for_list({"id": "x"})
+        assert result == 'data: {"id": "x"}\n\n'
+
+    def test_explicit_event_type_overrides_inference(self):
+        result = format_sse_for_list({"type": "response.completed"}, event_type="error")
+        assert result == 'event: error\ndata: {"type": "response.completed"}\n\n'
+
+    def test_explicit_event_type_without_type_key(self):
+        result = format_sse_for_list({"id": "x"}, event_type="error")
+        assert result == 'event: error\ndata: {"id": "x"}\n\n'
+
+    def test_infer_false_with_type_key_omits_event_line(self):
+        result = format_sse_for_list({"type": "message_stop"}, infer_event_type=False)
+        assert result == 'data: {"type": "message_stop"}\n\n'
+
+    def test_explicit_event_type_wins_even_with_infer_false(self):
+        result = format_sse_for_list({"type": "response.completed"}, event_type="error", infer_event_type=False)
+        assert result == 'event: error\ndata: {"type": "response.completed"}\n\n'
 
 
 # ═══════════════════════════════════════════
@@ -217,9 +254,7 @@ class TestFormatRawSse:
 
 
 class TestBuildChatStreamChunksFromObject:
-    def _make_response(
-        self, content="Hello", tool_calls=None, reasoning=None, finish="stop"
-    ):
+    def _make_response(self, content="Hello", tool_calls=None, reasoning=None, finish="stop"):
         message = {"role": "assistant", "content": content}
         if reasoning:
             message["reasoning_content"] = reasoning
@@ -235,33 +270,26 @@ class TestBuildChatStreamChunksFromObject:
 
     def test_basic_text_response(self):
         resp = self._make_response("Hello world")
-        chunks = _build_chat_stream_chunks_from_object(resp, "gpt-4")
+        chunks = build_chat_stream_chunks_from_object(resp, "gpt-4")
         assert len(chunks) >= 2  # role chunk + content chunk + finish chunk
         # 第一帧包含 role
         assert chunks[0]["choices"][0]["delta"]["role"] == "assistant"
         # 有 content 帧
-        content_chunks = [
-            c for c in chunks if "content" in c["choices"][0].get("delta", {})
-        ]
+        content_chunks = [c for c in chunks if "content" in c["choices"][0].get("delta", {})]
         assert len(content_chunks) == 1
         assert content_chunks[0]["choices"][0]["delta"]["content"] == "Hello world"
 
     def test_response_id_preserved(self):
         resp = self._make_response()
-        chunks = _build_chat_stream_chunks_from_object(resp, "gpt-4")
+        chunks = build_chat_stream_chunks_from_object(resp, "gpt-4")
         assert all(c["id"] == "chatcmpl-test123" for c in chunks)
 
     def test_reasoning_content_emits_separate_chunk(self):
         resp = self._make_response("Answer", reasoning="Let me think...")
-        chunks = _build_chat_stream_chunks_from_object(resp, "gpt-4")
-        reasoning_chunks = [
-            c for c in chunks if "reasoning_content" in c["choices"][0].get("delta", {})
-        ]
+        chunks = build_chat_stream_chunks_from_object(resp, "gpt-4")
+        reasoning_chunks = [c for c in chunks if "reasoning_content" in c["choices"][0].get("delta", {})]
         assert len(reasoning_chunks) == 1
-        assert (
-            reasoning_chunks[0]["choices"][0]["delta"]["reasoning_content"]
-            == "Let me think..."
-        )
+        assert reasoning_chunks[0]["choices"][0]["delta"]["reasoning_content"] == "Let me think..."
 
     def test_tool_calls_emits_chunks(self):
         tool_calls = [
@@ -272,24 +300,22 @@ class TestBuildChatStreamChunksFromObject:
             }
         ]
         resp = self._make_response(None, tool_calls=tool_calls)
-        chunks = _build_chat_stream_chunks_from_object(resp, "gpt-4")
-        tool_chunks = [
-            c for c in chunks if "tool_calls" in c["choices"][0].get("delta", {})
-        ]
+        chunks = build_chat_stream_chunks_from_object(resp, "gpt-4")
+        tool_chunks = [c for c in chunks if "tool_calls" in c["choices"][0].get("delta", {})]
         assert len(tool_chunks) >= 1
 
     def test_empty_choices_returns_empty(self):
         resp = {"id": "x", "choices": []}
-        chunks = _build_chat_stream_chunks_from_object(resp, "gpt-4")
+        chunks = build_chat_stream_chunks_from_object(resp, "gpt-4")
         assert chunks == []
 
     def test_no_choices_key_returns_empty(self):
-        chunks = _build_chat_stream_chunks_from_object({}, "gpt-4")
+        chunks = build_chat_stream_chunks_from_object({}, "gpt-4")
         assert chunks == []
 
     def test_finish_reason_in_last_chunk(self):
         resp = self._make_response("Hi", finish="stop")
-        chunks = _build_chat_stream_chunks_from_object(resp, "gpt-4")
+        chunks = build_chat_stream_chunks_from_object(resp, "gpt-4")
         last = chunks[-1]
         assert last["choices"][0]["finish_reason"] == "stop"
 
@@ -305,7 +331,7 @@ class TestBuildChatStreamChunksFromObject:
                 }
             ],
         }
-        chunks = _build_chat_stream_chunks_from_object(resp, "fallback-model")
+        chunks = build_chat_stream_chunks_from_object(resp, "fallback-model")
         assert all(c["model"] == "fallback-model" for c in chunks)
 
 
@@ -327,14 +353,14 @@ class TestBuildResponsesStreamEventsFromObject:
 
     def test_creates_response_created_event(self):
         resp = {"id": "resp_test", "output": [], "status": "completed"}
-        events = _build_responses_stream_events_from_object(resp)
+        events = build_responses_stream_events_from_object(resp)
         parsed = self._parse_events(events)
         types = [p["type"] for p in parsed]
         assert "response.created" in types
 
     def test_creates_completed_event(self):
         resp = {"id": "resp_test", "output": [], "status": "completed"}
-        events = _build_responses_stream_events_from_object(resp)
+        events = build_responses_stream_events_from_object(resp)
         parsed = self._parse_events(events)
         types = [p["type"] for p in parsed]
         assert "response.completed" in types
@@ -350,7 +376,7 @@ class TestBuildResponsesStreamEventsFromObject:
             ],
             "status": "completed",
         }
-        events = _build_responses_stream_events_from_object(resp)
+        events = build_responses_stream_events_from_object(resp)
         parsed = self._parse_events(events)
         types = [p["type"] for p in parsed]
         assert "response.output_text.delta" in types
@@ -358,7 +384,7 @@ class TestBuildResponsesStreamEventsFromObject:
 
     def test_empty_output_minimal_events(self):
         resp = {"id": "resp_test", "output": [], "status": "completed"}
-        events = _build_responses_stream_events_from_object(resp)
+        events = build_responses_stream_events_from_object(resp)
         # 至少 response.created + response.completed
         assert len(events) >= 2
 
@@ -412,3 +438,99 @@ class TestPrimeStream:
         async for chunk in replay:
             collected.append(chunk)
         assert collected == ["only"]
+
+
+# ═══════════════════════════════════════════
+# 流式失败记录补充原始报错
+# ═══════════════════════════════════════════
+
+
+class TestStreamErrorBodyRecording:
+    def test_extract_helpers_are_reexported(self):
+        from proxy.stream_executor import (
+            _extract_response_body,
+            _format_error_msg,
+        )
+
+        assert callable(_extract_response_body)
+        assert callable(_format_error_msg)
+
+    @pytest.mark.asyncio
+    async def test_http_error_body_recorded_in_log(self):
+        """流式上游 HTTP 错误：请求日志 error_msg 记录原始报错全文、
+        response_body 记录解析后的错误体（验证 _extract_response_body /
+        _format_error_msg 真正接线，而非仅被导出）。"""
+
+        error_body = {
+            "error": {
+                "code": "AccountQuotaExceeded",
+                "message": "It will reset at 2026-08-16T00:00:00Z",
+                "type": "quota_error",
+            }
+        }
+        captured = {}
+
+        class FakeStreamResponse:
+            status_code = 429
+            is_error = True
+            headers = {"content-type": "application/json"}
+
+            def __init__(self):
+                self.request = httpx.Request("POST", "https://api.example.com/v1/chat/completions")
+                self.response = httpx.Response(429, request=self.request, json=error_body)
+
+            def __getattr__(self, name):
+                return getattr(self.response, name)
+
+            def raise_for_status(self):
+                raise httpx.HTTPStatusError("upstream error", request=self.request, response=self.response)
+
+            async def aread(self):
+                return await self.response.aread()
+
+            async def aiter_lines(self):
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def aclose(self):
+                return None
+
+        channel = Channel(
+            id="ch_quota",
+            name="QuotaChannel",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.example.com")],
+            api_key="sk-test",
+            models=["gpt-4o"],
+        )
+
+        with (
+            patch("proxy.stream_executor.create_stream_client", return_value=FakeClient()),
+            patch(
+                "proxy.stream_executor._record_request",
+                lambda **kwargs: captured.update(kwargs),
+            ),
+        ):
+            stream = _do_stream_request(
+                channel=channel,
+                url="https://api.example.com/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                upstream_data={"model": "gpt-4o", "stream": True},
+                response_converter=None,
+                source_type="openai-chat-completions",
+                target_api_type=APIType.OPENAI_CHAT,
+            )
+            with pytest.raises(_StreamPreflightError):
+                [chunk async for chunk in stream]
+
+        assert captured["success"] is False
+        assert "AccountQuotaExceeded" in captured["error_msg"]
+        assert captured["response_body"] == error_body

@@ -41,12 +41,12 @@ async def setup_test_db(tmp_path, monkeypatch):
     storage._channels_lock = None
     storage._keys_lock = None
 
-    import main
+    import middleware.whitelist_middleware as wmod
 
     monkeypatch.setattr(
-        main,
+        wmod,
         "_whitelist_cache",
-        main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
+        wl.WhitelistCache(str(data_dir / "whitelist.csv")),
     )
 
     await stats.init_db(str(tmp_path / "stats.db"))
@@ -62,9 +62,7 @@ async def setup_test_db(tmp_path, monkeypatch):
 
 @pytest_asyncio.fixture
 async def client():
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
         await login_admin(c)
         yield c
 
@@ -72,15 +70,15 @@ async def client():
 class TestWhitelistMiddleware:
     async def test_no_rules_allows_admin(self, client, monkeypatch):
         """白名单为空时放行所有请求"""
-        import main
+        import middleware.whitelist_middleware as wmod
 
-        monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: [])
+        monkeypatch.setattr(wmod._whitelist_cache, "get_rules", lambda: [])
         resp = await client.get("/admin/channels")
         assert resp.status_code != 403
 
     async def test_matching_ip_allows_request(self, client, monkeypatch):
         """IP 匹配白名单规则时放行"""
-        import main
+        import middleware.whitelist_middleware as wmod
 
         rules = [
             wl.WhitelistRule(
@@ -90,13 +88,13 @@ class TestWhitelistMiddleware:
                 description="test",
             )
         ]
-        monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: rules)
+        monkeypatch.setattr(wmod._whitelist_cache, "get_rules", lambda: rules)
         resp = await client.get("/admin/channels")
         assert resp.status_code != 403
 
     async def test_non_matching_ip_blocks_admin(self, client, monkeypatch):
         """IP 不在白名单时返回 403"""
-        import main
+        import middleware.whitelist_middleware as wmod
 
         rules = [
             wl.WhitelistRule(
@@ -106,7 +104,7 @@ class TestWhitelistMiddleware:
                 description="内网",
             )
         ]
-        monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: rules)
+        monkeypatch.setattr(wmod._whitelist_cache, "get_rules", lambda: rules)
         resp = await client.get("/admin/channels")
         assert resp.status_code == 403
         body = resp.json()
@@ -115,7 +113,7 @@ class TestWhitelistMiddleware:
 
     async def test_method_not_allowed_returns_403(self, client, monkeypatch):
         """方法不在白名单时返回 403"""
-        import main
+        import middleware.whitelist_middleware as wmod
 
         rules = [
             wl.WhitelistRule(
@@ -125,14 +123,14 @@ class TestWhitelistMiddleware:
                 description="test",
             )
         ]
-        monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: rules)
+        monkeypatch.setattr(wmod._whitelist_cache, "get_rules", lambda: rules)
         resp = await client.delete("/admin/channels/nonexistent")
         assert resp.status_code == 403
         assert "DELETE" in resp.json()["error"]["message"]
 
     async def test_non_admin_path_not_blocked(self, client, monkeypatch):
         """白名单规则只针对 /admin/*，其他路径不受影响"""
-        import main
+        import middleware.whitelist_middleware as wmod
 
         rules = [
             wl.WhitelistRule(
@@ -142,14 +140,14 @@ class TestWhitelistMiddleware:
                 description="内网",
             )
         ]
-        monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: rules)
+        monkeypatch.setattr(wmod._whitelist_cache, "get_rules", lambda: rules)
         # 根路径重定向，不应被 403
         resp = await client.get("/", follow_redirects=False)
         assert resp.status_code != 403
 
     async def test_whitelist_blocks_proxy_path(self, client, monkeypatch):
         """白名单可阻断代理路径（/v1/chat/completions 等）"""
-        import main
+        import middleware.whitelist_middleware as wmod
 
         rules = [
             wl.WhitelistRule(
@@ -159,7 +157,7 @@ class TestWhitelistMiddleware:
                 description="内网代理",
             )
         ]
-        monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: rules)
+        monkeypatch.setattr(wmod._whitelist_cache, "get_rules", lambda: rules)
         resp = await client.post(
             "/v1/chat/completions",
             json={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
@@ -172,11 +170,11 @@ class TestWhitelistAPI:
     @pytest_asyncio.fixture(autouse=True)
     async def patch_whitelist_path(self, tmp_path, monkeypatch):
         """每个测试使用独立临时目录，白名单检查全部放行"""
-        import main
+        import middleware.whitelist_middleware as wmod
         import routers.admin as admin_router
 
         monkeypatch.setattr(admin_router, "WHITELIST_PATH", tmp_path / "whitelist.csv")
-        monkeypatch.setattr(main._whitelist_cache, "get_rules", lambda: [])
+        monkeypatch.setattr(wmod._whitelist_cache, "get_rules", lambda: [])
 
     async def test_get_whitelist_no_file(self, client):
         resp = await client.get("/admin/whitelist")
@@ -186,11 +184,7 @@ class TestWhitelistAPI:
         assert data["rule_count"] == 0
 
     async def test_put_whitelist_saves_and_returns_count(self, client):
-        content = (
-            "path_pattern,methods,ip_cidr,description\n"
-            "/admin/*,*,10.1.1.0/24,内网\n"
-            "/admin/*,*,127.0.0.1,本机\n"
-        )
+        content = "path_pattern,methods,ip_cidr,description\n/admin/*,*,10.1.1.0/24,内网\n/admin/*,*,127.0.0.1,本机\n"
         resp = await client.put("/admin/whitelist", json={"content": content})
         assert resp.status_code == 200
         data = resp.json()
@@ -204,16 +198,12 @@ class TestWhitelistAPI:
         assert resp.json()["rule_count"] == 1
 
     async def test_put_whitelist_invalid_cidr_returns_400(self, client):
-        resp = await client.put(
-            "/admin/whitelist", json={"content": "/admin/*,*,not-an-ip,test\n"}
-        )
+        resp = await client.put("/admin/whitelist", json={"content": "/admin/*,*,not-an-ip,test\n"})
         assert resp.status_code == 400
         assert "not-an-ip" in resp.json()["detail"]
 
     async def test_put_whitelist_rejects_cidr_with_host_bits(self, client):
-        resp = await client.put(
-            "/admin/whitelist", json={"content": "/admin/*,*,192.168.1.5/24,test\n"}
-        )
+        resp = await client.put("/admin/whitelist", json={"content": "/admin/*,*,192.168.1.5/24,test\n"})
         assert resp.status_code == 400
         assert "主机位" in resp.json()["detail"]
 
@@ -223,9 +213,7 @@ class TestWhitelistAPI:
         assert "4 列" in resp.json()["detail"]
 
     async def test_put_whitelist_empty_clears_rules(self, client):
-        await client.put(
-            "/admin/whitelist", json={"content": "/admin/*,*,127.0.0.1,test\n"}
-        )
+        await client.put("/admin/whitelist", json={"content": "/admin/*,*,127.0.0.1,test\n"})
         resp = await client.put("/admin/whitelist", json={"content": ""})
         assert resp.status_code == 200
         assert resp.json()["rule_count"] == 0
@@ -278,13 +266,9 @@ class TestWhitelistAPI:
         )
 
         # 至少一个应成功
-        successes = [
-            r for r in results if not isinstance(r, Exception) and r.status_code == 200
-        ]
+        successes = [r for r in results if not isinstance(r, Exception) and r.status_code == 200]
         assert len(successes) >= 1
 
         # 最终文件应存在且内容完整（要么 content1 要么 content2）
         final_content = admin_router.WHITELIST_PATH.read_text(encoding="utf-8")
-        assert final_content in (content1, content2), (
-            "并发写入后文件内容应为其中一个完整结果"
-        )
+        assert final_content in (content1, content2), "并发写入后文件内容应为其中一个完整结果"

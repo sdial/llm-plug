@@ -1,18 +1,18 @@
-"""P1-6: main._get_api_key_index / _invalidate_api_key_index 缓存机制测试"""
+"""P1-6: middleware.proxy_auth_middleware._get_api_key_index / _invalidate_api_key_index 缓存机制测试"""
 
 import json
 
 import pytest
 
-import main
+from middleware import proxy_auth_middleware as pam
 
 
 @pytest.fixture(autouse=True)
 def _reset_index():
     """每个测试前后重置索引"""
-    main._api_key_index = None
+    pam._api_key_index = None
     yield
-    main._api_key_index = None
+    pam._api_key_index = None
 
 
 class TestGetApiKeyIndex:
@@ -35,7 +35,7 @@ class TestGetApiKeyIndex:
         storage._keys_cache = None
         storage._keys_cache_ts = 0
 
-        index = await main._get_api_key_index()
+        index = await pam._get_api_key_index()
         assert "llmplug-test-aaa" in index
         assert "llmplug-test-bbb" in index
         assert index["llmplug-test-aaa"]["name"] == "key1"
@@ -43,9 +43,7 @@ class TestGetApiKeyIndex:
     @pytest.mark.asyncio
     async def test_subsequent_call_returns_cached(self, tmp_path, monkeypatch):
         """后续调用应返回缓存，不重新加载"""
-        keys_data = {
-            "api_keys": [{"id": "k1", "name": "key1", "key": "llmplug-test-aaa"}]
-        }
+        keys_data = {"api_keys": [{"id": "k1", "name": "key1", "key": "llmplug-test-aaa"}]}
         keys_file = tmp_path / "api_keys.json"
         keys_file.write_text(json.dumps(keys_data))
         monkeypatch.setattr("config.API_KEYS_FILE", str(keys_file))
@@ -55,8 +53,8 @@ class TestGetApiKeyIndex:
         storage._keys_cache = None
         storage._keys_cache_ts = 0
 
-        index1 = await main._get_api_key_index()
-        index2 = await main._get_api_key_index()
+        index1 = await pam._get_api_key_index()
+        index2 = await pam._get_api_key_index()
         assert index1 is index2  # 同一对象，说明使用了缓存
 
     @pytest.mark.asyncio
@@ -78,7 +76,7 @@ class TestGetApiKeyIndex:
         storage._keys_cache = None
         storage._keys_cache_ts = 0
 
-        index = await main._get_api_key_index()
+        index = await pam._get_api_key_index()
         assert len(index) == 1
         assert "llmplug-test-aaa" in index
 
@@ -94,16 +92,14 @@ class TestGetApiKeyIndex:
         storage._keys_cache = None
         storage._keys_cache_ts = 0
 
-        index = await main._get_api_key_index()
+        index = await pam._get_api_key_index()
         assert index == {}
 
 
 class TestInvalidateApiKeyIndex:
     @pytest.mark.asyncio
     async def test_invalidate_clears_cache(self, tmp_path, monkeypatch):
-        keys_data = {
-            "api_keys": [{"id": "k1", "name": "key1", "key": "llmplug-test-aaa"}]
-        }
+        keys_data = {"api_keys": [{"id": "k1", "name": "key1", "key": "llmplug-test-aaa"}]}
         keys_file = tmp_path / "api_keys.json"
         keys_file.write_text(json.dumps(keys_data))
         monkeypatch.setattr("config.API_KEYS_FILE", str(keys_file))
@@ -114,7 +110,7 @@ class TestInvalidateApiKeyIndex:
         storage._keys_cache_ts = 0
 
         # 加载索引
-        index1 = await main._get_api_key_index()
+        index1 = await pam._get_api_key_index()
         assert len(index1) == 1
 
         # 更新文件内容
@@ -129,14 +125,14 @@ class TestInvalidateApiKeyIndex:
         storage._keys_cache_ts = 0
 
         # 失效
-        main._invalidate_api_key_index()
+        pam._invalidate_api_key_index()
 
         # 重新加载应得到新数据
-        index2 = await main._get_api_key_index()
+        index2 = await pam._get_api_key_index()
         assert len(index2) == 2
 
     def test_invalidate_when_not_loaded_is_noop(self):
         """索引未加载时调用 invalidate 不报错"""
-        main._api_key_index = None
-        main._invalidate_api_key_index()
-        assert main._api_key_index is None
+        pam._api_key_index = None
+        pam._invalidate_api_key_index()
+        assert pam._api_key_index is None

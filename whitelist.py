@@ -39,9 +39,7 @@ def load_rules(path: str) -> list[WhitelistRule]:
     except FileNotFoundError:
         return []
 
-    filtered = [
-        line for line in lines if line.strip() and not line.strip().startswith("#")
-    ]
+    filtered = [line for line in lines if line.strip() and not line.strip().startswith("#")]
     rules: list[WhitelistRule] = []
     reader = csv.reader(filtered)
     for row in reader:
@@ -56,7 +54,9 @@ def load_rules(path: str) -> list[WhitelistRule]:
         if methods_str and methods_str != "*":
             methods = frozenset(m.strip().upper() for m in methods_str.split("|"))
         try:
-            network = ipaddress.ip_network(ip_cidr, strict=False)
+            # 与管理端保存校验保持一致：手工篡改文件也不能把 host-bit CIDR
+            # 静默放宽为更大的网段。
+            network = ipaddress.ip_network(ip_cidr, strict=True)
         except ValueError:
             continue
         rules.append(
@@ -70,18 +70,55 @@ def load_rules(path: str) -> list[WhitelistRule]:
     return rules
 
 
+class _LineNumberedCsvReader:
+    """包装 csv.reader，为每条逻辑记录记录其起始物理行号。
+
+    csv.reader 遇到引号内换行的字段会一次消费多行，直接用 zip(行号列表, reader)
+    会导致后续记录的行号全部错位；本类把每条记录的第一个物理行作为该记录的行号。
+    """
+
+    def __init__(self, data_lines: list[tuple[int, str]]):
+        self._data_lines = data_lines
+        self._pos = 0
+        self._row_start: int | None = None
+        self._reader = csv.reader(self._iter_lines())
+
+    def _iter_lines(self):
+        while self._pos < len(self._data_lines):
+            lineno, line = self._data_lines[self._pos]
+            self._pos += 1
+            if self._row_start is None:
+                self._row_start = lineno
+            yield line
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self._row_start = None
+        return next(self._reader)
+
+    @property
+    def row_start(self) -> int:
+        """当前记录起始物理行号（每条记录至少消费一行，不可能为 None）"""
+        return self._row_start or 1
+
+
 def validate_rules_text(text: str) -> tuple[bool, str, list[WhitelistRule]]:
     """校验并解析 CSV 文本。返回 (valid, error_message, parsed_rules)。"""
     rules: list[WhitelistRule] = []
-    raw_lines = text.splitlines()
+    # keepends=True：保留行尾换行符，csv.reader 才能把引号内换行拼回字段内容
+    # （与 load_rules 用 readlines 的行为一致）
+    raw_lines = text.splitlines(keepends=True)
     data_lines: list[tuple[int, str]] = []
     for lineno, raw in enumerate(raw_lines, start=1):
         stripped = raw.strip()
         if not stripped or stripped.startswith("#"):
             continue
         data_lines.append((lineno, raw))
-    reader = csv.reader(line for _, line in data_lines)
-    for (lineno, _), row in zip(data_lines, reader):
+    tracked = _LineNumberedCsvReader(data_lines)
+    for row in tracked:
+        lineno = tracked.row_start
         if not row or row[0].strip() == "path_pattern":
             continue
         if len(row) < 4:

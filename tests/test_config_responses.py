@@ -20,11 +20,11 @@ def test_response_state_defaults():
 
 def test_response_state_store_is_shared_across_modules():
     import main
-    import proxy_core
+    import proxy.routing
     from routers import proxy_response
 
-    assert main._responses_store is proxy_core._responses_store
-    assert proxy_response._store is proxy_core._responses_store
+    assert main._responses_store is proxy.routing._responses_store
+    assert proxy_response._store is proxy.routing._responses_store
 
 
 def test_response_state_store_can_reload_runtime_settings(monkeypatch):

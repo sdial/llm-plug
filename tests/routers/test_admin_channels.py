@@ -24,8 +24,6 @@ def channels_file(tmp_path, monkeypatch):
                     {
                         "id": "ch_test",
                         "name": "Test",
-                        "api_type": "openai-chat-completions",
-                        "base_url": "https://api.example.com",
                         "api_key": "sk-test",
                         "models": ["gpt-4o"],
                         "enabled": True,
@@ -33,6 +31,12 @@ def channels_file(tmp_path, monkeypatch):
                         "priority": 1,
                         "socks5_proxy": None,
                         "created_at": "2026-05-10T00:00:00+00:00",
+                        "endpoints": [
+                            {
+                                "api_type": "openai-chat-completions",
+                                "base_url": "https://api.example.com",
+                            }
+                        ],
                     }
                 ]
             }
@@ -47,12 +51,13 @@ def channels_file(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "API_KEYS_FILE", str(keys_path))
     monkeypatch.setattr(config, "_SETTINGS_FILE", str(settings_path))
     config._init_settings_sync()
-    import main
+    import middleware.whitelist_middleware as wmod
+    import whitelist as _whitelist_mod
 
     monkeypatch.setattr(
-        main,
+        wmod,
         "_whitelist_cache",
-        main._whitelist.WhitelistCache(str(data_dir / "whitelist.csv")),
+        _whitelist_mod.WhitelistCache(str(data_dir / "whitelist.csv")),
     )
     storage._cache = None
     storage._cache_ts = 0
@@ -71,9 +76,7 @@ def channels_file(tmp_path, monkeypatch):
 
 @pytest.mark.anyio
 async def test_update_channel_revalidates_weight(channels_file):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         await login_admin(client)
         response = await client.put("/admin/channels/ch_test", json={"weight": 0})
 
@@ -82,9 +85,7 @@ async def test_update_channel_revalidates_weight(channels_file):
 
 @pytest.mark.anyio
 async def test_update_channel_revalidates_priority(channels_file):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         await login_admin(client)
         response = await client.put("/admin/channels/ch_test", json={"priority": 0})
 
@@ -92,33 +93,68 @@ async def test_update_channel_revalidates_priority(channels_file):
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("payload", [{"endpoints": None}, {"model_overrides": None}, {"unknown_setting": True}])
+async def test_update_channel_rejects_null_domain_fields_and_unknown_fields(channels_file, payload):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        await login_admin(client)
+        response = await client.put("/admin/channels/ch_test", json=payload)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_update_channel_rejects_blank_endpoint_base_url(channels_file):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        await login_admin(client)
+        response = await client.put(
+            "/admin/channels/ch_test",
+            json={"endpoints": [{"api_type": "openai-chat-completions", "base_url": "  "}]},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
 async def test_update_channel_accepts_anthropic_header_policy_fields(channels_file):
     payload = {
-        "api_type": "anthropic",
-        "anthropic_version": "2024-10-22",
-        "anthropic_version_policy": "channel_if_missing",
-        "anthropic_beta": "prompt-caching-2024-07-31",
-        "anthropic_beta_policy": "merge",
+        "endpoints": [
+            {
+                "api_type": "anthropic",
+                "base_url": "https://api.example.com",
+                "anthropic_version": "2024-10-22",
+                "anthropic_version_policy": "channel_if_missing",
+                "anthropic_beta": "prompt-caching-2024-07-31",
+                "anthropic_beta_policy": "merge",
+            }
+        ]
     }
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         await login_admin(client)
         response = await client.put("/admin/channels/ch_test", json=payload)
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["api_type"] == "anthropic"
-    assert body["anthropic_version"] == "2024-10-22"
-    assert body["anthropic_version_policy"] == "channel_if_missing"
-    assert body["anthropic_beta"] == "prompt-caching-2024-07-31"
-    assert body["anthropic_beta_policy"] == "merge"
+    ep = response.json()["endpoints"][0]
+    assert ep["api_type"] == "anthropic"
+    assert ep["anthropic_version"] == "2024-10-22"
+    assert ep["anthropic_version_policy"] == "channel_if_missing"
+    assert ep["anthropic_beta"] == "prompt-caching-2024-07-31"
+    assert ep["anthropic_beta_policy"] == "merge"
 
 
 @pytest.mark.anyio
-async def test_create_model_group_uses_storage_helper(channels_file, monkeypatch):
-    import routers.admin
+async def test_list_available_models_aggregates_channels(channels_file):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        await login_admin(client)
+        response = await client.get("/admin/models")
+
+    assert response.status_code == 200
+    assert response.json() == {"models": ["gpt-4o"]}
+
+
+@pytest.mark.anyio
+async def test_create_model_group_uses_catalog(channels_file, monkeypatch):
+    from routers.admin import model_groups
 
     calls = []
 
@@ -126,11 +162,9 @@ async def test_create_model_group_uses_storage_helper(channels_file, monkeypatch
         calls.append(group)
         return group
 
-    monkeypatch.setattr(routers.admin, "add_model_group", fake_add_model_group)
+    monkeypatch.setattr(model_groups.catalog, "add_model_group", fake_add_model_group)
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         await login_admin(client)
         response = await client.post(
             "/admin/model-groups",
@@ -140,3 +174,52 @@ async def test_create_model_group_uses_storage_helper(channels_file, monkeypatch
     assert response.status_code == 200
     assert len(calls) == 1
     assert calls[0].name == "fallback"
+
+
+@pytest.mark.anyio
+async def test_create_model_group_validates_bound_channel(channels_file):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        await login_admin(client)
+        response = await client.post(
+            "/admin/model-groups",
+            json={
+                "name": "grp",
+                "items": [{"model": "gpt-4o", "channel_id": "ch_missing", "schedules": []}],
+            },
+        )
+
+    assert response.status_code == 400
+    assert "不存在" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_create_model_group_validates_bound_channel_contains_model(channels_file):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        await login_admin(client)
+        response = await client.post(
+            "/admin/model-groups",
+            json={
+                "name": "grp",
+                "items": [{"model": "other-model", "channel_id": "ch_test", "schedules": []}],
+            },
+        )
+
+    assert response.status_code == 400
+    assert "不包含模型" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_create_model_group_accepts_valid_bound_entry(channels_file):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        await login_admin(client)
+        response = await client.post(
+            "/admin/model-groups",
+            json={
+                "name": "grp",
+                "items": [{"model": "gpt-4o", "channel_id": "ch_test", "schedules": []}],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"][0]["channel_id"] == "ch_test"

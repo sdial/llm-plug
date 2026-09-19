@@ -1,16 +1,72 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "baiduqianfancodingplan": {
+    "192-168-123-1": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "baiduqianfancodingplan",
+      "name": "192-168-123-1",
       "options": {
         "baseURL": "http://192.168.123.1:55555/v1",
         "apiKey": "opencode101"
       },
       "models": {
+        "z-ai/glm-5.2": {
+          "name": "z-ai/glm-5.2",
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 32000
+            }
+          },
+          "limit": {
+            "context": 198000,
+            "output": 131072
+          }
+        },
+        "moonshotai/kimi-k2.6": {
+          "name": "moonshotai/kimi-k2.6",
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 32000
+            }
+          },
+          "limit": {
+            "context": 256000,
+            "output": 65536
+          }
+        }
+      }
+    },
+    "mimo": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "MiMo",
+      "options": {
+        "baseURL": "https://token-plan-cn.xiaomimimo.com/v1",
+        "apiKey": "tp-c640dqwfis5rj35f6kx9xj5jchzib4aqbi5eg7kt332yb8jj"
+      },
+      "models": {
         "mimo-v2.5-pro": {
           "name": "mimo-v2.5-pro",
+          "limit": {
+            "context": 1048576,
+            "output": 131072
+          },
           "modalities": {
             "input": [
               "text"
@@ -21,6 +77,17 @@
           }
         }
       }
+    }
+  },
+  "mcp": {
+    "codegraph": {
+      "type": "local",
+      "command": [
+        "codegraph",
+        "serve",
+        "--mcp"
+      ],
+      "enabled": true
     }
   }
 }

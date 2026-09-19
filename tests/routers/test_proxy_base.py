@@ -8,8 +8,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import app
+from middleware.admin_auth_middleware import AdminAuthMiddleware
+from middleware.body_buffer_middleware import BodyBufferMiddleware
+from middleware.proxy_auth_middleware import ProxyAuthMiddleware
+from middleware.request_log_middleware import RequestLogMiddleware
+from middleware.whitelist_middleware import WhitelistMiddleware
 from models.api_types import APIType
-from models.channel import Channel
+from models.channel import Channel, Endpoint
+from pii_errors import SensitiveBlockError
 
 
 @pytest.fixture(autouse=True)
@@ -41,9 +47,10 @@ def setup_test_data():
         storage._keys_cache_ts = 0
         storage._channels_lock = None
         storage._keys_lock = None
-        import main
 
-        main._api_key_index = None
+        import middleware.proxy_auth_middleware as pam
+
+        pam._api_key_index = None
 
         yield
 
@@ -56,7 +63,7 @@ def setup_test_data():
         storage._keys_cache_ts = 0
         storage._channels_lock = None
         storage._keys_lock = None
-        main._api_key_index = None
+        pam._api_key_index = None
 
 
 def test_invalid_json_request_returns_400():
@@ -89,16 +96,13 @@ def test_anthropic_without_stream_defaults_to_non_stream():
     channel = Channel(
         id="ch_anthropic",
         name="Anthropic",
-        api_type=APIType.ANTHROPIC,
-        base_url="https://api.anthropic.com",
+        endpoints=[Endpoint(api_type=APIType.ANTHROPIC, base_url="https://api.anthropic.com")],
         api_key="ak-test",
         models=["claude-3-5-sonnet-20241022"],
     )
     seen = {}
 
-    async def fake_proxy_request(
-        model, request_data, target_api_type, is_stream, **kwargs
-    ):
+    async def fake_proxy_request(model, request_data, target_api_type, is_stream, **kwargs):
         seen["is_stream"] = is_stream
         if is_stream:
 
@@ -144,8 +148,7 @@ def test_proxy_api_key_auth_uses_cached_index_after_first_load():
     channel = Channel(
         id="ch_openai",
         name="OpenAI",
-        api_type=APIType.OPENAI_CHAT,
-        base_url="https://api.openai.com",
+        endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
         api_key="sk-upstream",
         models=["gpt-4o"],
     )
@@ -160,7 +163,7 @@ def test_proxy_api_key_auth_uses_cached_index_after_first_load():
     with (
         TestClient(app) as client,
         patch("routers.proxy_base.proxy_request", fake_proxy_request),
-        patch("main.load_api_keys", new_callable=AsyncMock) as load_api_keys,
+        patch("middleware.proxy_auth_middleware.load_api_keys", new_callable=AsyncMock) as load_api_keys,
     ):
         load_api_keys.return_value = json.load(open(config.API_KEYS_FILE))
         response = client.post(
@@ -211,15 +214,14 @@ def test_content_length_over_limit_is_rejected_before_body_read():
         "query_string": b"",
     }
 
-    from main import CombinedMiddleware
-
     async def app(scope, receive, send):
         raise AssertionError("downstream app should not be called")
 
-    with patch("main.load_api_keys", new_callable=AsyncMock) as load_api_keys:
+    middleware = WhitelistMiddleware(AdminAuthMiddleware(ProxyAuthMiddleware(BodyBufferMiddleware(RequestLogMiddleware(app)))))
+    with patch("middleware.proxy_auth_middleware.load_api_keys", new_callable=AsyncMock) as load_api_keys:
         import anyio
 
-        anyio.run(CombinedMiddleware(app), scope, exploding_receive, capture_send)
+        anyio.run(middleware, scope, exploding_receive, capture_send)
 
     assert sent[0]["status"] == 413
     load_api_keys.assert_not_awaited()
@@ -248,18 +250,15 @@ def test_body_stream_over_limit_is_logged_as_413():
         "query_string": b"",
     }
 
-    from main import CombinedMiddleware
-
     async def downstream(scope, receive, send):
         raise AssertionError("downstream app should not be called")
 
-    middleware = CombinedMiddleware(downstream)
+    middleware = WhitelistMiddleware(AdminAuthMiddleware(ProxyAuthMiddleware(BodyBufferMiddleware(RequestLogMiddleware(downstream)))))
     with (
+        patch("middleware.proxy_auth_middleware.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}),
         patch(
-            "main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}
-        ),
-        patch.object(
-            middleware, "_log_request", side_effect=lambda *args: logged.append(args)
+            "middleware.common._log_request",
+            side_effect=lambda *args: logged.append(args),
         ),
     ):
         import anyio
@@ -295,15 +294,12 @@ def test_exception_before_response_start_is_logged_as_500():
         "query_string": b"",
     }
 
-    from main import CombinedMiddleware
-
-    middleware = CombinedMiddleware(app)
+    middleware = WhitelistMiddleware(AdminAuthMiddleware(ProxyAuthMiddleware(BodyBufferMiddleware(RequestLogMiddleware(app)))))
     with (
+        patch("middleware.proxy_auth_middleware.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}),
         patch(
-            "main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}
-        ),
-        patch.object(
-            middleware, "_log_request", side_effect=lambda *args: logged.append(args)
+            "middleware.request_log_middleware._log_request",
+            side_effect=lambda *args: logged.append(args),
         ),
     ):
         import anyio
@@ -352,9 +348,7 @@ def test_upstream_http_error_status_and_body_are_passed_through():
         )
 
     assert response.status_code == 401
-    assert response.json() == {
-        "error": {"message": "invalid upstream key", "type": "invalid_request_error"}
-    }
+    assert response.json() == {"error": {"message": "invalid upstream key", "type": "invalid_request_error"}}
 
 
 def test_stream_upstream_http_error_before_first_chunk_is_passed_through():
@@ -475,7 +469,7 @@ def test_stream_upstream_http_error_with_closed_stream_keeps_upstream_status():
 
 
 def test_stream_response_is_not_primed_again_at_router_layer():
-    """proxy_core 已完成流式预取，路由层不应再次消费首个 chunk。"""
+    """proxy.routing 已完成流式预取，路由层不应再次消费首个 chunk。"""
     import anyio
     from starlette.requests import Request
 
@@ -484,8 +478,7 @@ def test_stream_response_is_not_primed_again_at_router_layer():
     channel = Channel(
         id="ch_openai",
         name="OpenAI",
-        api_type=APIType.OPENAI_CHAT,
-        base_url="https://api.openai.com",
+        endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
         api_key="sk-test",
         models=["gpt-4o"],
     )
@@ -536,7 +529,7 @@ def test_stream_response_is_not_primed_again_at_router_layer():
 
 
 def test_proxy_request_receives_client_ip_from_request(monkeypatch):
-    """CombinedMiddleware 应将 client_ip 写入 scope state，供 proxy_request 使用。"""
+    """中间件链应将 client_ip 写入 scope state，供 proxy_request 使用。"""
     captured = {}
 
     async def fake_proxy_request(*args, **kwargs):
@@ -544,8 +537,7 @@ def test_proxy_request_receives_client_ip_from_request(monkeypatch):
         channel = Channel(
             id="ch",
             name="Channel",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="http://example.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="http://example.com")],
             api_key="key",
             models=["gpt-4"],
         )
@@ -554,17 +546,37 @@ def test_proxy_request_receives_client_ip_from_request(monkeypatch):
     monkeypatch.setattr("routers.proxy_base.proxy_request", fake_proxy_request)
 
     with TestClient(app) as client:
-        response = client.post(
-            "/v1/chat/completions", json={"model": "gpt-4", "messages": []}
-        )
+        response = client.post("/v1/chat/completions", json={"model": "gpt-4", "messages": []})
 
     assert response.status_code == 200
     assert captured["client_ip"] == "testclient"
 
 
+def test_sensitive_block_error_returns_400():
+    """PII filter 拦截 SensitiveBlockError 应映射为 HTTP 400。"""
+
+    async def fake_proxy_request(*args, **kwargs):
+        raise SensitiveBlockError("Sensitive data blocked by PII filter", triggered=["SECRET_WORD"])
+
+    with (
+        TestClient(app) as client,
+        patch("routers.proxy_base.proxy_request", fake_proxy_request),
+    ):
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "机密词 alpha123"}],
+            },
+        )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert "Sensitive data blocked" in body["error"]["message"]
+
+
 def test_middleware_writes_client_ip_to_scope_state():
-    """CombinedMiddleware 应在处理代理请求时将 client_ip 写入 scope["state"]["client_ip"]。"""
-    from main import CombinedMiddleware
+    """中间件链应在处理代理请求时将 client_ip 写入 scope["state"]["client_ip"]。"""
 
     async def receive():
         return {
@@ -590,10 +602,8 @@ def test_middleware_writes_client_ip_to_scope_state():
         "client": ("192.168.1.100", 54321),
     }
 
-    middleware = CombinedMiddleware(downstream_app)
-    with patch(
-        "main.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}
-    ):
+    middleware = WhitelistMiddleware(AdminAuthMiddleware(ProxyAuthMiddleware(BodyBufferMiddleware(RequestLogMiddleware(downstream_app)))))
+    with patch("middleware.proxy_auth_middleware.load_api_keys", new_callable=AsyncMock, return_value={"api_keys": []}):
         import anyio
 
         anyio.run(middleware, scope, receive, send)

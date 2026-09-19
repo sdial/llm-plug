@@ -1,7 +1,7 @@
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from models.api_types import APIType
-from models.channel import Channel
+from models.channel import Endpoint
 
 _UPSTREAM_PATHS = {
     APIType.OPENAI_CHAT.value: "/chat/completions",
@@ -10,16 +10,18 @@ _UPSTREAM_PATHS = {
 }
 
 
-def build_upstream_url(channel: Channel) -> str:
-    """构造代理请求 URL。高级 endpoint_url 优先，空值则回退 base_url。"""
-    endpoint_url = _clean_url(getattr(channel, "endpoint_url", None))
+def build_upstream_url(endpoint: Endpoint) -> str:
+    """按选定接入点构造代理请求 URL（ADR-0006）。
+
+    接入点的 url_override 优先，空值则回退其 base_url 自动拼接。"""
+    endpoint_url = _clean_url(endpoint.url_override)
     if endpoint_url:
         return endpoint_url
 
-    path = _UPSTREAM_PATHS.get(channel.api_type.value)
+    path = _UPSTREAM_PATHS.get(endpoint.api_type.value)
     if not path:
-        return _clean_url(channel.base_url)
-    return append_api_path(channel.base_url, path)
+        return _clean_url(endpoint.base_url)
+    return append_api_path(endpoint.base_url, path)
 
 
 def build_models_url(base_url: str, models_url: str | None = None) -> str:
@@ -53,10 +55,7 @@ def append_api_path(base_url: str, path: str) -> str:
     if _has_endpoint_suffix(existing_path, target_path):
         return urlunsplit(parsed)
 
-    if existing_path.endswith("/v1"):
-        new_path = f"{existing_path}{target_path}"
-    else:
-        new_path = f"{existing_path}/v1{target_path}"
+    new_path = f"{existing_path}{target_path}" if existing_path.endswith("/v1") else f"{existing_path}/v1{target_path}"
 
     return urlunsplit(parsed._replace(path=new_path))
 

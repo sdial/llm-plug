@@ -3,6 +3,8 @@
 import httpx
 from fastapi.responses import JSONResponse
 
+from conversion_plan import IncompatibleRequestError, IncompatibleResponseError
+
 
 def safe_httpx_response_content(response: httpx.Response) -> bytes | None:
     """Best-effort response body read for httpx errors, including closed streams."""
@@ -63,8 +65,8 @@ def anthropic_response_from_exception(exc: BaseException) -> JSONResponse:
     if isinstance(exc, httpx.TimeoutException):
         return anthropic_gateway_timeout()
     if isinstance(exc, httpx.RequestError):
-        return anthropic_bad_gateway(f"上游网络错误: {exc}")
-    return anthropic_bad_gateway(str(exc))
+        return anthropic_bad_gateway("上游网络错误")
+    return anthropic_bad_gateway("代理处理上游响应时发生内部错误")
 
 
 # ── OpenAI 格式错误 ──
@@ -87,6 +89,39 @@ def invalid_request(message: str) -> JSONResponse:
     return JSONResponse(
         status_code=400,
         content={"error": {"message": message, "type": "invalid_request_error"}},
+    )
+
+
+def incompatible_request(exc: IncompatibleRequestError, *, anthropic: bool) -> JSONResponse:
+    """保持入口协议错误形状，同时给出稳定 code 与字段路径。"""
+    if anthropic:
+        return anthropic_error(400, "invalid_request_error", f"[{exc.code}] {exc.path}: {exc}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": {
+                "message": str(exc),
+                "type": "invalid_request_error",
+                "code": exc.code,
+                "param": exc.path,
+            }
+        },
+    )
+
+
+def incompatible_response(exc: IncompatibleResponseError, *, anthropic: bool) -> JSONResponse:
+    if anthropic:
+        return anthropic_error(502, "api_error", f"[{exc.code}] {exc.path}: {exc}")
+    return JSONResponse(
+        status_code=502,
+        content={
+            "error": {
+                "message": str(exc),
+                "type": "conversion_error",
+                "code": exc.code,
+                "param": exc.path,
+            }
+        },
     )
 
 
@@ -117,5 +152,5 @@ def response_from_proxy_exception(exc: BaseException) -> JSONResponse:
     if isinstance(exc, httpx.TimeoutException):
         return gateway_timeout()
     if isinstance(exc, httpx.RequestError):
-        return bad_gateway(f"上游网络错误: {exc}")
-    return bad_gateway(str(exc))
+        return bad_gateway("上游网络错误")
+    return bad_gateway("代理处理上游响应时发生内部错误")

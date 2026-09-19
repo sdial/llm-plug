@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from converters.to_chat import ToChatCompletionsConverter
 from models.api_types import APIType
 
@@ -73,9 +75,7 @@ class TestAnthropicToChat:
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
         result = self.converter.convert_response(response, APIType.ANTHROPIC)
-        assert (
-            result["choices"][0]["message"]["reasoning_content"] == "Let me analyze..."
-        )
+        assert result["choices"][0]["message"]["reasoning_content"] == "Let me analyze..."
         assert result["choices"][0]["message"]["content"] == "The answer is 42"
 
     def test_tool_use_response(self):
@@ -113,6 +113,33 @@ class TestAnthropicToChat:
         result = self.converter.convert_request(request, APIType.ANTHROPIC)
         assert result["user"] == "user_12345"
 
+    def test_metadata_dict_dropped_except_user_id(self):
+        """M3: metadata 除 user_id 外不透传（Claude Code 含布尔/嵌套值，官方 OpenAI 拒绝非字符串值）"""
+        request = {
+            "model": "claude-opus-4-7",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "metadata": {
+                "user_id": "user_12345",
+                "session_id": "sess_1",
+                "is_cmd_loop": False,
+                "nested": {"key": "val"},
+            },
+        }
+        result = self.converter.convert_request(request, APIType.ANTHROPIC)
+        assert result["user"] == "user_12345"
+        assert "metadata" not in result
+
+    def test_metadata_without_user_id_not_forwarded(self):
+        """M3: metadata 无 user_id 时整个丢弃，不残留任何字段"""
+        request = {
+            "model": "claude-opus-4-7",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "metadata": {"session_id": "sess_1", "is_cmd_loop": True},
+        }
+        result = self.converter.convert_request(request, APIType.ANTHROPIC)
+        assert "metadata" not in result
+        assert "user" not in result
+
     def test_tools_strict_passthrough(self):
         """Anthropic tools strict 字段应透传到 OpenAI"""
         request = {
@@ -130,8 +157,7 @@ class TestAnthropicToChat:
         result = self.converter.convert_request(request, APIType.ANTHROPIC)
         assert result["tools"][0]["function"]["strict"] is True
 
-    def test_document_content_block_conversion(self):
-        """Anthropic document content block -> OpenAI text"""
+    def test_nonportable_document_content_is_rejected(self):
         request = {
             "model": "claude-opus-4-7",
             "messages": [
@@ -149,19 +175,8 @@ class TestAnthropicToChat:
                 }
             ],
         }
-        result = self.converter.convert_request(request, APIType.ANTHROPIC)
-        user_msg = result["messages"][0]
-        assert user_msg["role"] == "user"
-        # document content 应被转为文本
-        content = user_msg.get("content")
-        if isinstance(content, list):
-            assert any(
-                "PDF content here" in c.get("text", "")
-                for c in content
-                if c.get("type") == "text"
-            )
-        else:
-            assert "PDF content here" in content
+        with pytest.raises(ValueError, match="cannot be represented"):
+            self.converter.convert_request(request, APIType.ANTHROPIC)
 
     def test_redacted_thinking_response_skipped(self):
         """Anthropic redacted_thinking response block 应被跳过"""
@@ -216,9 +231,7 @@ class TestAnthropicToChat:
             ],
         }
         result = self.converter.convert_request(request, APIType.ANTHROPIC)
-        assert result["messages"] == [
-            {"role": "tool", "tool_call_id": "toolu_001", "content": "42"}
-        ]
+        assert result["messages"] == [{"role": "tool", "tool_call_id": "toolu_001", "content": "42"}]
 
     def test_tool_use_input_list_is_json_serialized(self):
         """非 dict tool_use input 也应输出为 JSON 字符串"""
@@ -337,26 +350,32 @@ class TestAnthropicToChat:
 
 
 class TestAnthropicToChatReviewFixes:
-    """REVIEW.md #5 / #8 的回归测试。"""
+    """边界条件的回归测试。"""
 
     def setup_method(self):
         self.converter = ToChatCompletionsConverter()
 
     # #5 input_json_delta 缺少前置 content_block_start 时 fallback 到最后已知 tc_idx
     def test_input_json_delta_fallback_uses_last_tool_call_index(self):
-        # 模拟两次 tool_use start（tc_idx 0、1），随后一个 input_json_delta 的 block_index
-        # 与已知映射不匹配 —— fallback 应当回到 tool_call_index-1 而不是 block_index 原值
-        self.converter._reset_stream_state()
-        # 手动种入一个已知映射：block_index=2 -> tc_idx=0
-        self.converter._stream_state["content_block_to_tc_index"] = {2: 0, 3: 1}
-        self.converter._stream_state["tool_call_index"] = 2
+        # 公共协议模拟两次 tool_use start（block_index 2、3 → tc_idx 0、1），
+        # 随后一个 input_json_delta 的 block_index 与已知映射不匹配 ——
+        # fallback 应当回到 tool_call_index-1 而不是 block_index 原值
+        for block_index, tool_id in ((2, "toolu_a"), (3, "toolu_b")):
+            self.converter.convert_stream_chunk(
+                {
+                    "type": "content_block_start",
+                    "index": block_index,
+                    "content_block": {"type": "tool_use", "id": tool_id, "name": "f", "input": {}},
+                },
+                APIType.ANTHROPIC.value,
+            )
 
         chunk = {
             "type": "content_block_delta",
             "index": 99,  # 未知 block_index
             "delta": {"type": "input_json_delta", "partial_json": '{"a":1}'},
         }
-        out = self.converter._anthropic_stream_chunk_to_chat(chunk)
+        (out,) = self.converter.convert_stream_chunk(chunk, APIType.ANTHROPIC.value)
         tool_call = out["choices"][0]["delta"]["tool_calls"][0]
         # tool_call_index - 1 = 1，不应是 99
         assert tool_call["index"] == 1

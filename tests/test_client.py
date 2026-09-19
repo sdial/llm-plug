@@ -6,7 +6,7 @@ import pytest
 
 import client
 from models.api_types import APIType
-from models.channel import Channel
+from models.channel import Channel, Endpoint
 
 
 @pytest.fixture(autouse=True)
@@ -15,6 +15,9 @@ def reset_client_state():
     client._clients.clear()
     client._cache_ts.clear()
     client._retired_clients.clear()
+    for task in list(client._retirement_tasks):
+        task.cancel()
+    client._retirement_tasks.clear()
     yield
     # teardown: 关闭所有未关闭的客户端
     for c in list(client._clients.values()) + list(client._retired_clients):
@@ -28,6 +31,9 @@ def reset_client_state():
     client._clients.clear()
     client._cache_ts.clear()
     client._retired_clients.clear()
+    for task in list(client._retirement_tasks):
+        task.cancel()
+    client._retirement_tasks.clear()
 
 
 @pytest.fixture
@@ -35,8 +41,7 @@ def sample_channel():
     return Channel(
         id="ch_1",
         name="Test Channel",
-        api_type=APIType.OPENAI_CHAT,
-        base_url="https://api.openai.com",
+        endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
         api_key="sk-test",
         models=["gpt-4"],
     )
@@ -47,8 +52,7 @@ def anthropic_channel():
     return Channel(
         id="ch_2",
         name="Anthropic Channel",
-        api_type=APIType.ANTHROPIC,
-        base_url="https://api.anthropic.com",
+        endpoints=[Endpoint(api_type=APIType.ANTHROPIC, base_url="https://api.anthropic.com")],
         api_key="ak-test",
         models=["claude-opus-4-7"],
     )
@@ -59,8 +63,7 @@ def proxy_channel():
     return Channel(
         id="ch_3",
         name="Proxy Channel",
-        api_type=APIType.OPENAI_CHAT,
-        base_url="https://proxy.example.com",
+        endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://proxy.example.com")],
         api_key="sk-test",
         models=["gpt-4"],
         socks5_proxy="socks5://127.0.0.1:1080",
@@ -81,8 +84,7 @@ class TestCacheKey:
         ch = Channel(
             id="ch_1",
             name="Test",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.openai.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
             api_key="key",
             models=["gpt-4"],
         )
@@ -92,13 +94,26 @@ class TestCacheKey:
         ch = Channel(
             id="ch_1",
             name="Test",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="https://api.openai.com",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://api.openai.com")],
             api_key="key",
             models=["gpt-4"],
             socks5_proxy="socks5://127.0.0.1:1080",
         )
         assert client._cache_key(ch) == "https://api.openai.com|socks5://127.0.0.1:1080"
+
+    def test_explicit_endpoint_overrides_channel_selection(self):
+        ch = Channel(
+            id="ch_multi",
+            name="Multi",
+            endpoints=[
+                Endpoint(api_type=APIType.OPENAI_CHAT, base_url="https://first.example"),
+                Endpoint(api_type=APIType.ANTHROPIC, base_url="https://second.example"),
+            ],
+            api_key="key",
+            models=["model-a"],
+        )
+
+        assert client._cache_key(ch, ch.endpoints[1]) == "https://second.example|"
 
 
 class TestGetOrCreateClient:
@@ -115,9 +130,7 @@ class TestGetOrCreateClient:
         assert c1 is c2
 
     @pytest.mark.anyio
-    async def test_creates_different_client_for_different_proxy(
-        self, sample_channel, proxy_channel
-    ):
+    async def test_creates_different_client_for_different_proxy(self, sample_channel, proxy_channel):
         # 相同 base_url 但不同 proxy 应创建不同客户端
         c1 = await client.get_or_create_client(sample_channel)
         c2 = await client.get_or_create_client(proxy_channel)
@@ -150,16 +163,13 @@ class TestGetOrCreateClient:
         assert not c2.is_closed
 
     @pytest.mark.anyio
-    async def test_evicts_least_recent_client_when_cache_exceeds_limit(
-        self, monkeypatch
-    ):
+    async def test_evicts_least_recent_client_when_cache_exceeds_limit(self, monkeypatch):
         monkeypatch.setattr(client, "_MAX_CACHED_CLIENTS", 2)
         channels = [
             Channel(
                 id=f"ch_{idx}",
                 name=f"Channel {idx}",
-                api_type=APIType.OPENAI_CHAT,
-                base_url=f"https://api{idx}.example.com",
+                endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url=f"https://api{idx}.example.com")],
                 api_key="sk-test",
                 models=["gpt-4"],
             )
@@ -185,17 +195,13 @@ class TestCreateStreamClient:
     def test_sets_read_timeout(self, sample_channel):
         c = client.create_stream_client(sample_channel)
         # 流式客户端的 read 超时使用 REQUEST_TIMEOUT
-        assert c.timeout.read == 300.0
+        assert c.timeout.read == float(client.config.REQUEST_TIMEOUT)
 
     def test_uses_proxy_when_configured(self, proxy_channel):
         c = client.create_stream_client(proxy_channel)
         # httpx.AsyncClient 的 _mounts 中包含代理
         mounts = getattr(c, "_mounts", {})
-        has_proxy = (
-            any(getattr(m, "_proxy_url", None) is not None for m in mounts.values())
-            if mounts
-            else False
-        )
+        has_proxy = any(getattr(m, "_proxy_url", None) is not None for m in mounts.values()) if mounts else False
         # 另一种检测方式：检查 transport 是否有代理
         transport = getattr(c, "_transport", None)
         if transport:
@@ -229,6 +235,16 @@ class TestInvalidateAllClients:
         assert not c1.is_closed
         assert not c2.is_closed
 
+    @pytest.mark.anyio
+    async def test_delayed_close_is_tracked_until_shutdown(self, sample_channel):
+        await client.get_or_create_client(sample_channel)
+
+        await client.invalidate_all_clients()
+
+        assert len(client._retirement_tasks) == 1
+        await client.close_all_clients()
+        assert client._retirement_tasks == set()
+
     def test_retired_close_delay_is_at_least_request_timeout(self, monkeypatch):
         monkeypatch.setattr(client.config, "REQUEST_TIMEOUT", 300)
 
@@ -242,7 +258,8 @@ class TestCleanupStaleClients:
         # 将缓存时间设为很久以前
         client._cache_ts[client._cache_key(sample_channel)] = time.time() - 1000
         await client.cleanup_stale_clients(max_age=300.0)
-        assert c.is_closed
+        # 清理缓存不应中断可能仍在使用该连接池的长请求；延迟退休负责最终关闭。
+        assert not c.is_closed
         assert len(client._clients) == 0
 
     @pytest.mark.anyio
@@ -270,9 +287,7 @@ class TestCleanupStaleClients:
 
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(client.time, "time", fake_time)
-            cleanup_task = asyncio.create_task(
-                client.cleanup_stale_clients(max_age=300.0)
-            )
+            cleanup_task = asyncio.create_task(client.cleanup_stale_clients(max_age=300.0))
             reused = await client.get_or_create_client(sample_channel)
             await cleanup_task
 
@@ -283,9 +298,7 @@ class TestCleanupStaleClients:
 
 class TestRemoveChannelClient:
     @pytest.mark.anyio
-    async def test_removes_and_retires_client_without_immediate_close(
-        self, sample_channel
-    ):
+    async def test_removes_and_retires_client_without_immediate_close(self, sample_channel):
         c = await client.get_or_create_client(sample_channel)
         removed = await client.remove_channel_client(sample_channel)
         assert removed is c
@@ -312,12 +325,12 @@ class TestGetUpstreamHeaders:
         assert "anthropic-beta" not in headers
 
     def test_anthropic_beta_header_is_channel_configured(self, anthropic_channel):
-        anthropic_channel.anthropic_beta = "prompt-caching-2024-07-31"
+        anthropic_channel.endpoints[0].anthropic_beta = "prompt-caching-2024-07-31"
         headers = client.get_upstream_headers(anthropic_channel)
         assert headers["anthropic-beta"] == "prompt-caching-2024-07-31"
 
     def test_anthropic_version_uses_channel_policy_by_default(self, anthropic_channel):
-        anthropic_channel.anthropic_version = "2024-10-22"
+        anthropic_channel.endpoints[0].anthropic_version = "2024-10-22"
         headers = client.get_upstream_headers(
             anthropic_channel,
             {"anthropic-version": "2025-01-01"},
@@ -325,89 +338,71 @@ class TestGetUpstreamHeaders:
         assert headers["anthropic-version"] == "2024-10-22"
 
     def test_anthropic_version_can_use_client_policy(self, anthropic_channel):
-        anthropic_channel.anthropic_version = "2024-10-22"
-        anthropic_channel.anthropic_version_policy = "client"
+        anthropic_channel.endpoints[0].anthropic_version = "2024-10-22"
+        anthropic_channel.endpoints[0].anthropic_version_policy = "client"
         headers = client.get_upstream_headers(
             anthropic_channel,
             {"anthropic-version": "2025-01-01"},
         )
         assert headers["anthropic-version"] == "2025-01-01"
 
-    def test_anthropic_version_client_policy_requires_client_version(
-        self, anthropic_channel
-    ):
-        anthropic_channel.anthropic_version = "2024-10-22"
-        anthropic_channel.anthropic_version_policy = "client"
+    def test_anthropic_version_client_policy_requires_client_version(self, anthropic_channel):
+        anthropic_channel.endpoints[0].anthropic_version = "2024-10-22"
+        anthropic_channel.endpoints[0].anthropic_version_policy = "client"
 
         with pytest.raises(ValueError, match="anthropic-version"):
             client.get_upstream_headers(anthropic_channel)
 
-    def test_anthropic_version_channel_if_missing_uses_client_when_present(
-        self, anthropic_channel
-    ):
-        anthropic_channel.anthropic_version = "2024-10-22"
-        anthropic_channel.anthropic_version_policy = "channel_if_missing"
+    def test_anthropic_version_channel_if_missing_uses_client_when_present(self, anthropic_channel):
+        anthropic_channel.endpoints[0].anthropic_version = "2024-10-22"
+        anthropic_channel.endpoints[0].anthropic_version_policy = "channel_if_missing"
         headers = client.get_upstream_headers(
             anthropic_channel,
             {"anthropic-version": "2025-01-01"},
         )
         assert headers["anthropic-version"] == "2025-01-01"
 
-    def test_anthropic_version_channel_if_missing_falls_back_to_channel(
-        self, anthropic_channel
-    ):
-        anthropic_channel.anthropic_version = "2024-10-22"
-        anthropic_channel.anthropic_version_policy = "channel_if_missing"
+    def test_anthropic_version_channel_if_missing_falls_back_to_channel(self, anthropic_channel):
+        anthropic_channel.endpoints[0].anthropic_version = "2024-10-22"
+        anthropic_channel.endpoints[0].anthropic_version_policy = "channel_if_missing"
         headers = client.get_upstream_headers(anthropic_channel)
         assert headers["anthropic-version"] == "2024-10-22"
 
     def test_anthropic_beta_can_use_client_policy(self, anthropic_channel):
-        anthropic_channel.anthropic_beta = "prompt-caching-2024-07-31"
-        anthropic_channel.anthropic_beta_policy = "client"
+        anthropic_channel.endpoints[0].anthropic_beta = "prompt-caching-2024-07-31"
+        anthropic_channel.endpoints[0].anthropic_beta_policy = "client"
         headers = client.get_upstream_headers(
             anthropic_channel,
             {"anthropic-beta": "token-efficient-tools-2025-02-19"},
         )
         assert headers["anthropic-beta"] == "token-efficient-tools-2025-02-19"
 
-    def test_anthropic_beta_channel_if_missing_uses_client_when_present(
-        self, anthropic_channel
-    ):
-        anthropic_channel.anthropic_beta = "prompt-caching-2024-07-31"
-        anthropic_channel.anthropic_beta_policy = "channel_if_missing"
+    def test_anthropic_beta_channel_if_missing_uses_client_when_present(self, anthropic_channel):
+        anthropic_channel.endpoints[0].anthropic_beta = "prompt-caching-2024-07-31"
+        anthropic_channel.endpoints[0].anthropic_beta_policy = "channel_if_missing"
         headers = client.get_upstream_headers(
             anthropic_channel,
             {"anthropic-beta": "token-efficient-tools-2025-02-19"},
         )
         assert headers["anthropic-beta"] == "token-efficient-tools-2025-02-19"
 
-    def test_anthropic_beta_channel_if_missing_falls_back_to_channel(
-        self, anthropic_channel
-    ):
-        anthropic_channel.anthropic_beta = "prompt-caching-2024-07-31"
-        anthropic_channel.anthropic_beta_policy = "channel_if_missing"
+    def test_anthropic_beta_channel_if_missing_falls_back_to_channel(self, anthropic_channel):
+        anthropic_channel.endpoints[0].anthropic_beta = "prompt-caching-2024-07-31"
+        anthropic_channel.endpoints[0].anthropic_beta_policy = "channel_if_missing"
         headers = client.get_upstream_headers(anthropic_channel)
         assert headers["anthropic-beta"] == "prompt-caching-2024-07-31"
 
     def test_anthropic_beta_merge_combines_channel_and_client(self, anthropic_channel):
-        anthropic_channel.anthropic_beta = (
-            "prompt-caching-2024-07-31,token-efficient-tools-2025-02-19"
-        )
-        anthropic_channel.anthropic_beta_policy = "merge"
+        anthropic_channel.endpoints[0].anthropic_beta = "prompt-caching-2024-07-31,token-efficient-tools-2025-02-19"
+        anthropic_channel.endpoints[0].anthropic_beta_policy = "merge"
         headers = client.get_upstream_headers(
             anthropic_channel,
-            {
-                "anthropic-beta": "token-efficient-tools-2025-02-19,search-results-2025-01-15"
-            },
+            {"anthropic-beta": "token-efficient-tools-2025-02-19,search-results-2025-01-15"},
         )
-        assert headers["anthropic-beta"] == (
-            "prompt-caching-2024-07-31,"
-            "token-efficient-tools-2025-02-19,"
-            "search-results-2025-01-15"
-        )
+        assert headers["anthropic-beta"] == ("prompt-caching-2024-07-31,token-efficient-tools-2025-02-19,search-results-2025-01-15")
 
     def test_anthropic_beta_merge_with_client_only(self, anthropic_channel):
-        anthropic_channel.anthropic_beta_policy = "merge"
+        anthropic_channel.endpoints[0].anthropic_beta_policy = "merge"
         headers = client.get_upstream_headers(
             anthropic_channel,
             {"anthropic-beta": "search-results-2025-01-15"},

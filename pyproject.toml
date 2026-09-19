@@ -1,6 +1,6 @@
 [project]
 name = "llm-plug"
-version = "1.0.75"
+version = "1.3.5"
 description = "LLM API 转换器 — 支持 OpenAI Chat Completions、OpenAI Response 和 Anthropic 格式互转，带负载均衡与故障转移"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -35,6 +35,9 @@ test = [
 url = "https://mirrors.cloud.tencent.com/pypi/simple/"
 default = true
 
+[tool.ruff]
+line-length = 150
+
 [tool.ruff.lint]
 select = [
     "E",   # pycodestyle
@@ -43,4 +46,12 @@ select = [
     "B",   # flake8-bugbear
     "SIM", # flake8-simplify
     "I",   # isort
+]
+ignore = [
+    "SIM105", # try/except/pass → contextlib.suppress：纯写法，ruff 无安全自动修复
+    "SIM115", # open() → with open()：纯写法，ruff 无安全自动修复
+    "SIM117", # 嵌套 with → 合并：纯写法，ruff 无安全自动修复
+    "UP040",  # TypeAlias → type：纯风格，ruff 无安全自动修复
+    "UP007",  # Optional[X] → X | Y：纯风格，ruff 无安全自动修复
+    "UP042",  # str+Enum → StrEnum：--unsafe-fixes 才修，会改语义
 ]

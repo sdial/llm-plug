@@ -166,12 +166,6 @@ class TestViewerLogging:
             for handler_id in handler_ids:
                 logger.remove(handler_id)
 
-        assert "viewer warning smoke" in (tmp_path / "warning.log").read_text(
-            encoding="utf-8"
-        )
-        assert "viewer error smoke" in (tmp_path / "error.log").read_text(
-            encoding="utf-8"
-        )
-        assert "viewer critical smoke" in (tmp_path / "critical.log").read_text(
-            encoding="utf-8"
-        )
+        assert "viewer warning smoke" in (tmp_path / "warning.log").read_text(encoding="utf-8")
+        assert "viewer error smoke" in (tmp_path / "error.log").read_text(encoding="utf-8")
+        assert "viewer critical smoke" in (tmp_path / "critical.log").read_text(encoding="utf-8")

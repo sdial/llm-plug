@@ -77,9 +77,7 @@ class TestOpenAIChatToAnthropic:
         }
 
     def test_no_details(self):
-        result = openai_chat_to_anthropic(
-            {"prompt_tokens": 50, "completion_tokens": 20}
-        )
+        result = openai_chat_to_anthropic({"prompt_tokens": 50, "completion_tokens": 20})
         assert result == {
             "input_tokens": 50,
             "output_tokens": 20,

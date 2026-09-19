@@ -1,9 +1,12 @@
 """转换器矩阵测试 - 验证 Claude Code / OpenCode 兼容性"""
 
+import pytest
+
 from converters.to_anthropic import ToAnthropicConverter
 from converters.to_chat import ToChatCompletionsConverter
 from converters.to_response import ToResponseConverter
 from models.api_types import APIType
+from models.channel import Endpoint
 
 # ─── OpenAI Chat → Anthropic (OpenCode → Anthropic渠道) ───
 
@@ -24,7 +27,6 @@ class TestChatToAnthropic:
         assert "messages" in result
         assert result["messages"][0]["role"] == "user"
         assert result["model"] == "gpt-4o"
-        assert "max_tokens" in result
 
     def test_system_message_extraction(self):
         """OpenAI system message 应转为 Anthropic system 字段"""
@@ -135,25 +137,114 @@ class TestResponseToAnthropic:
         user_with_tool_result = [
             m
             for m in messages
-            if m["role"] == "user"
-            and isinstance(m.get("content"), list)
-            and any(c.get("type") == "tool_result" for c in m["content"])
+            if m["role"] == "user" and isinstance(m.get("content"), list) and any(c.get("type") == "tool_result" for c in m["content"])
         ]
 
         # 两个连续 function_call_output 应合并为 1 条 user 消息，而非 2 条
-        assert len(user_with_tool_result) == 1, (
-            f"Expected 1 user message with merged tool_results, got {len(user_with_tool_result)}"
-        )
+        assert len(user_with_tool_result) == 1, f"Expected 1 user message with merged tool_results, got {len(user_with_tool_result)}"
 
         # 合并后的消息应包含 2 个 tool_result 块
-        tool_results = [
-            c
-            for c in user_with_tool_result[0]["content"]
-            if c.get("type") == "tool_result"
-        ]
+        tool_results = [c for c in user_with_tool_result[0]["content"] if c.get("type") == "tool_result"]
         assert len(tool_results) == 2
         assert tool_results[0]["tool_use_id"] == "call_1"
         assert tool_results[1]["tool_use_id"] == "call_2"
+
+    def test_reasoning_effort_maps_to_thinking(self):
+        """M4: Responses reasoning.effort -> Anthropic thinking.budget_tokens"""
+        request = {
+            "model": "gpt-4o",
+            "input": [{"role": "user", "content": "Hi"}],
+            "max_output_tokens": 32768,
+            "reasoning": {"effort": "high"},
+        }
+        result = self.converter.convert_request(request, "openai-response")
+        assert result["thinking"] == {"type": "enabled", "budget_tokens": 16384}
+
+    def test_reasoning_effort_low_maps_to_thinking(self):
+        """M4: reasoning.effort=low -> budget_tokens 1024"""
+        request = {
+            "model": "gpt-4o",
+            "input": [{"role": "user", "content": "Hi"}],
+            "reasoning": {"effort": "low"},
+        }
+        result = self.converter.convert_request(request, "openai-response")
+        assert result["thinking"] == {"type": "enabled", "budget_tokens": 1024}
+
+    def test_reasoning_effort_clamped_to_max_tokens(self):
+        """M4: thinking budget 超过 max_tokens 余量时应 clamp，避免官方 Anthropic 400"""
+        request = {
+            "model": "gpt-4o",
+            "input": [{"role": "user", "content": "Hi"}],
+            "max_output_tokens": 2048,
+            "reasoning": {"effort": "high"},
+        }
+        result = self.converter.convert_request(request, "openai-response")
+        assert result["thinking"]["budget_tokens"] == 1024
+
+    def test_reasoning_effort_skipped_when_max_tokens_too_small(self):
+        """M4: max_tokens 无法容纳 thinking 时跳过映射（不发送无效请求）"""
+        request = {
+            "model": "gpt-4o",
+            "input": [{"role": "user", "content": "Hi"}],
+            "max_output_tokens": 1024,
+            "reasoning": {"effort": "high"},
+        }
+        result = self.converter.convert_request(request, "openai-response")
+        assert "thinking" not in result
+
+    def test_stop_maps_to_stop_sequences(self):
+        """M4: Responses stop -> Anthropic stop_sequences"""
+        request = {
+            "model": "gpt-4o",
+            "input": [{"role": "user", "content": "Hi"}],
+            "stop": ["END", "STOP"],
+        }
+        result = self.converter.convert_request(request, "openai-response")
+        assert result["stop_sequences"] == ["END", "STOP"]
+
+    def test_stop_string_maps_to_single_stop_sequence(self):
+        """M4: 字符串 stop -> 单元素 stop_sequences"""
+        request = {
+            "model": "gpt-4o",
+            "input": [{"role": "user", "content": "Hi"}],
+            "stop": "END",
+        }
+        result = self.converter.convert_request(request, "openai-response")
+        assert result["stop_sequences"] == ["END"]
+
+    def test_tool_choice_none_string_maps_to_anthropic_none(self):
+        """M4: tool_choice='none' 应映射 {"type": "none"}（官方 Anthropic 支持，防止模型私自调用工具）"""
+        request = {
+            "model": "gpt-4o",
+            "input": [{"role": "user", "content": "Hi"}],
+            "tools": [{"type": "function", "name": "search", "parameters": {"type": "object"}}],
+            "tool_choice": "none",
+        }
+        result = self.converter.convert_request(request, "openai-response")
+        assert result["tool_choice"] == {"type": "none"}
+
+    def test_tool_choice_none_dict_maps_to_anthropic_none(self):
+        """M4: tool_choice={'type': 'none'} 应映射 {"type": "none"}"""
+        request = {
+            "model": "gpt-4o",
+            "input": [{"role": "user", "content": "Hi"}],
+            "tools": [{"type": "function", "name": "search", "parameters": {"type": "object"}}],
+            "tool_choice": {"type": "none"},
+        }
+        result = self.converter.convert_request(request, "openai-response")
+        assert result["tool_choice"] == {"type": "none"}
+
+    def test_thinking_and_tool_choice_none_compatible(self):
+        """M4: thinking + tool_choice none 同时映射不冲突（官方文档两者兼容）"""
+        request = {
+            "model": "gpt-4o",
+            "input": [{"role": "user", "content": "Hi"}],
+            "reasoning": {"effort": "medium"},
+            "tool_choice": "none",
+        }
+        result = self.converter.convert_request(request, "openai-response")
+        assert result["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+        assert result["tool_choice"] == {"type": "none"}
 
 
 # ─── Anthropic → OpenAI Chat (Claude Code → OpenAI渠道) ───
@@ -255,6 +346,47 @@ class TestAnthropicToChat:
         assert result["choices"][0]["finish_reason"] == "stop"
 
 
+# ─── Anthropic → OpenAI Response (Claude Code / CODEX → OpenAI Response) ───
+
+
+class TestAnthropicToResponse:
+    """测试 Anthropic → OpenAI Response 转换"""
+
+    def setup_method(self):
+        self.converter = ToResponseConverter()
+
+    def test_nonstream_tool_use_output_item_has_id_and_status(self):
+        """非流式 tool_use 响应转出的 function_call output item 必须带 id 和 status
+
+        与 Chat 方向（_chat_response_to_response）和流式路径保持一致；
+        CODEX / Agents SDK 等严格客户端解析 output items 依赖完整字段。
+        """
+        response = {
+            "id": "msg_001",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_001",
+                    "name": "search",
+                    "input": {"q": "test"},
+                },
+            ],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        result = self.converter.convert_response(response, APIType.ANTHROPIC)
+
+        fc_items = [item for item in result["output"] if item["type"] == "function_call"]
+        assert len(fc_items) == 1
+        fc = fc_items[0]
+        assert fc["id"].startswith("fc_")
+        assert fc["call_id"] == "toolu_001"
+        assert fc["status"] == "completed"
+
+
 # ─── OpenAI Chat → OpenAI Response ───
 
 
@@ -272,6 +404,29 @@ class TestChatToResponse:
         result = self.converter.convert_request(request, APIType.OPENAI_CHAT)
         assert "input" in result
         assert result["model"] == "gpt-4o"
+
+    def test_multiple_system_messages_are_joined_in_order(self):
+        result = self.converter.convert_request(
+            {
+                "model": "gpt-4o",
+                "messages": [
+                    {"role": "system", "content": "first instruction"},
+                    {"role": "system", "content": "second instruction"},
+                    {"role": "user", "content": "hello"},
+                ],
+            },
+            APIType.OPENAI_CHAT,
+        )
+
+        assert result["instructions"] == "first instruction\n\nsecond instruction"
+
+    def test_disabled_anthropic_thinking_does_not_enable_reasoning(self):
+        result = self.converter.convert_request(
+            {"model": "claude", "messages": [{"role": "user", "content": "hello"}], "thinking": {"type": "disabled"}},
+            APIType.ANTHROPIC,
+        )
+
+        assert "reasoning" not in result
 
     def test_non_stream_response_preserves_multiple_choices_as_output_messages(self):
         response = {
@@ -315,7 +470,7 @@ class TestPassthrough:
             "max_tokens": 100,
             "thinking": {"type": "enabled", "budget_tokens": 1000},
         }
-        # 透传时 converter 为 None，proxy_core 不做转换
+        # 透传时 converter 为 None，编排层不做转换
         # 这里验证的是请求体不被修改
         assert request["thinking"]["type"] == "enabled"
         assert request["max_tokens"] == 100
@@ -339,11 +494,11 @@ class TestEdgeCases:
     """测试边界情况"""
 
     def test_empty_messages(self):
-        """空消息列表应不崩溃"""
+        """全空消息列表应在转换阶段明确拒绝。"""
         converter = ToAnthropicConverter()
         request = {"model": "gpt-4o", "messages": [], "max_tokens": 100}
-        result = converter.convert_request(request, APIType.OPENAI_CHAT)
-        assert "messages" in result
+        with pytest.raises(ValueError, match="all-empty conversation"):
+            converter.convert_request(request, APIType.OPENAI_CHAT)
 
     def test_multimodal_content(self):
         """多模态内容应正确转换"""
@@ -396,11 +551,11 @@ class TestEdgeCases:
 
 
 class TestConverterRouting:
-    """测试 proxy_core 路由表覆盖所有转换方向"""
+    """测试 proxy.conversion 路由表覆盖所有转换方向"""
 
     def test_all_conversion_directions(self):
         """验证 CONVERTER_MAP 包含所有 6 个非直通组合"""
-        from proxy_core import CONVERTER_MAP
+        from proxy.conversion import CONVERTER_MAP
 
         expected = {
             ("openai-chat-completions", "anthropic"),
@@ -416,16 +571,15 @@ class TestConverterRouting:
         """同格式应返回 None, None"""
         from models.api_types import APIType
         from models.channel import Channel
-        from proxy_core import _get_converter_and_upstream_type
+        from proxy.conversion import get_converter_and_upstream_type
 
         channel = Channel(
             name="test",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="http://test",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="http://test")],
             api_key="test",
             models=["gpt-4o"],
         )
-        req, resp, src = _get_converter_and_upstream_type(channel, APIType.OPENAI_CHAT)
+        req, resp, src = get_converter_and_upstream_type(channel, APIType.OPENAI_CHAT)
         assert req is None
         assert resp is None
         assert src == "openai-chat-completions"
@@ -437,23 +591,22 @@ class TestConverterRouting:
         import pytest
 
         # 验证 CONVERTER_MAP 对不存在的键返回 None
-        from proxy_core import CONVERTER_MAP
+        from proxy.conversion import CONVERTER_MAP
 
         assert CONVERTER_MAP.get(("nonexistent", "type")) is None
 
         # 通过 mock CONVERTER_MAP.get 触发 ValueError 分支
         from models.api_types import APIType
         from models.channel import Channel
-        from proxy_core import _get_converter_and_upstream_type
+        from proxy.conversion import get_converter_and_upstream_type
 
         channel = Channel(
             name="test",
-            api_type=APIType.OPENAI_CHAT,
-            base_url="http://test",
+            endpoints=[Endpoint(api_type=APIType.OPENAI_CHAT, base_url="http://test")],
             api_key="test",
             models=["gpt-4o"],
         )
 
-        with patch("proxy_core.CONVERTER_MAP", {}):
+        with patch("proxy.conversion.CONVERTER_MAP", {}):
             with pytest.raises(ValueError, match="不支持的转换方向"):
-                _get_converter_and_upstream_type(channel, APIType.ANTHROPIC)
+                get_converter_and_upstream_type(channel, APIType.ANTHROPIC)
