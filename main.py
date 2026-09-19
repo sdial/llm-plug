@@ -27,8 +27,8 @@ from storage import load_api_keys
 from upstream_catalog import catalog as upstream_catalog
 
 # 应用版本号 — 发布新版本时改这一行即可，无需动 static/index.html
-APP_VERSION = "v1.6.17"
-APP_RELEASE_DATE = "2026-09-15"
+APP_VERSION = "v1.6.18"
+APP_RELEASE_DATE = "2026-09-19"
 # 静态资源版本号 — 每次更新 JS/CSS 后修改此值即可强制浏览器刷新缓存
 STATIC_ASSET_VERSION = "51"
 

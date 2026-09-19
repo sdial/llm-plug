@@ -17,12 +17,13 @@ from converters.stream_events import (
 
 
 class TestBuildChatCompletionChunk:
-    def test_minimal_envelope_five_fields(self):
+    def test_minimal_envelope_five_fields(self, monkeypatch):
+        monkeypatch.setattr("converters.stream_events.time.time", lambda: 1700000000)
         chunk = _build_chat_completion_chunk("c1", "gpt-4o")
         assert chunk == {
             "id": "c1",
             "object": "chat.completion.chunk",
-            "created": 0,
+            "created": 1700000000,
             "model": "gpt-4o",
             "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
         }

@@ -6,7 +6,7 @@
 
 **English** | [中文](./README_zh-CN.md)
 
-[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.13+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136+-009688.svg)](https://fastapi.tiangolo.com/)
 
 </div>
@@ -34,7 +34,7 @@ LLM-Plug is an LLM API format conversion proxy. Clients send requests in one API
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Python 3.12+ / FastAPI / Uvicorn |
+| Backend | Python 3.13+ / FastAPI / Uvicorn |
 | Frontend | Native HTML + TailwindCSS + htmx (local assets, zero CDN dependency) |
 | Storage | JSON files / SQLite3 |
 | HTTP Client | httpx[socks] + brotli + zstandard |
@@ -44,7 +44,7 @@ LLM-Plug is an LLM API format conversion proxy. Clients send requests in one API
 
 ### Prerequisites
 
-- Python >= 3.12
+- Python >= 3.13（开发与镜像基线：3.13.15）
 - [uv](https://docs.astral.sh/uv/) package manager
 
 ### Run Locally

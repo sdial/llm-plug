@@ -367,7 +367,7 @@ class TestQueueOverflowDuringShutdown:
 
         overflow_count = 0
         if overflow_file.exists():
-            overflow_count = len(overflow_file.read_text().strip().split("\n"))
+            overflow_count = sum(1 for line in overflow_file.read_text().splitlines() if line.strip())
 
         total = db_count + overflow_count
         assert total == 20, f"Expected 20 total records (db={db_count}, overflow={overflow_count})"

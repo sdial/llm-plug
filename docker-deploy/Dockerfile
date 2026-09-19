@@ -1,7 +1,7 @@
 # ===== Stage 1: Build dependencies =====
-FROM python:3.12-slim AS builder
+FROM python:3.13.15-slim AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.6.14 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.17 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY pyproject.toml uv.lock .
 RUN uv sync --no-dev --frozen --compile-bytecode
 
 # ===== Stage 2: Runtime =====
-FROM python:3.12-slim
+FROM python:3.13.15-slim
 
 # 安装时区数据库
 RUN apt-get update && \

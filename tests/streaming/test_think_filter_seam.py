@@ -5,8 +5,8 @@
 
 - `_apply_think_filter_to_event`：过滤应用点——dict 事件直接过滤 /
   事件被吞（返回 None）语义；
-- `_think_flush_residual_events`：flush 残余合成——按目标格式产出合法事件形状
-  （Anthropic 目标复用最近 text 块 index 的 M2 语义）；
+- `_think_flush_residual_events`：flush 残余合成——只输出思考块外的合法残余，
+  未闭合思考块一律丢弃；
 - `_format_think_filtered_finalize_events`：converter finalize 事件（两拍协议拍 2）
   的过滤编排（M2 语义：finalize 事件此前零过滤，现统一过滤，被吞事件跳过）。
 """
@@ -39,7 +39,13 @@ def _text_delta(index: int, text: str) -> dict:
 
 def _filter_with_unclosed_think() -> ThinkFilter:
     tf = ThinkFilter()
-    tf.feed("💭secret")  # 未闭合 💭 块：残余只能靠 flush 吐出
+    tf.feed("💭secret")  # 未闭合 💭 块：flush 必须丢弃
+    return tf
+
+
+def _filter_with_partial_start_tag() -> ThinkFilter:
+    tf = ThinkFilter()
+    assert tf.feed("<thi") == ""
     return tf
 
 
@@ -88,23 +94,38 @@ def test_flush_residual_no_remaining_returns_empty():
 
 
 def test_flush_residual_chat_target_wire_bytes():
-    out = _think_flush_residual_events(_filter_with_unclosed_think(), False, False, "test-model", 0)
+    out = _think_flush_residual_events(_filter_with_partial_start_tag(), False, False, "test-model", 0)
     assert out == [
         'data: {"id": "chatcmpl-stream", "object": "chat.completion.chunk", "created": 0, "model": "test-model", '
-        '"choices": [{"index": 0, "delta": {"content": "💭secret"}, "finish_reason": null}]}\n\n'
+        '"choices": [{"index": 0, "delta": {"content": "<thi"}, "finish_reason": null}]}\n\n'
     ]
 
 
 def test_flush_residual_responses_target_wire_bytes():
-    out = _think_flush_residual_events(_filter_with_unclosed_think(), False, True, "test-model", 0)
-    assert out == ['event: response.output_text.delta\ndata: {"type": "response.output_text.delta", "delta": "💭secret"}\n\n']
+    out = _think_flush_residual_events(_filter_with_partial_start_tag(), False, True, "test-model", 0)
+    assert out == ['event: response.output_text.delta\ndata: {"type": "response.output_text.delta", "delta": "<thi"}\n\n']
 
 
 def test_flush_residual_anthropic_reuses_last_text_index_m2():
-    out = _think_flush_residual_events(_filter_with_unclosed_think(), True, False, "test-model", 3)
+    out = _think_flush_residual_events(_filter_with_partial_start_tag(), True, False, "test-model", 3)
     assert out == [
-        'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 3, "delta": {"type": "text_delta", "text": "💭secret"}}\n\n'
+        'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 3, "delta": {"type": "text_delta", "text": "<thi"}}\n\n'
     ]
+
+
+def test_flush_discards_unclosed_think_for_all_targets():
+    targets = ((False, False, 0), (False, True, 0), (True, False, 3))
+    for output_anthropic_sse, output_responses_sse, last_text_delta_index in targets:
+        assert (
+            _think_flush_residual_events(
+                _filter_with_unclosed_think(),
+                output_anthropic_sse,
+                output_responses_sse,
+                "test-model",
+                last_text_delta_index,
+            )
+            == []
+        )
 
 
 # ─── 接缝 3：finalize 过滤编排 _format_think_filtered_finalize_events ───

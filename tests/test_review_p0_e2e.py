@@ -151,20 +151,8 @@ class TestM2ThinkFilterAnthropicTarget:
         assert "hidden" not in joined, f"💭 思考块泄漏进 Claude 上下文：{joined!r}"
         assert "visible" in joined, f"正文必须保留：{joined!r}"
 
-        # 末尾未闭合 💭 的残余必须通过合法 content_block_delta（text_delta）输出，
-        # 而不是畸形 Chat 形状裸 data: 行（旧行为）
-        flush_events = [
-            (evt_type, data)
-            for evt_type, data in events
-            if evt_type == "content_block_delta"
-            and (data.get("delta") or {}).get("type") == "text_delta"
-            and "partial" in (data.get("delta") or {}).get("text", "")
-        ]
-        assert flush_events, f"EOF flush 残余必须以 content_block_delta 输出：{events!r}"
-        flush = flush_events[-1][1]
-        assert flush["type"] == "content_block_delta"
-        assert flush["delta"]["type"] == "text_delta"
-        assert "index" in flush, f"content_block_delta 必须携带 index：{flush!r}"
+        # 末尾未闭合 💭 仍属于思考块，EOF 时必须丢弃，不得泄漏。
+        assert "partial" not in joined, f"未闭合思考块泄漏进 Claude 上下文：{joined!r}"
 
         # 协议收尾完整：必须出现 message_stop
         evt_types = [evt_type for evt_type, _ in events]
@@ -203,20 +191,8 @@ class TestM2ThinkFilterAnthropicTarget:
         assert "hidden" not in joined, f"💭 思考块泄漏进 Claude 上下文：{joined!r}"
         assert "visible" in joined, f"正文必须保留：{joined!r}"
 
-        # 末尾未闭合 💭 的残余必须通过合法 content_block_delta（text_delta）输出，
-        # 上游发 [DONE] 时由 [DONE] 分支 flush 处理，不能退化成 Chat 形状裸 data: 行
-        flush_events = [
-            (evt_type, data)
-            for evt_type, data in events
-            if evt_type == "content_block_delta"
-            and (data.get("delta") or {}).get("type") == "text_delta"
-            and "partial" in (data.get("delta") or {}).get("text", "")
-        ]
-        assert flush_events, f"[DONE] flush 残余必须以 content_block_delta 输出：{events!r}"
-        flush = flush_events[-1][1]
-        assert flush["type"] == "content_block_delta"
-        assert flush["delta"]["type"] == "text_delta"
-        assert "index" in flush, f"content_block_delta 必须携带 index：{flush!r}"
+        # 即使上游显式发 [DONE]，未闭合 💭 思考块也必须丢弃。
+        assert "partial" not in joined, f"未闭合思考块泄漏进 Claude 上下文：{joined!r}"
 
         # 协议收尾完整：必须出现 message_stop
         evt_types = [evt_type for evt_type, _ in events]
