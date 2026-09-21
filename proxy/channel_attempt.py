@@ -59,7 +59,7 @@ class ChannelAttemptExhausted(Exception):
     def __init__(self, channel: Channel, cause: Exception):
         self.channel = channel
         self.cause = cause
-        super().__init__(f"渠道 {channel.name} 全部接入点失败: {cause}")
+        super().__init__(f"All endpoints for channel {channel.name} failed: {cause}")
 
 
 @dataclass(slots=True)
@@ -95,7 +95,7 @@ async def _prime_stream(stream):
         while first_chunk is None or _is_heartbeat_chunk(first_chunk):
             first_chunk = await anext(stream)
     except StopAsyncIteration:
-        raise _EmptyStreamError("上游流式响应为空，没有任何 SSE 输出") from None
+        raise _EmptyStreamError("Upstream streaming response was empty and contained no SSE output") from None
     except _StreamPreflightError as exc:
         raise exc.original from exc
 
@@ -126,7 +126,7 @@ async def attempt_channel(
     """在一致设置快照下尝试一个 Channel 的可用 Endpoint。"""
     attempts = conversion.resolve_endpoint_attempts(channel, input.inbound_api_type)
     if not attempts:
-        cause = ValueError(f"渠道 {channel.name} 无可用接入点（全停用或格式门控排除）")
+        cause = ValueError(f"Channel {channel.name} has no available endpoint (all disabled or excluded by format gating)")
         raise ChannelAttemptExhausted(channel, cause)
 
     settings = copy.deepcopy(config.get_settings())

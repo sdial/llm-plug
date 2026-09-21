@@ -69,10 +69,10 @@ async def _proxy_single_model_request(
     """单模型请求：候选池经 dispatcher 选路、尝试、429 预算和排除。"""
     channels = await catalog.channels_for_model(model)
     if not channels:
-        raise ValueError(f"没有可用渠道支持模型: {model}")
+        raise ValueError(f"No available channel supports model: {model}")
     channels = _conversion.filter_channels_by_conversion(channels, target_api_type)
     if not channels:
-        raise ValueError(f"模型 {model} 没有可用的同格式渠道（已禁止跨格式转换），客户端格式={target_api_type.value}")
+        raise ValueError(f"Model {model} has no available same-format channel (format conversion is disabled); client format={target_api_type.value}")
 
     async def attempt_fn(channel: Channel, wait_budget: float) -> tuple[Any, Channel]:
         result = await attempt_channel(

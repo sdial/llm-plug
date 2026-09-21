@@ -100,7 +100,7 @@ def get_converter_for_endpoint(endpoint: Endpoint, target_api_type: APIType) -> 
 
     converters = CONVERTER_MAP.get((source, target))
     if converters is None:
-        raise ValueError(f"不支持的转换方向: {source} -> {target}")
+        raise ValueError(f"Unsupported conversion direction: {source} -> {target}")
     req_cls, resp_cls = converters
     return req_cls(), resp_cls(), source
 

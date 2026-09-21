@@ -63,7 +63,7 @@ class IncompatibleRequestError(ValueError):
         )
         self.code = failure.code if failure else "conversion_incompatible"
         self.path = failure.path if failure else "$"
-        message = failure.message if failure else "请求无法无损转换"
+        message = failure.message if failure else "The request cannot be converted losslessly"
         super().__init__(f"{self.code} at {self.path}: {message}")
 
 
@@ -358,7 +358,7 @@ def _diagnose_request(
                     path=path,
                     feature="refusal",
                     disposition=ConversionDisposition.LOSSY,
-                    message="目标请求格式没有已验证的 refusal 历史语义映射",
+                    message="The target request format has no verified lossless mapping for refusal history semantics",
                 )
             )
             continue
@@ -371,7 +371,7 @@ def _diagnose_request(
                         path=f"{path}.type",
                         feature=part_type or "unknown-content",
                         disposition=ConversionDisposition.LOSSY,
-                        message=f"目标格式没有已验证的 {part_type or '未知'} 内容块映射",
+                        message=f"The target format has no verified lossless mapping for the {part_type or 'unknown'} content block",
                     )
                 )
             continue
@@ -385,7 +385,7 @@ def _diagnose_request(
                     feature=modality,
                     disposition=ConversionDisposition.IMPOSSIBLE,
                     capability=capability,
-                    message=f"生效上游档案明确不支持 {modality} 输入",
+                    message=f"The active upstream profile explicitly does not support {modality} input",
                 )
             )
             continue
@@ -397,7 +397,7 @@ def _diagnose_request(
                     feature=modality,
                     disposition=ConversionDisposition.IMPOSSIBLE,
                     capability=capability,
-                    message=f"{upstream_api_type.value} 无标准 {modality} 输入载体",
+                    message=f"{upstream_api_type.value} has no standard carrier for {modality} input",
                 )
             )
             continue
@@ -409,7 +409,7 @@ def _diagnose_request(
                     feature="file_id",
                     disposition=ConversionDisposition.IMPOSSIBLE,
                     capability=capability,
-                    message="上游私有 file_id 不能跨格式或文件域转换",
+                    message="An upstream-private file_id cannot be converted across formats or file domains",
                 )
             )
             continue
@@ -421,7 +421,7 @@ def _diagnose_request(
                     feature="file_id",
                     disposition=ConversionDisposition.IMPOSSIBLE,
                     capability=capability,
-                    message="上游私有图片 file_id 不能跨文件域转换",
+                    message="An upstream-private image file_id cannot be converted across file domains",
                 )
             )
             continue
@@ -433,7 +433,7 @@ def _diagnose_request(
                     feature="image",
                     disposition=ConversionDisposition.IMPOSSIBLE,
                     capability=capability,
-                    message="图片没有目标格式可无损承载的标准 URL 或内联数据",
+                    message="The image has no standard URL or inline data representation that the target format can carry losslessly",
                 )
             )
             continue
@@ -445,7 +445,7 @@ def _diagnose_request(
                     feature="file",
                     disposition=ConversionDisposition.IMPOSSIBLE,
                     capability=capability,
-                    message="文件内容没有目标格式可无损承载的标准 URL 或内联数据",
+                    message="The file content has no standard URL or inline data representation that the target format can carry losslessly",
                 )
             )
             continue
@@ -456,7 +456,7 @@ def _diagnose_request(
                 feature=modality,
                 disposition=ConversionDisposition.EXACT if same_format else ConversionDisposition.COMPATIBLE,
                 capability=capability,
-                message="内容可原样透传" if same_format else "内容存在无损标准映射",
+                message="Content can be passed through unchanged" if same_format else "Content has a verified lossless standard mapping",
             )
         )
     for field, feature in (
@@ -478,7 +478,7 @@ def _diagnose_request(
                     feature=feature,
                     disposition=ConversionDisposition.IMPOSSIBLE,
                     capability=capability,
-                    message=f"生效上游档案明确不支持 {feature}",
+                    message=f"The active upstream profile explicitly does not support {feature}",
                 )
             )
     if not same_format:
@@ -490,7 +490,7 @@ def _diagnose_request(
                     path=f"$.{field}",
                     feature=field,
                     disposition=ConversionDisposition.LOSSY,
-                    message=f"{inbound_api_type.value} 到 {upstream_api_type.value} 没有该字段的无损映射",
+                    message=f"{inbound_api_type.value} has no lossless mapping for this field to {upstream_api_type.value}",
                 )
             )
         for field in payload.keys() - _KNOWN_TOP_LEVEL_FIELDS[inbound_api_type]:
@@ -500,7 +500,7 @@ def _diagnose_request(
                     path=f"$.{field}",
                     feature=field,
                     disposition=ConversionDisposition.LOSSY,
-                    message="跨格式转换没有该未知字段的无损映射",
+                    message="Cross-format conversion has no lossless mapping for this unknown field",
                 )
             )
         if inbound_api_type is APIType.ANTHROPIC and _contains_key(payload, "cache_control"):
@@ -510,7 +510,7 @@ def _diagnose_request(
                     path="$..cache_control",
                     feature="cache_control",
                     disposition=ConversionDisposition.LOSSY,
-                    message="目标格式没有 Anthropic cache_control 的等价语义",
+                    message="The target format has no equivalent semantics for Anthropic cache_control",
                 )
             )
         metadata = payload.get("metadata")
@@ -521,7 +521,7 @@ def _diagnose_request(
                     path="$.metadata",
                     feature="metadata",
                     disposition=ConversionDisposition.LOSSY,
-                    message="跨格式仅能无损映射 metadata.user_id",
+                    message="Cross-format conversion can map only metadata.user_id losslessly",
                 )
             )
         if inbound_api_type is APIType.OPENAI_RESPONSE:
@@ -533,7 +533,7 @@ def _diagnose_request(
                             path=f"{path}.type",
                             feature=item_type,
                             disposition=ConversionDisposition.LOSSY,
-                            message="目标格式没有该 Responses 输入项的无损历史语义",
+                            message="The target format has no lossless historical semantics for this Responses input item",
                         )
                     )
             for path, tool_type in _responses_tool_types(payload) or ():
@@ -544,7 +544,7 @@ def _diagnose_request(
                             path=f"{path}.type",
                             feature=tool_type or "unknown-tool",
                             disposition=ConversionDisposition.LOSSY,
-                            message="目标格式没有该 Responses 工具类型的无损映射",
+                            message="The target format has no lossless mapping for this Responses tool type",
                         )
                     )
     if not diagnostics:
@@ -554,7 +554,7 @@ def _diagnose_request(
                 path="$",
                 feature="request",
                 disposition=ConversionDisposition.EXACT if same_format else ConversionDisposition.COMPATIBLE,
-                message="请求无需改写" if same_format else "请求可无损转换",
+                message="The request does not need rewriting" if same_format else "The request can be converted losslessly",
             )
         )
     return diagnostics
@@ -677,7 +677,7 @@ def prepare_response(
                         path="$.choices",
                         feature="multiple-choices",
                         disposition=ConversionDisposition.LOSSY,
-                        message="Anthropic Messages 无法无损表示多个 Chat choices",
+                        message="Anthropic Messages cannot represent multiple Chat choices losslessly",
                     )
                 )
         for path, feature, known in _response_features(payload, upstream_api_type) or ():
@@ -688,7 +688,7 @@ def prepare_response(
                         path=path,
                         feature=feature,
                         disposition=ConversionDisposition.LOSSY,
-                        message="目标格式没有该输出项的已验证无损映射",
+                        message="The target format has no verified lossless mapping for this output item",
                     )
                 )
             pair_features = {"tools"}
@@ -701,7 +701,7 @@ def prepare_response(
                         path=path,
                         feature=feature,
                         disposition=ConversionDisposition.IMPOSSIBLE,
-                        message=f"{inbound_api_type.value} 无标准 {feature} 输出载体",
+                        message=f"{inbound_api_type.value} has no standard carrier for {feature} output",
                     )
                 )
     return converter.convert_response(payload, upstream_api_type.value) if converter is not None else payload
@@ -771,7 +771,7 @@ def validate_stream_response_chunk(
                     path=path,
                     feature=feature,
                     disposition=ConversionDisposition.LOSSY,
-                    message="目标格式没有该流式输出项的已验证无损映射",
+                    message="The target format has no verified lossless mapping for this streaming output item",
                 )
             )
         if feature not in _EXPRESSIBLE_OUTPUTS[inbound_api_type]:
@@ -781,6 +781,6 @@ def validate_stream_response_chunk(
                     path=path,
                     feature=feature,
                     disposition=ConversionDisposition.IMPOSSIBLE,
-                    message=f"{inbound_api_type.value} 无标准 {feature} 输出载体",
+                    message=f"{inbound_api_type.value} has no standard carrier for {feature} output",
                 )
             )

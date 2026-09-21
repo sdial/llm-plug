@@ -202,7 +202,11 @@ async def execute_model_group_request(group: ModelGroup, context: ModelGroupRequ
     attempted = ", ".join(attempted_models) or "none"
     if dispatch_context.last_error is not None:
         raise AllChannelsExhausted(
-            f"模型组 Fallback 已穷尽所有模型: group={group.name}, attempted_models=[{attempted}], last_error={dispatch_context.last_error}",
+            "Model group fallback exhausted all models: "
+            f"group={group.name}, attempted_models=[{attempted}], last_error={dispatch_context.last_error}",
             last_error=_to_upstream_http_status_error(dispatch_context.last_error),
         ) from dispatch_context.last_error
-    raise AllChannelsExhausted(f"模型组 Fallback 已穷尽所有模型: group={group.name}, attempted_models=[{attempted}], no available channels")
+    raise AllChannelsExhausted(
+        "Model group fallback exhausted all models: "
+        f"group={group.name}, attempted_models=[{attempted}], no available channels"
+    )

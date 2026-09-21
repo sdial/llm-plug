@@ -101,8 +101,8 @@ async def _select_responses_channel(
 
     if not channels:
         if model:
-            raise ValueError(f"没有可用的 OpenAI Responses 渠道支持模型: {model}")
-        raise ValueError("没有可用的 OpenAI Responses 渠道")
+            raise ValueError(f"No available OpenAI Responses channel supports model: {model}")
+        raise ValueError("No OpenAI Responses channel is available")
 
     selected = await load_balancer.select_channel(
         channels,
@@ -113,7 +113,7 @@ async def _select_responses_channel(
         client_headers=client_headers,
     )
     if selected is None:
-        raise ValueError("没有健康的 OpenAI Responses 渠道")
+        raise ValueError("No healthy OpenAI Responses channel is available")
     return selected, endpoints[selected.id]
 
 
@@ -576,7 +576,7 @@ def _response_from_upstream_http_error(exc: httpx.HTTPStatusError) -> Response:
             status_code=exc.response.status_code,
             content={
                 "error": {
-                    "message": f"上游 HTTP {exc.response.status_code}: {exc}",
+                    "message": f"Upstream HTTP {exc.response.status_code}: {exc}",
                     "type": "api_error",
                 }
             },

@@ -430,7 +430,7 @@ class TestModelGroupFallbackErrors:
         assert "production-group" in message
         assert "model-a" in message
         assert "model-b" in message
-        assert "模型组 Fallback 已穷尽所有模型" in message
+        assert "Model group fallback exhausted all models" in message
 
 
 class TestModelGroupChannelBinding:

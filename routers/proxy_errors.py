@@ -29,8 +29,8 @@ def upstream_http_error_message(exc: httpx.HTTPStatusError) -> str:
     if len(body) > 800:
         body = body[:800] + "..."
     if body:
-        return f"上游 HTTP {exc.response.status_code}: {body}"
-    return f"上游 HTTP {exc.response.status_code}: {exc}"
+        return f"Upstream HTTP {exc.response.status_code}: {body}"
+    return f"Upstream HTTP {exc.response.status_code}: {exc}"
 
 
 # ── Anthropic 格式错误 ──
@@ -44,7 +44,7 @@ def anthropic_error(status_code: int, error_type: str, message: str) -> JSONResp
 
 
 def anthropic_unauthorized() -> JSONResponse:
-    return anthropic_error(401, "authentication_error", "无效的 API Key")
+    return anthropic_error(401, "authentication_error", "Invalid API key")
 
 
 def anthropic_invalid_request(message: str) -> JSONResponse:
@@ -56,7 +56,7 @@ def anthropic_bad_gateway(message: str) -> JSONResponse:
 
 
 def anthropic_gateway_timeout() -> JSONResponse:
-    return anthropic_error(504, "api_error", "上游请求超时")
+    return anthropic_error(504, "api_error", "Upstream request timed out")
 
 
 def anthropic_response_from_exception(exc: BaseException) -> JSONResponse:
@@ -65,8 +65,8 @@ def anthropic_response_from_exception(exc: BaseException) -> JSONResponse:
     if isinstance(exc, httpx.TimeoutException):
         return anthropic_gateway_timeout()
     if isinstance(exc, httpx.RequestError):
-        return anthropic_bad_gateway("上游网络错误")
-    return anthropic_bad_gateway("代理处理上游响应时发生内部错误")
+        return anthropic_bad_gateway("Upstream network error")
+    return anthropic_bad_gateway("Internal error while processing the upstream response")
 
 
 # ── OpenAI 格式错误 ──
@@ -77,7 +77,7 @@ def unauthorized() -> JSONResponse:
         status_code=401,
         content={
             "error": {
-                "message": "无效的 API Key",
+                "message": "Invalid API key",
                 "type": "invalid_request_error",
                 "code": "invalid_api_key",
             }
@@ -132,7 +132,7 @@ def bad_gateway(message: str) -> JSONResponse:
     )
 
 
-def gateway_timeout(message: str = "上游请求超时") -> JSONResponse:
+def gateway_timeout(message: str = "Upstream request timed out") -> JSONResponse:
     return JSONResponse(
         status_code=504,
         content={
@@ -152,5 +152,5 @@ def response_from_proxy_exception(exc: BaseException) -> JSONResponse:
     if isinstance(exc, httpx.TimeoutException):
         return gateway_timeout()
     if isinstance(exc, httpx.RequestError):
-        return bad_gateway("上游网络错误")
-    return bad_gateway("代理处理上游响应时发生内部错误")
+        return bad_gateway("Upstream network error")
+    return bad_gateway("Internal error while processing the upstream response")

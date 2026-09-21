@@ -96,7 +96,7 @@ class TestProxySingleModelRequestErrorMessages:
                     client_ip=None,
                 )
         msg = str(exc.value)
-        assert "禁止跨格式转换" in msg
+        assert "format conversion is disabled" in msg
         assert "anthropic" in msg
 
     @pytest.mark.anyio
@@ -119,4 +119,4 @@ class TestProxySingleModelRequestErrorMessages:
                 api_key_id=None,
                 client_ip=None,
             )
-        assert "没有可用渠道支持模型" in str(exc.value)
+        assert "No available channel supports model" in str(exc.value)

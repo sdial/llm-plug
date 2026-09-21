@@ -105,10 +105,10 @@ def _raise_exhausted(model: str | None, group_label: str | None, ctx: DispatchCo
     """穷尽异常（dispatch / dispatch_pinned 共享）：last_error 存在时随异常透传并链因。"""
     if ctx.last_error is not None:
         raise AllChannelsExhausted(
-            f"候选渠道已穷尽: model={model}, group={group_label}, last_error={ctx.last_error}",
+            f"Candidate channels exhausted: model={model}, group={group_label}, last_error={ctx.last_error}",
             last_error=ctx.last_error,
         ) from ctx.last_error
-    raise AllChannelsExhausted(f"候选渠道已穷尽: model={model}, group={group_label}")
+    raise AllChannelsExhausted(f"Candidate channels exhausted: model={model}, group={group_label}")
 
 
 async def _dispatch_loop(

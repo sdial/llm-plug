@@ -462,7 +462,7 @@ def test_stream_upstream_http_error_with_closed_stream_keeps_upstream_status():
     assert response.status_code == 400
     assert response.json() == {
         "error": {
-            "message": "上游 HTTP 400: Client error '400 Bad Request'",
+            "message": "Upstream HTTP 400: Client error '400 Bad Request'",
             "type": "api_error",
         }
     }

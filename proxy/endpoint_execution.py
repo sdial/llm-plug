@@ -229,7 +229,7 @@ async def execute_endpoint(
             )
             raise
         logger.warning(f"请求转换失败: {type(conv_err).__name__}: {conv_err}")
-        raise ConverterError(f"请求转换失败: {conv_err}") from conv_err
+        raise ConverterError(f"Request conversion failed: {conv_err}") from conv_err
 
     # 保存请求中的多模态文件（在 capability 过滤前，保留原始内容）
     await _save_multimodal_files(upstream_data, model, channel)
@@ -421,7 +421,7 @@ async def execute_endpoint(
                 raise
             except Exception as conv_err:
                 logger.warning(f"响应转换失败: {type(conv_err).__name__}: {conv_err}")
-                raise ConverterError(f"响应转换失败: {conv_err}") from conv_err
+                raise ConverterError(f"Response conversion failed: {conv_err}") from conv_err
 
         latency_ms = int((time.time() - upstream_start) * 1000)
 

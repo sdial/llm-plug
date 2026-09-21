@@ -661,7 +661,7 @@ async def _do_stream_request(
                 if not is_heartbeat_only:
                     _last_payload_time = time.monotonic()
                 elif time.monotonic() - _last_payload_time >= _idle_timeout:
-                    raise httpx.ReadTimeout(f"上游仅发送 SSE 心跳/keep-alive，已连续 {_idle_timeout:g}s 无实际数据")
+                    raise httpx.ReadTimeout(f"Upstream sent only SSE heartbeats/keep-alives for {_idle_timeout:g}s without data")
                 if data_lines:
                     _first_line_checked = True
                     data_str = "\n".join(data_lines)
@@ -709,7 +709,7 @@ async def _do_stream_request(
                     _record_chunk(data_str)
                     _mark_first_token()
                     if response_converter:
-                        raise ConverterError(f"流式 chunk 不是有效 JSON: {data_str[:120]}") from None
+                        raise ConverterError(f"Streaming chunk is not valid JSON: {data_str[:120]}") from None
                     sse = _format_raw_sse(upstream_event_type, data_str)
                     _log_stream_event(sse)
                     _mark_output()
@@ -780,7 +780,7 @@ async def _do_stream_request(
                         raise
                     except Exception as conv_err:
                         logger.warning(f"流式 chunk 转换失败: {type(conv_err).__name__}: {conv_err}")
-                        raise ConverterError(f"流式 chunk 转换失败: {conv_err}") from conv_err
+                        raise ConverterError(f"Streaming chunk conversion failed: {conv_err}") from conv_err
                     beat_types = [e.get("type") for e in converted_events if isinstance(e, dict)]
                     logger.debug(f"[CONVERT_CHUNK] events={len(converted_events)} types={beat_types[:3]}")
                     # 两拍协议（ADR-0016 D0）：拍 1 返回该拍全部事件，
@@ -947,7 +947,7 @@ async def _do_stream_request(
                     "disposition": e.diagnostic.disposition.value,
                 }
         else:
-            err_msg = str(e) if output_anthropic_sse else f"流式传输错误: {e}"
+            err_msg = str(e) if output_anthropic_sse else f"Streaming transport error: {e}"
         async for evt in _emit_error_events(err_msg):
             yield evt
     finally:

@@ -148,7 +148,7 @@ def _response_from_upstream_http_error(exc: httpx.HTTPStatusError, api_type: API
                     "type": "error",
                     "error": {
                         "type": "api_error",
-                        "message": f"上游 HTTP {exc.response.status_code}: {exc}",
+                        "message": f"Upstream HTTP {exc.response.status_code}: {exc}",
                     },
                 },
             )
@@ -156,7 +156,7 @@ def _response_from_upstream_http_error(exc: httpx.HTTPStatusError, api_type: API
             status_code=exc.response.status_code,
             content={
                 "error": {
-                    "message": f"上游 HTTP {exc.response.status_code}: {exc}",
+                    "message": f"Upstream HTTP {exc.response.status_code}: {exc}",
                     "type": "api_error",
                 }
             },
