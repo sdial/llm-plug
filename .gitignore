@@ -54,3 +54,10 @@ opencode.json
 
 # One-off local test reproductions
 tests/_tmp_*.py
+
+# Public GitHub repository: internal plans, ADRs, and Markdown are private.
+# Only the two root README entry points are intentional public documentation.
+/docs/
+*.md
+!README.md
+!README_zh-CN.md
