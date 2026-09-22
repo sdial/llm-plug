@@ -61,6 +61,22 @@ async def setup_test_db(tmp_path, monkeypatch):
             "request_log_sqlite_path": str(tmp_path / "request_logs.db"),
         }
     )
+    # 管理端列表已以 Request Event 为准；本文件历史用例原先只向 RAW 后端
+    # 造数，保留其 RAW 断言的同时也写入轻量事件。
+    original_request_log_record = request_logs.record_request
+    stats_fields = {
+        "channel_id", "channel_name", "model", "is_stream", "input_tokens", "output_tokens", "latency_ms", "success",
+        "cache_read_input_tokens", "cache_creation_input_tokens", "error_msg", "api_key_id", "client_ip", "lag_ms",
+        "finish_reason", "request_source", "request_ref", "timestamp",
+    }
+
+    def record_request_for_admin_tests(**kwargs):
+        # 旧用例在调用后只 drain RAW 队列；这里同步落轻量事件以保持其
+        # 「写入后即可查列表」前置条件，同时不把队列时序变成测试主题。
+        stats._write_record_sync({key: value for key, value in kwargs.items() if key in stats_fields})
+        original_request_log_record(**kwargs)
+
+    monkeypatch.setattr(request_logs, "record_request", record_request_for_admin_tests)
     yield
     await stats.close_pool()
     await request_logs.close_backend()
@@ -74,6 +90,49 @@ async def client():
 
 
 class TestListRequestsEndpoint:
+    async def test_request_list_uses_stats_after_raw_month_is_deleted(self, client):
+        """Request Event 是列表权威；RAW 月库删除只影响按需诊断。"""
+        from proxy.request_record import record_request
+
+        record_request(
+            channel_id="ch_stats_authority",
+            channel_name="Stats Authority",
+            model="gpt-4o",
+            is_stream=False,
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=100,
+            success=True,
+            request_headers={"x-test": "request"},
+            response_headers={"x-test": "response"},
+            request_body={"input": "hello"},
+            response_body={"output": "world"},
+        )
+        await stats.drain_queue()
+        await request_logs.drain_queue()
+
+        listed = await client.get("/admin/requests?model=gpt-4o")
+        assert listed.status_code == 200
+        item = listed.json()["items"][0]
+        assert item["request_ref"]
+        assert listed.json()["source"] == "stats"
+
+        raw_info = await client.get(f"/admin/requests/{item['request_ref']}/raw-info", params={"timestamp": item["timestamp"]})
+        assert raw_info.status_code == 200
+        assert raw_info.json()["fields"]["request_body"] == "available"
+
+        backend = request_logs._backend
+        assert backend is not None
+        backend.remove_month_db_files(backend.month_db_path(item["timestamp"][:4] + item["timestamp"][5:7]))
+
+        listed_after_delete = await client.get("/admin/requests?model=gpt-4o")
+        assert listed_after_delete.status_code == 200
+        assert listed_after_delete.json()["total"] == 1
+        raw_info_after_delete = await client.get(
+            f"/admin/requests/{item['request_ref']}/raw-info", params={"timestamp": item["timestamp"]}
+        )
+        assert raw_info_after_delete.json()["status"] == "month_missing"
+
     async def test_returns_empty_list(self, client):
         async def fake_list_requests(**kwargs):
             return {
@@ -147,16 +206,16 @@ class TestListRequestsEndpoint:
                 endpoints=[Endpoint(api_type="anthropic", base_url="https://api.anthropic.com")],
             )
         )
-        original_list = admin.request_log_list_requests
-        admin.request_log_list_requests = fake_list_requests
+        original_list = admin.stats_list_requests
+        admin.stats_list_requests = fake_list_requests
         try:
             resp = await client.get("/admin/requests")
         finally:
-            admin.request_log_list_requests = original_list
+            admin.stats_list_requests = original_list
         assert resp.status_code == 200
         assert resp.json()["items"][0]["api_type"] == "anthropic"
 
-    async def test_request_log_backend_unavailable_returns_503(self, client):
+    async def test_raw_backend_unavailable_does_not_hide_request_events(self, client):
         async def fake_list_requests(**kwargs):
             return {
                 "available": False,
@@ -175,8 +234,7 @@ class TestListRequestsEndpoint:
             resp = await client.get("/admin/requests")
         finally:
             admin.request_log_list_requests = original
-        assert resp.status_code == 503
-        assert "request log backend unavailable" in resp.json()["detail"]
+        assert resp.status_code == 200
 
     async def test_pagination(self, client):
         for i in range(15):

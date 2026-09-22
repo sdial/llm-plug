@@ -5,7 +5,7 @@ let requestsData = [];
 let requestPage = 1;
 let requestPageSize = 10;
 let requestTotal = 0;
-let requestLogSource = 'request_logs';
+let requestLogSource = 'stats';
 let pendingChannelRestore = '';
 let requestApiKeys = [];
 let requestApiKeysLoaded = false;
@@ -230,7 +230,7 @@ async function loadRequests() {
         }
 
         const params = buildRequestQuery();
-        if (requestLogSource === 'stats') params.set('source', 'stats');
+        params.set('source', 'stats');
         const resp = await fetch(`${API_REQUESTS}?${params.toString()}`);
         if (!resp.ok) {
             if (resp.status === 503) {
@@ -495,7 +495,7 @@ function utcIsoToLocalInput(v) {
 
 function searchRequests() {
     requestPage = 1;
-    requestLogSource = 'request_logs';
+    requestLogSource = 'stats';
     // 搜索 = 固定区间快照，与实时刷新互斥，搜索时停掉自动刷新
     _stopRequestsAutoRefresh();
     loadRequests();
@@ -513,7 +513,7 @@ function resetRequestFilters() {
      sourceEl.value = 'client';
  }
  requestPage = 1;
- requestLogSource = 'request_logs';
+ requestLogSource = 'stats';
  // 重置 = 回到实时尾巴，开启实时刷新；先启动再同步 URL，实时模式 URL 不带时间参数
  _startRequestsAutoRefresh();
  loadRequests();
@@ -567,6 +567,53 @@ function getRequestAnalyzerApiType(req) {
     const eps = channel?.endpoints;
     const primary = eps && eps.length ? (eps.find(ep => ep.enabled !== false) || eps[0]).api_type : channel?.api_type;
     return primary || 'openai-chat-completions';
+}
+
+function openRawJsonInNewTab(requestRef, timestamp, field) {
+    const url = '/admin/static/json-viewer.html?url=' + encodeURIComponent('/admin/requests/' + requestRef + '/raw/' + field + '?timestamp=' + encodeURIComponent(timestamp)) + '&title=' + encodeURIComponent(field);
+    window.open(url, '_blank');
+}
+
+function rawFieldLabel(field) {
+    return {
+        request_headers: I18n.t('requests.detailReqHeaders'),
+        request_body: I18n.t('requests.detailReqBody'),
+        response_headers: I18n.t('requests.detailRespHeaders'),
+        response_body: I18n.t('requests.detailRespBody'),
+    }[field] || field;
+}
+
+async function loadRawInfo(id) {
+    const req = requestsData.find(item => item.id === id);
+    const container = document.getElementById('requestRawInfo');
+    if (!req || !container) return;
+    if (!req.request_ref) {
+        container.textContent = '历史记录未建立 RAW 关联。';
+        return;
+    }
+    container.textContent = '正在查询 RAW 信息…';
+    try {
+        const url = '/admin/requests/' + encodeURIComponent(req.request_ref) + '/raw-info?timestamp=' + encodeURIComponent(req.timestamp);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const info = await response.json();
+        if (info.status !== 'available') {
+            container.textContent = info.status === 'month_missing' ? 'RAW 月库已删除或已过期。' : 'RAW 信息不可用。';
+            return;
+        }
+        const fields = info.fields || {};
+        const entries = Object.entries(fields);
+        container.innerHTML = entries.map(([field, state]) => {
+            if (state === 'available') {
+                const pathField = field.replace('_', '-');
+                return `<a href="javascript:void(0)" onclick="openRawJsonInNewTab('${req.request_ref}', '${req.timestamp}', '${pathField}')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">${rawFieldLabel(field)}</a>`;
+            }
+            const text = state === 'cleared' ? '已过期或已清理' : '未启用保存';
+            return `<span class="pill pill-muted">${rawFieldLabel(field)}：${text}</span>`;
+        }).join('');
+    } catch (error) {
+        container.textContent = 'RAW 信息不可用。';
+    }
 }
 
 const SHAPING_FEATURE_LABELS = {
@@ -653,14 +700,9 @@ function openRequestDetail(id) {
     }
 
     const content = document.getElementById('requestDetailContent');
-    const rawLinks = requestLogSource === 'stats'
-        ? `<div class="text-sm text-ink-500">${I18n.t('requests.detailLightMode')}</div>`
-        : `
-                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'request-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">${I18n.t('requests.detailReqHeaders')}</a>
-                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'request-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">${I18n.t('requests.detailReqBody')}</a>
-                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'response-headers')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">${I18n.t('requests.detailRespHeaders')}</a>
-                <a href="javascript:void(0)" onclick="openJsonInNewTab('${req.id}', 'response-body')" class="pill pill-brand hover:opacity-80 transition cursor-pointer">${I18n.t('requests.detailRespBody')}</a>
-          `; 
+    const rawLinks = req.request_ref
+        ? `<button type="button" onclick="loadRawInfo(${req.id})" class="pill pill-brand hover:opacity-80 transition cursor-pointer">查看 RAW 信息</button><div id="requestRawInfo" class="flex flex-wrap gap-2 text-sm text-ink-500"></div>`
+        : `<div class="text-sm text-ink-500">历史记录未建立 RAW 关联。</div>`;
     const inputTokens = asInt(req.input_tokens);
     const outputTokens = asInt(req.output_tokens);
     const cacheReadTokens = asInt(req.cache_read_input_tokens);
@@ -698,11 +740,6 @@ function openRequestDetail(id) {
             </div>
         </div>
         ${renderContextShapingReceipt(req.shaping_info)}
-        ${requestLogSource !== 'stats' ? `
-        <div class="mt-4 flex justify-end">
-            <a href="/admin/request-analyzer?id=${req.id}&api_type=${encodeURIComponent(getRequestAnalyzerApiType(req))}&channel=${encodeURIComponent(req.channel_name)}&success=${req.success}&latency=${req.latency_ms || ''}&input_tokens=${inputTokens}&output_tokens=${outputTokens}" target="_blank" class="btn-primary text-sm px-3 py-1.5 font-medium">${I18n.t('requests.detailAnalyze')}</a>
-        </div>
-        ` : ''}
     `;
     ModalManager.open(document.getElementById('requestDetailModal'));
 }
@@ -748,6 +785,8 @@ Object.assign(window, {
     resetRequestFilters,
     syncRequestHash,
     openJsonInNewTab,
+    openRawJsonInNewTab,
+    loadRawInfo,
     openRequestDetail,
     closeRequestDetailModal,
     invalidateRequestApiKeys,

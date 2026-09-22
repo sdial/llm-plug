@@ -21,6 +21,8 @@ router = APIRouter(prefix="/admin", tags=["管理"], route_class=AdminAuthRoute)
 
 request_log_list_requests = request_logs.list_requests
 request_log_get_request_field = request_logs.get_request_field
+request_log_get_raw_info = request_logs.get_raw_info
+request_log_get_request_field_by_reference = request_logs.get_request_field_by_reference
 
 _FIELD_PATH_MAP = {
     "request-headers": "request_headers",
@@ -50,31 +52,14 @@ async def list_requests_endpoint(
     request_source 未传＝不过滤（与旧版行为一致）；重复键与逗号串两种多选形式均可，
     非法取值返回 400 并列出合法值（不静默过滤成空结果误导排障者）。
     """
-    # 调用时从 routers.admin 命名空间重读，测试会整体替换这两个名称
-    from . import request_log_list_requests, stats_list_requests  # noqa: F811
+    # 调用时从 routers.admin 命名空间重读，测试会整体替换该名称。
+    from . import stats_list_requests  # noqa: F811
 
     parsed_sources = _parsed_request_sources(request_source)
 
-    if source == "stats":
-        result = await stats_list_requests(
-            model=model,
-            channel=channel,
-            start=start,
-            end=end,
-            success=success,
-            api_key_id=api_key_id,
-            client_ip=client_ip,
-            is_stream=is_stream,
-            page=page,
-            page_size=page_size,
-            request_source=parsed_sources,
-        )
-        result["source"] = "stats"
-        return await _decorate_request_items(result)
-    if source not in (None, "request_logs"):
+    if source not in (None, "stats"):
         raise HTTPException(status_code=400, detail=f"不支持的请求记录来源: {source}")
-
-    result = await request_log_list_requests(
+    result = await stats_list_requests(
         model=model,
         channel=channel,
         start=start,
@@ -87,9 +72,34 @@ async def list_requests_endpoint(
         page_size=page_size,
         request_source=parsed_sources,
     )
-    if result.get("available") is False:
-        raise HTTPException(status_code=503, detail=result.get("error") or "请求记录库不可用")
+    result["source"] = "stats"
     return await _decorate_request_items(result)
+
+
+@router.get("/requests/{request_ref}/raw-info")
+async def get_request_raw_info_endpoint(
+    request_ref: str,
+    timestamp: Annotated[str, Query()],
+):
+    """按显式 Request Reference 查询 RAW 状态；不允许按元数据或本地 id 猜测。"""
+    if len(request_ref) != 32 or any(char not in "0123456789abcdef" for char in request_ref):
+        raise HTTPException(status_code=400, detail="无效的请求引用")
+    return await request_log_get_raw_info(request_ref, timestamp)
+
+
+@router.get("/requests/{request_ref}/raw/{field_name}")
+async def get_request_raw_field_endpoint(
+    request_ref: str,
+    field_name: str,
+    timestamp: Annotated[str, Query()],
+):
+    field = _FIELD_PATH_MAP.get(field_name)
+    if field is None:
+        raise HTTPException(status_code=400, detail="不支持的字段")
+    result = await request_log_get_request_field_by_reference(request_ref, timestamp, field)
+    if result is None:
+        raise HTTPException(status_code=410, detail="RAW 信息不可用或已过期")
+    return result
 
 
 @router.get("/requests/{request_id}/{field_name}")

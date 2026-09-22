@@ -56,6 +56,13 @@ _RAW_FIELD_SELECT: dict[str, str] = {
     "response_body": "SELECT response_body FROM request_logs WHERE id = ?",
 }
 
+_RAW_CAPTURE_FLAGS = {
+    "request_headers": "save_request_headers",
+    "response_headers": "save_response_headers",
+    "request_body": "save_request_body",
+    "response_body": "save_response_body",
+}
+
 
 _BACKEND_UNINITIALIZED_ERROR = "request log backend is not initialized"
 
@@ -251,6 +258,7 @@ class SQLiteRequestLogBackend:
                     CREATE TABLE IF NOT EXISTS request_logs (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         write_id TEXT UNIQUE,
+                        request_ref TEXT,
                         timestamp TEXT NOT NULL,
                         model TEXT NOT NULL,
                         requested_model TEXT,
@@ -276,6 +284,8 @@ class SQLiteRequestLogBackend:
                         conversion_info TEXT,
                         shaping_info TEXT,
                         api_type TEXT,
+                        raw_capture_info TEXT,
+                        raw_cleared_at TEXT,
                         request_source TEXT NOT NULL DEFAULT 'client'
                     );
 
@@ -286,6 +296,7 @@ class SQLiteRequestLogBackend:
                     CREATE INDEX IF NOT EXISTS idx_request_logs_api_key ON request_logs(api_key_id);
                     CREATE INDEX IF NOT EXISTS idx_request_logs_client_ip ON request_logs(client_ip);
                     CREATE INDEX IF NOT EXISTS idx_request_logs_source ON request_logs(request_source, timestamp DESC);
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_request_logs_request_ref ON request_logs(request_ref) WHERE request_ref IS NOT NULL;
                     """
                 )
         else:
@@ -314,8 +325,15 @@ class SQLiteRequestLogBackend:
                 conn.execute("ALTER TABLE request_logs ADD COLUMN request_source TEXT NOT NULL DEFAULT 'client'")
             if "write_id" not in cols:
                 conn.execute("ALTER TABLE request_logs ADD COLUMN write_id TEXT")
+            if "request_ref" not in cols:
+                conn.execute("ALTER TABLE request_logs ADD COLUMN request_ref TEXT")
+            if "raw_capture_info" not in cols:
+                conn.execute("ALTER TABLE request_logs ADD COLUMN raw_capture_info TEXT")
+            if "raw_cleared_at" not in cols:
+                conn.execute("ALTER TABLE request_logs ADD COLUMN raw_cleared_at TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_source ON request_logs(request_source, timestamp DESC)")
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_request_logs_write_id ON request_logs(write_id) WHERE write_id IS NOT NULL")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_request_logs_request_ref ON request_logs(request_ref) WHERE request_ref IS NOT NULL")
 
     def _init_sync(self) -> None:
         os.makedirs(self.data_dir, exist_ok=True)
@@ -354,15 +372,17 @@ class SQLiteRequestLogBackend:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO request_logs
-                (write_id, timestamp, model, requested_model, channel_id, channel_name, api_key_id, client_ip,
+                (write_id, request_ref, timestamp, model, requested_model, channel_id, channel_name, api_key_id, client_ip,
                  is_stream, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
                  latency_ms, lag_ms, finish_reason, success, error_msg,
-                 request_headers, response_headers, request_body, response_body, sensitivity_info, conversion_info, shaping_info, api_type,
+                 request_headers, response_headers, request_body, response_body, sensitivity_info, conversion_info, shaping_info,
+                 api_type, raw_capture_info,
                  request_source)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.get("_write_id"),
+                    record.get("request_ref"),
                     ts_str,
                     record["model"],
                     record.get("requested_model"),
@@ -388,6 +408,7 @@ class SQLiteRequestLogBackend:
                     self._json_dumps(record.get("conversion_info")),
                     self._json_dumps(record.get("shaping_info")),
                     record.get("api_type"),
+                    self._json_dumps(record.get("raw_capture_info")),
                     record.get("request_source") or "client",
                 ),
             )
@@ -592,6 +613,47 @@ class SQLiteRequestLogBackend:
     async def get_request_field(self, request_id: int | str, field: str) -> dict | None:
         return await asyncio.to_thread(self._get_request_field_sync, request_id, field)
 
+    def _get_raw_info_sync(self, request_ref: str, timestamp: str, fields: tuple[str, ...]) -> dict[str, Any]:
+        """按 Request Reference 只读取事件所属月份，绝不退化为跨月猜测。"""
+        ym = timestamp[:4] + timestamp[5:7] if len(timestamp) >= 7 else ""
+        if not self.is_valid_month_key(ym):
+            return {"status": "invalid_timestamp", "fields": {}}
+        db_path = self.month_db_path(ym)
+        if not os.path.exists(db_path):
+            return {"status": "month_missing", "fields": {}}
+        columns = ", ".join(["raw_capture_info", "raw_cleared_at", *fields])
+        with closing(self._connect_to(db_path)) as conn:
+            row = conn.execute(f"SELECT {columns} FROM request_logs WHERE request_ref = ?", (request_ref,)).fetchone()
+        if row is None:
+            return {"status": "record_missing", "fields": {}}
+        capture = json.loads(row["raw_capture_info"]) if row["raw_capture_info"] else {}
+        result: dict[str, str] = {}
+        for field in fields:
+            if not capture.get(field, False):
+                result[field] = "not_captured"
+            elif row["raw_cleared_at"] is not None:
+                result[field] = "cleared"
+            elif row[field] is None:
+                result[field] = "not_captured"
+            else:
+                result[field] = "available"
+        return {"status": "available", "fields": result}
+
+    async def get_raw_info(self, request_ref: str, timestamp: str, fields: tuple[str, ...] = tuple(_RAW_FIELDS)) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_raw_info_sync, request_ref, timestamp, fields)
+
+    def _get_request_field_by_reference_sync(self, request_ref: str, timestamp: str, field: str) -> dict | None:
+        info = self._get_raw_info_sync(request_ref, timestamp, (field,))
+        if info.get("fields", {}).get(field) != "available":
+            return None
+        ym = timestamp[:4] + timestamp[5:7]
+        with closing(self._connect_to(self.month_db_path(ym))) as conn:
+            row = conn.execute(f"SELECT {field} FROM request_logs WHERE request_ref = ?", (request_ref,)).fetchone()
+        return {"data": json.loads(row[field])} if row is not None else None
+
+    async def get_request_field_by_reference(self, request_ref: str, timestamp: str, field: str) -> dict | None:
+        return await asyncio.to_thread(self._get_request_field_by_reference_sync, request_ref, timestamp, field)
+
     def _cleanup_old_records_sync(self, retention_days: int, raw_retention_days: int) -> dict[str, int]:
         result = {"raw_fields_cleared": 0, "rows_deleted": 0, "month_dbs_deleted": 0}
         retention_cutoff_dt = to_utc_naive_datetime(_utc_now() - timedelta(days=retention_days)) if retention_days > 0 else None
@@ -616,14 +678,15 @@ class SQLiteRequestLogBackend:
                         SET request_headers = NULL,
                             response_headers = NULL,
                             request_body = NULL,
-                            response_body = NULL
+                            response_body = NULL,
+                            raw_cleared_at = ?
                         WHERE timestamp < ?
                           AND (request_headers IS NOT NULL
                                OR response_headers IS NOT NULL
                                OR request_body IS NOT NULL
                                OR response_body IS NOT NULL)
                         """,
-                        (raw_cutoff,),
+                        (record_timestamp_to_iso(_utc_now()), raw_cutoff),
                     )
                     changed = cursor.rowcount if cursor.rowcount is not None else 0
                     result["raw_fields_cleared"] += changed
@@ -815,6 +878,8 @@ def record_request(
     shaping_info: dict[str, Any] | None = None,
     api_type: str | None = None,
     request_source: str = "client",
+    request_ref: str | None = None,
+    timestamp: datetime | None = None,
 ) -> None:
     if _backend is None:
         logger.warning(f"Request log backend unavailable ({_backend_error}); discarding record for model={model}")
@@ -824,7 +889,8 @@ def record_request(
         return
     flags = _get_save_flags()
     record = {
-        "timestamp": _utc_now(),
+        "timestamp": timestamp or _utc_now(),
+        "request_ref": request_ref,
         "channel_id": channel_id,
         "channel_name": channel_name,
         "model": model,
@@ -850,6 +916,7 @@ def record_request(
         "shaping_info": shaping_info,
         "api_type": api_type,
         "request_source": request_source,
+        "raw_capture_info": {field: bool(flags.get(flag)) for field, flag in _RAW_CAPTURE_FLAGS.items()},
     }
     queue.enqueue(record)
 
@@ -924,6 +991,31 @@ async def get_request_field(request_id: int, field: str) -> dict | None:
         return await backend.get_request_field(request_id, field)
     except Exception as exc:
         logger.warning(f"Request log field read failed: {exc}")
+        return None
+
+
+async def get_raw_info(request_ref: str, timestamp: str) -> dict[str, Any]:
+    """返回一个 Request Reference 的 RAW 可用性；读取只限事件所属月库。"""
+    backend = _backend
+    if backend is None:
+        return {"status": "backend_unavailable", "fields": {}}
+    try:
+        return await backend.get_raw_info(request_ref, timestamp)
+    except Exception as exc:
+        logger.warning(f"Request raw info read failed: {exc}")
+        return {"status": "backend_unavailable", "fields": {}}
+
+
+async def get_request_field_by_reference(request_ref: str, timestamp: str, field: str) -> dict | None:
+    if not _raw_field_allowed(field):
+        return None
+    backend = _backend
+    if backend is None:
+        return None
+    try:
+        return await backend.get_request_field_by_reference(request_ref, timestamp, field)
+    except Exception as exc:
+        logger.warning(f"Request raw field read failed: {exc}")
         return None
 
 

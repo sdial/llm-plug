@@ -233,6 +233,7 @@ def _init_db_sync(db_path: str) -> None:
             CREATE TABLE IF NOT EXISTS request_stats_raw (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 write_id TEXT UNIQUE,
+                request_ref TEXT,
                 timestamp TEXT NOT NULL,
                 model TEXT NOT NULL,
                 channel_id TEXT NOT NULL,
@@ -288,7 +289,11 @@ def _init_db_sync(db_path: str) -> None:
         # 明细表补来源列即可；聚合表主键含 request_source，SQLite 无法 ALTER 主键，须整体 rebuild
         _ensure_sqlite_columns(conn, "request_stats_raw", {"request_source": "TEXT NOT NULL DEFAULT 'client'"})
         _ensure_sqlite_columns(conn, "request_stats_raw", {"write_id": "TEXT"})
+        _ensure_sqlite_columns(conn, "request_stats_raw", {"request_ref": "TEXT"})
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_request_stats_raw_write_id ON request_stats_raw(write_id) WHERE write_id IS NOT NULL")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_request_stats_raw_request_ref ON request_stats_raw(request_ref) WHERE request_ref IS NOT NULL"
+        )
         for table, period_column, index_name in (
             ("daily_stats", "date", "idx_daily_stats_date"),
             ("hourly_stats", "hour", "idx_hourly_stats_hour"),
@@ -355,14 +360,15 @@ def _write_record_sync(record: dict[str, Any]) -> None:
         conn.execute(
             """
             INSERT OR IGNORE INTO request_stats_raw
-            (write_id, timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
+            (write_id, request_ref, timestamp, model, channel_id, channel_name, api_key_id, client_ip, is_stream,
              input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
              latency_ms, lag_ms, finish_reason,
              success, error_msg, request_source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 write_id,
+                lightweight.get("request_ref"),
                 timestamp,
                 lightweight["model"],
                 lightweight["channel_id"],
@@ -483,6 +489,8 @@ def record_request(
     lag_ms: int | None = None,
     finish_reason: str | None = None,
     request_source: str = "client",
+    request_ref: str | None = None,
+    timestamp: datetime | None = None,
 ) -> None:
     """将请求记录入队，由后台 worker 或 drain_queue 写入 SQLite。
 
@@ -495,6 +503,8 @@ def record_request(
     if queue is None:
         return
     record = {
+        "request_ref": request_ref,
+        "timestamp": timestamp,
         "channel_id": channel_id,
         "channel_name": channel_name,
         "model": model,
@@ -1264,7 +1274,7 @@ def _list_requests_sync(
         ).fetchone()[0]
         rows = conn.execute(
             f"""
-            SELECT id, timestamp, model, channel_id, channel_name, api_key_id,
+            SELECT id, request_ref, timestamp, model, channel_id, channel_name, api_key_id,
                    client_ip, is_stream, input_tokens, output_tokens,
                    cache_read_input_tokens, cache_creation_input_tokens,
                    latency_ms, lag_ms, finish_reason, success, error_msg,

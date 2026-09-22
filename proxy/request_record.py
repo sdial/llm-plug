@@ -11,7 +11,9 @@ request_logs 两个后端；原始字段（headers/body）与仅日志侧维度
 后端不反向依赖 proxy 包，无循环 import。
 """
 
+from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import request_logs
 import stats
@@ -62,7 +64,12 @@ def record_request(
     response_body: Any | None = None,
 ) -> None:
     """组装一条请求记录并分发到 stats / request_logs 两个后端（入队，由后台 worker 写入）。"""
+    # Request Reference 是跨两套独立写穿队列的领域关联键；不能复用任一库的
+    # 自增 id，也不能复用各队列溢出重放所需的 _write_id。
+    event_timestamp = datetime.now(UTC).replace(tzinfo=None)
     shared = {
+        "request_ref": uuid4().hex,
+        "timestamp": event_timestamp,
         "channel_id": channel_id,
         "channel_name": channel_name,
         "model": model,
